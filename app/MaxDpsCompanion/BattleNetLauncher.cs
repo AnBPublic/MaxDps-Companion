@@ -32,10 +32,26 @@ internal static class BattleNetLauncher
         "_classic_ptr_", "_xptr_",
     ];
 
+    // Retail game UID as the Battle.net client knows it (Classic would be
+    // "WoWC"). Passed to --exec exactly like the client's own Play button.
+    private const string GameUid = "WoW";
+
     /// <summary>Auto-detected Battle.net.exe path, or null when not found.</summary>
     public static string? InstallPath => Detect();
 
     public static bool IsInstalled => InstallPath is not null;
+
+    private static bool ClientRunning()
+    {
+        try
+        {
+            return Process.GetProcessesByName("Battle.net").Length > 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     /// <summary>
     /// Launches the game. Returns false with a human-readable message when
@@ -47,48 +63,53 @@ internal static class BattleNetLauncher
             ? overridePath!.Trim()
             : InstallPath;
 
-        // Prefer the registered protocol handler: no path needed, drops the
-        // user straight onto WoW with the remembered account.
+        // Primary path: the same method as the client's own Play button.
+        // --exec is handled by the running client (or starts it), which
+        // launches WoW with its SSO ticket — the remembered account signs
+        // in automatically, manual login is skipped, and the BNet UI is
+        // not raised. This never touches credentials: none are stored,
+        // read, or passed anywhere here.
+        if (exe is not null)
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = exe,
+                    Arguments = $"--exec=\"launch {GameUid}\"",
+                    UseShellExecute = true,
+                    WindowStyle = ProcessWindowStyle.Minimized,
+                });
+                message = ClientRunning()
+                    ? $"Asked Battle.net to launch {GameUid} (remembered account signs in via SSO)."
+                    : $"Starting Battle.net ({exe}) to launch {GameUid} (remembered account signs in via SSO; first start may take a moment).";
+                return true;
+            }
+            catch
+            {
+                // Fall through to the protocol-handler fallback below.
+            }
+        }
+
+        // Fallback: the registered battlenet:// handler needs no path and
+        // opens the client on the WoW page; the user then presses Play.
         try
         {
             Process.Start(new ProcessStartInfo
             {
-                FileName = "battlenet://WoW/",
+                FileName = $"battlenet://{GameUid}/",
                 UseShellExecute = true,
             });
             message = exe is null
-                ? "Opening Battle.net for WoW (remembered account signs in)."
-                : $"Opening Battle.net for WoW ({exe}; remembered account signs in).";
-            return true;
-        }
-        catch
-        {
-            // Fall through to the exe path below.
-        }
-
-        if (exe is null)
-        {
-            message = "Battle.net not found. Install it, or set the path under Advanced (Battle.net).";
-            return false;
-        }
-
-        try
-        {
-            // No stable --no-ui flag exists, so launch minimized; the BNet UI
-            // may still appear briefly before the game starts.
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = exe,
-                Arguments = "--exec=\"launch WoW\"",
-                UseShellExecute = true,
-                WindowStyle = ProcessWindowStyle.Minimized,
-            });
-            message = $"Starting WoW through {exe} (remembered account signs in).";
+                ? $"Opening Battle.net for {GameUid} (press Play; remembered account signs in)."
+                : $"Opening Battle.net for {GameUid} ({exe}; press Play if the game does not start).";
             return true;
         }
         catch (Exception ex)
         {
-            message = $"Could not start Battle.net ({ex.Message}).";
+            message = exe is null
+                ? "Battle.net not found. Install it, or set the path under Advanced (Battle.net)."
+                : $"Could not start Battle.net ({ex.Message}).";
             return false;
         }
     }
