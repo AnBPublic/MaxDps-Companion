@@ -67,7 +67,52 @@ function MDB.EnsureHooks ()
       pcall(hooksecurefunc, MaxDps, Method, function (_, SpellID)
         if Set then
           if type(SpellID) == "number" then SyncSet(Set, SpellID); end
-        else
+--- ======= DIAGNOSTICS =======
+
+local function DiagPrint (Message)
+  DEFAULT_CHAT_FRAME:AddMessage("|cFF00D8FFMDB|r: " .. Message);
+end
+
+function MDB.Diag ()
+  local MDPS = MaxDpsEngine();
+  if not MDPS then DiagPrint("no MaxDps engine"); return; end
+    local Count, Shown = 0, 0;
+    local WithHotKey, HotKeyText = 0, "-";
+    if MDPS.Spells then
+      for SpellID, Buttons in pairs(MDPS.Spells) do
+        if type(Buttons) == "table" then
+          Count = Count + 1;
+          for i = 1, #Buttons do
+            local Button = Buttons[i];
+            local HotKey = Button and Button.HotKey;
+            if not HotKey and Button and Button.GetName then
+              local Name = Button:GetName();
+              if Name then HotKey = _G[Name .. "HotKey"]; end
+            end
+            if HotKey and HotKey.GetText then
+              local Ok, Text = pcall(HotKey.GetText, HotKey);
+              if Ok and type(Text) == "string" and Text ~= "" and string.byte(Text) ~= 226 then
+                WithHotKey = WithHotKey + 1;
+                if HotKeyText == "-" then HotKeyText = tostring(SpellID) .. "=" .. Text; end
+              end
+            end
+          end
+        end
+      end
+    end
+    local BarHit = {};
+    for _, Prefix in ipairs({ "ActionButton", "MultiBarBottomLeftButton", "MultiBarBottomRightButton",
+      "MultiBarRightButton", "MultiBarLeftButton", "ElvUI_Bar1Button", "BT4Button" }) do
+      if _G[Prefix .. "1"] then BarHit[#BarHit + 1] = Prefix .. "1"; end
+    end
+    local SlotHit = 0;
+    for Slot = 1, 180 do
+      local ActionType = GetActionInfo(Slot);
+      if ActionType == "spell" then SlotHit = SlotHit + 1; end
+    end
+    Print(("diag spells=%d withHotKey=%d e.g.%s bars={%s} spellSlots=%d/180")
+      :format(Count, WithHotKey, HotKeyText, table.concat(BarHit, ","), SlotHit));
+  else
           -- MaxDps:Fetch rebuilds Spells/Flags/ItemSpells wholesale.
           wipe(InterruptSet);
           wipe(DefensiveSet);

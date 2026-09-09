@@ -268,6 +268,12 @@ local function HandleCommand (Input)
   local Command, Arg1, Arg2 = strsplit(" ", strlower(strtrim(Input or "")));
   local DB = MaxDpsBridgeDB;
 
+  -- Diagnostics live in Reader.lua (needs MaxDps internals there).
+  if Command == "diag" and MDB.Diag then
+    MDB.Diag();
+    return;
+  end
+
   if Command == "on" or Command == "off" or Command == "toggle" then
     if Command == "toggle" then
       DB.Enabled = not DB.Enabled;
