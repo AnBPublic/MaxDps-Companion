@@ -1,29 +1,34 @@
 # Handover — MaxDps-Companion
 
-## Status: v1.0.0 scaffold (static only)
+## Status: v1.0.0 built (static + smoke verified, live E2E outstanding)
 
-Repo-level scaffold landed: README, AGENTS, ARCHITECTURE, docs/PROTOCOL,
-build/install scripts, default settings.ini, vendor pin list, VERSION.
-Bridge (`addon/MaxDpsBridge/*.lua`) and app (`app/MaxDpsCompanion/*.cs`)
-implementation is owned by other agents and not yet reviewed here.
+Commit `ac84240`: 8-cell `MaxDpsBridge` addon + `MaxDpsCompanion` .NET8
+WinForms app (PRP chrome, Aethys engine), vendor snapshot of upstream
+MaxDps v11.3.43 + all class modules, `build.ps1` publish green,
+`install-addon.ps1` deployed to retail `_retail_\Interface\AddOns`.
 
 ## Validated
 
-- Scaffold files present; PowerShell syntax to be checked with
-  `pwsh -NoProfile -Command` parse pass.
-- Nothing else: no build run, no retail run.
+- `dotnet build -c Release`: 0 warnings, 0 errors.
+- `--ui-smoke-test` exit 0; `--ui-snapshot` renders hero card clean
+  (status + 7 toggles + strip + link + 5 buttons).
+- Bridge installed at retail AddOns\MaxDpsBridge (7 files); upstream
+  MaxDps* folders untouched.
+- Start Menu shortcut `MaxDPS Companion.lnk` created (taskbar: right-click
+  the running app → Pin to taskbar; assembly identity is set).
+- BNet launch: `battlenet://WoW/` protocol first, exe fallback minimized;
+  remembered-account login, no credentials anywhere.
 
-## Outstanding
+## Outstanding (needs retail run)
 
-1. Bridge addon implementation + `/mdb status` screenshot in retail.
-2. Companion `dotnet publish` green + `dist\MaxDpsCompanion.exe` fresh check.
-3. Live E2E: strip detected, Main key pressed in-game, pause/state flow.
-4. `vendor/` snapshot via robocopy at install time (lead; do NOT copy the
-   ~8.6 MB through agent context).
+1. `/mdb status` in game + strip decode (`link alive`).
+2. `Calibrate colors` learn + saved profile separation.
+3. Main/CD/Interrupt/Defensive key presses in-game; AutoTarget/Interact
+   kill-switches default OFF.
+4. GitHub: create `AnBPublic/MaxDps-Companion`, set origin, push.
 
-## Next steps for lead
+## Perf profile (this release)
 
-- Review scaffold, `git init` already done — set origin to
-  `github.com/AnBPublic/MaxDps-Companion.git` when ready, then first commit.
-- Robocopy upstream `MaxDps*` folders into `vendor/` at install time.
-- Schedule retail E2E before any v1.1 claim.
+- Strip 8x1 px, paint-cached Lua, 20Hz update; sampler 8x1 BitBlt +
+  centre-pixel read (~1ms/tick), drift-free sleep pacing (~2% core);
+  UI 250ms timer with change-gated Invalidate (zero repaint at rest).
