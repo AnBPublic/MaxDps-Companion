@@ -129,6 +129,19 @@ function MDB.EnsureEngine ()
     and type(MaxDps.Fetch) == "function" then
     pcall(MaxDps.Fetch, MaxDps, "MaxDpsBridge");
   end
+
+  -- 4. Build FrameData so the retail rotation function can run read-only.
+  -- Hunter:BeastMastery indexes MaxDps.FrameData.ACSpells on entry; without
+  -- PrepareFrameData (normally run inside InvokeNextSpell) the pcall in
+  -- GetMainSpellID would die on a nil index and look like "no suggestion".
+  if (not MaxDps.FrameData or not MaxDps.FrameData.ACSpells) then
+    if type(MaxDps.PrepareFrameData) == "function" then
+      pcall(MaxDps.PrepareFrameData, MaxDps);
+    end
+    if type(MaxDps.UpdateAuraData) == "function" then
+      pcall(MaxDps.UpdateAuraData, MaxDps);
+    end
+  end
 end
 
 --- ======= SLOT READOUT =======
@@ -137,17 +150,40 @@ function MDB.GetMainSpellID ()
   local MaxDps = MaxDpsEngine();
   if not MaxDps then return nil; end
   MDB.EnsureEngine();
-  -- Live fallback: if the engine has a rotation function but InvokeNextSpell
-  -- has not produced a spell yet (idle in town, timer not firing), call it
-  -- read-only so /mdb status answers immediately. pcall-guarded; on error
-  -- MaxDps itself prints its Discord report line and we return nil.
-  if (MaxDps.Spell == nil or MaxDps.Spell == 0) and type(MaxDps.NextSpell) == "function" then
+  local SpellID = MaxDps.Spell;
+  if type(SpellID) == "number" and SpellID ~= 0 then return SpellID; end
+  -- Classic path: the class function returns the spellID directly.
+  if type(MaxDps.NextSpell) == "function" then
     local Ok, Res = pcall(MaxDps.NextSpell, MaxDps);
     if Ok and type(Res) == "number" and Res ~= 0 then return Res; end
   end
-  local SpellID = MaxDps.Spell;
-  if type(SpellID) ~= "number" or SpellID == 0 then return nil; end
-  return SpellID;
+  -- Calibrate-pattern readout also needs the assisted-combat answer, so
+  -- run the class glow pass first (fills Flags/InterruptSet/DefensiveSet
+  -- even while idle), exactly like InvokeNextSpell does minus the glow
+  -- of the main spell onto the bars. Pure queries + glow overlays only.
+  if type(MaxDps.NextSpell) == "function" then
+    pcall(MaxDps.NextSpell, MaxDps);
+  end
+  -- Retail Midnight path (Core.lua:791-797): the class function only glows
+  -- cooldowns/interrupts and returns nothing; the main spell comes from the
+  -- assisted-combat API gated by CheckSpellUsable. Query-only, no gameplay.
+  if _G.C_AssistedCombat and type(_G.C_AssistedCombat.GetNextCastSpell) == "function" then
+    local Ok, Next = pcall(_G.C_AssistedCombat.GetNextCastSpell, false);
+    if Ok and type(Next) == "number" and Next ~= 0 then
+      if type(MaxDps.CheckSpellUsable) == "function" then
+        local SpellName = nil;
+        if _G.C_Spell and type(_G.C_Spell.GetSpellName) == "function" then
+          local OkName, Name = pcall(_G.C_Spell.GetSpellName, Next);
+          if OkName then SpellName = Name; end
+        end
+        local OkUse, Usable = pcall(MaxDps.CheckSpellUsable, MaxDps, Next, SpellName);
+        if OkUse and Usable then return Next; end
+      else
+        return Next;
+      end
+    end
+  end
+  return nil;
 end
 
 -- Smallest flagged spellID in Set that is still flagged and on the bars.
