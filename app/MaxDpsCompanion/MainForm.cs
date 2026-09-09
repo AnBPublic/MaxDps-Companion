@@ -3,6 +3,12 @@ namespace MaxDpsCompanion;
 internal sealed class MainForm : Form
 {
     private const int PauseHotkeyId = 0xA71;
+    // Width floor: at 125% DPI the five hero buttons need ~660px; below
+    // that Launch Game clipped even in a grid (see ui4 snapshot).
+    private const int MinWindowWidth = 660;
+    // Advanced stack heights (absolute rows, must match BuildAdvanced).
+    // Total 1056 overflowed short screens; ClampToScreen caps the window
+    // and the body scrolls instead.
     private const int AdvancedExtraHeight = 700;
 
     private static string UiFontName()
@@ -71,6 +77,7 @@ internal sealed class MainForm : Form
         Role = ButtonRole.Ghost,
         AccentColor = Color.FromArgb(158, 122, 46),
     };
+    private readonly Label _calStatus = new();
     private readonly ChamferButton _openFolder = new()
     {
         Text = "Open Folder",
@@ -134,16 +141,19 @@ internal sealed class MainForm : Form
         _engine.LocationChanged += location => _pendingLocation = location;
 
         Text = "MaxDPS Companion";
+        // Resizable borderless chrome: the window opens fitted to the
+        // working area (never taller than the screen) and stays user-
+        // resizable via the invisible edge grip below — FormBorderStyle.None
+        // windows otherwise cannot be resized at all.
         FormBorderStyle = FormBorderStyle.None;
-        MaximizeBox = false;
+        MaximizeBox = true;
         MinimizeBox = true;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(760, 1000);
-        MinimumSize = new Size(760, 1000);
         AutoScaleMode = AutoScaleMode.Dpi;
         BackColor = Color.FromArgb(12, 39, 54);
         ForeColor = Color.FromArgb(239, 244, 247);
         Font = new Font(UiFont, 10F);
+        FitToScreen();
 
         BuildLayout();
         LoadFromSettings();
@@ -159,7 +169,7 @@ internal sealed class MainForm : Form
 
         _start.Click += (_, _) => StartEngine();
         _stop.Click += (_, _) => StopEngine();
-        _recalibrate.Click += (_, _) => Recalibrate();
+        _recalibrate.Click += (_, _) => RecalibrateFull();
         _openFolder.Click += (_, _) => System.Diagnostics.Process.Start("explorer.exe", Program.AppDir);
         _launchGame.Click += (_, _) => LaunchGame();
         _learnColors.Click += (_, _) => LearnColors();
@@ -347,7 +357,7 @@ internal sealed class MainForm : Form
 
     private Control BuildBody()
     {
-        var canvas = new GradientCanvas { Dock = DockStyle.Fill, Padding = new Padding(48, 24, 48, 28) };
+        var canvas = new GradientCanvas { Dock = DockStyle.Fill, Padding = new Padding(40, 16, 40, 20) };
         var layout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -356,9 +366,9 @@ internal sealed class MainForm : Form
             BackColor = Color.Transparent,
         };
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));  // card
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 96));   // strip + link
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));   // advanced toggle
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));   // buttons
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));   // strip + link
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));   // advanced toggle
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));   // buttons (wraps when narrow)
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 0));    // advanced body (0 while hidden)
         _bodyLayout = layout;
         layout.Controls.Add(BuildCard(), 0, 0);
@@ -373,7 +383,7 @@ internal sealed class MainForm : Form
 
     private Control BuildCard()
     {
-        var card = new RoundedCard { Dock = DockStyle.Fill, Margin = new Padding(0, 6, 0, 10), Padding = new Padding(26, 20, 26, 20) };
+        var card = new RoundedCard { Dock = DockStyle.Fill, Margin = new Padding(0, 2, 0, 6), Padding = new Padding(26, 12, 26, 12) };
         var cardLayout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 8, BackColor = Color.Transparent };
         // Status row is taller (dot + status + slots); toggles share the rest.
         cardLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 24F));
@@ -442,8 +452,8 @@ internal sealed class MainForm : Form
 
     private Control BuildStripRow()
     {
-        var row = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent, Padding = new Padding(4, 6, 4, 6) };
-        _stripView.Location = new Point(4, 6);
+        var row = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent, Padding = new Padding(4, 2, 4, 2) };
+        _stripView.Location = new Point(4, 2);
         _stripView.Anchor = AnchorStyles.Left | AnchorStyles.Top;
         var lampWrap = new Panel { Dock = DockStyle.Right, Width = 150, BackColor = Color.Transparent };
         _linkLabel.Text = "link idle";
@@ -466,18 +476,25 @@ internal sealed class MainForm : Form
 
     private Control BuildButtonFlow()
     {
-        var buttons = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 5, BackColor = Color.Transparent, Padding = new Padding(0, 5, 0, 5) };
+        // Fixed 5-column grid: every hero button keeps an equal share, so
+        // text never clips and Launch Game never wraps off the row.
+        // AutoSize is off here (UiControls default is on) — Fill measures.
+        var buttons = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 5,
+            RowCount = 1,
+            BackColor = Color.Transparent,
+            Padding = new Padding(0, 5, 0, 5),
+        };
         for (var i = 0; i < 5; i++) buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20F));
-        _start.Dock = DockStyle.Fill;
-        _start.Margin = new Padding(6, 0, 6, 0);
-        _stop.Dock = DockStyle.Fill;
-        _stop.Margin = new Padding(6, 0, 6, 0);
-        _recalibrate.Dock = DockStyle.Fill;
-        _recalibrate.Margin = new Padding(6, 0, 6, 0);
-        _openFolder.Dock = DockStyle.Fill;
-        _openFolder.Margin = new Padding(6, 0, 6, 0);
-        _launchGame.Dock = DockStyle.Fill;
-        _launchGame.Margin = new Padding(6, 0, 6, 0);
+        foreach (var button in new[] { _start, _stop, _recalibrate, _openFolder, _launchGame })
+        {
+            button.AutoSize = false;
+            button.Dock = DockStyle.Fill;
+            button.Margin = new Padding(4, 0, 4, 0);
+            button.Font = new Font(UiFont, 9.5F, FontStyle.Bold);
+        }
         buttons.Controls.Add(_start, 0, 0);
         buttons.Controls.Add(_stop, 1, 0);
         buttons.Controls.Add(_recalibrate, 2, 0);
@@ -505,14 +522,14 @@ internal sealed class MainForm : Form
             AutoSize = true,
             BackColor = Color.Transparent,
         };
-        stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 150));
-        stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 150));
-        stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 112));
-        stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 84));
+        stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 132));
+        stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 118));
         stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 100));
-        stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 170));
+        stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 76));
+        stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 92));
         stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 150));
-        stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 120));
+        stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 130));
+        stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 104));
         stack.Controls.Add(BuildSetupBox(), 0, 0);
         stack.Controls.Add(BuildBridgeBox(), 0, 1);
         stack.Controls.Add(BuildTimingBox(), 0, 2);
@@ -540,15 +557,35 @@ internal sealed class MainForm : Form
             link.Text = body.Visible ? "Advanced (hide)" : "Advanced";
             if (_bodyLayout is not null && _bodyLayout.RowStyles.Count > 4)
                 _bodyLayout.RowStyles[4] = new RowStyle(SizeType.Absolute, body.Visible ? AdvancedExtraHeight : 0);
-            Height = _collapsedHeight + (body.Visible ? AdvancedExtraHeight : 0);
+            ClampToScreen(body.Visible ? AdvancedExtraHeight : 0);
         };
         toggle = link;
         return body;
     }
 
+    /// <summary>
+    /// Grows/shrinks the window with the Advanced body but never past the
+    /// working area: clamps to screen height and enables the body's own
+    /// scrollbar for the rest. Fixes the runaway 1700px stretch.
+    /// </summary>
+    private void ClampToScreen(int extra)
+    {
+        var area = Screen.FromControl(this).WorkingArea;
+        var target = _collapsedHeight + extra;
+        var maxH = area.Height;
+        Height = Math.Min(target, maxH);
+        if (target > maxH)
+        {
+            // Pin to the top of the working area so title + hero stay put
+            // and the body's AutoScroll takes the overflow.
+            Top = area.Top;
+        }
+        _collapsedHeight = Math.Min(_collapsedHeight, maxH);
+    }
+
     private Control BuildSetupBox()
     {
-        var section = new RuleSection { SectionTitle = "Setup", Dock = DockStyle.Top, Height = 150 };
+        var section = new RuleSection { SectionTitle = "Setup", Dock = DockStyle.Top, Height = 132 };
         var setupGrid = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -596,7 +633,7 @@ internal sealed class MainForm : Form
 
     private Control BuildBridgeBox()
     {
-        var section = new RuleSection { SectionTitle = "Pixel bridge", Dock = DockStyle.Top, Height = 150 };
+        var section = new RuleSection { SectionTitle = "Pixel bridge", Dock = DockStyle.Top, Height = 118 };
         var bridgeGrid = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -644,7 +681,7 @@ internal sealed class MainForm : Form
 
     private Control BuildTimingBox()
     {
-        var section = new RuleSection { SectionTitle = "Timing", Dock = DockStyle.Top, Height = 112 };
+        var section = new RuleSection { SectionTitle = "Timing", Dock = DockStyle.Top, Height = 100 };
         var timing = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -670,7 +707,7 @@ internal sealed class MainForm : Form
 
     private Control BuildIconsBox()
     {
-        var section = new RuleSection { SectionTitle = "Slots", Dock = DockStyle.Top, Height = 84 };
+        var section = new RuleSection { SectionTitle = "Slots", Dock = DockStyle.Top, Height = 76 };
         var tip = new ToolTip();
         tip.SetToolTip(_mainSlot, "Main slot toggle - mirrors the card's always-on Main row");
         _mainSlot.AutoSize = true;
@@ -702,7 +739,7 @@ internal sealed class MainForm : Form
 
     private Control BuildStripBox()
     {
-        var section = new RuleSection { SectionTitle = "Live suggestion", Dock = DockStyle.Top, Height = 100 };
+        var section = new RuleSection { SectionTitle = "Live suggestion", Dock = DockStyle.Top, Height = 92 };
         var grid = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -723,7 +760,7 @@ internal sealed class MainForm : Form
 
     private Control BuildTargetingBox()
     {
-        var section = new RuleSection { SectionTitle = "Targeting", Dock = DockStyle.Top, Height = 170 };
+        var section = new RuleSection { SectionTitle = "Targeting", Dock = DockStyle.Top, Height = 150 };
         var targeting = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -769,7 +806,7 @@ internal sealed class MainForm : Form
 
     private Control BuildColorBox()
     {
-        var section = new RuleSection { SectionTitle = "Color", Dock = DockStyle.Top, Height = 150 };
+        var section = new RuleSection { SectionTitle = "Color", Dock = DockStyle.Top, Height = 130 };
         var grid = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -780,6 +817,9 @@ internal sealed class MainForm : Form
 
         _learnColors.Dock = DockStyle.Fill;
         _learnColors.Margin = new Padding(0, 0, 6, 0);
+        _learnColors.Text = "Calibrate colors";
+        _learnColors.Click -= LearnColorsRelay;
+        _learnColors.Click += LearnColorsRelay;
         _resetColors.Dock = DockStyle.Fill;
         _resetColors.Margin = new Padding(6, 0, 0, 0);
         grid.Controls.Add(_learnColors, 0, 0);
@@ -787,8 +827,14 @@ internal sealed class MainForm : Form
         grid.Controls.Add(_resetColors, 2, 0);
         grid.SetColumnSpan(_resetColors, 2);
 
+        // Fast position-only sweep for moved strips; full pattern+learn
+        // runs from the yellow Recalibrate hero button.
+        var posOnly = new ChamferButton { Text = "Find strip", Role = ButtonRole.Ghost, Dock = DockStyle.Fill, Margin = new Padding(0, 0, 6, 0) };
+        posOnly.Click += (_, _) => RecalibratePositionOnly();
         grid.Controls.Add(Caption("Tolerance", "How far a cell may drift from the learned color and still match"), 0, 1);
         grid.Controls.Add(_tolerance, 1, 1);
+        grid.Controls.Add(posOnly, 2, 1);
+        grid.SetColumnSpan(posOnly, 2);
 
         _colorStatus.AutoSize = false;
         _colorStatus.Dock = DockStyle.Fill;
@@ -801,9 +847,11 @@ internal sealed class MainForm : Form
         return section;
     }
 
+    private void LearnColorsRelay(object? sender, EventArgs e) => LearnColors();
+
     private Control BuildLaunchBox()
     {
-        var section = new RuleSection { SectionTitle = "Battle.net", Dock = DockStyle.Top, Height = 120 };
+        var section = new RuleSection { SectionTitle = "Battle.net", Dock = DockStyle.Top, Height = 104 };
         var grid = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -942,44 +990,17 @@ internal sealed class MainForm : Form
 
     private void LearnColors()
     {
-        if (_engine.IsRunning)
-        {
-            MessageBox.Show(
-                "Stop the engine first, then Calibrate colors.\n\n"
-                + "The calibrate pattern reports Paused, so a running engine would just hold.",
-                "MaxDPS Companion", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return;
-        }
-
-        if (_calThread is { IsAlive: true })
-        {
-            _calCancel = true;
-            _colorStatus.Text = "Cancelling...";
-            return;
-        }
-
-        var confirm = MessageBox.Show(
-            "This usually takes a few seconds.\n\n"
-            + "The game will be focused, your keyboard will be locked while the pattern\n"
-            + "is sampled (so stray typing can't corrupt it), then everything is restored.\n"
-            + "You can cancel at any time - the pattern is always turned back off.\n\n"
-            + "Continue?",
-            "MaxDPS Companion", MessageBoxButtons.OKCancel, MessageBoxIcon.Information);
-        if (confirm != DialogResult.OK) return;
-
-        ApplyToSettings();
-        _calCancel = false;
-        SetCalibrating(true);
-        _calThread = new Thread(CalibrateWorker) { IsBackground = true, Name = "MaxDpsCompanion.Calibrate" };
-        _calThread.Start();
+        // Advanced button mirrors the yellow hero button: one flow, one place.
+        RecalibrateFull();
     }
 
     private void SetCalibrating(bool running)
     {
         if (InvokeRequired) { BeginInvoke(new Action<bool>(SetCalibrating), running); return; }
-        _learnColors.Text = running ? "Cancel calibration" : "Calibrate colors (automatic)";
+        _recalibrate.Text = running ? "Cancel" : "Recalibrate";
+        _learnColors.Text = running ? "Cancel calibration" : "Calibrate colors";
         _learnColors.Enabled = true;
-        _recalibrate.Enabled = !running;
+        _recalibrate.Enabled = true;
         _start.Enabled = !running && !_engine.IsRunning;
     }
 
@@ -987,6 +1008,11 @@ internal sealed class MainForm : Form
     {
         if (InvokeRequired) { BeginInvoke(new Action<string>(SetColorStatus), text); return; }
         _colorStatus.Text = text;
+        // Mirror onto the hero line while calibrating so the flow is
+        // visible without opening Advanced. RefreshStatus only overwrites
+        // while the engine runs, so this survives between ticks.
+        if (!_engine.IsRunning && (_calThread is { IsAlive: true } || text.StartsWith("Calibrat", StringComparison.Ordinal)))
+            SetStatus(text, ConsolePalette.Brass);
     }
 
     private void CalibrateWorker()
@@ -1011,25 +1037,40 @@ internal sealed class MainForm : Form
             }
 
             // 2. Verify the pattern is actually on screen before learning.
-            BlockLocation? block = _settings.OffsetX != 0 || _settings.OffsetY != 0
-                ? new BlockLocation(_settings.OffsetX, _settings.OffsetY, _settings.CellSize)
-                : BlockLocator.Locate(origin, size, _settings.Color);
+            // Offsets 0,0 mean "never located" (fresh settings), so always
+            // sweep then: stale 0,0 from a previous session would otherwise
+            // sample the screen corner instead of the strip.
+            var neverLocated = _settings.OffsetX == 0 && _settings.OffsetY == 0;
+            BlockLocation? block = neverLocated
+                ? BlockLocator.Locate(origin, size, _settings.Color)
+                : new BlockLocation(_settings.OffsetX, _settings.OffsetY, _settings.CellSize);
             if (Cancelled()) return;
-            if (block is not { } known || !PatternVisible(origin, known))
+            // Fall back to a full sweep when the stored offset misses
+            // (strip moved by UI edits, resolution change): only blame
+            // the addon when the sweep finds nothing either.
+            if ((block is not { } first || !PatternVisible(origin, first)) && !neverLocated)
+            {
+                block = BlockLocator.Locate(origin, size, _settings.Color);
+                if (Cancelled()) return;
+            }
+            if (block is not { } found || !PatternVisible(origin, found))
             {
                 SetColorStatus("Calibration failed - no pattern on screen. Addon updated? (/reload)");
                 BeginInvoke(() => MessageBox.Show(
-                    "The addon did not enter calibrate mode.\n\n"
-                    + "The installed addon is probably the old version:\n"
-                    + "  1. Run .\\install-addon.ps1\n"
-                    + "  2. Type /reload in game\n"
-                    + "  3. Try Calibrate colors again",
+                    "No calibrate pattern on screen. Check in order:\n\n"
+                    + "  1. In game, type: /mdb calibrate on — you must see\n"
+                    + "     'MDB: calibrate pattern ON'. If not: /reload first.\n"
+                    + "  2. Display Mode must be Windowed or Borderless\n"
+                    + "     (exclusive Fullscreen is invisible to capture).\n"
+                    + "  3. The game must be visible, not covered.\n"
+                    + "  4. Then Calibrate colors again.",
                     "MaxDPS Companion", MessageBoxButtons.OK, MessageBoxIcon.Warning));
                 ChatCommander.SendChatCommand(game, "mdb calibrate off");
                 ChatCommander.SendChatCommand(game, "mdb off", settleMs: 400);
                 ChatCommander.SendChatCommand(game, "mdb on", settleMs: 400);
                 return;
             }
+            var known = found;
 
             // Apply location on the UI thread (NumericUpDown is not thread-safe).
             BeginInvoke(() =>
@@ -1311,11 +1352,38 @@ internal sealed class MainForm : Form
     }
 
     /// <summary>
-    /// Sweeps the whole client area for the pixel strip and adopts wherever it is.
-    /// This is the fastest way to tell a misaligned offset apart from a client that
-    /// cannot be captured at all. Uses the learned color profile when present.
+    /// Yellow-button one-click flow, no Advanced needed: finds the strip,
+    /// learns the display-chain color profile from the in-game calibrate
+    /// pattern, saves both. Progress lands on the hero status line so the
+    /// user never opens Advanced to watch it.
     /// </summary>
-    private void Recalibrate()
+    private void RecalibrateFull()
+    {
+        if (_calThread is { IsAlive: true })
+        {
+            _calCancel = true;
+            return;
+        }
+        if (_engine.IsRunning)
+        {
+            MessageBox.Show(
+                "Stop the engine first, then Recalibrate.\n\n"
+                + "The calibrate pattern reports Paused, so a running engine would just hold.",
+                "MaxDPS Companion", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        ApplyToSettings();
+        _calCancel = false;
+        SetCalibrating(true);
+        _calThread = new Thread(CalibrateWorker) { IsBackground = true, Name = "MaxDpsCompanion.Calibrate" };
+        _calThread.Start();
+    }
+
+    /// <summary>
+    /// Advanced-only fast path: sweep for the strip without the color
+    /// pattern. Kept for cases where only the position changed.
+    /// </summary>
+    private void RecalibratePositionOnly()
     {
         ApplyToSettings();
 
@@ -1451,8 +1519,52 @@ internal sealed class MainForm : Form
         return key != Keys.None;
     }
 
+    // ----- dynamic sizing: fit the working area, stay resizable -----
+
+    private const int EdgeGrip = 8;
+
+    /// <summary>
+    /// Opens the window no larger than the working area (taskbar excluded),
+    /// so a short screen never gets a window that stretches past it. Called
+    /// once at startup; the user can resize freely afterwards.
+    /// </summary>
+    private void FitToScreen()
+    {
+        var area = Screen.FromPoint(Cursor.Position).WorkingArea;
+        var wantW = 760;
+        var wantH = 1000;
+        var w = Math.Max(MinWindowWidth, Math.Min(wantW, area.Width));
+        var h = Math.Max(560, Math.Min(wantH, area.Height));
+        MinimumSize = new Size(MinWindowWidth, 560);
+        ClientSize = new Size(w, h);
+        _collapsedHeight = h;
+    }
+
     protected override void WndProc(ref Message m)
     {
+        // Invisible resize grip for the borderless window: HTBOTTOMRIGHT in
+        // the corner square, HTBOTTOM/RIGHT/LEFT/BOTTOM on the edges.
+        const int wmNcHitTest = 0x0084;
+        const int htClient = 1, htBottom = 15, htLeft = 10, htRight = 11;
+        const int htBottomLeft = 16, htBottomRight = 17;
+        if (m.Msg == wmNcHitTest)
+        {
+            base.WndProc(ref m);
+            if ((int)m.Result == htClient)
+            {
+                var cursor = PointToClient(Cursor.Position);
+                var corner = EdgeGrip * 2;
+                var left = cursor.X < EdgeGrip;
+                var right = cursor.X >= ClientSize.Width - EdgeGrip;
+                var bottom = cursor.Y >= ClientSize.Height - EdgeGrip;
+                m.Result = (IntPtr)(bottom
+                    ? (cursor.X < corner ? htBottomLeft
+                        : cursor.X >= ClientSize.Width - corner ? htBottomRight : htBottom)
+                    : (IntPtr)(left ? htLeft : right ? htRight : htClient));
+                return;
+            }
+            return;
+        }
         if (m.Msg == Native.WM_HOTKEY && m.WParam.ToInt32() == PauseHotkeyId)
         {
             _engine.Paused = !_engine.Paused;

@@ -86,7 +86,12 @@ internal sealed class ChamferButton : Button
         UseVisualStyleBackColor = false;
         BackColor = ConsolePalette.Field;
         ForeColor = ConsolePalette.Bone;
-        Height = 44;
+        Height = 40;
+        // AutoSize lets FlowLayoutPanel measure the text instead of
+        // clipping it at a fixed width — the narrow-window clip source.
+        AutoSize = true;
+        AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        Padding = new Padding(18, 0, 18, 0);
     }
 
     private Color BaseColor() => AccentColor ?? _role switch
@@ -328,7 +333,7 @@ internal sealed class StripView : Control
 
     public StripView()
     {
-        Size = new Size(272, 34);
+        Size = new Size(272, 30);
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint
             | ControlStyles.OptimizedDoubleBuffer | ControlStyles.SupportsTransparentBackColor, true);
         BackColor = Color.Transparent;
@@ -336,7 +341,7 @@ internal sealed class StripView : Control
 
     protected override void OnPaint(PaintEventArgs e)
     {
-        const int sw = 28, h = 22, gap = 6, y = 3;
+        const int sw = 28, h = 18, gap = 6, y = 2;
         var tokens = _sample.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         for (var i = 0; i < 8; i++)
         {
