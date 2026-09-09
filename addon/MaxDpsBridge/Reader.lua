@@ -91,6 +91,14 @@ end
 function MDB.GetMainSpellID ()
   local MaxDps = MaxDpsEngine();
   if not MaxDps then return nil; end
+  -- Live fallback: if the engine has a rotation function but InvokeNextSpell
+  -- has not produced a spell yet (idle in town, timer not firing), call it
+  -- read-only so /mdb status answers immediately. pcall-guarded; on error
+  -- MaxDps itself prints its Discord report line and we return nil.
+  if (MaxDps.Spell == nil or MaxDps.Spell == 0) and type(MaxDps.NextSpell) == "function" then
+    local Ok, Res = pcall(MaxDps.NextSpell, MaxDps);
+    if Ok and type(Res) == "number" and Res ~= 0 then return Res; end
+  end
   local SpellID = MaxDps.Spell;
   if type(SpellID) ~= "number" or SpellID == 0 then return nil; end
   return SpellID;

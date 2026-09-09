@@ -313,9 +313,18 @@ local function HandleCommand (Input)
     Print("settings reset to defaults");
   elseif Command == "status" then
     local Main = MDB.GetMainSpellID();
-    Print(("v%s enabled=%s calibrate=%s offset=%d,%d cell=%dpx bound=%d spell=%s")
+    local NextFn = "nil";
+    local MDPS = _G.MaxDps;
+    if MDPS then
+      NextFn = type(MDPS.NextSpell) == "function" and "fn"
+        or (MDPS.NextSpell == nil and "nil-not-loaded"
+          or type(MDPS.NextSpell));
+    else
+      NextFn = "no-engine";
+    end
+    Print(("v%s enabled=%s calibrate=%s offset=%d,%d cell=%dpx bound=%d spell=%s next=%s")
       :format(MDB.VERSION, tostring(DB.Enabled), tostring(DB.Calibrate),
-        DB.OffsetX, DB.OffsetY, DB.CellSize, MDB.BindingCount(), tostring(Main)));
+        DB.OffsetX, DB.OffsetY, DB.CellSize, MDB.BindingCount(), tostring(Main), NextFn));
   elseif Command == "version" then
     Print("MaxDpsBridge v" .. MDB.VERSION .. " (protocol v" .. PROTOCOL_VERSION .. ")");
   else

@@ -22,9 +22,10 @@ local function RefreshStatus (Frame)
     if Ok and type(Count) == "number" then Bound = Count; end
   end
   Frame.StatusText:SetText(
-    ("MaxDpsBridge v%s\nEnabled: %s\nCell size: %d px\nBound textures: %d\nMaxDps.Spell: %s")
+    ("MaxDpsBridge v%s\nEnabled: %s\nCell size: %d px\nBound textures: %d\nMaxDps.Spell: %s\nNextSpell: %s")
     :format(MDB.VERSION or "?", tostring(DB and DB.Enabled),
-      DB and DB.CellSize or 1, Bound, tostring(Main)));
+      DB and DB.CellSize or 1, Bound, tostring(Main),
+      _G.MaxDps and type(_G.MaxDps.NextSpell) or "no-engine"));
 end
 
 local function BuildControlsStdUi (Panel, StdUi)
