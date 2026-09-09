@@ -86,11 +86,57 @@ function MDB.EnsureHooks ()
   MDB._ReaderHooked = true;
 end
 
+--- ======= ENGINE ENSURE =======
+
+-- MaxDps class modules are LoadOnDemand and the rotation only starts on
+-- game events (login, combat, target change). On a fresh idle login
+-- NextSpell can stay nil with nothing scheduled, so there is no suggestion
+-- to encode. EnsureEngine performs exactly the init the login event path
+-- performs (LOADING_SCREEN_DISABLED -> UpdateSpellsAndTalents +
+-- InitRotations + EnableRotation), minus starting timers: LoadAddOn the
+-- class module, InitRotations to pick the spec function, Fetch to scan the
+-- bars. Everything is pcall-guarded and read-only w.r.t. gameplay: no
+-- casts, no targeting, no protected calls. Without this the bridge (and
+-- the companion) would sit idle until first combat with no way to
+-- calibrate or verify the link in town.
+function MDB.EnsureEngine ()
+  local MaxDps = MaxDpsEngine();
+  if not MaxDps then return; end
+
+  if type(MaxDps.NextSpell) ~= "function" then
+    -- 1. Demand-load the class module, exactly like LoadModule does.
+    local ClassFile = select(2, UnitClass("player"));
+    local ClassName = nil;
+    if MaxDps.ClassId and MaxDps.Classes then
+      local _, _, ClassId = UnitClass("player");
+      if ClassId and MaxDps.Classes[ClassId] then ClassName = MaxDps.Classes[ClassId]; end
+    end
+    if not ClassName and ClassFile then
+      ClassName = strupper(strsub(ClassFile, 1, 1)) .. strlower(strsub(ClassFile, 2));
+    end
+    if ClassName and type(LoadAddOn) == "function" then
+      pcall(LoadAddOn, "MaxDps_" .. ClassName);
+    end
+    -- 2. Pick the spec rotation function (sets NextSpell, no timers).
+    if type(MaxDps.InitRotations) == "function" then
+      pcall(MaxDps.InitRotations, MaxDps, true);
+    end
+  end
+
+  -- 3. Scan the bars so spellID -> HotKey resolution works even before
+  -- MaxDps's own Fetch ran (it only runs while rotationEnabled).
+  if (not MaxDps.Spells or not next(MaxDps.Spells))
+    and type(MaxDps.Fetch) == "function" then
+    pcall(MaxDps.Fetch, MaxDps, "MaxDpsBridge");
+  end
+end
+
 --- ======= SLOT READOUT =======
 
 function MDB.GetMainSpellID ()
   local MaxDps = MaxDpsEngine();
   if not MaxDps then return nil; end
+  MDB.EnsureEngine();
   -- Live fallback: if the engine has a rotation function but InvokeNextSpell
   -- has not produced a spell yet (idle in town, timer not firing), call it
   -- read-only so /mdb status answers immediately. pcall-guarded; on error

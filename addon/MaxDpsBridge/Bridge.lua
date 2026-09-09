@@ -317,8 +317,11 @@ local function HandleCommand (Input)
     local MDPS = _G.MaxDps;
     if MDPS then
       NextFn = type(MDPS.NextSpell) == "function" and "fn"
-        or (MDPS.NextSpell == nil and "nil-not-loaded"
+        or (MDPS.NextSpell == nil and "nil-ensure-ran"
           or type(MDPS.NextSpell));
+      if MDPS.rotationEnabled ~= nil then
+        NextFn = NextFn .. (MDPS.rotationEnabled and "+rot" or "-idle");
+      end
     else
       NextFn = "no-engine";
     end
