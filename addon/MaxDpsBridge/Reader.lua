@@ -341,6 +341,31 @@ function MDB.ExpandHotKey (Text)
     end
   end
   local Base = Key;
+  -- ElvUI renders modifiers dash-less ("CQ" = CTRL-Q, "S3" = SHIFT-3,
+  -- "CSF" = CTRL-SHIFT-F). Without a dash the loop above strips nothing,
+  -- so expand a leading S/C/A run when the tail is a valid key. The
+  -- trial-parse guard means plain keys ("C", "A", "F"...) and unknown
+  -- tails never misparse: if the expansion is not a real binding the
+  -- text falls through to the normal path untouched.
+  if Prefix == "" and not strfind(Key, "-") and strlen(Key) >= 2 then
+    local Cut = 0;
+    while Cut < strlen(Key) do
+      local Ch = strsub(Key, Cut + 1, Cut + 1);
+      if Ch ~= "S" and Ch ~= "C" and Ch ~= "A" then break; end
+      Cut = Cut + 1;
+    end
+    if Cut >= 1 and Cut < strlen(Key) then
+      local Expanded = "";
+      for i = 1, Cut do
+        local Ch = strsub(Key, i, i);
+        if Ch == "S" then Expanded = Expanded .. "SHIFT-";
+        elseif Ch == "C" then Expanded = Expanded .. "CTRL-";
+        else Expanded = Expanded .. "ALT-"; end
+      end
+      local Trial = Expanded .. strsub(Key, Cut + 1);
+      if MDB.ParseBinding(Trial) then return Trial; end
+    end
+  end
   -- Expand ShortenKeybind tokens back to raw. Raw full names (BUTTON4,
   -- MOUSEWHEELUP, NUMPADPLUS, MIDDLE MOUSE, ...) pass through untouched.
   -- Only exact short tokens are rewritten, so substrings inside longer

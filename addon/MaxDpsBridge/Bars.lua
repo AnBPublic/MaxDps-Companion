@@ -37,9 +37,12 @@ local BarSets = {
 };
 
 local function ActiveBarSet ()
+  -- Probe real button frames, not addon presence: modern ElvUI skins the
+  -- Blizzard buttons (no ElvUI_Bar1Button frames), so presence alone picks
+  -- an empty set and the texture map stays at bound=0.
   if _G.EngineBar1Button1 then return BarSets.Diabolic; end
-  if _G.Bartender4 then return BarSets.Bartender; end
-  if _G.ElvUI then return BarSets.ElvUI; end
+  if _G.BT4Button1 then return BarSets.Bartender; end
+  if _G.ElvUI_Bar1Button1 then return BarSets.ElvUI; end
   return BarSets.Default;
 end
 
