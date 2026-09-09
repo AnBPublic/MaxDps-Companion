@@ -200,7 +200,10 @@ function MDB.GetMainSpellID ()
   local SpellID = MaxDps.Spell;
   if type(SpellID) == "number" and SpellID ~= 0 then return SpellID; end
   -- Classic path: the class function returns the spellID directly.
-  if type(MaxDps.NextSpell) == "function" then
+  -- Guarded by the FrameData check above: Hunter:BeastMastery indexes
+  -- FrameData.ACSpells on entry and dies without the EnsureEngine prep.
+  if type(MaxDps.NextSpell) == "function"
+    and MaxDps.FrameData and MaxDps.FrameData.ACSpells then
     local Ok, Res = pcall(MaxDps.NextSpell, MaxDps);
     if Ok and type(Res) == "number" and Res ~= 0 then return Res; end
   end
@@ -208,7 +211,9 @@ function MDB.GetMainSpellID ()
   -- run the class glow pass first (fills Flags/InterruptSet/DefensiveSet
   -- even while idle), exactly like InvokeNextSpell does minus the glow
   -- of the main spell onto the bars. Pure queries + glow overlays only.
-  if type(MaxDps.NextSpell) == "function" then
+  -- Hunter:BeastMastery hits MaxDps:GlowCooldownMidnight for trinkets and
+  -- IsAddOnLoaded hits, so guard hard: any error here must not propagate.
+  if type(MaxDps.NextSpell) == "function" and MaxDps.FrameData and MaxDps.FrameData.ACSpells then
     pcall(MaxDps.NextSpell, MaxDps);
   end
   -- Retail Midnight path (Core.lua:791-797): the class function only glows

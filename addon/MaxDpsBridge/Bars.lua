@@ -153,7 +153,7 @@ do
   Listener:RegisterEvent("UPDATE_SHAPESHIFT_FORM");
   Listener:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED");
   Listener:RegisterEvent("PLAYER_TALENT_UPDATE");
-  Listener:RegisterEvent("LEARNED_SPELL_IN_TAB");
+  Listener:RegisterEvent("SPELLS_CHANGED");
   Listener:RegisterEvent("UPDATE_MACROS");
   Listener:SetScript("OnEvent", function ()
     -- Bars repaint a frame late, so defer instead of reading stale icons.
