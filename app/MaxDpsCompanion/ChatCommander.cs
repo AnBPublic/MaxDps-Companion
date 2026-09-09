@@ -21,6 +21,14 @@ internal static class ChatCommander
     /// "/<paramref name="command"/>" into chat + Enter, waits
     /// <paramref name="settleMs"/>, then restores the previous foreground
     /// window. Returns false when the game window is unusable.
+    ///
+    /// Key discipline (WoW fires actions on key-DOWN, so a stuck chat key is
+    /// worse than a missed one): ONLY scancode Enter (chat open / send) and
+    /// Ctrl+V (paste) are ever emitted. Plain-text typing is never used — no
+    /// letter, Space, Tab or V key is ever pressed as itself — so even if the
+    /// chat box fails to open, no keybind (nameplates, bags, map, mount...)
+    /// can fire as a side effect. If the chat box never opens, the paste
+    /// lands nowhere and the trailing Enter is a harmless world-click-noop.
     /// </summary>
     public static bool SendChatCommand(WowWindow game, string command, int settleMs = 800)
     {
@@ -34,6 +42,8 @@ internal static class ChatCommander
         if (Native.GetForegroundWindow() != game.Handle) return false;
 
         // Enter opens the chat box first — typing into the world would eat keys.
+        // No verification possible from outside, so assume nothing: the only
+        // keys below are Enter and Ctrl+V, both inert in the world.
         PressKey(VkReturn);
         Thread.Sleep(300);
         PasteText("/" + command);
@@ -41,8 +51,10 @@ internal static class ChatCommander
         PressKey(VkReturn);
         Thread.Sleep(settleMs);
 
-        // Close the chat box again if the command left it open (unknown
-        // command echoes help with the box still focused).
+        // If the chat box never opened (focus race, cinematic, loading
+        // screen), the paste went nowhere — but a half-open chat edit box
+        // may still hold the text. One more Enter sends-or-noops; it can
+        // never trigger a binding because it is still just Enter.
         PressKey(VkReturn);
         Thread.Sleep(200);
 

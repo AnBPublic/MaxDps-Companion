@@ -1065,9 +1065,8 @@ internal sealed class MainForm : Form
                     + "  3. The game must be visible, not covered.\n"
                     + "  4. Then Calibrate colors again.",
                     "MaxDPS Companion", MessageBoxButtons.OK, MessageBoxIcon.Warning));
+                // Single cleanup: leave the bridge exactly as found (on).
                 ChatCommander.SendChatCommand(game, "mdb calibrate off");
-                ChatCommander.SendChatCommand(game, "mdb off", settleMs: 400);
-                ChatCommander.SendChatCommand(game, "mdb on", settleMs: 400);
                 return;
             }
             var known = found;
@@ -1111,10 +1110,11 @@ internal sealed class MainForm : Form
                 Thread.Sleep(400);
             }
 
-            // 4. Always turn the pattern back off, success, failure or cancel.
+            // 4. Always turn the pattern back off: ONE command only. The old
+            // triple (calibrate off + off + on) toggled the bridge twice and
+            // left "bridge paused" in chat plus a Paused strip behind — the
+            // next Start then held instead of sending.
             ChatCommander.SendChatCommand(game, "mdb calibrate off", settleMs: 400);
-            ChatCommander.SendChatCommand(game, "mdb off", settleMs: 400);
-            ChatCommander.SendChatCommand(game, "mdb on", settleMs: 400);
 
             if (Cancelled())
             {
