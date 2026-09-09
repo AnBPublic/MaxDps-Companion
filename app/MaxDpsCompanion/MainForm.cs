@@ -987,6 +987,9 @@ internal sealed class MainForm : Form
 
     private Thread? _calThread;
     private volatile bool _calCancel;
+    // True while the calibrate worker runs. RefreshStatus must not stomp the
+    // hero line then — the worker owns it via SetColorStatus.
+    private volatile bool _calibrating;
 
     private void LearnColors()
     {
@@ -997,6 +1000,7 @@ internal sealed class MainForm : Form
     private void SetCalibrating(bool running)
     {
         if (InvokeRequired) { BeginInvoke(new Action<bool>(SetCalibrating), running); return; }
+        _calibrating = running;
         _recalibrate.Text = running ? "Cancel" : "Recalibrate";
         _learnColors.Text = running ? "Cancel calibration" : "Calibrate colors";
         _learnColors.Enabled = true;
@@ -1009,9 +1013,9 @@ internal sealed class MainForm : Form
         if (InvokeRequired) { BeginInvoke(new Action<string>(SetColorStatus), text); return; }
         _colorStatus.Text = text;
         // Mirror onto the hero line while calibrating so the flow is
-        // visible without opening Advanced. RefreshStatus only overwrites
-        // while the engine runs, so this survives between ticks.
-        if (!_engine.IsRunning && (_calThread is { IsAlive: true } || text.StartsWith("Calibrat", StringComparison.Ordinal)))
+        // visible without opening Advanced. RefreshStatus yields to the
+        // worker via _calibrating, so this survives between ticks.
+        if (_calibrating || text.StartsWith("Calibrat", StringComparison.Ordinal))
             SetStatus(text, ConsolePalette.Brass);
     }
 
@@ -1079,35 +1083,24 @@ internal sealed class MainForm : Form
                 _settings.CellSize = known.CellSize;
             });
 
-            // 3. Sample the cycling pattern.
+            // 3. Sample the cycling pattern. Learn polls Classify itself and
+            // returns when anchors are known, so call it once and let ITS
+            // status drive the hero line — the wait-then-learn two-phase
+            // below used to sit silent on "starting" until first Classify.
             ColorLearner.LearnResult? result = null;
             using var sampler = new ScreenSampler();
-            var learnStop = Environment.TickCount64 + 25_000;
-            while (Environment.TickCount64 < learnStop)
+            SetColorStatus("Calibrating - sampling (keyboard locked, Cancel to stop)...");
+            using (new InputLock().Install())
             {
-                if (Cancelled()) break;
-                var cells = sampler.Sample(
+                var lastNote = "";
+                result = ColorLearner.Learn(
+                    (at, cell) => sampler.Sample(at, cell),
                     new Point(origin.X + known.OffsetX, origin.Y + known.OffsetY),
-                    known.CellSize);
-                if (ColorLearner.Classify(cells, _settings.Color) < 0)
-                {
-                    SetColorStatus("Calibrating - waiting for the pattern...");
-                    Thread.Sleep(400);
-                    continue;
-                }
-                SetColorStatus("Calibrating - sampling (keyboard locked, Cancel to stop)...");
-                using (new InputLock().Install())
-                {
-                    result = ColorLearner.Learn(
-                        (at, cell) => sampler.Sample(at, cell),
-                        new Point(origin.X + known.OffsetX, origin.Y + known.OffsetY),
-                        known.CellSize,
-                        _settings.Color,
-                        (int)_tolerance.Value,
-                        Cancelled);
-                }
-                if (Cancelled() || result is not null) break;
-                Thread.Sleep(400);
+                    known.CellSize,
+                    _settings.Color,
+                    (int)_tolerance.Value,
+                    Cancelled,
+                    note => { if (note != lastNote) { lastNote = note; SetColorStatus(note); } });
             }
 
             // 4. Always turn the pattern back off: ONE command only. The old
@@ -1118,12 +1111,14 @@ internal sealed class MainForm : Form
 
             if (Cancelled())
             {
+                SetStatus("Calibration cancelled - pattern turned off.", ConsolePalette.Bone);
                 SetColorStatus("Calibration cancelled - pattern turned off.");
                 return;
             }
 
             if (result is not { } learned)
             {
+                SetStatus("Calibration failed - pattern not stable.", ConsolePalette.EmberLight);
                 SetColorStatus("Calibration failed - pattern not stable.");
                 BeginInvoke(() => MessageBox.Show(
                     "No stable pattern was sampled.\n\nCheck that:\n"
@@ -1147,6 +1142,7 @@ internal sealed class MainForm : Form
             profile.LearnedAt = learned.Profile.LearnedAt;
             _settings.Save();
             BeginInvoke(RefreshColorStatus);
+            SetStatus(learned.Note + " - saved.", ConsolePalette.Bone);
             SetColorStatus(learned.Note + " - saved.");
         }
         finally
@@ -1422,6 +1418,10 @@ internal sealed class MainForm : Form
             _pendingLocation = null;
             ApplyLocation(located);
         }
+
+        // Calibrate worker owns the hero line while it runs (progress via
+        // SetColorStatus). Never stomp it back to Stopped here.
+        if (_calibrating) return;
 
         var status = _status;
 

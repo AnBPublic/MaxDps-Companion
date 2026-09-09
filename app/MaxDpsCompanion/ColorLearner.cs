@@ -48,7 +48,8 @@ internal static class ColorLearner
         int cellSize,
         ColorProfile? profile = null,
         int tolerance = 64,
-        Func<bool>? cancel = null)
+        Func<bool>? cancel = null,
+        Action<string>? progress = null)
     {
         var frames = new List<Color[]>();
         // Full pattern cycle is 54 steps x ~400 ms ≈ 21.6 s; the deadline
@@ -58,6 +59,12 @@ internal static class ColorLearner
         var lastStep = -1;
         var lastLevel = Color.Empty;
         var stable = 0;
+        var lastNote = "";
+
+        void Note(string text)
+        {
+            if (text != lastNote) { lastNote = text; progress?.Invoke(text); }
+        }
 
         while (Environment.TickCount64 < deadline && frames.Count < 60)
         {
@@ -70,9 +77,11 @@ internal static class ColorLearner
             {
                 stable = 0;
                 lastStep = -1;
+                Note("Calibrating - waiting for the pattern...");
                 if (SleepBreak(100, cancel)) return null;
                 continue;
             }
+            Note($"Calibrating - sampling ({frames.Count}/5 anchors locked)...");
             // Same step class and (for ramps) same quantised level: one more
             // steady sighting. A flat render repeats exactly; transitions and
             // dither flicker between classes/levels and reset the streak.
