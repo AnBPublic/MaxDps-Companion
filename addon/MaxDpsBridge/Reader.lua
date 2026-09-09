@@ -110,7 +110,7 @@ function MDB.Diag ()
       local ActionType = GetActionInfo(Slot);
       if ActionType == "spell" then SlotHit = SlotHit + 1; end
     end
-    Print(("diag spells=%d withHotKey=%d e.g.%s bars={%s} spellSlots=%d/180")
+    DiagPrint(("diag spells=%d withHotKey=%d e.g.%s bars={%s} spellSlots=%d/180")
       :format(Count, WithHotKey, HotKeyText, table.concat(BarHit, ","), SlotHit));
   else
           -- MaxDps:Fetch rebuilds Spells/Flags/ItemSpells wholesale.
