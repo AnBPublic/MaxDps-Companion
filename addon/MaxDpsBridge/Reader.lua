@@ -67,6 +67,25 @@ function MDB.EnsureHooks ()
       pcall(hooksecurefunc, MaxDps, Method, function (_, SpellID)
         if Set then
           if type(SpellID) == "number" then SyncSet(Set, SpellID); end
+        else
+          -- MaxDps:Fetch rebuilds Spells/Flags/ItemSpells wholesale.
+          wipe(InterruptSet);
+          wipe(DefensiveSet);
+          wipe(CooldownSet);
+        end
+        WipeCache();
+      end);
+    end
+  end
+
+  TryHook("GlowInteruptMidnight", InterruptSet);
+  TryHook("GlowDefensiveHPMidnight", DefensiveSet);
+  TryHook("GlowCooldownMidnight", CooldownSet);
+  TryHook("GlowCooldown", CooldownSet);
+  TryHook("Fetch", nil);
+  MDB._ReaderHooked = true;
+end
+
 --- ======= DIAGNOSTICS =======
 
 local function DiagPrint (Message)
@@ -112,23 +131,6 @@ function MDB.Diag ()
     end
     DiagPrint(("diag spells=%d withHotKey=%d e.g.%s bars={%s} spellSlots=%d/180")
       :format(Count, WithHotKey, HotKeyText, table.concat(BarHit, ","), SlotHit));
-  else
-          -- MaxDps:Fetch rebuilds Spells/Flags/ItemSpells wholesale.
-          wipe(InterruptSet);
-          wipe(DefensiveSet);
-          wipe(CooldownSet);
-        end
-        WipeCache();
-      end);
-    end
-  end
-
-  TryHook("GlowInteruptMidnight", InterruptSet);
-  TryHook("GlowDefensiveHPMidnight", DefensiveSet);
-  TryHook("GlowCooldownMidnight", CooldownSet);
-  TryHook("GlowCooldown", CooldownSet);
-  TryHook("Fetch", nil);
-  MDB._ReaderHooked = true;
 end
 
 --- ======= ENGINE ENSURE =======
