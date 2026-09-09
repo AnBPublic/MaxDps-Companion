@@ -1,0 +1,18 @@
+## Title: MaxDps_Paladin
+## Version: v11.2.9
+## Author: Kaminaris
+## Interface: 120100
+## Dependencies: MaxDps
+## LoadOnDemand: 1
+## X-Curse-Project-ID: 98895
+## X-WoWI-ID: 24646
+## X-Wago-ID: 5NReYJG3
+
+Main.lua
+Specialization\Holy.lua
+Specialization\Protection.lua
+Specialization\Retribution.lua
+
+
+
+

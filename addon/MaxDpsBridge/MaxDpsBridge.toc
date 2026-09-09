@@ -1,0 +1,12 @@
+## Interface: 120100
+## Title: MaxDps |cFF00D8FFBridge|r
+## Notes: Pixel bridge: encodes MaxDps suggestions as an 8-cell strip for MaxDpsCompanion.
+## Author: AnBPublic
+## Version: 1.0.0
+## Dependencies: MaxDps
+## SavedVariables: MaxDpsBridgeDB
+Keymap.lua
+Bars.lua
+Reader.lua
+Bridge.lua
+Options.lua

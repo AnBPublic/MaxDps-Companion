@@ -1,0 +1,14 @@
+## Title: MaxDps_DemonHunter
+## Version: v11.2.7
+## Author: Kaminaris
+## Interface: 120100
+## Dependencies: MaxDps
+## LoadOnDemand: 1
+## X-Curse-Project-ID: 255102
+## X-WoWI-ID: 24644
+## X-Wago-ID: RNL97Y6o
+
+Main.lua
+Specialization\Havoc.lua
+Specialization\Vengeance.lua
+Specialization\Devourer.lua

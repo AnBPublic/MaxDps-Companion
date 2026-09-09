@@ -1,0 +1,18 @@
+## Title: MaxDps_Shaman
+## Version: v11.2.9
+## Author: Kaminaris
+## Interface: 120100
+## Dependencies: MaxDps
+## LoadOnDemand: 1
+## X-Curse-Project-ID: 92010
+## X-WoWI-ID: 24640
+## X-Wago-ID: aNevwk62
+
+Main.lua
+Specialization\Elemental.lua
+Specialization\Enhancement.lua
+Specialization\Restoration.lua
+
+
+
+

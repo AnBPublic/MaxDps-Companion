@@ -1,0 +1,8 @@
+bin/
+obj/
+dist/*
+!dist/.gitkeep
+.vs/
+*.user
+# settings.ini: tracked default at repo root. Per-machine copy in dist\ is
+# covered by dist/ above — never commit local edits.

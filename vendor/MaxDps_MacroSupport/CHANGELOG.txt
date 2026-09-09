@@ -1,0 +1,59 @@
+MaxDPS Macro Support Changelog
+
+v1.18.1
+- Added dual Retail TOC metadata for World of Warcraft clients 12.0.7 and 12.1.0.
+- Updated Interface and Interface-Retail to: 120007, 120100.
+- Updated /mdms status compatibility output so both 120007 and 120100 report as verified.
+- No macro scanning or glow behavior changes.
+
+v1.18.0
+- Updated Retail TOC metadata for World of Warcraft client 12.1.0.
+- Added Interface-Retail: 120100 metadata.
+- Added /mdms status client compatibility line showing running client/interface and verified client/interface.
+- No macro scanning or glow behavior changes.
+
+v1.17.0
+- Added a basic AddOns options panel with autoscan, safe mode, debug toggle, scan, clear glows, clear bindings, and status buttons.
+- Improved /mdms status with clearer state, queue, scan timing, cache, mappings, glow tracking, and compatibility warnings.
+- Added /mdms clearglows to clear tracked macro glows without rebuilding all mappings.
+- Added clean compatibility warnings for missing MaxDPS or missing hook functions.
+- Added /mdms debug on|off and gated expensive diagnostics behind debug mode.
+- Updated project metadata: Author is now Daxomault.
+- Added a ChatGPT assistance caveat in README and TOC metadata.
+- Added MIT LICENSE file.
+
+v1.16.0
+- Fixed stale next-glow overlays when a glowing macro spell is moved to another hotkey.
+- Tracks buttons that MaxDPS glowed with the "next" overlay and clears those tracked overlays when mappings are rebuilt.
+- /mdms status reports staleGlowsCleared and trackedNextGlows.
+
+v1.15.0
+- Added hotbar-slot-only normal scanning.
+- Added macro body hash caching so unchanged macros are not reparsed.
+- Separated automatic mappings from manual bindings.
+- Added improved scan timing and cache diagnostics.
+
+v1.14.0
+- Fixed a nil-call error in the manual unbind/refresh path.
+
+v1.13.0
+- Added manual unbind commands.
+- Added automatic rescans for hotbar/actionbar changes.
+
+v1.12.0
+- Limited normal scans to macros currently on hotbars/action bars.
+- Removed EnumerateFrames from normal scanning.
+
+v1.11.0
+- Debounced macro update scans more aggressively.
+- Deferred scans while the Blizzard Macro UI is open.
+
+v1.10.0
+- Added cached macro mappings to reduce lag during gameplay.
+- Stopped scanning during MaxDPS GlowSpell calls.
+
+v1.9.0
+- Added support for macrotext attributes exposed by secure action buttons/actionbar addons.
+
+v1.3.0
+- Added manual spell-to-button binding and glow testing commands.

@@ -1,0 +1,8 @@
+## Interface: 120100
+## Title: MaxDps ConsolePort Support
+## Notes: Restores MaxDps highlights on ConsolePort action buttons.
+## Author: Devcodino
+## Version: 1.0.0
+## RequiredDeps: MaxDps, ConsolePort_Bar
+
+MaxDps-Console-Port-Support.lua

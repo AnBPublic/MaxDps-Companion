@@ -1,0 +1,15 @@
+## Title: MaxDps_Monk
+## Version: v11.2.7
+## Author: Kaminaris
+## Interface: 120100
+## Dependencies: MaxDps
+## LoadOnDemand: 1
+## X-Curse-Project-ID: 255355
+## X-WoWI-ID: 24647
+## X-Wago-ID: vNAe5ONo
+
+Main.lua
+Specialization\Brewmaster.lua
+Specialization\Mistweaver.lua
+Specialization\Windwalker.lua
+

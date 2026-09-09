@@ -1,0 +1,6 @@
+1.0.0
+date: 2026-09-09
+git: <commit placeholder — fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: v1 (8 cells)
+upstream: MaxDps v11.3.43 (Interface 120100, read at runtime, never bundled)

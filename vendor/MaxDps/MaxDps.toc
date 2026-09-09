@@ -1,0 +1,41 @@
+## Title: MaxDps
+## Notes: Rotation helper framework.
+## Version: v11.3.43
+## Author: Kaminaris
+## Interface: 120100
+## SavedVariables: MaxDpsOptions
+## OptionalDependencies: Bartender4, ElvUI, ButtonForge, SVUI_ActionBars, G15Buttons, SyncUI, LUI, Dominos, DiabolicUI, Neuron, LibRangeCheck-3.0
+## X-Curse-Project-ID: 91970
+## X-WoWI-ID: 24637
+## X-Wago-ID: VBNBWM6x
+
+Libs\LibStub\LibStub.lua
+Libs\CallbackHandler-1.0\CallbackHandler-1.0.xml
+Libs\AceAddon-3.0\AceAddon-3.0.xml
+Libs\AceBucket-3.0\AceBucket-3.0.xml
+Libs\AceTimer-3.0\AceTimer-3.0.xml
+Libs\AceEvent-3.0\AceEvent-3.0.xml
+Libs\AceHook-3.0\AceHook-3.0.xml
+Libs\AceDB-3.0\AceDB-3.0.xml
+Libs\LibSharedMedia-3.0\lib.xml
+Libs\AceConsole-3.0\AceConsole-3.0.xml
+Libs\LibCustomGlow-1.0\LibCustomGlow-1.0.lua
+Libs\ForAllIndentsAndPurposes.lua
+Libs\StdUi\StdUi.xml
+Libs\LibRangeCheck-3.0\LibRangeCheck-3.0\LibRangeCheck-3.0.lua
+
+Cooldowns.lua
+SpellData.lua
+spell_durations.lua
+Core.lua
+Tier.lua
+Options.lua
+Buttons.lua
+Helper.lua
+TimeToDie.lua
+Modules/Custom.lua
+Modules/Window.lua
+Modules/Profiler.lua
+Modules/SpellIDToolTip.lua
+SpellFrame.lua
+
