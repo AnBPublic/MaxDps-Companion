@@ -62,7 +62,10 @@ local Defaults = {
   Enabled = true,
   OffsetX = 0,
   OffsetY = 0,
-  CellSize = 1,
+  -- Aethys-proven 8px cells: ±1px misalignment tolerance by construction.
+  -- 1px cells have zero tolerance (sub-pixel offset, UI-scale rounding or
+  -- HDR dither corrupts the single read point) and failed live.
+  CellSize = 8,
   Calibrate = false,
 };
 

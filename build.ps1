@@ -24,10 +24,11 @@ foreach ($p in $procs) {
 }
 Start-Sleep -Seconds 2
 
-# 2. Stamp the version from git (commit + time) so the title bar can prove
-# which build is running.
+# 2. Stamp the version from the CHILD repo (this one), not whatever repo is
+# current in the invoking shell: without -C the title bar proved the
+# workspace root commit and could never prove child freshness.
 $commit = 'dev'
-try { $commit = (git rev-parse --short HEAD 2>$null).Trim() } catch { }
+try { $commit = (git -C $PSScriptRoot rev-parse --short HEAD 2>$null).Trim() } catch { }
 if ([string]::IsNullOrWhiteSpace($commit)) { $commit = 'dev' }
 $stamp = Get-Date -Format 'yyyy-MM-dd HH:mm'
 $genPath = Join-Path $PSScriptRoot "$genDir\ThisAssembly.Gen.cs"

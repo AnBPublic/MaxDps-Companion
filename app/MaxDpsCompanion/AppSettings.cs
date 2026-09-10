@@ -11,9 +11,9 @@ internal sealed class AppSettings
     public string Path { get; private set; } = "settings.ini";
 
     // [Bridge] — must match the addon's /mdb offset and /mdb cellsize.
-    // Default 1: a single pixel. BlockLocator measures the real size off
-    // the screen, so a stale default self-corrects on first Start.
-    public int CellSize { get; set; } = 1;
+    // Aethys-proven default 8: BlockLocator measures the real size off the
+    // screen, so a stale default self-corrects on first Start.
+    public int CellSize { get; set; } = 8;
     public int OffsetX { get; set; }
     public int OffsetY { get; set; }
 

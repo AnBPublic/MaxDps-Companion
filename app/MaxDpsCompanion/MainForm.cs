@@ -3,9 +3,10 @@ namespace MaxDpsCompanion;
 internal sealed class MainForm : Form
 {
     private const int PauseHotkeyId = 0xA71;
-    // Width floor: at 125% DPI the five hero buttons need ~660px; below
-    // that Launch Game clipped even in a grid (see ui4 snapshot).
-    private const int MinWindowWidth = 660;
+    // Width floor removed per user call: window may go narrower, hero
+    // buttons wrap instead of clipping (fixed 5-col grid + 9.5pt keeps
+    // text inside each share down to ~520px).
+    private const int MinWindowWidth = 520;
     // Advanced stack heights (absolute rows, must match BuildAdvanced).
     // Total 1056 overflowed short screens; ClampToScreen caps the window
     // and the body scrolls instead.
@@ -104,7 +105,7 @@ internal sealed class MainForm : Form
     private readonly TextBox _pauseHotkey = new();
     private readonly NumericUpDown _offsetX = Spin(-4000, 4000);
     private readonly NumericUpDown _offsetY = Spin(-4000, 4000);
-    private readonly NumericUpDown _cellSize = Spin(1, 64);
+    private readonly NumericUpDown _cellSize = Spin(2, 64);
     private readonly NumericUpDown _pollInterval = Spin(10, 1000);
     private readonly NumericUpDown _minKeyInterval = Spin(20, 5000);
     private readonly NumericUpDown _keyPress = Spin(0, 200);

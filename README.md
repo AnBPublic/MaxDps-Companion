@@ -58,7 +58,7 @@ overwritten afterwards.
 
 ```ini
 [Bridge]
-CellSize=1
+CellSize=8
 OffsetX=0
 OffsetY=0
 

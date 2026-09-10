@@ -2,12 +2,10 @@ namespace MaxDpsCompanion;
 
 /// <summary>
 /// Copies the addon's pixel strip off the screen with GDI and returns the
-/// colour of each cell. At 1px cells a multi-tap median would bleed into
-/// neighbouring cells, so the sampler reads the exact cell centre pixel;
-/// HDR dither is rejected downstream by the nibble quantiser + checksum
-/// (a dithered read fails the checksum and the frame is dropped, not
-/// mis-sent). For larger cells the centre pixel is still the most stable
-/// point — edges catch UI-scale blending.
+/// median colour of each cell. Aethys-proven 5-tap median (centre +
+/// 4-neighbourhood): kills HDR dither, tolerates 1px misalignment at 8px
+/// cells. For 1px cells (legacy min) the median would bleed into
+/// neighbours, so those fall back to the exact centre pixel.
 /// </summary>
 internal sealed class ScreenSampler : IDisposable
 {
@@ -17,18 +15,21 @@ internal sealed class ScreenSampler : IDisposable
     private IntPtr _previous = IntPtr.Zero;
     private Size _bitmapSize;
 
+    /// <summary>Samples taken per cell at 2px+; the median wins. Must stay odd.</summary>
+    public const int TapsPerCell = 5;
+
     public Color[] Sample(Point origin, int cellSize) =>
         SampleCells(origin, cellSize, (x, y) => ReadPixel(x, y));
 
     /// <summary>
     /// Samples a full client-area bitmap reader (used by the calibrate-pattern
-    /// learner) with the same centre-pixel rule.
+    /// learner) with the same per-cell rule.
     /// </summary>
     public static Color[] SampleRegion(Func<int, int, Color> read, int blockX, int blockY, int cellSize)
     {
         var colors = new Color[PixelProtocol.CellCount];
         for (var i = 0; i < PixelProtocol.CellCount; i++)
-            colors[i] = CentrePixel((x, y) => read(blockX + x, blockY + y), i, cellSize);
+            colors[i] = SampleCell((x, y) => read(blockX + x, blockY + y), i, cellSize);
         return colors;
     }
 
@@ -48,8 +49,35 @@ internal sealed class ScreenSampler : IDisposable
         }
 
         for (var i = 0; i < PixelProtocol.CellCount; i++)
-            colors[i] = CentrePixel((x, y) => ReadPixel(x, y), i, cellSize);
+            colors[i] = SampleCell((x, y) => ReadPixel(x, y), i, cellSize);
         return colors;
+    }
+
+    private static Color SampleCell(Func<int, int, Color> read, int cell, int cellSize) =>
+        cellSize < 2 ? CentrePixel(read, cell, cellSize) : MedianSample(read, cell, cellSize);
+
+    private static Color MedianSample(Func<int, int, Color> read, int cell, int cellSize)
+    {
+        // Centre plus 4-neighbourhood, clamped inside the cell.
+        var cx = cell * cellSize + cellSize / 2;
+        var cy = cellSize / 2;
+        var taps = new Color[TapsPerCell];
+        taps[0] = read(cx, cy);
+        taps[1] = read(Math.Max(cell * cellSize, cx - 1), cy);
+        taps[2] = read(Math.Min(cell * cellSize + cellSize - 1, cx + 1), cy);
+        taps[3] = read(cx, Math.Max(0, cy - 1));
+        taps[4] = read(cx, Math.Min(cellSize - 1, cy + 1));
+
+        int Median(byte[] values)
+        {
+            Array.Sort(values);
+            return values[values.Length / 2];
+        }
+
+        return Color.FromArgb(
+            Median(taps.Select(t => t.R).ToArray()),
+            Median(taps.Select(t => t.G).ToArray()),
+            Median(taps.Select(t => t.B).ToArray()));
     }
 
     private static Color CentrePixel(Func<int, int, Color> read, int cell, int cellSize)

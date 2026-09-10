@@ -12,7 +12,8 @@ internal readonly record struct BlockLocation(int OffsetX, int OffsetY, int Cell
 /// </summary>
 internal static class BlockLocator
 {
-    private const int MinCellSize = 1;
+    // Aethys values: 1px cells admit every magenta-ish pixel as a candidate.
+    private const int MinCellSize = 2;
     private const int MaxCellSize = 32;
 
     /// <summary>
