@@ -38,6 +38,15 @@ local addonName, MDB = ...;
 
 MDB.VERSION = "1.0.0";
 
+-- Chat print, defined FIRST: AutoCalibrate (below) and the Update watchdog
+-- both call it, and Lua resolves locals lexically — a later `local
+-- function Print` would be invisible here and call a nil global instead
+-- (that was the 711x "attempt to call a nil value" spam: the error also
+-- skipped the LastContact reset, so the watchdog refired every 50ms).
+local function Print (Message)
+  DEFAULT_CHAT_FRAME:AddMessage("|cFF00D8FFMDB|r: " .. Message);
+end
+
 local CELL_COUNT = 8;
 local PROTOCOL_VERSION = 1;
 local UPDATE_INTERVAL = 0.05;
@@ -208,9 +217,12 @@ local function Update (self, Delta)
   -- without a word) - drop the strip back to the default corner instead
   -- of sitting invisible at a stale offset forever. LastContact is
   -- refreshed by every /mdb command and by the alive ping below.
+  -- pcall-guarded: AutoCalibrate must never throw out of Update — a throw
+  -- skips the LastContact reset below and the watchdog refires every tick
+  -- (that was the 711x error-spam loop).
   if MaxDpsBridgeDB and not MaxDpsBridgeDB.Calibrate then
     if LastContact > 0 and (GetTime() - LastContact) > AUTOCAL_TIMEOUT then
-      AutoCalibrate("no companion contact for " .. AUTOCAL_TIMEOUT .. "s");
+      pcall(AutoCalibrate, "no companion contact for " .. AUTOCAL_TIMEOUT .. "s");
       LastContact = GetTime();
     end
   end
@@ -298,10 +310,7 @@ local function Update (self, Delta)
 end
 
 --- ======= SLASH COMMANDS =======
-
-local function Print (Message)
-  DEFAULT_CHAT_FRAME:AddMessage("|cFF00D8FFMDB|r: " .. Message);
-end
+-- (Print is defined at the top so AutoCalibrate can use it.)
 
 local function HandleCommand (Input)
   local Command, Arg1, Arg2 = strsplit(" ", strlower(strtrim(Input or "")));
