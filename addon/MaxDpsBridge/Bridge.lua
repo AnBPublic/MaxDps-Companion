@@ -42,6 +42,14 @@ local CELL_COUNT = 8;
 local PROTOCOL_VERSION = 1;
 local UPDATE_INTERVAL = 0.05;
 
+-- Auto-calibration watchdog: after 25 s without a word from the companion
+-- (no /mdb command, no UpdateTimer drive), pop the strip back to the
+-- default corner. Covers: crashed companion mid-session, user quitting
+-- without /reload, pixel size forgotten after graphics changes. The
+-- companion suppresses the timer with /mdb alive while it runs.
+local AUTOCAL_TIMEOUT = 25;
+local LastContact = 0;
+
 local STATE_IDLE   = 0;
 local STATE_ACTIVE = 1;
 local STATE_PAUSED = 2;
@@ -105,6 +113,23 @@ local function Layout ()
 end
 
 MDB.Layout = Layout;
+
+-- Auto-calibration: forget position/size, back to the default corner.
+-- The companion then re-finds the strip with one sweep, no typing needed.
+local function AutoCalibrate (Why)
+  local DB = MaxDpsBridgeDB;
+  if not DB then return; end
+  DB.OffsetX = Defaults.OffsetX;
+  DB.OffsetY = Defaults.OffsetY;
+  DB.CellSize = Defaults.CellSize;
+  DB.Calibrate = false;
+  CalStep = 0;
+  CalTick = 0;
+  Layout();
+  Print("auto-calibrated (" .. Why .. ") - strip is back at 0,0");
+end
+
+MDB.AutoCalibrate = AutoCalibrate;
 
 local function CreateBlock ()
   -- No border frame: at 1px cells a 1px border would double the strip's
@@ -175,6 +200,17 @@ local function Update (self, Delta)
   Elapsed = 0;
 
   Heartbeat = (Heartbeat + 1) % 16;
+
+  -- Auto-calibration watchdog: companion gone quiet (crash, quit, resize
+  -- without a word) - drop the strip back to the default corner instead
+  -- of sitting invisible at a stale offset forever. LastContact is
+  -- refreshed by every /mdb command and by the alive ping below.
+  if MaxDpsBridgeDB and not MaxDpsBridgeDB.Calibrate then
+    if LastContact > 0 and (GetTime() - LastContact) > AUTOCAL_TIMEOUT then
+      AutoCalibrate("no companion contact for " .. AUTOCAL_TIMEOUT .. "s");
+      LastContact = GetTime();
+    end
+  end
 
   -- Calibrate pattern: hold the companion (state = Paused) while the
   -- desktop app learns the display chain. Steps advance every ~8 ticks
@@ -267,6 +303,8 @@ end
 local function HandleCommand (Input)
   local Command, Arg1, Arg2 = strsplit(" ", strlower(strtrim(Input or "")));
   local DB = MaxDpsBridgeDB;
+  -- Every command is proof of life for the auto-cal watchdog.
+  if type(GetTime) == "function" then LastContact = GetTime(); end
 
   -- Diagnostics live in Reader.lua (needs MaxDps internals there).
   if Command == "diag" and MDB.Diag then
@@ -336,10 +374,16 @@ local function HandleCommand (Input)
         DB.OffsetX, DB.OffsetY, DB.CellSize, MDB.BindingCount(), tostring(Main), NextFn));
   elseif Command == "version" then
     Print("MaxDpsBridge v" .. MDB.VERSION .. " (protocol v" .. PROTOCOL_VERSION .. ")");
+  elseif Command == "alive" then
+    -- Companion proof of life: silent, no output. Stamps LastContact via
+    -- the HandleCommand header above; this branch just stays quiet.
+    return;
+  elseif Command == "autocal" then
+    AutoCalibrate("manual /mdb autocal");
   else
     Print("commands: |cFFFFFF00on|r / |cFFFFFF00off|r / |cFFFFFF00toggle|r / "
       .. "|cFFFFFF00offset <x> <y>|r / |cFFFFFF00cellsize <px>|r / |cFFFFFF00calibrate on|off|r / "
-      .. "|cFFFFFF00status|r / |cFFFFFF00reset|r / |cFFFFFF00version|r");
+      .. "|cFFFFFF00status|r / |cFFFFFF00diag|r / |cFFFFFF00autocal|r / |cFFFFFF00reset|r / |cFFFFFF00version|r");
   end
 end
 
@@ -366,6 +410,7 @@ do
       SLASH_MAXDPSBRIDGE1 = "/mdb";
       SlashCmdList["MAXDPSBRIDGE"] = HandleCommand;
 
+      if type(GetTime) == "function" then LastContact = GetTime(); end
       MDB.EnsureHooks();
       if C_Timer and C_Timer.After then
         -- MaxDps may load after us despite the dependency; retry hooks once.

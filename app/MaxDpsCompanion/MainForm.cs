@@ -1032,13 +1032,20 @@ internal sealed class MainForm : Form
             }
 
             // 1. Turn the pattern on through the game's own chat box.
+            // Silent path (Escape-close): a stuck edit box with the user's
+            // half-typed whisper can never be sent by our cleanup.
             SetColorStatus("Calibrating - starting the pattern in game...");
             if (Cancelled()) return;
-            if (!ChatCommander.SendChatCommand(game, "mdb calibrate on"))
+            if (!ChatCommander.SendChatCommandSilent(game, "mdb calibrate on"))
             {
                 SetColorStatus("Calibration failed - could not focus the game window.");
                 return;
             }
+            // Chat-command round trip needs a beat before the strip repaints:
+            // without this the sweep samples the pre-pattern frame and the
+            // whole run fails at step 2 on fast machines.
+            Thread.Sleep(600);
+            if (Cancelled()) return;
 
             // 2. Verify the pattern is actually on screen before learning.
             // Offsets 0,0 mean "never located" (fresh settings), so always
@@ -1070,7 +1077,7 @@ internal sealed class MainForm : Form
                     + "  4. Then Calibrate colors again.",
                     "MaxDPS Companion", MessageBoxButtons.OK, MessageBoxIcon.Warning));
                 // Single cleanup: leave the bridge exactly as found (on).
-                ChatCommander.SendChatCommand(game, "mdb calibrate off");
+                ChatCommander.SendChatCommandSilent(game, "mdb calibrate off");
                 return;
             }
             var known = found;
@@ -1107,7 +1114,7 @@ internal sealed class MainForm : Form
             // triple (calibrate off + off + on) toggled the bridge twice and
             // left "bridge paused" in chat plus a Paused strip behind — the
             // next Start then held instead of sending.
-            ChatCommander.SendChatCommand(game, "mdb calibrate off", settleMs: 400);
+            ChatCommander.SendChatCommandSilent(game, "mdb calibrate off", settleMs: 400);
 
             if (Cancelled())
             {

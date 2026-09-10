@@ -93,15 +93,17 @@ internal static class BlockLocator
     {
         var centre = size / 2;
         var statusX = x + size * (PixelProtocol.CellCount - 1) + centre;
-        var statusY = y + centre;
+        // Right-edge clamp, not reject: at 1px cells the strip often sits at
+        // x=0..7 and the trailing cells are what they are — Decode still
+        // validates via magic + checksum, a clipped read just fails there.
+        var statusY = Math.Min(y + centre, area.Height - 1);
 
         if (statusX >= area.Width || statusY >= area.Height) return false;
 
         var cells = new Color[PixelProtocol.CellCount];
         for (var i = 0; i < PixelProtocol.CellCount; i++)
         {
-            var px = x + size * i + centre;
-            if (px >= area.Width) return false;
+            var px = Math.Min(x + size * i + centre, area.Width - 1);
             cells[i] = Read(scan, stride, px, statusY);
         }
 

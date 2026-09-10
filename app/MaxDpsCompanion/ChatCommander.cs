@@ -15,6 +15,20 @@ internal static class ChatCommander
     private const byte VkReturn = 0x0D;
     private const byte VkControl = 0x11;
     private const byte VkV = 0x56;
+    private const byte VkEscape = 0x1B;
+
+    /// <summary>
+    /// Sends a chat command silently: the chat box is opened, the command is
+    /// pasted + Enter, then Escape closes any leftover edit box WITHOUT
+    /// sending. Escape never types, so nothing the user typed can leak and
+    /// no half-open box keeps swallowing keys.
+    /// </summary>
+    public static bool SendChatCommandSilent(WowWindow game, string command, int settleMs = 800)
+    {
+        if (!SendChatCommand(game, command, settleMs, closeKey: VkEscape)) return false;
+        Thread.Sleep(100);
+        return true;
+    }
 
     /// <summary>
     /// Focuses <paramref name="game"/> (restoring it if minimised), pastes
@@ -31,6 +45,9 @@ internal static class ChatCommander
     /// lands nowhere and the trailing Enter is a harmless world-click-noop.
     /// </summary>
     public static bool SendChatCommand(WowWindow game, string command, int settleMs = 800)
+        => SendChatCommand(game, command, settleMs, closeKey: VkReturn);
+
+    private static bool SendChatCommand(WowWindow game, string command, int settleMs, byte closeKey)
     {
         if (!game.IsValid) return false;
         var previous = Native.GetForegroundWindow();
@@ -53,9 +70,10 @@ internal static class ChatCommander
 
         // If the chat box never opened (focus race, cinematic, loading
         // screen), the paste went nowhere — but a half-open chat edit box
-        // may still hold the text. One more Enter sends-or-noops; it can
-        // never trigger a binding because it is still just Enter.
-        PressKey(VkReturn);
+        // may still hold the text. closeKey sends-or-noops; Escape (silent
+        // path) discards the draft, Enter (legacy path) sends it. Either
+        // way it is still just one inert key, never a binding.
+        PressKey(closeKey);
         Thread.Sleep(200);
 
         if (previous != IntPtr.Zero && previous != game.Handle && Native.IsWindow(previous))

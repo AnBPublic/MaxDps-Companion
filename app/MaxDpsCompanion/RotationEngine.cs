@@ -38,6 +38,13 @@ internal sealed class RotationEngine : IDisposable
     private long _lastAnyPress;
     private long _lastLocateAttempt = long.MinValue;
     private long _lastActiveMs = long.MinValue;
+    // Last companion->addon proof of life. Sent as the SILENT '/mdb alive'
+    // chat command (no output, Escape-closed): no focus steal beyond the
+    // unavoidable SetForegroundWindow round-trip, no keystroke as itself.
+    // Without this the bridge would reset the strip mid-session 25 s after
+    // the last /mdb command.
+    private long _lastAliveMs = long.MinValue;
+    private const long AliveIntervalMs = 10000;
     private int _rotation;
     private string _lastKeySent = "-";
     private string? _holdNote;
@@ -61,6 +68,7 @@ internal sealed class RotationEngine : IDisposable
         if (_running) return;
         _running = true;
         _lastLocateAttempt = long.MinValue;
+        _lastAliveMs = long.MinValue;
         _thread = new Thread(Loop) { IsBackground = true, Name = "MaxDpsCompanion.Engine" };
         _thread.Start();
     }
@@ -193,6 +201,17 @@ internal sealed class RotationEngine : IDisposable
         // Re-resolve the PID at send time: the handle could have been
         // recycled between Refresh and now.
         Native.GetWindowThreadProcessId(gameHandle, out gamePid);
+
+        // Proof of life for the bridge auto-cal watchdog, every 10 s, via
+        // the silent chat path (Escape-closed, no output). The round-trip
+        // briefly focuses the game; that is the same cost as calibration
+        // and is unavoidable — WoW Lua cannot see window messages.
+        var tickNow = _clock.ElapsedMilliseconds;
+        if (tickNow - _lastAliveMs >= AliveIntervalMs)
+        {
+            _lastAliveMs = tickNow;
+            try { ChatCommander.SendChatCommandSilent(_window, "mdb alive", settleMs: 100); } catch { }
+        }
 
         if (frame.State != BridgeState.Active)
         {
