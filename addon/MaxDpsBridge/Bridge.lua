@@ -51,13 +51,12 @@ local CELL_COUNT = 8;
 local PROTOCOL_VERSION = 1;
 local UPDATE_INTERVAL = 0.05;
 
--- Auto-calibration watchdog: after 25 s without a word from the companion
--- (no /mdb command, no UpdateTimer drive), pop the strip back to the
--- default corner. Covers: crashed companion mid-session, user quitting
--- without /reload, pixel size forgotten after graphics changes. The
--- companion suppresses the timer with /mdb alive while it runs.
-local AUTOCAL_TIMEOUT = 25;
-local LastContact = 0;
+-- NOTE: a 25 s auto-cal watchdog lived here (reset strip to 0,0 when the
+-- companion went quiet). REMOVED: it fired mid-session while the engine
+-- was attached (alive ping raced it), moved the strip out from under a
+-- learned profile, and produced "no pixel block" on a visible strip.
+-- Aethys has no such timer and never needs it: the engine re-sweeps on
+-- miss (Relocate) and explicit /mdb autocal covers the manual case.
 
 local STATE_IDLE   = 0;
 local STATE_ACTIVE = 1;
@@ -126,8 +125,8 @@ end
 
 MDB.Layout = Layout;
 
--- Auto-calibration: forget position/size, back to the default corner.
--- The companion then re-finds the strip with one sweep, no typing needed.
+-- Manual auto-calibration: forget position/size, back to the default
+-- corner. Explicit /mdb autocal only — no timer (see note above).
 local function AutoCalibrate (Why)
   local DB = MaxDpsBridgeDB;
   if not DB then return; end
@@ -213,19 +212,7 @@ local function Update (self, Delta)
 
   Heartbeat = (Heartbeat + 1) % 16;
 
-  -- Auto-calibration watchdog: companion gone quiet (crash, quit, resize
-  -- without a word) - drop the strip back to the default corner instead
-  -- of sitting invisible at a stale offset forever. LastContact is
-  -- refreshed by every /mdb command and by the alive ping below.
-  -- pcall-guarded: AutoCalibrate must never throw out of Update — a throw
-  -- skips the LastContact reset below and the watchdog refires every tick
-  -- (that was the 711x error-spam loop).
-  if MaxDpsBridgeDB and not MaxDpsBridgeDB.Calibrate then
-    if LastContact > 0 and (GetTime() - LastContact) > AUTOCAL_TIMEOUT then
-      pcall(AutoCalibrate, "no companion contact for " .. AUTOCAL_TIMEOUT .. "s");
-      LastContact = GetTime();
-    end
-  end
+  -- (Watchdog removed — see note at top. Manual /mdb autocal only.)
 
   -- Calibrate pattern: hold the companion (state = Paused) while the
   -- desktop app learns the display chain. Steps advance every ~8 ticks
@@ -315,8 +302,6 @@ end
 local function HandleCommand (Input)
   local Command, Arg1, Arg2 = strsplit(" ", strlower(strtrim(Input or "")));
   local DB = MaxDpsBridgeDB;
-  -- Every command is proof of life for the auto-cal watchdog.
-  if type(GetTime) == "function" then LastContact = GetTime(); end
 
   -- Diagnostics live in Reader.lua (needs MaxDps internals there).
   if Command == "diag" and MDB.Diag then
@@ -393,10 +378,6 @@ local function HandleCommand (Input)
         DB.OffsetX, DB.OffsetY, DB.CellSize, MDB.BindingCount(), tostring(Main), NextFn));
   elseif Command == "version" then
     Print("MaxDpsBridge v" .. MDB.VERSION .. " (protocol v" .. PROTOCOL_VERSION .. ")");
-  elseif Command == "alive" then
-    -- Companion proof of life: silent, no output. Stamps LastContact via
-    -- the HandleCommand header above; this branch just stays quiet.
-    return;
   elseif Command == "autocal" then
     AutoCalibrate("manual /mdb autocal");
   else
@@ -429,7 +410,6 @@ do
       SLASH_MAXDPSBRIDGE1 = "/mdb";
       SlashCmdList["MAXDPSBRIDGE"] = HandleCommand;
 
-      if type(GetTime) == "function" then LastContact = GetTime(); end
       MDB.EnsureHooks();
       if C_Timer and C_Timer.After then
         -- MaxDps may load after us despite the dependency; retry hooks once.

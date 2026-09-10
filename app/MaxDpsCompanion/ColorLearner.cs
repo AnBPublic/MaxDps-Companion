@@ -81,7 +81,11 @@ internal static class ColorLearner
                 if (SleepBreak(100, cancel)) return null;
                 continue;
             }
-            Note($"Calibrating - sampling ({frames.Count}/5 anchors locked)...");
+            // Anchors needed: black + white + one dominant step per channel.
+            // frames.Count can exceed it (AddOrReplace keeps distinct levels),
+            // so show the real HAVE/NEED counts instead of a raw list size.
+            var (have, need) = AnchorProgress(frames, profile);
+            Note($"Calibrating - sampling ({have}/{need} anchors locked)...");
             // Same step class and (for ramps) same quantised level: one more
             // steady sighting. A flat render repeats exactly; transitions and
             // dither flicker between classes/levels and reset the streak.
@@ -152,15 +156,28 @@ internal static class ColorLearner
     /// </summary>
     internal static bool HaveAnchors(List<Color[]> frames, ColorProfile? matcher = null)
     {
+        var (have, need) = AnchorProgress(frames, matcher);
+        return have >= need && frames.Count >= 5;
+    }
+
+    /// <summary>
+    /// Real anchor progress for the status line: which of the 5 needed
+    /// anchors (black, white, R, G, B) are already locked. frames.Count is
+    /// NOT the progress — AddOrReplace keeps up to ~60 distinct levels.
+    /// </summary>
+    internal static (int Have, int Need) AnchorProgress(List<Color[]> frames, ColorProfile? matcher = null)
+    {
         var black = false;
         var white = false;
         var r = false;
         var g = false;
         var b = false;
+        var usable = 0;
         foreach (var cells in frames)
         {
             if (cells.Length != PixelProtocol.CellCount) continue;
             if (Classify(cells, matcher) < 0) continue;
+            usable++;
             var level = Average(cells, 1, 5);
             var brightness = (level.R + level.G + level.B) / 3;
             var channels = new[] { level.R, level.G, level.B };
@@ -176,7 +193,11 @@ internal static class ColorLearner
             else if (brightness <= BlackBrightness) black = true;
             else if (brightness >= WhiteBrightness) white = true;
         }
-        return black && white && r && g && b && frames.Count >= 5;
+        var have = (black ? 1 : 0) + (white ? 1 : 0) + (r ? 1 : 0) + (g ? 1 : 0) + (b ? 1 : 0);
+        // 5 anchors + the frames.Count>=5 guard HaveAnchors always had.
+        var need = 5;
+        if (usable < 5) have = Math.Min(have, usable);
+        return (have, need);
     }
 
     /// <summary>

@@ -1052,19 +1052,16 @@ internal sealed class MainForm : Form
             // Offsets 0,0 mean "never located" (fresh settings), so always
             // sweep then: stale 0,0 from a previous session would otherwise
             // sample the screen corner instead of the strip.
-            var neverLocated = _settings.OffsetX == 0 && _settings.OffsetY == 0;
-            BlockLocation? block = neverLocated
-                ? BlockLocator.Locate(origin, size, _settings.Color)
-                : new BlockLocation(_settings.OffsetX, _settings.OffsetY, _settings.CellSize);
+            // ALWAYS sweep, even with stored offsets: the strip may have
+            // moved (addon autocal, UI edits, resolution change) and the
+            // learned profile goes stale exactly when the display chain
+            // changes — which is when you recalibrate. A sweep that finds
+            // the strip at the stored spot costs one pass; a trusted stale
+            // offset costs the whole run ("no pixel block" on a visible
+            // strip, because the profile learned at the wrong place can
+            // never decode the right place).
+            BlockLocation? block = BlockLocator.Locate(origin, size, _settings.Color);
             if (Cancelled()) return;
-            // Fall back to a full sweep when the stored offset misses
-            // (strip moved by UI edits, resolution change): only blame
-            // the addon when the sweep finds nothing either.
-            if ((block is not { } first || !PatternVisible(origin, first)) && !neverLocated)
-            {
-                block = BlockLocator.Locate(origin, size, _settings.Color);
-                if (Cancelled()) return;
-            }
             if (block is not { } found || !PatternVisible(origin, found))
             {
                 SetColorStatus("Calibration failed - no pattern on screen. Addon updated? (/reload)");
