@@ -339,6 +339,13 @@ local function HandleCommand (Input)
   elseif Command == "calibrate" then
     if Arg1 == "on" then
       DB.Calibrate = true;
+      -- Entering calibrate implies the bridge should run: a previous
+      -- cleanup that left Enabled=false (stale paused strip) would
+      -- otherwise render nothing and the learner sweeps a dead corner.
+      if not DB.Enabled then
+        DB.Enabled = true;
+        Print("bridge enabled");
+      end
       CalStep = 0;
       CalTick = 0;
       Print("calibrate pattern ON — run Learn colors in the app, then '/mdb calibrate off'");
