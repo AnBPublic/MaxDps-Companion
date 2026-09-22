@@ -1080,12 +1080,20 @@ internal sealed class MainForm : Form
             }
             var known = found;
 
-            // Apply location on the UI thread (NumericUpDown is not thread-safe).
+            // Commit synchronously on THIS thread: the old BeginInvoke could
+            // still be queued when StartEngine ran seconds later, so Start
+            // sampled stale 0,0 while the learned profile expected the new
+            // spot ("No pixel block" right after a 5/5 learn). The sweep
+            // gave us plain ints; _settings fields are safe to set here —
+            // only the NumericUpDown controls need the UI thread.
+            _settings.OffsetX = known.OffsetX;
+            _settings.OffsetY = known.OffsetY;
+            _settings.CellSize = known.CellSize;
             BeginInvoke(() =>
             {
-                _settings.OffsetX = known.OffsetX;
-                _settings.OffsetY = known.OffsetY;
-                _settings.CellSize = known.CellSize;
+                _offsetX.Value = known.OffsetX;
+                _offsetY.Value = known.OffsetY;
+                _cellSize.Value = known.CellSize;
             });
 
             // 3. Sample the cycling pattern. Learn polls Classify itself and
@@ -1329,12 +1337,13 @@ internal sealed class MainForm : Form
 
         // First run: never calibrated (offsets still 0,0) - sweep once so the
         // engine starts aligned instead of reporting "no pixel block".
-        if (_settings.OffsetX == 0 && _settings.OffsetY == 0)
-        {
-            if (game.TryGetClientOrigin(out var origin, out var size)
-                && BlockLocator.Locate(origin, size, _settings.Color) is { } found)
-                ApplyLocation(found);
-        }
+        // Re-sweep on EVERY Start, not just 0,0: the strip moves (UI edits,
+        // resolution change, autocal) and a stale offset + fresh profile
+        // reads as "no pixel block" on a visible strip. One sweep pass is
+        // ~1 s; a blind start costs the whole session.
+        if (game.TryGetClientOrigin(out var origin, out var size)
+            && BlockLocator.Locate(origin, size, _settings.Color) is { } found)
+            ApplyLocation(found);
 
         _engine.Paused = false;
         _engine.Start();
@@ -1422,6 +1431,10 @@ internal sealed class MainForm : Form
         {
             _pendingLocation = null;
             ApplyLocation(located);
+            // A relocate mid-run changed the sampling point: say so once so
+            // "block found, re-aligned" is visible instead of a flicker.
+            SetStatus("Block found, re-aligned.", ConsolePalette.Brass);
+            return;
         }
 
         // Calibrate worker owns the hero line while it runs (progress via

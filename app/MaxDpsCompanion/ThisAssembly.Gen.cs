@@ -3,6 +3,6 @@ namespace MaxDpsCompanion;
 
 internal static partial class ThisAssemblyGen
 {
-    internal const string GitCommit = "bef1acc";
-    internal const string BuildTime = "2026-09-10 15:17";
+    internal const string GitCommit = "7cf7f63";
+    internal const string BuildTime = "2026-09-22 10:59";
 }
