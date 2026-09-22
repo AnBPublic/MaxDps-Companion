@@ -9,6 +9,15 @@
 --   Defensive  = Flags entry set via MaxDps:GlowDefensiveHPMidnight
 --   Consumable = flagged spellID that appears in MaxDps.ItemSpells values
 --
+-- READINESS (v1.1.0): every slot passes through MDB.IsSpellReady before it
+-- is encoded. A spell on cooldown or currently unusable (out of range,
+-- no resources, shapeshifted, ...) encodes as EMPTY (FLAG_VALID clear) so
+-- the companion skips it and fires the next ready slot instead of
+-- hammering an unavailable key. Read-only queries only: C_Spell cooldown
+-- + MaxDps:CooldownConsolidated (GCD-aware) + C_Spell.IsSpellUsable.
+-- MaxDps:CheckSpellUsable is deliberately NOT used here: it prints chat
+-- errors on failure and has side effects beyond a boolean.
+--
 -- Category tracking hooks the Midnight glow entry points because every path
 -- funnels through GlowIndependent(spellId, spellId, ...) with identical ids,
 -- so Flags alone cannot tell cooldown apart from interrupt/defensive.
@@ -198,7 +207,13 @@ function MDB.GetMainSpellID ()
   if not MaxDps then return nil; end
   MDB.EnsureEngine();
   local SpellID = MaxDps.Spell;
-  if type(SpellID) == "number" and SpellID ~= 0 then return SpellID; end
+  if type(SpellID) == "number" and SpellID ~= 0 then
+    -- Even the engine's current pick can go stale between its tick and
+    -- ours (it fired, now on cooldown). Gate it like every other slot.
+    if MDB.IsSpellReady(SpellID) then return SpellID; end
+    -- Stale pick: fall through to the live re-query below instead of
+    -- encoding an unavailable spell.
+  end
   -- Classic path: the class function returns the spellID directly.
   -- Guarded by the FrameData check above: Hunter:BeastMastery indexes
   -- FrameData.ACSpells on entry and dies without the EnsureEngine prep.
@@ -219,6 +234,7 @@ function MDB.GetMainSpellID ()
   -- Retail Midnight path (Core.lua:791-797): the class function only glows
   -- cooldowns/interrupts and returns nothing; the main spell comes from the
   -- assisted-combat API gated by CheckSpellUsable. Query-only, no gameplay.
+  -- Plus our own readiness gate: the AC pick can be a frame stale too.
   if _G.C_AssistedCombat and type(_G.C_AssistedCombat.GetNextCastSpell) == "function" then
     local Ok, Next = pcall(_G.C_AssistedCombat.GetNextCastSpell, false);
     if Ok and type(Next) == "number" and Next ~= 0 then
@@ -229,8 +245,8 @@ function MDB.GetMainSpellID ()
           if OkName then SpellName = Name; end
         end
         local OkUse, Usable = pcall(MaxDps.CheckSpellUsable, MaxDps, Next, SpellName);
-        if OkUse and Usable then return Next; end
-      else
+        if OkUse and Usable and MDB.IsSpellReady(Next) then return Next; end
+      elseif MDB.IsSpellReady(Next) then
         return Next;
       end
     end
@@ -238,9 +254,13 @@ function MDB.GetMainSpellID ()
   return nil;
 end
 
--- Smallest flagged spellID in Set that is still flagged and on the bars.
--- Stale entries (Flags cleared by DestroyAllOverlays/Fetch) are pruned here.
-local function FirstFlagged (Set)
+-- Smallest flagged spellID in Set that is still flagged, on the bars,
+-- AND ready to cast right now (v1.1.0 readiness gate). Stale entries
+-- (Flags cleared by DestroyAllOverlays/Fetch) and unready spells
+-- (cooldown / unusable) are pruned here so the companion never hammers
+-- an unavailable key while other slots have live suggestions.
+-- InterruptSet members additionally require a live interruptible cast.
+local function FirstFlagged (Set, IsInterrupt)
   local MaxDps = MaxDpsEngine();
   local Flags = MaxDps and MaxDps.Flags;
   local Spells = MaxDps and MaxDps.Spells;
@@ -248,7 +268,17 @@ local function FirstFlagged (Set)
   local Best = nil;
   for SpellID in pairs(Set) do
     if Flags[SpellID] == true and Spells[SpellID] then
-      if not Best or SpellID < Best then Best = SpellID; end
+      local Ready;
+      if IsInterrupt then Ready = MDB.IsInterruptReady(SpellID);
+      else Ready = MDB.IsSpellReady(SpellID); end
+      if Ready then
+        if not Best or SpellID < Best then Best = SpellID; end
+      else
+        -- Unready right now (cooldown ticking, no cast to kick): drop from
+        -- the set so the NEXT slot wins this frame. The glow hook re-adds
+        -- it when MaxDps re-suggests it, so nothing is lost permanently.
+        Set[SpellID] = nil;
+      end
     else
       Set[SpellID] = nil;
     end
@@ -257,7 +287,7 @@ local function FirstFlagged (Set)
 end
 
 function MDB.GetInterruptSpellID ()
-  return FirstFlagged(InterruptSet);
+  return FirstFlagged(InterruptSet, true);
 end
 
 function MDB.GetDefensiveSpellID ()
@@ -287,7 +317,8 @@ function MDB.GetConsumableSpellID ()
   local Items = ItemSpellIDs();
   local Best = nil;
   for SpellID, On in pairs(Flags) do
-    if On == true and Items[SpellID] and Spells[SpellID] then
+    if On == true and Items[SpellID] and Spells[SpellID]
+      and MDB.IsSpellReady(SpellID) then
       if not Best or SpellID < Best then Best = SpellID; end
     end
   end
@@ -307,11 +338,148 @@ function MDB.GetCooldownSpellID ()
   for SpellID, On in pairs(Flags) do
     if On == true and type(SpellID) == "number" and Spells[SpellID]
       and not InterruptSet[SpellID] and not DefensiveSet[SpellID]
-      and not Items[SpellID] then
+      and not Items[SpellID] and MDB.IsSpellReady(SpellID) then
       if not Best or SpellID < Best then Best = SpellID; end
     end
   end
   return Best;
+end
+
+--- ======= READINESS GATE (v1.1.0) =======
+
+-- True when the spell can actually be cast RIGHT NOW. Read-only queries
+-- only, all pcall-guarded (a dead API on one client must degrade to
+-- "ready" rather than blanking the whole rotation):
+--
+--   1. Charges: C_Spell.GetSpellCharges (Blizzard charge API, no taint) —
+--      0 charges and full recharge remaining = not ready. >= 1 charge =
+--      ready regardless of the recharge timer.
+--   2. Cooldown: MaxDps:CooldownConsolidated (upstream's own GCD-aware
+--      helper, vendor/MaxDps/Helper.lua:1892) — .ready false = on real
+--      cooldown (GCD alone does NOT count: remains<=GCD forced to 0, and
+--      remains<=0.5s forced to 0, so we never skip a spell over the GCD
+--      or a sub-second tail). Missing helper = fall back to raw
+--      C_Spell.GetSpellCooldown with the same GCD/tail forgiveness.
+--   3. Usable: C_Spell.IsSpellUsable — false = out of range / no mana /
+--      wrong stance / silenced etc.
+--   4. Overlay glow (Devotion-special): MaxDps:GlowInteruptMidnight sets
+--      Flags[spell] even when the target is NOT interruptible and only
+--      dims the overlay alpha to 0 (vendor Buttons.lua:1136-1143 — the flag
+--      is never cleared for a non-interruptible cast). A dedicated
+--      InterruptReady check below re-validates the target cast instead of
+--      trusting the flag.
+--
+-- Anything unknown (nil APIs, pcall failure, no cooldown info) returns
+-- TRUE: fail-open, so an API hiccup can never silence the rotation.
+local function IsNilOrEmpty (Value)
+  return Value == nil or Value == 0;
+end
+
+local function HasCharges (SpellID)
+  if not (_G.C_Spell and type(_G.C_Spell.GetSpellCharges) == "function") then
+    return nil;  -- unknown: let the cooldown path decide
+  end
+  local Ok, Info = pcall(_G.C_Spell.GetSpellCharges, SpellID);
+  if not Ok or type(Info) ~= "table" then return nil; end
+  local Charges = Info.currentCharges;
+  if type(Charges) ~= "number" then return nil; end
+  if Charges >= 1 then return true; end
+  -- 0 charges: ready only if a recharge lands within the forgiveness
+  -- window (same 0.5 s tail the upstream helper uses).
+  local Start = Info.cooldownStartTime or 0;
+  local Duration = Info.cooldownDuration or 0;
+  if type(Start) ~= "number" or type(Duration) ~= "number"
+    or Start <= 0 or Duration <= 0 then
+    return false;
+  end
+  local Remains = Duration - (GetTime() - Start);
+  return Remains <= 0.5;
+end
+
+local function CooldownReady (SpellID)
+  local MaxDps = MaxDpsEngine();
+  if MaxDps and type(MaxDps.CooldownConsolidated) == "function" then
+    local Ok, Info = pcall(MaxDps.CooldownConsolidated, MaxDps, SpellID);
+    if Ok and type(Info) == "table" and Info.ready ~= nil then
+      return Info.ready == true;
+    end
+    -- pcall failed or no .ready field: fall through to raw API.
+  end
+  -- Raw fallback (same forgiveness as upstream: GCD + 0.5 s tail).
+  if not (_G.C_Spell and type(_G.C_Spell.GetSpellCooldown) == "function") then
+    return true;  -- fail-open
+  end
+  local Ok, Info = pcall(_G.C_Spell.GetSpellCooldown, SpellID);
+  if not Ok or type(Info) ~= "table" then return true; end
+  local Start = Info.startTime or 0;
+  local Duration = Info.duration or 0;
+  if type(Start) ~= "number" or type(Duration) ~= "number" then return true; end
+  if Start <= 0 or Duration <= 0 then return true; end
+  local Remains = Duration - (GetTime() - Start);
+  -- GCD forgiveness: a spell whose remaining time fits inside the GCD is
+  -- effectively ready (it will be off GCD by press time).
+  local OkGcd, GcdInfo = pcall(_G.C_Spell.GetSpellCooldown, 61304);
+  if OkGcd and type(GcdInfo) == "table" and type(GcdInfo.duration) == "number"
+    and GcdInfo.duration > 0 and Remains <= GcdInfo.duration then
+    return true;
+  end
+  return Remains <= 0.5;
+end
+
+local function UsableNow (SpellID)
+  if not (_G.C_Spell and type(_G.C_Spell.IsSpellUsable) == "function") then
+    return true;  -- fail-open
+  end
+  local Ok, Usable = pcall(_G.C_Spell.IsSpellUsable, SpellID);
+  -- pcall failure or nil verdict: fail-open. Explicit false = unusable.
+  if not Ok or Usable == nil then return true; end
+  return Usable == true;
+end
+
+--- Returns true when the spell may be encoded into a slot.
+function MDB.IsSpellReady (SpellID)
+  if type(SpellID) ~= "number" or SpellID == 0 then return false; end
+  -- Charges first: a 0-charge spell is dead even if the cooldown API
+  -- reports something odd.
+  local Charged = HasCharges(SpellID);
+  if Charged == false then return false; end
+  if Charged == true then
+    -- Charges available: skip the cooldown check (recharge timer runs
+    -- while charges remain) but still require usable.
+    return UsableNow(SpellID);
+  end
+  if not CooldownReady(SpellID) then return false; end
+  return UsableNow(SpellID);
+end
+
+--- Interrupt slots need a live, interruptible cast on the target — the
+--- upstream flag alone is not enough (see header note 4). Read-only:
+--- UnitCastingInfo/UnitChannelInfo + the interruptible boolean, same
+--- fields the overlay-alpha code reads (vendor Buttons.lua:1125-1127).
+function MDB.IsInterruptReady (SpellID)
+  if not MDB.IsSpellReady(SpellID) then return false; end
+  local Target = "target";
+  if type(UnitExists) ~= "function" or not UnitExists(Target) then
+    return false;
+  end
+  local Interruptible = nil;
+  if type(UnitCastingInfo) == "function" then
+    local Ok, _, _, _, _, _, _, _, NotInt = pcall(UnitCastingInfo, Target);
+    -- select(8) of UnitCastingInfo is notInterruptible (boolean). We want
+    -- the inverse: interruptible == explicitly false.
+    if Ok and NotInt ~= nil then Interruptible = (NotInt == false); end
+  end
+  if Interruptible == nil and type(UnitChannelInfo) == "function" then
+    local Ok, _, _, _, _, _, _, NotInt = pcall(UnitChannelInfo, Target);
+    if Ok and NotInt ~= nil then Interruptible = (NotInt == false); end
+  end
+  -- No cast running (both APIs returned nothing usable): fail-OPEN for the
+  -- cast check — MaxDps may pre-suggest the interrupt for the cast that is
+  -- about to start, and the cooldown/usable gates above already passed.
+  -- But an explicitly non-interruptible cast (Interruptible == false) is a
+  -- hard no: encoding it would spam kick into an immune cast.
+  if Interruptible == false then return false; end
+  return true;
 end
 
 --- ======= BINDING RESOLUTION =======

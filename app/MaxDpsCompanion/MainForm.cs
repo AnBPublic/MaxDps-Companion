@@ -320,7 +320,7 @@ internal sealed class MainForm : Form
         catch { /* loose art missing: title text carries the identity */ }
         var headerTitle = new Label
         {
-            Text = "MaxDPS Companion v1.0.0",
+            Text = "MaxDPS Companion v1.1.0",
             AutoSize = false,
             Location = new Point(48, 0),
             Size = new Size(220, 48),
@@ -420,17 +420,10 @@ internal sealed class MainForm : Form
         _slotsValue.AutoEllipsis = true;
         _slotsValue.TextAlign = ContentAlignment.MiddleLeft;
         _slotsValue.Text = "-";
-        _lastKeyValue.Font = new Font(UiFont, 8.25F);
-        _lastKeyValue.ForeColor = Color.FromArgb(159, 181, 191);
-        _lastKeyValue.BackColor = Color.Transparent;
-        _lastKeyValue.AutoSize = false;
-        _lastKeyValue.Dock = DockStyle.Fill;
-        _lastKeyValue.AutoEllipsis = true;
-        _lastKeyValue.TextAlign = ContentAlignment.MiddleLeft;
-        _lastKeyValue.Text = "-";
         statusTextPanel.Controls.Add(_statusValue, 0, 0);
         // Slot summary + last key live in the Advanced strip readout; the
         // hero row keeps status only so stopped/idle states cannot clip.
+        // (_slotsValue/_lastKeyValue are initialised in BuildStripBox.)
         _slotsValue.Visible = false;
         _lastKeyValue.Visible = false;
         leftPanel.Controls.Add(_dot, 0, 0);
@@ -750,6 +743,22 @@ internal sealed class MainForm : Form
         };
         grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
         grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        _slotsValue.Font = new Font(UiFont, 8.25F);
+        _slotsValue.ForeColor = Color.FromArgb(159, 181, 191);
+        _slotsValue.BackColor = Color.Transparent;
+        _slotsValue.AutoSize = false;
+        _slotsValue.Dock = DockStyle.Fill;
+        _slotsValue.AutoEllipsis = true;
+        _slotsValue.TextAlign = ContentAlignment.MiddleLeft;
+        _slotsValue.Text = "-";
+        _lastKeyValue.Font = new Font(UiFont, 8.25F);
+        _lastKeyValue.ForeColor = Color.FromArgb(159, 181, 191);
+        _lastKeyValue.BackColor = Color.Transparent;
+        _lastKeyValue.AutoSize = false;
+        _lastKeyValue.Dock = DockStyle.Fill;
+        _lastKeyValue.AutoEllipsis = true;
+        _lastKeyValue.TextAlign = ContentAlignment.MiddleLeft;
+        _lastKeyValue.Text = "-";
         grid.Controls.Add(_slotsValue, 0, 0);
         grid.Controls.Add(_lastKeyValue, 0, 1);
         var tip = new ToolTip();

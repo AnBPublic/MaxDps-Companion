@@ -7,9 +7,11 @@ MaxDps engine (vendor/, read-only)
   └─ MaxDps.Spell (current suggestion per category)
        │
        ▼
-MaxDpsBridge addon  — 8-cell pixel strip (protocol v1)
+MaxDpsBridge addon  — 8-cell pixel strip (protocol v1, bridge 1.1.0)
   cell0 magic · 1 Main · 2 CD · 3 Interrupt · 4 Defensive ·
   5 Consumable · 6 state+heartbeat · 7 ver+checksum+commit
+  slots gated: only ready spells encode (cooldown/usable/charges;
+  interrupt slots need a live interruptible cast)
        │  (flat colours, top-left corner overlay)
        ▼
 MaxDpsCompanion.exe — CopyFromScreen sample @ PollIntervalMs
@@ -36,7 +38,7 @@ MaxDps-Companion/
   install-addon.ps1          copy bridge → Interface\AddOns
   settings.ini               tracked default (local copy lives in dist\)
   dist/                      publish output (ignored except .gitkeep)
-  VERSION.txt                1.0.0 + upstream pin + Interface 120100
+  VERSION.txt                1.1.0 + upstream pin + Interface 120100
 ```
 
 ## Key invariants

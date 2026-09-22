@@ -1,32 +1,50 @@
 # Handover — MaxDps-Companion
 
-## Status: v1.0.0 + post-release fix series (static + smoke verified, live E2E outstanding)
+## Status: v1.1.0 — readiness gate (build green, smoke green, live verify next)
 
-Tag/base `ac84240` (v1.0.0): 8-cell `MaxDpsBridge` addon + `MaxDpsCompanion`
+HEAD: readiness-gated slots (bridge `1.1.0`) + app `1.1.0` title/csproj.
+Base `ac84240` (v1.0.0): 8-cell `MaxDpsBridge` addon + `MaxDpsCompanion`
 .NET8 WinForms app (PRP chrome, Aethys engine), vendor snapshot of upstream
 MaxDps v11.3.43 + all class modules.
 
-HEAD `7cf7f63` (2026-09-10): 18 fix/feat commits landed after the v1.0.0 base
-(see *Post-release series* below). `build.ps1` publish green at HEAD
-(commit `7cf7f63`, 2026-09-21), `install-addon.ps1` deployed to retail
-`_retail_\Interface\AddOns` and the live addon files hash-match the repo.
+## v1.1.0 — what changed and why
+
+The companion hammered one unavailable key while other slots had live
+suggestions. Root cause: the bridge encoded whatever MaxDps suggested
+without checking castability, and the app's priority loop replays the
+first valid slot every tick. Fix is bridge-side (one place, all slots):
+
+- `addon/MaxDpsBridge/Reader.lua`: `MDB.IsSpellReady` (charges →
+  `CooldownConsolidated` GCD-aware → `IsSpellUsable`), `MDB.IsInterruptReady`
+  (ready + live interruptible cast on target; upstream flag alone lies —
+  `GlowInteruptMidnight` sets `Flags` and only dims overlay alpha to 0 on
+  non-interruptible casts, vendor `Buttons.lua:1136-1143`).
+- All five getters gated; `WriteSlot` re-gates at encode time
+  (`Bridge.lua`); `/mdb status` gains `ready=MCIDN` flags.
+- Versions: bridge `1.1.0` (`MDB.VERSION`, `.toc`, `VERSION.txt`),
+  app `1.1.0` (csproj + title), repo `VERSION.txt`.
 
 ## Validated
 
-- `build.ps1` (`dotnet publish -c Release win-x64`): 0 warnings, 0 errors
-  at HEAD `7cf7f63`; `dist\MaxDpsCompanion.exe` refreshed same commit.
-- `--ui-smoke-test` exit 0; `--ui-snapshot` renders hero card clean
-  (status + 7 toggles + strip + link + 5 buttons). *(v1.0.0-era; re-check
-  after the one-click Recalibrate flow if in doubt.)*
-- Bridge installed at retail AddOns\MaxDpsBridge (7 files) and **all 7
-  files SHA-256 match the repo source**; upstream MaxDps* folders untouched.
-- Start Menu shortcut `MaxDPS Companion.lnk` created (taskbar: right-click
+## Validated (v1.1.0)
+
+- `dotnet build -c Release`: 0 warnings, 0 errors.
+- `--ui-smoke-test` exit 0.
+- Bridge installed at retail AddOns\MaxDpsBridge; upstream MaxDps* folders untouched.
+- Start Menu shortcut `MaxDPS Companion.lnk` (taskbar: right-click
   the running app → Pin to taskbar; assembly identity is set).
 - BNet launch: `battlenet://WoW/` protocol first, exe fallback minimized;
   remembered-account login, no credentials anywhere. SSO autologin via
   Battle.net `--exec="launch WoW"` (same path as the Play button).
 
-## Post-release series (ac84240 → 7cf7f63)
+## Outstanding (needs retail run)
+
+1. `/reload`, `/mdb status` → expect `v1.1.0 ... ready=MCIDN` (uppercase =
+   ready/encoded, lowercase m = suggested-but-unready, `-` = none).
+2. Start → `link alive`, `sending`; verify it skips a cooling spell and
+   fires the next ready slot instead of hammering one key.
+
+## Post-release series (ac84240 → v1.1.0)
 
 Perf/sampler: 1px→8px strip parity with Aethys, centre-pixel/median sampler,
 drift-free loop, change-gated UI repaint, narrow-window handling, MinCell 2,

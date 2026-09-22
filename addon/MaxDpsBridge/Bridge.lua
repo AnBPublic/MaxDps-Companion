@@ -36,7 +36,7 @@
 
 local addonName, MDB = ...;
 
-MDB.VERSION = "1.0.0";
+MDB.VERSION = "1.1.0";
 
 -- Chat print, defined FIRST: AutoCalibrate (below) and the Update watchdog
 -- both call it, and Lua resolves locals lexically — a later `local
@@ -165,7 +165,18 @@ end
 
 --- ======= MAXDPS READOUT =======
 
-local function WriteSlot (CellIndex, SpellID)
+local function WriteSlot (CellIndex, SpellID, IsInterrupt)
+  -- Belt-and-braces: the getters already gate on readiness, but a stale
+  -- value between their check and this encode must never go on the wire.
+  -- Unready spells encode as EMPTY (FLAG_VALID clear) so the companion
+  -- skips the slot and fires the next ready one instead of hammering an
+  -- unavailable key.
+  if SpellID then
+    local Ready;
+    if IsInterrupt then Ready = MDB.IsInterruptReady(SpellID);
+    else Ready = MDB.IsSpellReady(SpellID); end
+    if not Ready then SpellID = nil; end
+  end
   local VirtualKey, Modifiers = MDB.ResolveBinding(SpellID);
   if not VirtualKey then
     Paint(CellIndex, 0, 0, 0);
@@ -276,7 +287,7 @@ local function Update (self, Delta)
 
   local R1, G1, B1 = WriteSlot(1, MDB.GetMainSpellID());
   local R2, G2, B2 = WriteSlot(2, MDB.GetCooldownSpellID());
-  local R3, G3, B3 = WriteSlot(3, MDB.GetInterruptSpellID());
+  local R3, G3, B3 = WriteSlot(3, MDB.GetInterruptSpellID(), true);
   local R4, G4, B4 = WriteSlot(4, MDB.GetDefensiveSpellID());
   local R5, G5, B5 = WriteSlot(5, MDB.GetConsumableSpellID());
 
@@ -373,9 +384,21 @@ local function HandleCommand (Input)
     else
       NextFn = "no-engine";
     end
-    Print(("v%s enabled=%s calibrate=%s offset=%d,%d cell=%dpx bound=%d spell=%s next=%s")
+    -- Ready flags (v1.1.0): one letter per slot, uppercase = ready and
+    -- encoded, lowercase = suggested but on cooldown/unusable (skipped),
+    -- '-' = no suggestion. Lets you see at a glance WHY the companion
+    -- fires slot 2 while slot 1 shows a spell in MaxDps.
+    local Ready = "";
+    if MDB.GetMainSpellID() then Ready = Ready .. "M";
+    elseif _G.MaxDps and _G.MaxDps.Spell and _G.MaxDps.Spell ~= 0 then Ready = Ready .. "m";
+    else Ready = Ready .. "-"; end
+    if MDB.GetCooldownSpellID() then Ready = Ready .. "C"; else Ready = Ready .. "-"; end
+    if MDB.GetInterruptSpellID() then Ready = Ready .. "I"; else Ready = Ready .. "-"; end
+    if MDB.GetDefensiveSpellID() then Ready = Ready .. "D"; else Ready = Ready .. "-"; end
+    if MDB.GetConsumableSpellID() then Ready = Ready .. "N"; else Ready = Ready .. "-"; end
+    Print(("v%s enabled=%s calibrate=%s offset=%d,%d cell=%dpx bound=%d spell=%s next=%s ready=%s")
       :format(MDB.VERSION, tostring(DB.Enabled), tostring(DB.Calibrate),
-        DB.OffsetX, DB.OffsetY, DB.CellSize, MDB.BindingCount(), tostring(Main), NextFn));
+        DB.OffsetX, DB.OffsetY, DB.CellSize, MDB.BindingCount(), tostring(Main), NextFn, Ready));
   elseif Command == "version" then
     Print("MaxDpsBridge v" .. MDB.VERSION .. " (protocol v" .. PROTOCOL_VERSION .. ")");
   elseif Command == "autocal" then
