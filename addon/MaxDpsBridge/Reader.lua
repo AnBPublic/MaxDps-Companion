@@ -9,12 +9,45 @@
 --   Defensive  = Flags entry set via MaxDps:GlowDefensiveHPMidnight
 --   Consumable = flagged spellID that appears in MaxDps.ItemSpells values
 --
--- READINESS (v1.1.0): every slot passes through MDB.IsSpellReady before it
+-- READINESS (v1.2.0): every slot passes through MDB.IsSpellReady before it
 -- is encoded. A spell on cooldown or currently unusable (out of range,
 -- no resources, shapeshifted, ...) encodes as EMPTY (FLAG_VALID clear) so
 -- the companion skips it and fires the next ready slot instead of
--- hammering an unavailable key. Read-only queries only: C_Spell cooldown
--- + MaxDps:CooldownConsolidated (GCD-aware) + C_Spell.IsSpellUsable.
+-- hammering an unavailable key.
+--
+-- SECRET-SAFETY (v1.2.0, Midnight 12.x): in restricted contexts (combat /
+-- encounter / M+ / PvP) C_Spell.GetSpellCooldown / GetSpellCharges hand
+-- back SECRET numbers and booleans. Tainted addon code may store/pass
+-- secrets but must never compare, arithmetic, boolean-test, or key them:
+-- doing so throws immediately ("attempt to compare local 'Start' (a
+-- secret number value, while execution tainted by 'MaxDpsBridge')" — the
+-- 860x spam from the v1.1.0 gate at Reader.lua:417 via IsSpellReady <-
+-- GetMainSpellID <- Bridge Update). The gate is now secret-safe by
+-- construction, using ONLY the fields Blizzard marks NeverSecret:
+--
+--   * Cooldown: SpellCooldownInfo.isActive / .isOnGCD (NeverSecret bools,
+--     the plain `true` seen in the error dump). isActive==false => no
+--     active cooldown. isActive==true + isOnGCD==true => the wait is the
+--     GCD, which v1.1.0 deliberately forgives. isActive==true +
+--     isOnGCD==false => real cooldown => not ready. Only when isActive is
+--     missing does a pcall-guarded numeric fallback run; the secret throw
+--     inside it is caught and degrades to fail-open.
+--   * Charges: SpellChargeInfo.isActive (NeverSecret) plus a guarded
+--     currentCharges compare. currentCharges is secret-restricted too, so
+--     it is probed with issecretvalue (pcall-guarded, failure = unsafe):
+--     secret => unknown => fail-open; readable => old v1.1.0 semantics.
+--     cooldownStartTime/cooldownDuration are never compared directly.
+--   * Usable: C_Spell.IsSpellUsable (no SecretWhen predicate) => plain
+--     booleans, safe to branch on.
+--   * MaxDps:CooldownConsolidated is never called: its remains math runs
+--     inside tainted execution and throws on the same secrets (upstream
+--     Helper.lua:1892 does GetTime() arithmetic on secret start/duration).
+--   * Secret spell IDs are unbranchable and unencodable (the pixel strip
+--     needs nibble math), so they degrade to "no suggestion" instead of
+--     erroring.
+-- Fail-open everywhere: unknown/nil/pcall-failure degrades to "ready" so
+-- an API hiccup can never silence the rotation; a secret spell ID
+-- degrades to "no suggestion" for the same reason.
 -- MaxDps:CheckSpellUsable is deliberately NOT used here: it prints chat
 -- errors on failure and has side effects beyond a boolean.
 --
@@ -50,9 +83,51 @@ local function MaxDpsEngine ()
   return Direct;
 end
 
+--- ======= SECRET-SAFETY HELPERS =======
+
+-- Midnight 12.x returns SECRET values from combat-restricted APIs. Tainted
+-- addon code may store and pass them, but comparing, doing arithmetic on,
+-- boolean-testing, or using one as a table key throws immediately. These
+-- helpers are the ONLY place the bridge probes a possibly-secret value, so
+-- no raw cooldown/charge field is ever compared directly.
+--
+-- issecretvalue is the sanctioned probe but is itself annotated
+-- SecretArguments=AllowedWhenUntainted, so the probe is pcall-guarded and
+-- FAILURE IS TREATED AS UNSAFE: we only ever do numeric work on a value
+-- that proved non-secret. Callers treat "unsafe" as UNKNOWN (nil) and
+-- fail OPEN — never as an error, never as a false "not ready".
+function MDB.IsValueSafe (Value)
+  if type(issecretvalue) == "function" then
+    local Ok, Secret = pcall(issecretvalue, Value);
+    if not Ok or Secret == true then return false; end
+  end
+  return true;
+end
+
+-- A spell ID usable for compare / table key / nibble math: a real number,
+-- provably non-secret, nonzero. Secret or malformed IDs cannot be
+-- branched on or encoded, so callers treat false as "no suggestion".
+local function IsSpellIDValue (Value)
+  if type(Value) ~= "number" then return false; end
+  if not MDB.IsValueSafe(Value) then return false; end
+  return Value ~= 0;
+end
+
+-- A NeverSecret boolean from an API table: plain when it is a real
+-- boolean, nil when missing or (defensively) secret. Docs bless these
+-- fields as NeverSecret, so no pcall dance is needed beyond the type
+-- check; a secret here would still be caught by IsValueSafe.
+local function SafeBool (Value)
+  if type(Value) ~= "boolean" then return nil; end
+  if not MDB.IsValueSafe(Value) then return nil; end
+  return Value;
+end
+
 --- ======= CATEGORY HOOKS =======
 
 local function SyncSet (Set, SpellID)
+  -- Secret IDs cannot be table keys or compares: drop them outright.
+  if not IsSpellIDValue(SpellID) then return; end
   local MaxDps = MaxDpsEngine();
   if MaxDps and MaxDps.Flags and MaxDps.Flags[SpellID] == true then
     Set[SpellID] = true;
@@ -207,7 +282,7 @@ function MDB.GetMainSpellID ()
   if not MaxDps then return nil; end
   MDB.EnsureEngine();
   local SpellID = MaxDps.Spell;
-  if type(SpellID) == "number" and SpellID ~= 0 then
+  if IsSpellIDValue(SpellID) then
     -- Even the engine's current pick can go stale between its tick and
     -- ours (it fired, now on cooldown). Gate it like every other slot.
     if MDB.IsSpellReady(SpellID) then return SpellID; end
@@ -220,7 +295,7 @@ function MDB.GetMainSpellID ()
   if type(MaxDps.NextSpell) == "function"
     and MaxDps.FrameData and MaxDps.FrameData.ACSpells then
     local Ok, Res = pcall(MaxDps.NextSpell, MaxDps);
-    if Ok and type(Res) == "number" and Res ~= 0 then return Res; end
+    if Ok and IsSpellIDValue(Res) then return Res; end
   end
   -- Calibrate-pattern readout also needs the assisted-combat answer, so
   -- run the class glow pass first (fills Flags/InterruptSet/DefensiveSet
@@ -237,7 +312,7 @@ function MDB.GetMainSpellID ()
   -- Plus our own readiness gate: the AC pick can be a frame stale too.
   if _G.C_AssistedCombat and type(_G.C_AssistedCombat.GetNextCastSpell) == "function" then
     local Ok, Next = pcall(_G.C_AssistedCombat.GetNextCastSpell, false);
-    if Ok and type(Next) == "number" and Next ~= 0 then
+    if Ok and IsSpellIDValue(Next) then
       if type(MaxDps.CheckSpellUsable) == "function" then
         local SpellName = nil;
         if _G.C_Spell and type(_G.C_Spell.GetSpellName) == "function" then
@@ -255,11 +330,13 @@ function MDB.GetMainSpellID ()
 end
 
 -- Smallest flagged spellID in Set that is still flagged, on the bars,
--- AND ready to cast right now (v1.1.0 readiness gate). Stale entries
--- (Flags cleared by DestroyAllOverlays/Fetch) and unready spells
+-- AND ready to cast right now (v1.2.0 secret-safe readiness gate). Stale
+-- entries (Flags cleared by DestroyAllOverlays/Fetch) and unready spells
 -- (cooldown / unusable) are pruned here so the companion never hammers
 -- an unavailable key while other slots have live suggestions.
 -- InterruptSet members additionally require a live interruptible cast.
+-- Keys are safe by construction (SyncSet drops secret IDs), the guard is
+-- belt-and-braces so a compare can never see a secret.
 local function FirstFlagged (Set, IsInterrupt)
   local MaxDps = MaxDpsEngine();
   local Flags = MaxDps and MaxDps.Flags;
@@ -267,7 +344,7 @@ local function FirstFlagged (Set, IsInterrupt)
   if not Flags or not Spells then return nil; end
   local Best = nil;
   for SpellID in pairs(Set) do
-    if Flags[SpellID] == true and Spells[SpellID] then
+    if IsSpellIDValue(SpellID) and Flags[SpellID] == true and Spells[SpellID] then
       local Ready;
       if IsInterrupt then Ready = MDB.IsInterruptReady(SpellID);
       else Ready = MDB.IsSpellReady(SpellID); end
@@ -303,7 +380,7 @@ local function ItemSpellIDs ()
   local Out = {};
   if MaxDps and MaxDps.ItemSpells then
     for _, ItemSpellID in pairs(MaxDps.ItemSpells) do
-      if type(ItemSpellID) == "number" then Out[ItemSpellID] = true; end
+      if IsSpellIDValue(ItemSpellID) then Out[ItemSpellID] = true; end
     end
   end
   return Out;
@@ -317,7 +394,7 @@ function MDB.GetConsumableSpellID ()
   local Items = ItemSpellIDs();
   local Best = nil;
   for SpellID, On in pairs(Flags) do
-    if On == true and Items[SpellID] and Spells[SpellID]
+    if On == true and IsSpellIDValue(SpellID) and Items[SpellID] and Spells[SpellID]
       and MDB.IsSpellReady(SpellID) then
       if not Best or SpellID < Best then Best = SpellID; end
     end
@@ -336,7 +413,7 @@ function MDB.GetCooldownSpellID ()
   local Items = ItemSpellIDs();
   local Best = nil;
   for SpellID, On in pairs(Flags) do
-    if On == true and type(SpellID) == "number" and Spells[SpellID]
+    if On == true and IsSpellIDValue(SpellID) and Spells[SpellID]
       and not InterruptSet[SpellID] and not DefensiveSet[SpellID]
       and not Items[SpellID] and MDB.IsSpellReady(SpellID) then
       if not Best or SpellID < Best then Best = SpellID; end
@@ -345,34 +422,80 @@ function MDB.GetCooldownSpellID ()
   return Best;
 end
 
---- ======= READINESS GATE (v1.1.0) =======
+--- ======= READINESS GATE (v1.2.0, secret-safe) =======
 
 -- True when the spell can actually be cast RIGHT NOW. Read-only queries
 -- only, all pcall-guarded (a dead API on one client must degrade to
--- "ready" rather than blanking the whole rotation):
+-- "ready" rather than blanking the whole rotation).
 --
---   1. Charges: C_Spell.GetSpellCharges (Blizzard charge API, no taint) —
---      0 charges and full recharge remaining = not ready. >= 1 charge =
---      ready regardless of the recharge timer.
---   2. Cooldown: MaxDps:CooldownConsolidated (upstream's own GCD-aware
---      helper, vendor/MaxDps/Helper.lua:1892) — .ready false = on real
---      cooldown (GCD alone does NOT count: remains<=GCD forced to 0, and
---      remains<=0.5s forced to 0, so we never skip a spell over the GCD
---      or a sub-second tail). Missing helper = fall back to raw
---      C_Spell.GetSpellCooldown with the same GCD/tail forgiveness.
---   3. Usable: C_Spell.IsSpellUsable — false = out of range / no mana /
---      wrong stance / silenced etc.
---   4. Overlay glow (Devotion-special): MaxDps:GlowInteruptMidnight sets
+-- SECRET-SAFETY: under Midnight restriction predicates (combat /
+-- encounter / M+ / PvP) C_Spell.GetSpellCooldown and GetSpellCharges
+-- return SECRET numbers and booleans. Tainted code that compares
+-- (<, <=, >, >=, ==), does arithmetic (+, -), boolean-tests, or keys on
+-- those values throws IMMEDIATELY ("attempt to compare local 'Start' (a
+-- secret number value, while execution tainted by 'MaxDpsBridge')") —
+-- the 860x spam from the v1.1.0 gate at Reader.lua:417.
+--
+-- This gate never touches a raw field. It uses only NeverSecret data:
+--
+--   1. Cooldown: SpellCooldownInfo.isActive / .isOnGCD — documented
+--      NeverSecret booleans (the plain `true` visible in the error dump).
+--      isActive==false => no active cooldown. isActive==true and
+--      isOnGCD==true => the wait is the GCD, which v1.1.0 deliberately
+--      forgave. isActive==true and isOnGCD==false => real cooldown => not
+--      ready. A pcall-guarded numeric fallback runs only when isActive is
+--      absent; a secret throw inside it is caught and fails open.
+--   2. Charges: SpellChargeInfo.isActive (NeverSecret) plus a
+--      currentCharges compare guarded by MDB.IsValueSafe. Secret/unknown
+--      currentCharges fails open; readable values keep v1.1.0 semantics.
+--      cooldownStartTime/cooldownDuration are only read when the charge
+--      count itself proved non-secret, so they are readable too.
+--   3. Usable: C_Spell.IsSpellUsable — no SecretWhen predicate => plain
+--      booleans, safe to branch on.
+--   4. MaxDps:CooldownConsolidated is deliberately NOT called: its
+--      remains math runs inside tainted execution and throws on the same
+--      secrets (upstream Helper.lua:1892).
+--   5. Overlay glow (Devotion-special): MaxDps:GlowInteruptMidnight sets
 --      Flags[spell] even when the target is NOT interruptible and only
 --      dims the overlay alpha to 0 (vendor Buttons.lua:1136-1143 — the flag
---      is never cleared for a non-interruptible cast). A dedicated
---      InterruptReady check below re-validates the target cast instead of
---      trusting the flag.
+--      is never cleared for a non-interruptible cast). The interrupt
+--      check below re-validates the target cast instead of trusting it.
 --
--- Anything unknown (nil APIs, pcall failure, no cooldown info) returns
--- TRUE: fail-open, so an API hiccup can never silence the rotation.
-local function IsNilOrEmpty (Value)
-  return Value == nil or Value == 0;
+-- Anything unknown (nil APIs, pcall failure, no cooldown info, secret
+-- values) returns TRUE: fail-open, so an API hiccup can never silence the
+-- rotation.
+
+-- Legacy numeric cooldown check, used only when the NeverSecret isActive
+-- flag is absent. Runs inside pcall at the call site: under restrictions
+-- startTime/duration are secret, the compare throws, and the throw is the
+-- signal to fail open. Keeps the v1.1.0 GCD + 0.5 s tail forgiveness.
+local function NumericCooldownReady (Info)
+  local Start = Info.startTime or 0;
+  local Duration = Info.duration or 0;
+  if type(Start) ~= "number" or type(Duration) ~= "number" then return true; end
+  if Start <= 0 or Duration <= 0 then return true; end
+  local Remains = Duration - (GetTime() - Start);
+  local OkGcd, GcdInfo = pcall(_G.C_Spell.GetSpellCooldown, 61304);
+  if OkGcd and type(GcdInfo) == "table" then
+    local GcdDuration = GcdInfo.duration;
+    if type(GcdDuration) == "number" and GcdDuration > 0 and Remains <= GcdDuration then
+      return true;
+    end
+  end
+  return Remains <= 0.5;
+end
+
+-- 0 banked charges: ready only when the recharge tail fits the same 0.5 s
+-- forgiveness window v1.1.0 used. Reached only when currentCharges proved
+-- non-secret, so start/duration are readable too; still probed + pcall'd.
+local function ChargeTailReady (Info)
+  local Start = Info.cooldownStartTime;
+  local Duration = Info.cooldownDuration;
+  if not MDB.IsValueSafe(Start) or not MDB.IsValueSafe(Duration) then return nil; end
+  if type(Start) ~= "number" or type(Duration) ~= "number" then return nil; end
+  if Start <= 0 or Duration <= 0 then return false; end
+  local Remains = Duration - (GetTime() - Start);
+  return Remains <= 0.5;
 end
 
 local function HasCharges (SpellID)
@@ -381,49 +504,45 @@ local function HasCharges (SpellID)
   end
   local Ok, Info = pcall(_G.C_Spell.GetSpellCharges, SpellID);
   if not Ok or type(Info) ~= "table" then return nil; end
+  -- NeverSecret (12.0.1+): false => not recharging => at max charges =>
+  -- a charge is banked and the spell is ready.
+  local Charging = SafeBool(Info.isActive);
+  if Charging == false then return true; end
   local Charges = Info.currentCharges;
+  if not MDB.IsValueSafe(Charges) then
+    -- Secret count (restricted content): cannot count without touching a
+    -- secret. Recharging => fail open (a 0-charge press is ignored by the
+    -- game; failing closed would drop the spell for the whole fight).
+    -- Otherwise unknown => let the cooldown path decide.
+    if Charging == true then return true; end
+    return nil;
+  end
   if type(Charges) ~= "number" then return nil; end
   if Charges >= 1 then return true; end
-  -- 0 charges: ready only if a recharge lands within the forgiveness
-  -- window (same 0.5 s tail the upstream helper uses).
-  local Start = Info.cooldownStartTime or 0;
-  local Duration = Info.cooldownDuration or 0;
-  if type(Start) ~= "number" or type(Duration) ~= "number"
-    or Start <= 0 or Duration <= 0 then
-    return false;
-  end
-  local Remains = Duration - (GetTime() - Start);
-  return Remains <= 0.5;
+  local OkTail, Ready = pcall(ChargeTailReady, Info);
+  if not OkTail or Ready == nil then return false; end
+  return Ready == true;
 end
 
 local function CooldownReady (SpellID)
-  local MaxDps = MaxDpsEngine();
-  if MaxDps and type(MaxDps.CooldownConsolidated) == "function" then
-    local Ok, Info = pcall(MaxDps.CooldownConsolidated, MaxDps, SpellID);
-    if Ok and type(Info) == "table" and Info.ready ~= nil then
-      return Info.ready == true;
-    end
-    -- pcall failed or no .ready field: fall through to raw API.
-  end
-  -- Raw fallback (same forgiveness as upstream: GCD + 0.5 s tail).
   if not (_G.C_Spell and type(_G.C_Spell.GetSpellCooldown) == "function") then
     return true;  -- fail-open
   end
   local Ok, Info = pcall(_G.C_Spell.GetSpellCooldown, SpellID);
   if not Ok or type(Info) ~= "table" then return true; end
-  local Start = Info.startTime or 0;
-  local Duration = Info.duration or 0;
-  if type(Start) ~= "number" or type(Duration) ~= "number" then return true; end
-  if Start <= 0 or Duration <= 0 then return true; end
-  local Remains = Duration - (GetTime() - Start);
-  -- GCD forgiveness: a spell whose remaining time fits inside the GCD is
-  -- effectively ready (it will be off GCD by press time).
-  local OkGcd, GcdInfo = pcall(_G.C_Spell.GetSpellCooldown, 61304);
-  if OkGcd and type(GcdInfo) == "table" and type(GcdInfo.duration) == "number"
-    and GcdInfo.duration > 0 and Remains <= GcdInfo.duration then
-    return true;
+  -- NeverSecret booleans (12.0.1+): plain true/false even while
+  -- startTime/duration are secret (seen in the live error dump).
+  local IsActive = SafeBool(Info.isActive);
+  if IsActive == false then return true; end   -- no active cooldown
+  if IsActive == true then
+    local OnGCD = SafeBool(Info.isOnGCD);
+    if OnGCD == true then return true; end     -- GCD wait: forgiven
+    if OnGCD == false then return false; end   -- real cooldown active
+    -- isOnGCD unreadable: fall through to the guarded numeric check.
   end
-  return Remains <= 0.5;
+  local OkNum, Ready = pcall(NumericCooldownReady, Info);
+  if not OkNum or Ready == nil then return true; end  -- secret throw: fail-open
+  return Ready == true;
 end
 
 local function UsableNow (SpellID)
@@ -438,7 +557,9 @@ end
 
 --- Returns true when the spell may be encoded into a slot.
 function MDB.IsSpellReady (SpellID)
-  if type(SpellID) ~= "number" or SpellID == 0 then return false; end
+  -- Secret IDs cannot be compared or encoded (the strip needs nibble
+  -- math): treat as "no suggestion" instead of throwing.
+  if not IsSpellIDValue(SpellID) then return false; end
   -- Charges first: a 0-charge spell is dead even if the cooldown API
   -- reports something odd.
   local Charged = HasCharges(SpellID);
@@ -453,31 +574,64 @@ function MDB.IsSpellReady (SpellID)
 end
 
 --- Interrupt slots need a live, interruptible cast on the target — the
---- upstream flag alone is not enough (see header note 4). Read-only:
---- UnitCastingInfo/UnitChannelInfo + the interruptible boolean, same
---- fields the overlay-alpha code reads (vendor Buttons.lua:1125-1127).
+--- upstream flag alone is not enough (see header note 5). Read-only:
+--- UnitCastingInfo/UnitChannelInfo + the notInterruptible boolean, the
+--- same fields the overlay-alpha code reads (vendor Buttons.lua:1125-1127).
+---
+--- SECRET-SAFETY: under SecretWhenUnitSpellCastRestricted, cast info for
+--- non-player units (i.e. every enemy) comes back SECRET, including
+--- notInterruptible. A secret boolean cannot be branched on, so it is
+--- probed and skipped; the verdict then degrades to "unknown" and the
+--- caller fails OPEN (trusts MaxDps's own flag), preserving interrupts in
+--- restricted content instead of dropping the slot for the whole fight.
+
+-- Reads the live target cast state. Returns true = interruptible,
+-- false = explicitly non-interruptible, nil = unknown (no cast / secret /
+-- API failure). notInterruptible sits at return #8 of UnitCastingInfo and
+-- #7 of UnitChannelInfo on retail 12.x (castingSpellID pushed the casting
+-- index from 7 to 8 in 7.2.5); both plausible slots are checked but only
+-- a readable boolean is ever accepted, so a number/string neighbour can
+-- never be mistaken for the flag.
+local function ReadInterruptible ()
+  local Target = "target";
+  if type(UnitCastingInfo) == "function" then
+    local Ok, R1, R2, R3, R4, R5, R6, R7, R8 = pcall(UnitCastingInfo, Target);
+    if Ok then
+      local NotInt = nil;
+      if type(R8) == "boolean" then NotInt = R8;
+      elseif type(R7) == "boolean" then NotInt = R7; end
+      if NotInt ~= nil and MDB.IsValueSafe(NotInt) then
+        return NotInt == false;
+      end
+    end
+  end
+  if type(UnitChannelInfo) == "function" then
+    local Ok, R1, R2, R3, R4, R5, R6, R7 = pcall(UnitChannelInfo, Target);
+    if Ok and type(R7) == "boolean" and MDB.IsValueSafe(R7) then
+      return R7 == false;
+    end
+  end
+  return nil;
+end
+
 function MDB.IsInterruptReady (SpellID)
   if not MDB.IsSpellReady(SpellID) then return false; end
   local Target = "target";
-  if type(UnitExists) ~= "function" or not UnitExists(Target) then
-    return false;
+  if type(UnitExists) == "function" then
+    local Ok, Exists = pcall(UnitExists, Target);
+    -- Only an explicitly readable "no target" denies: secret/unreadable
+    -- returns fall through to fail-open rather than blanking the slot.
+    if Ok and MDB.IsValueSafe(Exists) and Exists == false then
+      return false;
+    end
   end
-  local Interruptible = nil;
-  if type(UnitCastingInfo) == "function" then
-    local Ok, _, _, _, _, _, _, _, NotInt = pcall(UnitCastingInfo, Target);
-    -- select(8) of UnitCastingInfo is notInterruptible (boolean). We want
-    -- the inverse: interruptible == explicitly false.
-    if Ok and NotInt ~= nil then Interruptible = (NotInt == false); end
-  end
-  if Interruptible == nil and type(UnitChannelInfo) == "function" then
-    local Ok, _, _, _, _, _, _, NotInt = pcall(UnitChannelInfo, Target);
-    if Ok and NotInt ~= nil then Interruptible = (NotInt == false); end
-  end
-  -- No cast running (both APIs returned nothing usable): fail-OPEN for the
-  -- cast check — MaxDps may pre-suggest the interrupt for the cast that is
+  local OkRead, Interruptible = pcall(ReadInterruptible);
+  if not OkRead then return true; end
+  -- nil (no cast running or secret cast info): fail-OPEN for the cast
+  -- check — MaxDps may pre-suggest the interrupt for the cast that is
   -- about to start, and the cooldown/usable gates above already passed.
-  -- But an explicitly non-interruptible cast (Interruptible == false) is a
-  -- hard no: encoding it would spam kick into an immune cast.
+  -- Only an explicitly readable non-interruptible cast is a hard no:
+  -- encoding it would spam kick into an immune cast.
   if Interruptible == false then return false; end
   return true;
 end
@@ -690,7 +844,7 @@ end
 -- Results are cached per spellID; the cache is wiped by bar updates
 -- (via MDB.InvalidateBindings) and by MaxDps:Fetch/category hooks.
 function MDB.ResolveBinding (SpellID)
-  if type(SpellID) ~= "number" or SpellID == 0 then return nil, 0; end
+  if not IsSpellIDValue(SpellID) then return nil, 0; end
   MDB._BindCache = MDB._BindCache or {};
   local Cached = MDB._BindCache[SpellID];
   if Cached then

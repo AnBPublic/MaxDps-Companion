@@ -77,6 +77,19 @@ also clears a stuck pattern.
 - Without a profile the decoder uses the legacy fixed ±8 tolerance around
   the `nibble*17` ladder — fine on SDR, unreliable under HDR.
 
+## Restricted content (Midnight secrets)
+
+In combat / encounters / M+ / PvP, Blizzard marks cooldown and cast data as
+secret values. The bridge never compares or does arithmetic on them:
+readiness uses only NeverSecret `isActive` / `isOnGCD` / `isEnabled`
+booleans plus guarded charge counts, and any secret (spell ID, charge
+count, cast flag) degrades fail-open — an empty slot or a trusted
+suggestion, never a Lua error. `MaxDps:CooldownConsolidated` and
+`C_Spell.GetSpellCooldownDuration` are deliberately unused (their math
+touches secrets from tainted execution). Consequence: when a charge count
+is secret at 0 charges, the companion may press once into an empty charge;
+the game ignores that press.
+
 ## `/mdb` reference
 
 | Command | Effect |

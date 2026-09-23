@@ -7,11 +7,12 @@ MaxDps engine (vendor/, read-only)
   └─ MaxDps.Spell (current suggestion per category)
        │
        ▼
-MaxDpsBridge addon  — 8-cell pixel strip (protocol v1, bridge 1.1.0)
+MaxDpsBridge addon  — 8-cell pixel strip (protocol v1, bridge 1.2.0)
   cell0 magic · 1 Main · 2 CD · 3 Interrupt · 4 Defensive ·
   5 Consumable · 6 state+heartbeat · 7 ver+checksum+commit
-  slots gated: only ready spells encode (cooldown/usable/charges;
-  interrupt slots need a live interruptible cast)
+  slots gated secret-safely (v1.2.0): NeverSecret isActive/isOnGCD
+  cooldown booleans + guarded charge counts; interrupt slots read a
+  readable notInterruptible only; secrets always fail open, never throw
        │  (flat colours, top-left corner overlay)
        ▼
 MaxDpsCompanion.exe — CopyFromScreen sample @ PollIntervalMs
@@ -32,13 +33,14 @@ MaxDps-Companion/
   app/MaxDpsCompanion/       WinForms companion (sampler → PostMessage)
     ThisAssembly.Gen.cs      build stamp (git HEAD + date, title bar)
   docs/PROTOCOL.md           normative 8-cell spec
+  tests/secret_harness.lua   offline secret-safety harness (lua tests/...)
   vendor/                    pinned upstream MaxDps* snapshot (read-only)
     pin-versions.txt         expected folder names
   build.ps1                  kill → stamp → publish → verify → list
   install-addon.ps1          copy bridge → Interface\AddOns
   settings.ini               tracked default (local copy lives in dist\)
   dist/                      publish output (ignored except .gitkeep)
-  VERSION.txt                1.1.0 + upstream pin + Interface 120100
+  VERSION.txt                1.2.0 (bridge 1.2.0, app 1.1.0) + upstream pin
 ```
 
 ## Key invariants

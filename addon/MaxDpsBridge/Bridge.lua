@@ -36,7 +36,7 @@
 
 local addonName, MDB = ...;
 
-MDB.VERSION = "1.1.0";
+MDB.VERSION = "1.2.0";
 
 -- Chat print, defined FIRST: AutoCalibrate (below) and the Update watchdog
 -- both call it, and Lua resolves locals lexically — a later `local
@@ -189,9 +189,32 @@ local function WriteSlot (CellIndex, SpellID, IsInterrupt)
   return Hi, Lo, Flags;
 end
 
+-- Containment layer for the 20 Hz readout. The Reader gate is secret-safe
+-- by construction (see Reader.lua header), but a future client change must
+-- never turn the OnUpdate loop into Lua error spam (the v1.0.x 5595x
+-- counter) or leave the checksum math with nil operands. Any throw here
+-- degrades to "empty slot / no state" for that tick and is reported once.
+local function SafeReadout (Fn)
+  local Ok, Value = pcall(Fn);
+  if Ok then return Value; end
+  if not MDB._ReadoutWarned then
+    MDB._ReadoutWarned = true;
+    Print("readout probe recovered from an error (secret API?) - run /mdb status");
+  end
+  return nil;
+end
+
+local function WriteSlotSafe (CellIndex, SpellID, IsInterrupt)
+  local Ok, R, G, B = pcall(WriteSlot, CellIndex, SpellID, IsInterrupt);
+  if not Ok then return 0, 0, 0; end
+  return R or 0, G or 0, B or 0;
+end
+
 -- Target state is read-only: UnitExists/UnitIsDead/UnitCanAttack and
--- CheckInteractDistance never taint and never act on the world.
-local function TargetState ()
+-- CheckInteractDistance never act on the world. A secret boolean return
+-- (restricted unit comparison) or an API failure degrades to "no special
+-- state" — normal rendering — instead of erroring in the hot loop.
+local function TargetStateUnsafe ()
   if type(UnitExists) ~= "function" then return nil; end
   if not UnitExists("target") then return STATE_NEED_TARGET; end
   if type(UnitIsDead) == "function" and UnitIsDead("target") then
@@ -205,6 +228,12 @@ local function TargetState ()
     if Ok and Near then return STATE_NEED_INTERACT; end
   end
   return nil;
+end
+
+local function TargetState ()
+  local Ok, State = pcall(TargetStateUnsafe);
+  if not Ok then return nil; end
+  return State;
 end
 
 local function WriteStatus (State)
@@ -285,11 +314,11 @@ local function Update (self, Delta)
 
   MDB.EnsureHooks();
 
-  local R1, G1, B1 = WriteSlot(1, MDB.GetMainSpellID());
-  local R2, G2, B2 = WriteSlot(2, MDB.GetCooldownSpellID());
-  local R3, G3, B3 = WriteSlot(3, MDB.GetInterruptSpellID(), true);
-  local R4, G4, B4 = WriteSlot(4, MDB.GetDefensiveSpellID());
-  local R5, G5, B5 = WriteSlot(5, MDB.GetConsumableSpellID());
+  local R1, G1, B1 = WriteSlotSafe(1, SafeReadout(MDB.GetMainSpellID));
+  local R2, G2, B2 = WriteSlotSafe(2, SafeReadout(MDB.GetCooldownSpellID));
+  local R3, G3, B3 = WriteSlotSafe(3, SafeReadout(MDB.GetInterruptSpellID), true);
+  local R4, G4, B4 = WriteSlotSafe(4, SafeReadout(MDB.GetDefensiveSpellID));
+  local R5, G5, B5 = WriteSlotSafe(5, SafeReadout(MDB.GetConsumableSpellID));
 
   local AnySlot = bit.band(B1, FLAG_VALID) == FLAG_VALID
     or bit.band(B2, FLAG_VALID) == FLAG_VALID
@@ -390,7 +419,9 @@ local function HandleCommand (Input)
     -- fires slot 2 while slot 1 shows a spell in MaxDps.
     local Ready = "";
     if MDB.GetMainSpellID() then Ready = Ready .. "M";
-    elseif _G.MaxDps and _G.MaxDps.Spell and _G.MaxDps.Spell ~= 0 then Ready = Ready .. "m";
+    elseif _G.MaxDps and type(_G.MaxDps.Spell) == "number"
+      and MDB.IsValueSafe(_G.MaxDps.Spell) and _G.MaxDps.Spell ~= 0 then
+      Ready = Ready .. "m";
     else Ready = Ready .. "-"; end
     if MDB.GetCooldownSpellID() then Ready = Ready .. "C"; else Ready = Ready .. "-"; end
     if MDB.GetInterruptSpellID() then Ready = Ready .. "I"; else Ready = Ready .. "-"; end

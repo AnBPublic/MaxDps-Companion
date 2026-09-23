@@ -1,7 +1,7 @@
-1.1.0
-date: 2026-09-22
+1.2.0
+date: 2026-09-23
 git: <commit placeholder — fill at release>
 interface: 120100 (Retail Midnight 12.1)
 protocol: v1 (8 cells)
-readiness: v1.1.0 — slots gated on IsSpellReady (cooldown + usable + charges); interrupt slots on live interruptible cast
+readiness: v1.2.0 — secret-safe gate: NeverSecret isActive/isOnGCD/isEnabled booleans + pcall-guarded legacy numeric fallback; secret charge counts and secret spell IDs degrade fail-open (never throw); CooldownConsolidated never called
 upstream: MaxDps v11.3.43 (Interface 120100, read at runtime, never bundled)

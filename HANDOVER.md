@@ -1,48 +1,66 @@
 # Handover — MaxDps-Companion
 
-## Status: v1.1.0 — readiness gate (build green, smoke green, live verify next)
+## Status: v1.2.0 — secret-safe readiness gate (static + harness green, live verify owed)
 
-HEAD: readiness-gated slots (bridge `1.1.0`) + app `1.1.0` title/csproj.
+HEAD: secret-safe bridge `1.2.0` (Reader/Bridge) + unchanged app `1.1.0`.
 Base `ac84240` (v1.0.0): 8-cell `MaxDpsBridge` addon + `MaxDpsCompanion`
 .NET8 WinForms app (PRP chrome, Aethys engine), vendor snapshot of upstream
 MaxDps v11.3.43 + all class modules.
+Prior release `41db101` (v1.1.0): readiness gate (first cut), which turned
+out to be secret-unsafe — see below.
 
-## v1.1.0 — what changed and why
+## v1.2.0 — what changed and why
 
-The companion hammered one unavailable key while other slots had live
-suggestions. Root cause: the bridge encoded whatever MaxDps suggested
-without checking castability, and the app's priority loop replays the
-first valid slot every tick. Fix is bridge-side (one place, all slots):
+Live BugSack: `860x MaxDpsBridge/Reader.lua:417: attempt to compare local
+'Start' (a secret number value, while execution tainted by
+'MaxDpsBridge')` via `IsSpellReady` <- `GetMainSpellID` <- `Bridge.lua:288`.
+Midnight 12.x hands back SECRET `startTime`/`duration` from
+`C_Spell.GetSpellCooldown`/`GetSpellCharges` under combat/encounter/M+/PvP
+restrictions; tainted code may not compare or do arithmetic on them, so the
+v1.1.0 gate threw every 50 ms tick. Fix (addon-only, no app changes):
 
-- `addon/MaxDpsBridge/Reader.lua`: `MDB.IsSpellReady` (charges →
-  `CooldownConsolidated` GCD-aware → `IsSpellUsable`), `MDB.IsInterruptReady`
-  (ready + live interruptible cast on target; upstream flag alone lies —
-  `GlowInteruptMidnight` sets `Flags` and only dims overlay alpha to 0 on
-  non-interruptible casts, vendor `Buttons.lua:1136-1143`).
-- All five getters gated; `WriteSlot` re-gates at encode time
-  (`Bridge.lua`); `/mdb status` gains `ready=MCIDN` flags.
-- Versions: bridge `1.1.0` (`MDB.VERSION`, `.toc`, `VERSION.txt`),
-  app `1.1.0` (csproj + title), repo `VERSION.txt`.
+- `addon/MaxDpsBridge/Reader.lua`
+  - `MDB.IsValueSafe` / `IsSpellIDValue` / `SafeBool` helpers: the only
+    place a possibly-secret value is probed (`issecretvalue` in pcall;
+    failure = unsafe = treated as unknown).
+  - `CooldownReady`: branches only on NeverSecret `isActive` / `isOnGCD`
+    booleans (plain in the live error dump). GCD-only waits stay forgiven;
+    legacy table shape falls back to a pcall-contained numeric check that
+    fails open on a secret throw.
+  - `HasCharges`: NeverSecret `isActive` first; `currentCharges` compared
+    only when `MDB.IsValueSafe` passes; secret counts fail open.
+  - `MDB.IsSpellReady` / getters / `SyncSet` / `FirstFlagged` /
+    `ItemSpellIDs` / `ResolveBinding`: secret spell IDs degrade to
+    "no suggestion" (they cannot be branched on or nibble-encoded).
+  - `IsInterruptReady`: reads only a *readable* `notInterruptible`
+    (cast #8 / channel #7, both slots probed); secret cast flags => fail
+    open instead of throwing.
+  - `MaxDps:CooldownConsolidated` is never called (its math throws on the
+    same secrets, upstream `Helper.lua:1892`).
+- `addon/MaxDpsBridge/Bridge.lua`: containment layer — `SafeReadout` +
+  `WriteSlotSafe` wrap the 20 Hz readout so a future client change degrades
+  to an empty slot + one warning instead of error spam; `TargetState` is
+  pcall-isolated; `/mdb status` guards `MaxDps.Spell` before `~= 0`.
+- `tests/secret_harness.lua`: offline Lua 5.4 harness with secret
+  simulation (compare/arith/boolean-test/bool-tostring throw) and stubbed
+  WoW globals; 33 checks: restricted cooldown shapes, GCD forgiveness,
+  secret IDs/charges/flags, throw containment, full Bridge `Update` tick.
 
-## Validated
+## Validated (v1.2.0)
 
-## Validated (v1.1.0)
-
-- `dotnet build -c Release`: 0 warnings, 0 errors.
-- `--ui-smoke-test` exit 0.
-- Bridge installed at retail AddOns\MaxDpsBridge; upstream MaxDps* folders untouched.
-- Start Menu shortcut `MaxDPS Companion.lnk` (taskbar: right-click
-  the running app → Pin to taskbar; assembly identity is set).
-- BNet launch: `battlenet://WoW/` protocol first, exe fallback minimized;
-  remembered-account login, no credentials anywhere. SSO autologin via
-  Battle.net `--exec="launch WoW"` (same path as the Play button).
+- `luac -p` all five addon Lua files: OK.
+- `lua tests/secret_harness.lua`: 33 passed, 0 failed (exit 0).
+- No `GetSpellCooldownDuration`/`CooldownConsolidated`/`canaccessvalue`
+  on any bridge code path (grep-verified).
 
 ## Outstanding (needs retail run)
 
-1. `/reload`, `/mdb status` → expect `v1.1.0 ... ready=MCIDN` (uppercase =
+1. `/reload`, `/mdb status` → expect `v1.2.0 ... ready=MCIDN` (uppercase =
    ready/encoded, lowercase m = suggested-but-unready, `-` = none).
-2. Start → `link alive`, `sending`; verify it skips a cooling spell and
-   fires the next ready slot instead of hammering one key.
+2. In combat/instance: no `Reader.lua` secret compare errors in BugSack
+   (the 860x spam must not recur); Main/CD/Interrupt keys still fire.
+3. Kill a spell mid-cooldown and confirm the next ready slot fires instead
+   (secret charge counts may make a 0-charge press once, by design).
 
 ## Post-release series (ac84240 → v1.1.0)
 
@@ -66,15 +84,6 @@ bridge (stale paused strip), chat-command key discipline (Enter+Ctrl+V only).
 
 Later reverts (HEAD `bef1acc`→`7cf7f63`): removed watchdog+alive (strip moved
 mid-session), true anchor counter, always-sweep.
-
-## Outstanding (needs retail run)
-
-1. `/mdb status` in game + strip decode (`link alive`).
-2. `Calibrate colors` learn + saved profile separation.
-3. Main/CD/Interrupt/Defensive key presses in-game; AutoTarget/Interact
-   kill-switches default OFF.
-4. Live E2E on the shipped exe: the last three commits (`27eecd8`→`7cf7f63`)
-   were mid-session debug fixes and have not been re-verified in a live client.
 
 ## Perf profile (current)
 
