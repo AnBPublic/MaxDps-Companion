@@ -1,9 +1,8 @@
-1.3.8
+1.3.9
 Date: 2026-09-24
 Upstream: kaminaris MaxDps v11.3.43
 Interface: 120100 (Retail Midnight 12.1)
 Protocol: v4 (9 cells: magic + Main/Offensive/Defensive/Consumable/Trinket/Interrupt + status+flags + version)
 Flags: status B bit0 in-combat, bit1 on-GCD, bit2 has-target
-Behaviour: out-of-combat toggle OFF = hard pause until in combat; toggle ON = out-of-combat attack allowed but waits for a target; GCD-paced sending; interrupts execute
-UI: Advanced is a popup dialog floating over the main frame with a Back (and Esc) returning to the flow; main card rows taller (no clipped text); end-user copy, narrower blocks, high-contrast group headers, no debug readouts
-Bridge: unchanged (1.3.7 code == 1.3.6 behaviour); app-only UI release
+Performance: DIB-section zero-copy capture (no per-pixel GetPixel), one BitBlt per tick (v1 window trimmed, not re-captured), duty-cycle guard caps capture CPU at ~10%, below-normal engine thread, high-resolution waitable timer (no timeBeginPeriod), adaptive cadence, per-tick Lua memoisation in the bridge (1 scrub instead of ~10), cached Duration curve, no per-slot closures, strip refresh 50 -> 33 ms
+Bridge: 1.3.9 (Reader/Bridge perf pass, protocol unchanged)

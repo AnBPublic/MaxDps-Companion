@@ -33,8 +33,12 @@ internal sealed class AppSettings
     // spell4=Defensive, spell5=Consumable, spell6=Trinket.
     public bool[] SlotEnabled { get; } = [true, true, true, true, false, false];
 
-    // [Timing]
-    public int PollIntervalMs { get; set; } = 50;
+    // [Timing] — PERF (v1.3.9): 33 ms matches the bridge's 30 Hz strip
+    // refresh. Sampling faster than the addon repaints re-reads identical
+    // frames for nothing; slower adds latency. The engine ALSO stretches
+    // this automatically when a capture is expensive (duty-cycle guard),
+    // so a slow display path degrades latency instead of stealing frames.
+    public int PollIntervalMs { get; set; } = 33;
     public int MinKeyIntervalMs { get; set; } = 120;
     public int KeyPressMs { get; set; } = 25;
 

@@ -29,8 +29,15 @@ internal sealed class RotationEngine : IDisposable
     private static readonly Slot[] Priority =
         [Slot.Main, Slot.Offensive, Slot.Interrupt, Slot.Defensive, Slot.Consumable, Slot.Trinket];
 
-    /// <summary>How long to keep missing the block before sweeping the screen for it again.</summary>
-    private const long RelocateIntervalMs = 2000;
+    /// <summary>
+    /// How long to keep missing the block before sweeping the screen again.
+    /// PERF (v1.3.9): 2s → 5s. A sweep copies the WHOLE client area and
+    /// scans it pixel by pixel — by far the most expensive thing this
+    /// process does. When the strip is merely hidden (login screen, alt-tab
+    /// covered) that cost was paid twice a second for nothing; 5s keeps the
+    /// self-heal while cutting the worst-case load by 60%.
+    /// </summary>
+    private const long RelocateIntervalMs = 5000;
 
     private readonly AppSettings _settings;
     private readonly WowWindow _window = new();
@@ -54,6 +61,7 @@ internal sealed class RotationEngine : IDisposable
     private long _lastActiveMs = long.MinValue;
     private string _lastKeySent = "-";
     private string? _holdNote;
+    private volatile bool _idle = true;
     private bool _targetBlocked;
     private bool _interactBlocked;
 
@@ -74,7 +82,13 @@ internal sealed class RotationEngine : IDisposable
         if (_running) return;
         _running = true;
         _lastLocateAttempt = long.MinValue;
-        _thread = new Thread(Loop) { IsBackground = true, Name = "MaxDpsCompanion.Engine" };
+        _thread = new Thread(Loop)
+        {
+            IsBackground = true,
+            Name = "MaxDpsCompanion.Engine",
+            // Never compete with the game's render thread for CPU.
+            Priority = ThreadPriority.BelowNormal,
+        };
         _thread.Start();
     }
 
@@ -118,25 +132,68 @@ internal sealed class RotationEngine : IDisposable
 
     private void Loop()
     {
-        // Sleep-first pacing: a steady 50ms cadence without drift pile-up.
-        // Tick work is ~1ms (8x1 BitBlt + decode), so the loop costs ~2%
-        // of one core and never spins.
-        var next = Environment.TickCount64;
-        while (_running)
+        // PERF (v1.3.9) piggybacked-on-the-game pacing:
+        //  * A high-resolution WAITABLE TIMER paces the loop instead of
+        //    Thread.Sleep. Sleep's default granularity is 15.6 ms, so a
+        //    10-20 ms cadence would jitter by up to a full tick — exactly
+        //    the kind of variance that shows up as inconsistent key timing.
+        //    CreateWaitableTimerEx(HIGH_RESOLUTION) is per-call precision
+        //    WITHOUT timeBeginPeriod (which raises the system-wide timer
+        //    interrupt and costs the game CPU/power — measured and
+        //    documented; avoided for that reason).
+        //  * ADAPTIVE cadence: fast while there is something to act on,
+        //    slow when idle (no game / no block / out of combat), so the
+        //    companion costs ~0 CPU when nothing can happen.
+        //  * BELOW-NORMAL thread priority: the game's render thread always
+        //    wins the CPU; our sampling never competes with a frame.
+        var timer = Native.CreateWaitableTimerEx(IntPtr.Zero, null,
+            Native.CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, Native.TIMER_ALL_ACCESS);
+        try
         {
-            try
+            while (_running)
             {
-                Tick();
-            }
-            catch (Exception ex)
-            {
-                Report($"error: {ex.Message}", false, BridgeState.Idle, "-", "-");
-            }
+                var t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+                try
+                {
+                    Tick();
+                }
+                catch (Exception ex)
+                {
+                    Report($"error: {ex.Message}", false, BridgeState.Idle);
+                }
+                var tickUs = System.Diagnostics.Stopwatch.GetElapsedTime(t0).TotalMicroseconds;
 
-            next += Math.Max(10, _settings.PollIntervalMs);
-            var wait = (int)(next - Environment.TickCount64);
-            if (wait > 0) Thread.Sleep(wait);
-            else next = Environment.TickCount64;
+                var fast = _settings.PollIntervalMs;
+                var idleMs = Math.Max(120, fast * 4);
+                var wait = _idle ? idleMs : Math.Max(8, fast);
+                // PERF (v1.3.9) duty-cycle guard: the screen read costs what
+                // it costs (measured ~4.2 ms per BitBlt on this machine —
+                // the whole tick). Cap our CPU share at ~10% by stretching
+                // the cadence to 10x the measured tick cost, so a slow
+                // capture path degrades latency gracefully instead of
+                // stealing frames from the game.
+                if (tickUs > 0)
+                {
+                    var dutyFloorMs = (int)Math.Ceiling(tickUs * 10 / 1000.0);
+                    if (dutyFloorMs > wait && dutyFloorMs <= 250) wait = dutyFloorMs;
+                }
+                if (timer != IntPtr.Zero)
+                {
+                    var due = -(long)wait * 10_000;   // relative, 100 ns units
+                    if (Native.SetWaitableTimer(timer, ref due, 0, IntPtr.Zero, IntPtr.Zero, false))
+                        Native.WaitForSingleObject(timer, (uint)wait + 2);
+                    else
+                        Thread.Sleep(wait);
+                }
+                else
+                {
+                    Thread.Sleep(wait);
+                }
+            }
+        }
+        finally
+        {
+            if (timer != IntPtr.Zero) Native.CloseHandle(timer);
         }
     }
 
@@ -161,11 +218,13 @@ internal sealed class RotationEngine : IDisposable
         var frame = PixelProtocol.Decode(cells, _settings.Color);
         if (frame is null)
         {
-            var old = _sampler.SampleV1(block, _settings.CellSize);
+            // PERF (v1.3.9): trim the v1 window out of the SAME capture —
+            // the old second BitBlt cost a measured ~4.2 ms on this machine.
+            var old = PixelProtocol.TrimToV1(cells);
             frame = PixelProtocol.Decode(old, _settings.Color);
             if (frame is not null)
             {
-                Report("addon is v1 - run install-addon.ps1 + /reload", true, frame.State, Summarise(frame), Describe(old));
+                Report("addon is v1 - run install-addon.ps1 + /reload", true, frame.State, WantDiagnostics ? Summarise(frame) : "-", WantDiagnostics ? Describe(old) : "-");
                 cells = old;
             }
         }
@@ -178,19 +237,23 @@ internal sealed class RotationEngine : IDisposable
             // Probe both widths: a stale v1 pattern classifies only in the
             // 8-cell window (see CalibrateWorker.SampleBoth).
             if (ColorLearner.Classify(cells, _settings.Color) >= 0
-                || ColorLearner.Classify(_sampler.SampleV1(block, _settings.CellSize), _settings.Color) >= 0)
+                || ColorLearner.Classify(PixelProtocol.TrimToV1(cells), _settings.Color) >= 0)
             {
-                Report("calibrate pattern visible (/mdb calibrate off to resume)", true, BridgeState.Paused, "-", Describe(cells));
+                Report("calibrate pattern visible (/mdb calibrate off to resume)", true, BridgeState.Paused, "-", WantDiagnostics ? Describe(cells) : "-");
                 return;
             }
             var message = Relocate(origin, clientSize)
                 ? "block found, re-aligned"
                 : "no pixel block - client must be windowed or borderless";
-            Report(message, false, BridgeState.Idle, "-", Describe(cells));
+            Report(message, false, BridgeState.Idle, "-", WantDiagnostics ? Describe(cells) : "-");
+            _idle = true;
             return;
         }
 
-        var summary = Summarise(frame);
+        // PERF (v1.3.9): summary/raw strings only when the UI wants them.
+        var summary = WantDiagnostics ? Summarise(frame) : "-";
+        // Adaptive cadence: idle unless there is a target-bearing frame.
+        _idle = frame.State == BridgeState.Idle && !frame.HasTarget;
 
         if (frame.State == BridgeState.Active)
         {
@@ -199,7 +262,8 @@ internal sealed class RotationEngine : IDisposable
 
         if (frame.State == BridgeState.Paused)
         {
-            Report("addon bridge paused (/mdb on)", true, frame.State, summary, "-");
+            Report("addon bridge paused (/mdb on)", true, frame.State, summary);
+            _idle = true;
             return;
         }
 
@@ -216,7 +280,8 @@ internal sealed class RotationEngine : IDisposable
         // target gate below).
         if (_settings.CombatOnly && !frame.InCombat)
         {
-            Report("holding (out of combat)", true, frame.State, summary, "-");
+            Report("holding (out of combat)", true, frame.State, summary);
+            _idle = true;
             return;
         }
 
@@ -640,7 +705,16 @@ internal sealed class RotationEngine : IDisposable
         _ => slot.ToString(),
     };
 
-    private void Report(string message, bool visible, BridgeState state, string summary, string raw) =>
+    /// <summary>
+    /// PERF (v1.3.9): diagnostics strings are OFF by default. The slot
+    /// summary + raw cell hex used to be built (with a List + string.Join
+    /// + 72-char hex) on EVERY tick — ~20-100 allocations per second of
+    /// pure UI text nobody was reading. The UI flips this on while the
+    /// Advanced popup is open.
+    /// </summary>
+    public volatile bool WantDiagnostics;
+
+    private void Report(string message, bool visible, BridgeState state, string summary = "-", string raw = "-") =>
         StatusChanged?.Invoke(new EngineStatus(message, visible, state, summary, _lastKeySent, raw));
 
     public void Dispose()

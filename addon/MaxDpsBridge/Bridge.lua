@@ -45,7 +45,7 @@
 
 local addonName, MDB = ...;
 
-MDB.VERSION = "1.3.7";
+MDB.VERSION = "1.3.9";
 
 -- Chat print, defined FIRST: AutoCalibrate (below) and the Update watchdog
 -- both call it, and Lua resolves locals lexically — a later `local
@@ -65,6 +65,13 @@ end
 -- 3→4 forces stale-decode rejection both ends (same-length misread lesson).
 local CELL_COUNT = 9;
 local PROTOCOL_VERSION = 4;
+-- PERF (v1.3.9): 50 ms → 33 ms (30 Hz), the sampling-latency floor for the
+-- companion. Affordable because the per-tick work is now memoised (one
+-- scrub + one class lookup per tick instead of ~10, curve cached, no
+-- closures): the *total* Lua cost per second is still far below the old
+-- 20 Hz path while worst-case action latency drops by ~17 ms. The OnUpdate
+-- early-out remains two arithmetic ops per frame, so the game pays
+-- nothing at 60-240 fps.
 local STATUS_FLAG_IN_COMBAT = 1;
 local STATUS_FLAG_ON_GCD = 2;
 -- v1.3.6: bit2 = a valid attackable target exists. The companion waits
@@ -72,7 +79,7 @@ local STATUS_FLAG_ON_GCD = 2;
 -- "attack out of combat is ok, it just shouldn't spam into empty space —
 -- wait until I target something").
 local STATUS_FLAG_HAS_TARGET = 4;
-local UPDATE_INTERVAL = 0.05;
+local UPDATE_INTERVAL = 0.033;
 
 -- NOTE: a 25 s auto-cal watchdog lived here (reset strip to 0,0 when the
 -- companion went quiet). REMOVED: it fired mid-session while the engine
@@ -366,6 +373,13 @@ local function Update (self, Delta)
   end
 
   MDB.EnsureHooks();
+
+  -- PERF (v1.3.9): reset the per-tick memo ONCE per update. The six slot
+  -- getters then share one scrub of MaxDps.Flags, one item map and one
+  -- class/spec resolve instead of each doing its own (was ~10 table
+  -- scrubs + ~6 UnitClass lookups per 50 ms — all Lua garbage inside the
+  -- game's frame budget).
+  if MDB.BeginTick then MDB.BeginTick(); end
 
   -- Slot order = the user's 5-icon model: 1 main rotation (THE core
   -- functionality — always encoded when MaxDps suggests anything),

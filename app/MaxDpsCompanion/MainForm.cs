@@ -710,6 +710,9 @@ internal sealed class MainForm : Form
     private void ShowAdvanced()
     {
         if (_advancedOverlay is null) return;
+        // Diagnostics (slot summary + raw cells) are only built while the
+        // popup is open — zero string churn the rest of the time.
+        _engine.WantDiagnostics = true;
         if (_bodyLayout is not null) _bodyLayout.Visible = false;
         _advancedOverlay.Visible = true;
         _advancedOverlay.BringToFront();
@@ -722,6 +725,7 @@ internal sealed class MainForm : Form
     {
         if (_advancedOverlay is null) return;
         _advancedOverlay.Visible = false;
+        _engine.WantDiagnostics = false;
         if (_bodyLayout is not null) _bodyLayout.Visible = true;
     }
 

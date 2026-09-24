@@ -111,6 +111,20 @@ internal static class PixelProtocol
     /// else null. Checksum: sum of R+G+B nibbles of cells 1..status mod 16
     /// must equal the checksum nibble, else null.
     /// </summary>
+    /// <summary>
+    /// PERF (v1.3.9): derive the v1 (8-cell) window from an existing 9-cell
+    /// capture instead of taking a SECOND BitBlt. The stale-addon fallback
+    /// and the calibrate probe both used to re-capture the screen — a
+    /// measured 4.2 ms each on this machine, i.e. up to 3 BitBlts per tick
+    /// for one frame worth of pixels.
+    /// </summary>
+    public static Color[] TrimToV1(Color[] cells)
+    {
+        var old = new Color[CellCountV1];
+        for (var i = 0; i < CellCountV1 && i < cells.Length; i++) old[i] = cells[i];
+        return old;
+    }
+
     public static BridgeFrame? Decode(Color[] cells) => Decode(cells, profile: null);
 
     public static BridgeFrame? Decode(Color[] cells, ColorProfile? profile)

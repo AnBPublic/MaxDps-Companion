@@ -84,6 +84,53 @@ internal static class Native
     [DllImport("gdi32.dll")]
     internal static extern uint GetPixel(IntPtr hDC, int x, int y);
 
+    // PERF (v1.3.9): DIB-section capture. CreateDIBSection gives us a
+    // memory-mapped pixel buffer: ONE BitBlt fills it and we read pixels
+    // straight from the pointer — no per-pixel GetPixel round-trips (45
+    // syscalls per 50 ms tick before) and no per-tick managed bitmap.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct BITMAPINFOHEADER
+    {
+        public uint biSize;
+        public int biWidth;
+        public int biHeight;
+        public ushort biPlanes;
+        public ushort biBitCount;
+        public uint biCompression;
+        public uint biSizeImage;
+        public int biXPelsPerMeter;
+        public int biYPelsPerMeter;
+        public uint biClrUsed;
+        public uint biClrImportant;
+    }
+
+    internal const uint BI_RGB = 0;
+    internal const uint DIB_RGB_COLORS = 0;
+
+    [DllImport("gdi32.dll", SetLastError = true)]
+    internal static extern IntPtr CreateDIBSection(IntPtr hdc, ref BITMAPINFOHEADER bmi,
+        uint usage, out IntPtr bits, IntPtr section, uint offset);
+
+    // PERF (v1.3.9): high-resolution waitable timer for frame-paced sampling
+    // WITHOUT timeBeginPeriod (which raises the system-wide timer interrupt
+    // and measurably costs the game CPU/power). CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
+    // exists since Windows 10 1803; on failure we fall back to Thread.Sleep.
+    internal const uint CREATE_WAITABLE_TIMER_HIGH_RESOLUTION = 0x00000002;
+    internal const uint TIMER_ALL_ACCESS = 0x1F0003;
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    internal static extern IntPtr CreateWaitableTimerEx(IntPtr attrs, string? name, uint flags, uint access);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    internal static extern bool SetWaitableTimer(IntPtr timer, ref long dueTime, int period,
+        IntPtr completionRoutine, IntPtr arg, bool resume);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    internal static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    internal static extern bool CloseHandle(IntPtr handle);
+
     // ----- DPI -----
 
     // Per-monitor v2. Without it Windows virtualises window coordinates on a

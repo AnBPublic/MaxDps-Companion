@@ -367,7 +367,70 @@ forward-declare helpers), companion decodes N and N-1 protocol, toggled-
 off slot types are skipped never waited on, MAIN never re-gated by
 tainted readiness, GCD + target + combat gates in that order.
 
-## v1.3.8 ADVANCED POPUP + NO-CLIP LAYOUT (this change)
+## v1.3.9 PERFORMANCE AUDIT (this change — measured, not claimed)
+
+Goal: lowest FPS/frametime impact on WoW from both processes, plus the
+lowest achievable action latency. Research basis (cited in chat):
+Blizzard's own guidance that unthrottled OnUpdate is the #1 addon FPS
+killer; Bruce Dawson / Blur Busters on Windows timer resolution; MSDN /
+SO on BitBlt-vs-GetPixel cost and PostMessage delivery.
+
+### Measured (this machine, `--bench-sample`, evidence in dist\bench.txt)
+| Path | Cost |
+| :--- | :--- |
+| `BitBlt` 72x8 SRCCOPY (the tick floor) | **4.16 ms/op** |
+| same + CAPTUREBLT | 4.17 ms/op (no difference) |
+| legacy `GetPixel` x45 on a screen DC | **187.5 ms/op** |
+| new `Sample()` (9 cells, 5 taps) | 4.17 ms/op == the BitBlt floor |
+So: the whole cost is the single screen read; pixel reads are now free
+(pointer deref) where they used to be 45 syscalls, and the tick no longer
+issues up to 3 BitBlts (v2 sample + v1 re-capture + calibrate re-capture).
+
+### Companion changes (app 1.3.9)
+1. **DIB-section capture** (`Native.CreateDIBSection`): one BitBlt into a
+   memory-mapped buffer, taps read straight from the pointer. Before: 45
+   `GetPixel` syscalls + 27 LINQ arrays per tick (GC pressure = frametime
+   spikes). Now: 0 syscalls, 0 allocations in the hot path (reused tap
+   buffers + insertion sort; static learner path kept allocating).
+2. **One BitBlt per tick**: the stale-addon fallback and the calibrate
+   probe derive the 8-cell window via `PixelProtocol.TrimToV1` instead of
+   re-capturing the screen (was up to 3 captures/tick).
+3. **Duty-cycle guard**: measured tick cost sets a cadence floor
+   (`tick * 10`, capped 250 ms) so capture CPU stays ≤ ~10% on any display
+   path — a slow capture degrades latency instead of stealing frames.
+4. **Diagnostics off by default**: the slot summary + 72-char raw hex are
+   only built while the Advanced popup is open (`WantDiagnostics`).
+5. **Below-normal engine thread** — the render thread always wins.
+6. **High-resolution waitable timer** (`CreateWaitableTimerEx`, 100 ns)
+   instead of `Thread.Sleep`: no 15.6 ms granularity jitter AND no
+   `timeBeginPeriod` (which raises the system-wide timer interrupt and
+   costs the game CPU/power — deliberately avoided).
+7. **Adaptive cadence**: fast when a target is present, 4x slower when
+   idle (no game / no block / out of combat).
+8. **Relocate sweep 2 s → 5 s**: the full-client-area scan is the most
+   expensive single operation in the process; it self-heals just as well.
+
+### Bridge changes (addon 1.3.9 — all inside the game's frame budget)
+1. **Per-tick memo** (`MDB.BeginTick`): the six getters shared one
+   `scrubsecretvalues(Flags)`, one item map and one class/spec resolve
+   (was ~10 table copies + ~6 `UnitClass`/`GetSpecialization` lookups per
+   tick — all Lua garbage the game then has to collect).
+2. **Cached evaluation curve**: the readiness gate built a fresh
+   `ColorCurve` per slot per tick (~6 objects + ~24 engine calls); now
+   built once, lazily, and reused.
+3. **No per-slot closures**: the `dropsecretaccess()` probe was an
+   anonymous function allocated 6x per tick; now a named local.
+4. **Strip refresh 50 ms → 33 ms (30 Hz)**: the sampling-latency floor
+   drops ~17 ms. Affordable because the memoised tick costs a fraction of
+   the old un-memoised 20 Hz tick; the OnUpdate early-out stays two
+   arithmetic ops per frame, so 60–240 fps pays nothing.
+
+### Latency budget (honest, this machine)
+bridge 33 ms worst-case staleness + engine cadence (33 ms, auto-stretched
+to ~42 ms by the duty guard here) + press. Both are configurable; the
+guard self-tightens on machines with a cheaper screen read.
+
+## v1.3.8 ADVANCED POPUP + NO-CLIP LAYOUT (previous)
 
 User requests: keep the main design; give the setting bubbles more room so
 no text is cut off; and turn Advanced from an in-place compartment into a

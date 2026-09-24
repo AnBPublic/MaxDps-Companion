@@ -61,6 +61,59 @@ internal static class Program
                 bitmap.Save(advArg[(advArg.IndexOf('=') + 1)..]);
                 return;
             }
+            // PERF harness: times the capture hot path (what the engine runs
+            // every tick) and the legacy per-pixel path it replaced, so the
+            // optimisation is a measured number, not a claim.
+            var benchArg = args.FirstOrDefault(arg => arg.StartsWith("--bench-sample=", StringComparison.OrdinalIgnoreCase));
+            if (benchArg is not null)
+            {
+                var n = int.TryParse(benchArg[(benchArg.IndexOf('=') + 1)..], out var parsed) ? parsed : 300;
+                var lines = new List<string>();
+                using (var sampler = new ScreenSampler())
+                {
+                    var at = new Point(200, 200);
+                    // Warm up (first call allocates the DIB surface).
+                    for (var i = 0; i < 50; i++) sampler.Sample(at, 8);
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    for (var i = 0; i < n; i++) sampler.Sample(at, 8);
+                    sw.Stop();
+                    lines.Add($"sample(9 cells, 5 taps): {sw.Elapsed.TotalMicroseconds / n:F2} us/op  (n={n})");
+                }
+                // BitBlt cost with/without CAPTUREBLT: the flag forces DWM
+                // compositing of layered windows and can dominate the tick.
+                var src = Native.GetDC(IntPtr.Zero);
+                var dst = Native.CreateCompatibleDC(src);
+                var bmp = Native.CreateCompatibleBitmap(src, 72, 8);
+                var prev = Native.SelectObject(dst, bmp);
+                var blits = Math.Min(n, 600);
+                foreach (var (label, rop) in new[]
+                {
+                    ("BitBlt 72x8 SRCCOPY", (int)Native.SRCCOPY),
+                    ("BitBlt 72x8 SRCCOPY|CAPTUREBLT", (int)(Native.SRCCOPY | Native.CAPTUREBLT)),
+                })
+                {
+                    var swb = System.Diagnostics.Stopwatch.StartNew();
+                    for (var i = 0; i < blits; i++) Native.BitBlt(dst, 0, 0, 72, 8, src, 200, 200, rop);
+                    swb.Stop();
+                    lines.Add($"{label,-32} {swb.Elapsed.TotalMicroseconds / blits:F2} us/op  (n={blits})");
+                }
+                Native.SelectObject(dst, prev);
+                Native.DeleteObject(bmp);
+                Native.DeleteDC(dst);
+                Native.ReleaseDC(IntPtr.Zero, src);
+
+                // Legacy path cost reference: the same tap count via GetPixel.
+                var dc = Native.GetDC(IntPtr.Zero);
+                var legacy = Math.Min(n, 300);
+                var sw2 = System.Diagnostics.Stopwatch.StartNew();
+                for (var i = 0; i < legacy; i++)
+                    for (var t = 0; t < 45; t++) Native.GetPixel(dc, 200 + (t % 9) * 8, 200);
+                sw2.Stop();
+                Native.ReleaseDC(IntPtr.Zero, dc);
+                lines.Add($"legacy GetPixel x45:     {sw2.Elapsed.TotalMicroseconds / legacy:F2} us/op  (n={legacy})");
+                File.WriteAllLines(Path.Combine(AppDir, "bench.txt"), lines);
+                return;
+            }
             if (args.Contains("--ui-smoke-test", StringComparer.OrdinalIgnoreCase))
             {
                 using var window = new MainForm(settings);

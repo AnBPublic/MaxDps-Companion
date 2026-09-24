@@ -325,17 +325,38 @@ end
 -- companion never hammers an unavailable key while other slots have live
 -- suggestions. Pruning only touches OUR OWN sets (plain data), never
 -- upstream tables.
+-- PERF (v1.3.9): per-tick memo. The six slot getters each used to scrub
+-- MaxDps.Flags / ItemSpells and re-resolve class+spec on EVERY call — up
+-- to ~10 scrubsecretvalues table copies and ~6 UnitClass/GetSpecialization
+-- lookups per 50 ms tick, all allocating Lua garbage inside the game's
+-- frame budget (GC pressure = WoW frametime spikes). Bridge.Update now
+-- calls MDB.BeginTick() once; the first getter computes, the rest reuse.
+local Tick = { Gen = 0, Flags = nil, FlagsOwner = nil, Items = nil, Class = nil, ClassFile = nil, Spec = nil };
+
+function MDB.BeginTick ()
+  Tick.Gen = Tick.Gen + 1;
+  Tick.Flags, Tick.FlagsOwner, Tick.Items = nil, nil, nil;
+  Tick.Class, Tick.ClassFile, Tick.Spec = nil, nil, nil;
+end
+
 local function ScrubbedFlags ()
   local MaxDps = MaxDpsEngine();
-  local Flags = MaxDps and MaxDps.Flags;
-  if type(Flags) ~= "table" then return nil, nil; end
+  if not MaxDps then return nil, nil; end
+  -- Per-tick memo (see Tick above).
+  if Tick.FlagsOwner == MaxDps and Tick.Flags ~= nil then
+    return Tick.Flags, MaxDps;
+  end
+  local Flags = MaxDps.Flags;
+  if type(Flags) ~= "table" then return nil, MaxDps; end
+  local Clean = Flags;
   if type(scrubsecretvalues) == "function" then
-    local Ok, Clean = pcall(scrubsecretvalues, Flags);
-    if Ok and type(Clean) == "table" then return Clean, MaxDps; end
+    local Ok, C = pcall(scrubsecretvalues, Flags);
+    if Ok and type(C) == "table" then Clean = C; end
   end
   -- No scrub API (pre-Midnight client): table holds no secrets by
   -- construction, iterate directly.
-  return Flags, MaxDps;
+  Tick.Flags, Tick.FlagsOwner = Clean, MaxDps;
+  return Clean, MaxDps;
 end
 
 -- v1.3.5 CATEGORY TRUTH (fixes #3 interrupts not executing): arg-blind
@@ -351,17 +372,19 @@ end
 local function ClassSpec ()
   local MaxDps = MaxDpsEngine();
   if not MaxDps then return nil; end
+  -- Per-tick memo (see Tick above): resolved once per update, not once per
+  -- candidate spell (CategoryOf calls this for every flagged spell).
+  if Tick.Class == MaxDps then return MaxDps, Tick.ClassFile, Tick.Spec; end
   if type(UnitClass) ~= "function" then return nil; end
   local OkC, _, classFile = pcall(UnitClass, "player");
   if not OkC or not classFile then return nil; end
   local specName = nil;
   if type(GetSpecialization) == "function" and type(GetSpecializationInfo) == "function" then
-    local OkS, specIndex = pcall(function ()
-      return GetSpecializationInfo(GetSpecialization());
-    end);
+    local OkS, specIndex = pcall(GetSpecializationInfo, GetSpecialization());
     if OkS and specIndex and MaxDps.idtospec then specName = MaxDps.idtospec[specIndex]; end
   end
   if not specName then return nil; end
+  Tick.Class, Tick.ClassFile, Tick.Spec = MaxDps, classFile, specName;
   return MaxDps, classFile, specName;
 end
 
@@ -431,6 +454,7 @@ end
 -- raw MaxDps tables), so keys are proven non-secret — plain compares.
 local function ItemSpellIDs ()
   local MaxDps = MaxDpsEngine();
+  if Tick.Items ~= nil then return Tick.Items; end
   local Out = {};
   if MaxDps and MaxDps.ItemSpells then
     local CleanItems;
@@ -444,6 +468,7 @@ local function ItemSpellIDs ()
       end
     end
   end
+  Tick.Items = Out;   -- memo even when empty: one build per tick
   return Out;
 end
 
@@ -566,6 +591,26 @@ local function HasCharges (SpellID)
   return nil;
 end
 
+-- PERF (v1.3.9): the evaluation curve is built ONCE and reused. The old
+-- code called CreateColorCurve + SetType + 2x AddPoint on EVERY slot,
+-- every tick — ~6 curve objects + ~24 engine calls per 50 ms, pure garbage
+-- for the game's collector. The curve is a constant (red→green ramp), so
+-- lazily creating it once removes all of that.
+local ReadyCurve = nil;
+local ReadyCurveTried = false;
+local function GetReadyCurve ()
+  if ReadyCurve or ReadyCurveTried then return ReadyCurve; end
+  ReadyCurveTried = true;
+  if not (_G.C_CurveUtil and type(_G.C_CurveUtil.CreateColorCurve) == "function") then return nil; end
+  local Ok, Curve = pcall(_G.C_CurveUtil.CreateColorCurve);
+  if not Ok or Curve == nil then return nil; end
+  pcall(Curve.SetType, Curve, Enum.LuaCurveType.Linear);
+  pcall(Curve.AddPoint, Curve, 0.0, CreateColor(1, 0, 0, 1));
+  pcall(Curve.AddPoint, Curve, 1.0, CreateColor(0, 1, 0, 1));
+  ReadyCurve = Curve;
+  return ReadyCurve;
+end
+
 local function DurationRemainingOk (SpellID)
   -- Duration-object fallback: engine-side remaining-time evaluation.
   -- Returns true = ready (remaining ≤ 0.5 s tail or inactive), false =
@@ -573,23 +618,16 @@ local function DurationRemainingOk (SpellID)
   if not (_G.C_Spell and type(_G.C_Spell.GetSpellCooldownDuration) == "function") then
     return nil;
   end
+  local Curve = GetReadyCurve();
+  if Curve == nil then return nil; end;
   local OkDur, Duration = pcall(_G.C_Spell.GetSpellCooldownDuration, SpellID);
-  if not OkDur or Duration == nil then return nil; end
+  if not OkDur or Duration == nil then return nil; end;
   -- Duration objects are engine userdata; method calls on them run
   -- engine-side and accept secret internals (documented pattern).
-  -- EvaluateRemainingDuration needs a ColorCurve; build one per call is
-  -- cheap (no per-frame allocation pressure at 20 Hz for ≤6 slots — and
-  -- pcall-wrapped so a missing API degrades to nil, never throws out).
-  local OkCurve, Curve = pcall(C_CurveUtil.CreateColorCurve);
-  if not OkCurve or Curve == nil then return nil; end
-  local OkType = pcall(Curve.SetType, Curve, Enum.LuaCurveType.Linear);
-  if not OkType then return nil; end
-  pcall(Curve.AddPoint, Curve, 0.0, CreateColor(1, 0, 0, 1));
-  pcall(Curve.AddPoint, Curve, 1.0, CreateColor(0, 1, 0, 1));
   local OkEval, Remaining = pcall(Duration.EvaluateRemainingDuration, Duration, Curve);
-  if not OkEval then return nil; end
+  if not OkEval then return nil; end;
   local Clean = Scrubbed(Remaining);
-  if type(Clean) ~= "number" then return nil; end
+  if type(Clean) ~= "number" then return nil; end;
   return Clean <= 0.5;
 end
 
@@ -629,18 +667,23 @@ local function CooldownReady (SpellID)
   return true;  -- fail-open: unknown ⇒ ready
 end
 
+-- PERF (v1.3.9): the containment call used to be an anonymous closure
+-- created PER SLOT PER TICK (6 closures/50 ms = 120/s of pure Lua garbage).
+-- A named local function costs nothing to reuse.
+local function UsableContained (SpellID)
+  if type(dropsecretaccess) == "function" then dropsecretaccess(); end
+  return _G.C_Spell.IsSpellUsable(SpellID);
+end
+
 local function UsableNow (SpellID)
   if not (_G.C_Spell and type(_G.C_Spell.IsSpellUsable) == "function") then
     return true;  -- fail-open
   end
-  -- dropsecretaccess() containment: strips secret access from THIS
-  -- function, so the boolean it returns is provably plain (documented
-  -- Midnight API). Plain false ⇒ unusable; anything else ⇒ usable.
-  -- Wrapped in pcall (pre-12.0 clients lack the API → fail open).
-  local Ok, Usable = pcall(function ()
-    if type(dropsecretaccess) == "function" then dropsecretaccess(); end
-    return _G.C_Spell.IsSpellUsable(SpellID);
-  end);
+  -- dropsecretaccess() containment: strips secret access from the probe,
+  -- so the boolean it returns is provably plain (documented Midnight API).
+  -- Plain false ⇒ unusable; anything else ⇒ usable. pcall-wrapped so a
+  -- pre-12.0 client or a dead API degrades to fail-open.
+  local Ok, Usable = pcall(UsableContained, SpellID);
   if not Ok or Usable == nil then return true; end
   if Usable == false then return false; end
   return true;

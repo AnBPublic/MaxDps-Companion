@@ -2,7 +2,7 @@
 ## Title: MaxDps |cFF00D8FFBridge|r
 ## Notes: Pixel bridge: encodes MaxDps suggestions as a 9-cell strip for MaxDpsCompanion.
 ## Author: AnBPublic
-## Version: 1.3.7
+## Version: 1.3.9
 ## Dependencies: MaxDps
 ## SavedVariables: MaxDpsBridgeDB
 Keymap.lua
