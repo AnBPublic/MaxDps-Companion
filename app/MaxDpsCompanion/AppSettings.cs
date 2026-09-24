@@ -29,8 +29,9 @@ internal sealed class AppSettings
     public string PauseHotkey { get; set; } = "Pause";
 
     // [Spells] — which MaxDPS icons the helper is allowed to press.
-    // spell1=Main, spell2=Cooldown, spell3=Interrupt, spell4=Defensive, spell5=Consumable.
-    public bool[] SlotEnabled { get; } = [true, true, true, true, false];
+    // Spell Frame naming: spell1=Main, spell2=Offensive, spell3=Interrupt,
+    // spell4=Defensive, spell5=Consumable, spell6=Trinket.
+    public bool[] SlotEnabled { get; } = [true, true, true, true, false, false];
 
     // [Timing]
     public int PollIntervalMs { get; set; } = 50;
@@ -103,6 +104,7 @@ internal sealed class AppSettings
             case ("spells", "spell3"): SlotEnabled[2] = ParseBool(value, SlotEnabled[2]); break;
             case ("spells", "spell4"): SlotEnabled[3] = ParseBool(value, SlotEnabled[3]); break;
             case ("spells", "spell5"): SlotEnabled[4] = ParseBool(value, SlotEnabled[4]); break;
+            case ("spells", "spell6"): SlotEnabled[5] = ParseBool(value, SlotEnabled[5]); break;
             case ("timing", "pollintervalms"): PollIntervalMs = ParseInt(value, PollIntervalMs); break;
             case ("timing", "minkeyintervalms"): MinKeyIntervalMs = ParseInt(value, MinKeyIntervalMs); break;
             case ("timing", "keypressms"): KeyPressMs = ParseInt(value, KeyPressMs); break;
@@ -139,13 +141,14 @@ internal sealed class AppSettings
             .AppendLine("[Pause]")
             .AppendLine($"Button={PauseHotkey}")
             .AppendLine()
-            .AppendLine("; spell1=Main, spell2=Cooldown, spell3=Interrupt, spell4=Defensive, spell5=Consumable")
+            .AppendLine("; spell1=Main, spell2=Offensive, spell3=Interrupt, spell4=Defensive, spell5=Consumable, spell6=Trinket")
             .AppendLine("[Spells]")
             .AppendLine($"spell1={(SlotEnabled[0] ? 1 : 0)}")
             .AppendLine($"spell2={(SlotEnabled[1] ? 1 : 0)}")
             .AppendLine($"spell3={(SlotEnabled[2] ? 1 : 0)}")
             .AppendLine($"spell4={(SlotEnabled[3] ? 1 : 0)}")
             .AppendLine($"spell5={(SlotEnabled[4] ? 1 : 0)}")
+            .AppendLine($"spell6={(SlotEnabled[5] ? 1 : 0)}")
             .AppendLine()
             .AppendLine("[Timing]")
             .AppendLine($"PollIntervalMs={PollIntervalMs}")

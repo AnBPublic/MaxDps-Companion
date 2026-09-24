@@ -7,6 +7,11 @@ internal sealed class MainForm : Form
     // buttons wrap instead of clipping (fixed 5-col grid + 9.5pt keeps
     // text inside each share down to ~520px).
     private const int MinWindowWidth = 520;
+    // Collapsed chrome budget (v1.3.1): 48 title + (706 card + 8 margins)
+    // + 48 strip + 26 advanced link + 52 buttons + 36 canvas padding ≈
+    // 924. FitToScreen opens at that height when the screen allows;
+    // ClampToScreen + body scroll cover short screens.
+    private const int CollapsedWantHeight = 924;
     // Advanced stack heights (absolute rows, must match BuildAdvanced).
     // Total 1056 overflowed short screens; ClampToScreen caps the window
     // and the body scrolls instead.
@@ -51,13 +56,19 @@ internal sealed class MainForm : Form
     private readonly Label _linkLabel = new();
     private readonly StripView _stripView = new();
 
-    private readonly ToggleSwitch _cooldowns = new() { Checked = true };
+    // Hero toggles, Spell Frame naming (MaxDps Options.lua / SpellFrame.lua):
+    // Group A = spell slots incl. the MAIN rotation toggle (5-icon model:
+    // main/off/def/cons/trinket), Group B = companion behaviour (combat +
+    // auto-target + auto-interact), Group C = interrupt kill-switch.
+    private readonly ToggleSwitch _main = new() { Checked = true };
+    private readonly ToggleSwitch _offensive = new() { Checked = true };
     private readonly ToggleSwitch _defensives = new() { Checked = true };
-    private readonly ToggleSwitch _interrupt = new() { Checked = true };
     private readonly ToggleSwitch _consumable = new();
+    private readonly ToggleSwitch _trinket = new();
     private readonly ToggleSwitch _outOfCombat = new();
     private readonly ToggleSwitch _autoTarget = new();
     private readonly ToggleSwitch _autoInteract = new();
+    private readonly ToggleSwitch _interrupt = new() { Checked = true };
 
     private readonly ChamferButton _start = new()
     {
@@ -132,7 +143,10 @@ internal sealed class MainForm : Form
     private readonly CheckBox _requireForeground = new() { Text = "Only send mouse while the game window is focused" };
     private readonly CheckBox _allowBackground = new() { Text = "Send keys while the game is in the background" };
     private readonly CheckBox _combatOnly = new() { Text = "Combat-only automatic targeting / interact" };
-    private readonly CheckBox _mainSlot = new() { Text = "Main (always on)", Checked = true, Enabled = false };
+    // v1.3.3: mirrored Main toggle (was dead "always on" display-only —
+    // diverged from SlotEnabled[0] whenever the card toggled it; the Sep-2026
+    // stuck-rotation report had main ON in one place and OFF in the other).
+    private readonly CheckBox _mainSlot = new() { Text = "Main rotation", Checked = true, Enabled = true };
 
     public MainForm(AppSettings settings)
     {
@@ -163,10 +177,15 @@ internal sealed class MainForm : Form
         BuildTray();
         _collapsedHeight = Height;
 
-        OnToggle(_cooldowns, 1);
-        OnToggle(_interrupt, 2);
-        OnToggle(_defensives, 3);
-        OnToggle(_consumable, 4);
+        // SlotEnabled index -> toggle wiring (Slot enum order, 5-icon model):
+        // 0 Main, 1 Offensive, 2 Defensive, 3 Consumable, 4 Trinket,
+        // 5 Interrupt (situational kill-switch).
+        OnToggle(_main, 0);
+        OnToggle(_offensive, 1);
+        OnToggle(_defensives, 2);
+        OnToggle(_consumable, 3);
+        OnToggle(_trinket, 4);
+        OnToggle(_interrupt, 5);
 
         _start.Click += (_, _) => StartEngine();
         _stop.Click += (_, _) => StopEngine();
@@ -177,10 +196,12 @@ internal sealed class MainForm : Form
         _resetColors.Click += (_, _) => ResetColors();
         _bnetBrowse.Click += (_, _) => BrowseBNet();
 
-        _cooldowns.CheckedChanged += (_, _) => SaveNow();
+        _main.CheckedChanged += (_, _) => SaveNow();
+        _offensive.CheckedChanged += (_, _) => SaveNow();
         _interrupt.CheckedChanged += (_, _) => SaveNow();
         _defensives.CheckedChanged += (_, _) => SaveNow();
         _consumable.CheckedChanged += (_, _) => SaveNow();
+        _trinket.CheckedChanged += (_, _) => SaveNow();
         _outOfCombat.CheckedChanged += (_, _) => SyncCombatFromCard();
         _autoTarget.CheckedChanged += (_, _) => SaveNow();
         _autoInteract.CheckedChanged += (_, _) => SaveNow();
@@ -265,12 +286,18 @@ internal sealed class MainForm : Form
         finally { _syncingCombat = false; }
     }
 
+    private bool SlotFlag(int slot, bool fallback) =>
+        (slot >= 0 && slot < _settings.SlotEnabled.Length) ? _settings.SlotEnabled[slot] : fallback;
+
     private void OnToggle(ToggleSwitch toggle, int slot)
     {
         toggle.CheckedChanged += (_, _) =>
         {
-            _settings.SlotEnabled[slot] = toggle.Checked;
-            _settings.Save();
+            if (slot >= 0 && slot < _settings.SlotEnabled.Length)
+            {
+                _settings.SlotEnabled[slot] = toggle.Checked;
+                _settings.Save();
+            }
         };
     }
 
@@ -320,7 +347,7 @@ internal sealed class MainForm : Form
         catch { /* loose art missing: title text carries the identity */ }
         var headerTitle = new Label
         {
-            Text = "MaxDPS Companion v1.1.0",
+            Text = $"MaxDPS Companion v{Native.AppVersion}",
             AutoSize = false,
             Location = new Point(48, 0),
             Size = new Size(220, 48),
@@ -329,12 +356,15 @@ internal sealed class MainForm : Form
             ForeColor = Color.FromArgb(228, 235, 239),
             BackColor = Color.Transparent,
         };
+        // Stamp is generated at build time (ThisAssembly.Gen.cs) and must
+        // never show a stale date: build.ps1 rewrites it on every publish,
+        // so a mismatch here means the exe was not rebuilt.
         var version = new Label
         {
             Text = Native.BuildVersion,
             AutoSize = false,
             Location = new Point(268, 0),
-            Size = new Size(260, 48),
+            Size = new Size(300, 48),
             TextAlign = ContentAlignment.MiddleLeft,
             Font = new Font(UiFont, 8F),
             ForeColor = Color.FromArgb(159, 181, 191),
@@ -358,19 +388,31 @@ internal sealed class MainForm : Form
 
     private Control BuildBody()
     {
-        var canvas = new GradientCanvas { Dock = DockStyle.Fill, Padding = new Padding(40, 16, 40, 20) };
+        // Epoch-5: tighter canvas padding (sides stay 40 for the card
+        // radius; vertical drops 16/20 → 10/12) reclaims ~14px so the
+        // 706px card + strip + buttons fit the 924px window.
+        var canvas = new GradientCanvas { Dock = DockStyle.Fill, Padding = new Padding(40, 10, 40, 12) };
+        // Epoch-4 layout: fixed-height card (BuildCard) + fixed-height
+        // strip/buttons rows in a table; the WINDOW grows via
+        // FitToScreen/ClampToScreen and the body panel scrolls only when
+        // Advanced is open on a short screen. No FlowLayoutPanel anywhere:
+        // it mis-measured Dock.Fill children as zero-height (empty card,
+        // crushed buttons in iter4).
         var layout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
             RowCount = 5,
             BackColor = Color.Transparent,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty,
         };
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));  // card
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));   // strip + link
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));   // advanced toggle
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));   // buttons (wraps when narrow)
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 0));    // advanced body (0 while hidden)
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, CardFixedHeight + 20F));  // card + margins
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48F));   // strip + link
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 26F));   // advanced toggle
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 52F));   // buttons
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));   // advanced body (scrolls)
         _bodyLayout = layout;
         layout.Controls.Add(BuildCard(), 0, 0);
         layout.Controls.Add(BuildStripRow(), 0, 1);
@@ -382,28 +424,58 @@ internal sealed class MainForm : Form
         return canvas;
     }
 
+    // v1.3.1 card rows: status + 3 headers + 9 toggles (5 spell incl.
+    // main + trinket, 3 behaviour, 1 interrupt) = 13.
+    private const int CardRowCount = 13;
+
     private Control BuildCard()
     {
-        var card = new RoundedCard { Dock = DockStyle.Fill, Margin = new Padding(0, 2, 0, 6), Padding = new Padding(26, 12, 26, 12) };
-        var cardLayout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 8, BackColor = Color.Transparent };
-        // Status row is taller (dot + status + slots); toggles share the rest.
-        cardLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 24F));
-        for (var i = 0; i < 7; i++) cardLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 10.86F));
+        // Epoch-4: back to a TableLayoutPanel, but with FIXED row heights
+        // (absolute, measured from content) instead of percent rows. Fixed
+        // rows can't starve each other, and the table stretches children
+        // to full width — which fixes both earlier regressions at once:
+        // the percent-row squeeze (subtitles clipped) and the hand-stacked
+        // card that never laid out (empty card, buttons crushed).
+        var card = new RoundedCard
+        {
+            Dock = DockStyle.Top,
+            Height = CardFixedHeight,
+            Margin = new Padding(0, 2, 0, 6),
+            Padding = new Padding(26, 12, 26, 12),
+        };
+        var cardLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = CardRowCount,
+            BackColor = Color.Transparent,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty,
+        };
+        cardLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        // v1.3.1 budget (5-icon model: 5 spell rows incl. main + trinket):
+        // status 40 + headers 3x22 + rows 9x64 = 682 content + 24 card
+        // padding = 706 card. Compact 64px rows still fit title(22) +
+        // gap(4) + 2 subtitle lines(30) with margin — verified against the
+        // epoch-2 type scale (11.5pt/9pt).
+        cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40F));  // 0 status
+        cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 22F));  // 1 group header
+        for (var i = 0; i < 5; i++) cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 64F));  // 2-6 spells (main/off/def/cons/trin)
+        cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 22F));  // 7 group header
+        for (var i = 0; i < 3; i++) cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 64F));  // 8-10 behaviour
+        cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 22F));  // 11 group header
+        cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 64F));  // 12 interrupt
 
-        var stateRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, BackColor = Color.Transparent };
-        stateRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        stateRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 96));
-        // StatusDot paints its own glow; the extra ClassBadge pill duplicated
-        // PRP chrome without carrying a class value, so the hero keeps the
-        // status text + dot only.
+        // Epoch-6: flat status row (dot Dock.Left + label Dock.Fill). The
+        // previous triple-nested TableLayoutPanels silently collapsed to
+        // zero height inside the card table and the status line vanished
+        // (iter5-7 snapshots). No nested tables here: nothing to mismeasure.
+        // The ClassBadge pill stays unparented (PRP chrome without a class
+        // value); RefreshStatus still writes its Text harmlessly.
         _badge.Visible = false;
-        var leftPanel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, BackColor = Color.Transparent };
-        leftPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 20));
-        leftPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        _dot.Dock = DockStyle.Fill;
-        var statusTextPanel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 1, BackColor = Color.Transparent };
-        statusTextPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        statusTextPanel.Padding = new Padding(2, 4, 0, 0);
+        var stateRow = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
+        _dot.Dock = DockStyle.Left;
+        _dot.Width = 24;
         _statusValue.Font = new Font(UiFont, 10.5F, FontStyle.Bold);
         _statusValue.ForeColor = Color.FromArgb(225, 234, 239);
         _statusValue.BackColor = Color.Transparent;
@@ -420,36 +492,72 @@ internal sealed class MainForm : Form
         _slotsValue.AutoEllipsis = true;
         _slotsValue.TextAlign = ContentAlignment.MiddleLeft;
         _slotsValue.Text = "-";
-        statusTextPanel.Controls.Add(_statusValue, 0, 0);
         // Slot summary + last key live in the Advanced strip readout; the
         // hero row keeps status only so stopped/idle states cannot clip.
         // (_slotsValue/_lastKeyValue are initialised in BuildStripBox.)
         _slotsValue.Visible = false;
         _lastKeyValue.Visible = false;
-        leftPanel.Controls.Add(_dot, 0, 0);
-        leftPanel.Controls.Add(statusTextPanel, 1, 0);
-        stateRow.Controls.Add(leftPanel, 0, 0);
-        _badge.Dock = DockStyle.Fill;
-        _badge.Margin = new Padding(10, 15, 2, 15);
-        stateRow.Controls.Add(_badge, 1, 0);
+        stateRow.Controls.Add(_statusValue);
+        stateRow.Controls.Add(_dot);
+        // Fixed-height rows, full-width children: each row reserves its own
+        // measured space (status 48, headers 26, toggles 76) so subtitles
+        // can never be squeezed, and the table stretches every child to
+        // the card width at any window size. The outer BODY flow scrolls
+        // on short screens (FitToScreen clamps the window) — the card
+        // itself never scrolls.
+        stateRow.Dock = DockStyle.Fill;
         cardLayout.Controls.Add(stateRow, 0, 0);
-        cardLayout.Controls.Add(new SettingRow("Cooldowns", "Cooldown slot may fire when MaxDps suggests it.", _cooldowns) { Dock = DockStyle.Fill, Margin = new Padding(4, 5, 4, 5) }, 0, 1);
-        cardLayout.Controls.Add(new SettingRow("Interrupt", "Interrupt slot may fire when MaxDps suggests it.", _interrupt) { Dock = DockStyle.Fill, Margin = new Padding(4, 5, 4, 5) }, 0, 2);
-        cardLayout.Controls.Add(new SettingRow("Defensives", "Defensive slot may fire when MaxDps suggests it.", _defensives) { Dock = DockStyle.Fill, Margin = new Padding(4, 5, 4, 5) }, 0, 3);
-        cardLayout.Controls.Add(new SettingRow("Consumable", "Potion / trinket slot - off by default, fire manually.", _consumable) { Dock = DockStyle.Fill, Margin = new Padding(4, 5, 4, 5) }, 0, 4);
-        cardLayout.Controls.Add(new SettingRow("Out of combat", "Let suggestions run before combat begins (inverts Combat-only).", _outOfCombat) { Dock = DockStyle.Fill, Margin = new Padding(4, 5, 4, 5) }, 0, 5);
-        cardLayout.Controls.Add(new SettingRow("Auto-target", "Kill-switch: press Target key when the bridge asks. Default OFF.", _autoTarget) { Dock = DockStyle.Fill, Margin = new Padding(4, 5, 4, 5) }, 0, 6);
-        cardLayout.Controls.Add(new SettingRow("Auto-interact", "Kill-switch: press Interact key when the bridge asks. Default OFF.", _autoInteract) { Dock = DockStyle.Fill, Margin = new Padding(4, 5, 4, 5) }, 0, 7);
+        // Group A — the user's 5-icon model: main rotation + offensive /
+        // defensive / consumable / trinket. Zebra alternates within each
+        // group (resets per header) so the eye can scan rows without the
+        // groups blending into one block.
+        cardLayout.Controls.Add(GroupHeaderFor("Spell slots"), 0, 1);
+        cardLayout.Controls.Add(RowFor("Show main rotation", "Core rotation — fires whenever MaxDps suggests it.", _main, alt: false), 0, 2);
+        cardLayout.Controls.Add(RowFor("Show offensive spells", "Offensive slot may fire when MaxDps suggests it.", _offensive, alt: true), 0, 3);
+        cardLayout.Controls.Add(RowFor("Show defensive spells", "Defensive slot may fire when MaxDps suggests it.", _defensives, alt: false), 0, 4);
+        cardLayout.Controls.Add(RowFor("Show consumable spells", "Potion slot - off by default, fire manually.", _consumable, alt: true), 0, 5);
+        cardLayout.Controls.Add(RowFor("Show trinket spells", "On-use trinket slot - off by default, fire manually.", _trinket, alt: false), 0, 6);
+        // Group B — companion behaviour (combat + targeting kill-switches).
+        cardLayout.Controls.Add(GroupHeaderFor("Combat & targeting"), 0, 7);
+        cardLayout.Controls.Add(RowFor("Out of combat", "Let suggestions run before combat begins (inverts Combat-only).", _outOfCombat, alt: false), 0, 8);
+        cardLayout.Controls.Add(RowFor("Auto-target", "Kill-switch: press Target key when the bridge asks. Default OFF.", _autoTarget, alt: true), 0, 9);
+        cardLayout.Controls.Add(RowFor("Auto-interact", "Kill-switch: press Interact key when the bridge asks. Default OFF.", _autoInteract, alt: false), 0, 10);
+        // Group C — interrupt kill-switch (no Spell Frame equivalent).
+        cardLayout.Controls.Add(GroupHeaderFor("Interrupt"), 0, 11);
+        cardLayout.Controls.Add(RowFor("Interrupt", "Interrupt slot may fire when MaxDps suggests it.", _interrupt), 0, 12);
         card.Controls.Add(cardLayout);
         return card;
     }
 
+    /// <summary>
+    /// Fixed card height: status(40) + 3 headers(22) + 9 rows(64) +
+    /// card padding(24) = 706. Compact rows leave the status dot,
+    /// strip view, link label and hero buttons visible without scrolling
+    /// at the default window (window budget grew 990 → 1060 for the
+    /// extra main row; FitToScreen clamps on short screens).
+    /// </summary>
+    private const int CardFixedHeight = 40 + 3 * 22 + 9 * 64 + 24;
+
+    private static GroupHeader GroupHeaderFor(string title) =>
+        new() { Text = title, Dock = DockStyle.Fill, Margin = new Padding(4, 0, 4, 0) };
+
+    private static SettingRow RowFor(string title, string subtitle, ToggleSwitch toggle, bool alt = false) =>
+        new(title, subtitle, toggle) { Dock = DockStyle.Fill, Margin = new Padding(4, 2, 4, 2), AlternateFill = alt };
+
     private Control BuildStripRow()
     {
-        var row = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent, Padding = new Padding(4, 2, 4, 2) };
-        _stripView.Location = new Point(4, 2);
+        // Fixed 44px row inside the body table: lamp + label dock right,
+        // strip view anchors left.
+        var row = new Panel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Color.Transparent,
+            Padding = new Padding(4, 2, 4, 2),
+            Margin = new Padding(0, 2, 0, 0),
+        };
+        _stripView.Location = new Point(4, 7);
         _stripView.Anchor = AnchorStyles.Left | AnchorStyles.Top;
-        var lampWrap = new Panel { Dock = DockStyle.Right, Width = 150, BackColor = Color.Transparent };
+        var lampWrap = new Panel { Dock = DockStyle.Right, Width = 150, Height = 40, BackColor = Color.Transparent };
         _linkLabel.Text = "link idle";
         _linkLabel.AutoSize = false;
         _linkLabel.Dock = DockStyle.Fill;
@@ -459,7 +567,7 @@ internal sealed class MainForm : Form
         _linkLabel.ForeColor = Color.FromArgb(147, 165, 174);
         _linkLabel.BackColor = Color.Transparent;
         _linkLamp.Anchor = AnchorStyles.Right;
-        _linkLamp.Location = new Point(130, 15);
+        _linkLamp.Location = new Point(130, 13);
         lampWrap.Controls.Add(_linkLabel);
         lampWrap.Controls.Add(_linkLamp);
         row.Controls.Add(_stripView);
@@ -472,10 +580,10 @@ internal sealed class MainForm : Form
     {
         // Fixed 5-column grid: every hero button keeps an equal share, so
         // text never clips and Launch Game never wraps off the row.
-        // AutoSize is off here (UiControls default is on) — Fill measures.
         var buttons = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
+            Margin = new Padding(0, 2, 0, 2),
             ColumnCount = 5,
             RowCount = 1,
             BackColor = Color.Transparent,
@@ -501,6 +609,9 @@ internal sealed class MainForm : Form
 
     private Control BuildAdvanced(out Control toggle)
     {
+        // Epoch-4: the advanced stack docks into the body's last table row
+        // (percent-fill) with its own scroll, exactly like the original
+        // layout. Hidden until toggled.
         var body = new Panel
         {
             Dock = DockStyle.Fill,
@@ -549,8 +660,9 @@ internal sealed class MainForm : Form
         {
             body.Visible = !body.Visible;
             link.Text = body.Visible ? "Advanced (hide)" : "Advanced";
-            if (_bodyLayout is not null && _bodyLayout.RowStyles.Count > 4)
-                _bodyLayout.RowStyles[4] = new RowStyle(SizeType.Absolute, body.Visible ? AdvancedExtraHeight : 0);
+            // Grow the window when there is room, else the advanced panel's
+            // own scrollbar takes the overflow. No row-style bookkeeping:
+            // the advanced row is percent-fill.
             ClampToScreen(body.Visible ? AdvancedExtraHeight : 0);
         };
         toggle = link;
@@ -703,15 +815,16 @@ internal sealed class MainForm : Form
     {
         var section = new RuleSection { SectionTitle = "Slots", Dock = DockStyle.Top, Height = 76 };
         var tip = new ToolTip();
-        tip.SetToolTip(_mainSlot, "Main slot toggle - mirrors the card's always-on Main row");
+        tip.SetToolTip(_mainSlot, "Main rotation toggle - mirrors the card's Show main rotation row");
         _mainSlot.AutoSize = true;
         _mainSlot.ForeColor = ConsolePalette.Bone;
         _mainSlot.BackColor = Color.Transparent;
         _mainSlot.Margin = new Padding(2, 4, 18, 4);
-        _mainSlot.Checked = true;
+        _mainSlot.CheckedChanged += (_, _) => { _main.Checked = _mainSlot.Checked; };
+        _main.CheckedChanged += (_, _) => { if (_mainSlot.Checked != _main.Checked) _mainSlot.Checked = _main.Checked; };
         var note = new Label
         {
-            Text = "Cooldowns / Interrupt / Defensives / Consumable mirror the card toggles; Main is always on.",
+            Text = "Main / Offensive / Defensive / Consumable / Trinket / Interrupt mirror the card toggles.",
             AutoSize = false,
             Dock = DockStyle.Fill,
             ForeColor = ConsolePalette.Tidewash,
@@ -762,7 +875,7 @@ internal sealed class MainForm : Form
         grid.Controls.Add(_slotsValue, 0, 0);
         grid.Controls.Add(_lastKeyValue, 0, 1);
         var tip = new ToolTip();
-        tip.SetToolTip(_slotsValue, "Decoded slots: magic, main, cooldown, interrupt, defensive, consumable, status, version.");
+        tip.SetToolTip(_slotsValue, "Decoded slots: magic, main, offensive, interrupt, defensive, consumable, trinket, status, version.");
         tip.SetToolTip(_lastKeyValue, "Last key the engine sent to the game window.");
         section.Controls.Add(grid);
         return section;
@@ -795,13 +908,15 @@ internal sealed class MainForm : Form
         _combatOnly.AutoSize = true;
         _combatOnly.ForeColor = ConsolePalette.Bone;
         _combatOnly.BackColor = Color.Transparent;
-        _targetKey.Width = 80;
-        _interactKey.Width = 80;
+        _targetKey.Width = 110;
+        _interactKey.Width = 110;
+        var interactTip = new ToolTip();
+        interactTip.SetToolTip(_interactKey, "Keyboard (F) or mouse (MB5, Alt+MB5). Mouse needs the game focused.");
         targeting.Controls.Add(autoTargetBox, 0, 0);
         targeting.SetColumnSpan(autoTargetBox, 2);
         targeting.Controls.Add(autoInteractBox, 0, 1);
         targeting.SetColumnSpan(autoInteractBox, 2);
-        targeting.Controls.Add(Caption("Target key", "Pressed when the addon asks for a target; mode lives on the in-game T button"), 0, 2);
+        targeting.Controls.Add(Caption("Target key", "Pressed when the addon asks for a target; mode lives on the in-game T button. Mouse buttons work too (MB5, Alt+MB5)."), 0, 2);
         var targetRow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, BackColor = Color.Transparent };
         targetRow.Controls.Add(_targetKey);
         targetRow.Controls.Add(Caption("Interact key"));
@@ -1109,20 +1224,53 @@ internal sealed class MainForm : Form
             // returns when anchors are known, so call it once and let ITS
             // status drive the hero line — the wait-then-learn two-phase
             // below used to sit silent on "starting" until first Classify.
+            //
+            // VERSION SKEW (Sep-2026 outage): the sampler always captures
+            // the v2 width (9 cells), but a stale in-game addon renders the
+            // v1 pattern (8 cells + status at 6). Learn probes BOTH widths
+            // per tick (v2 first, v1 fallback) so a missed /reload degrades
+            // to a warning, never to "no pattern on screen".
             ColorLearner.LearnResult? result = null;
+            var sampledVersion = 0;
             using var sampler = new ScreenSampler();
             SetColorStatus("Calibrating - sampling (keyboard locked, Cancel to stop)...");
             using (new InputLock().Install())
             {
                 var lastNote = "";
+                Color[] SampleBoth(Point at, int cell)
+                {
+                    var full = sampler.Sample(at, cell);
+                    // Fast path: live v2 pattern classifies as-is.
+                    if (ColorLearner.Classify(full, _settings.Color) >= 0)
+                    {
+                        sampledVersion = PixelProtocol.SupportedVersion;
+                        return full;
+                    }
+                    // Fallback: stale v1 pattern (first 8 cells). Classify
+                    // rejects by length, so pass the explicit v1 window.
+                    var old = sampler.SampleV1(at, cell);
+                    if (ColorLearner.Classify(old, _settings.Color) >= 0)
+                        sampledVersion = PixelProtocol.SupportedVersionV1;
+                    return old;
+                }
                 result = ColorLearner.Learn(
-                    (at, cell) => sampler.Sample(at, cell),
+                    SampleBoth,
                     new Point(origin.X + known.OffsetX, origin.Y + known.OffsetY),
                     known.CellSize,
                     _settings.Color,
                     (int)_tolerance.Value,
                     Cancelled,
                     note => { if (note != lastNote) { lastNote = note; SetColorStatus(note); } });
+            }
+            if (result is not null && sampledVersion == PixelProtocol.SupportedVersionV1)
+            {
+                SetColorStatus("Calibrated against the OLD (v1) addon - /reload + reinstall the addon, then recalibrate.");
+                BeginInvoke(() => MessageBox.Show(
+                    "Calibration succeeded against the OLD v1 bridge addon.\n\n"
+                    + "Your in-game addon is stale: run install-addon.ps1, then\n"
+                    + "/reload in game, then Recalibrate again so the v2 strip\n"
+                    + "(with the trinket slot) is what gets learned.",
+                    "MaxDPS Companion", MessageBoxButtons.OK, MessageBoxIcon.Warning));
             }
 
             // 4. Always turn the pattern back off: ONE command only. The old
@@ -1173,18 +1321,22 @@ internal sealed class MainForm : Form
         }
     }
 
-    /// <summary>True when the sampled cells look like a calibrate pattern step.</summary>
+    /// <summary>
+    /// True when the sampled cells look like a calibrate pattern step.
+    /// Probes v2 first, then the v1 window (stale addon renders 8 cells;
+    /// the 9th captured cell is background and v2 Classify rejects it).
+    /// </summary>
     private bool PatternVisible(Point origin, BlockLocation known)
     {
         try
         {
             using var sampler = new ScreenSampler();
-            var cells = sampler.Sample(
-                new Point(origin.X + known.OffsetX, origin.Y + known.OffsetY),
-                known.CellSize);
+            var at = new Point(origin.X + known.OffsetX, origin.Y + known.OffsetY);
             // Profile-aware: a stale profile may still recognise the magic
             // cell when the legacy band no longer can.
-            return ColorLearner.Classify(cells, _settings.Color) >= 0;
+            if (ColorLearner.Classify(sampler.Sample(at, known.CellSize), _settings.Color) >= 0)
+                return true;
+            return ColorLearner.Classify(sampler.SampleV1(at, known.CellSize), _settings.Color) >= 0;
         }
         catch
         {
@@ -1254,12 +1406,13 @@ internal sealed class MainForm : Form
 
     // ----- settings <-> controls -----
     //
-    // Slot mapping (SlotEnabled index -> UI):
-    //   0 Main        - always on (card has no Main row; Advanced checkbox is display-only)
-    //   1 Cooldown    - card Cooldowns toggle
-    //   2 Interrupt   - card Interrupt toggle
-    //   3 Defensive   - card Defensives toggle
-    //   4 Consumable  - card Consumable toggle (default off)
+    // Slot mapping (SlotEnabled index -> UI, 5-icon model):
+    //   0 Main        - card "Show main rotation" toggle (core functionality)
+    //   1 Offensive   - card "Show offensive spells" toggle
+    //   2 Defensive   - card "Show defensive spells" toggle
+    //   3 Consumable  - card "Show consumable spells" toggle (default off)
+    //   4 Trinket     - card "Show trinket spells" toggle (default off)
+    //   5 Interrupt   - card Interrupt toggle (situational kill-switch)
 
     private void LoadFromSettings()
     {
@@ -1273,13 +1426,18 @@ internal sealed class MainForm : Form
         _pauseHotkey.Text = _settings.PauseHotkey;
         _requireForeground.Checked = _settings.RequireForeground;
         _allowBackground.Checked = _settings.AllowBackgroundKeys;
-        _mainSlot.Checked = true;
-        _settings.SlotEnabled[0] = true;
+        _mainSlot.Checked = SlotFlag(0, _main.Checked);
+        _main.Checked = SlotFlag(0, _main.Checked);
 
-        _cooldowns.Checked = _settings.SlotEnabled[1];
-        _interrupt.Checked = _settings.SlotEnabled[2];
-        _defensives.Checked = _settings.SlotEnabled[3];
-        _consumable.Checked = _settings.SlotEnabled[4];
+        // Old settings.ini files stored the v2 order (1=Off 2=Int 3=Def
+        // 4=Cons 5=Trin): missing entries keep their toggle defaults
+        // (main/off/def/interrupt on, item slots off) instead of throwing.
+        _main.Checked = SlotFlag(0, _main.Checked);
+        _offensive.Checked = SlotFlag(1, _offensive.Checked);
+        _defensives.Checked = SlotFlag(2, _defensives.Checked);
+        _consumable.Checked = SlotFlag(3, _consumable.Checked);
+        _trinket.Checked = SlotFlag(4, _trinket.Checked);
+        _interrupt.Checked = SlotFlag(5, _interrupt.Checked);
 
         // Engine CombatOnly is the inverse of the card's Out-of-combat display:
         // card ON = allow out of combat = CombatOnly false.
@@ -1305,11 +1463,12 @@ internal sealed class MainForm : Form
         _settings.PauseHotkey = _pauseHotkey.Text.Trim();
         _settings.RequireForeground = _requireForeground.Checked;
         _settings.AllowBackgroundKeys = _allowBackground.Checked;
-        _settings.SlotEnabled[0] = true;
-        _settings.SlotEnabled[1] = _cooldowns.Checked;
-        _settings.SlotEnabled[2] = _interrupt.Checked;
-        _settings.SlotEnabled[3] = _defensives.Checked;
-        _settings.SlotEnabled[4] = _consumable.Checked;
+        _settings.SlotEnabled[0] = _main.Checked;
+        _settings.SlotEnabled[1] = _offensive.Checked;
+        _settings.SlotEnabled[2] = _defensives.Checked;
+        _settings.SlotEnabled[3] = _consumable.Checked;
+        _settings.SlotEnabled[4] = _trinket.Checked;
+        _settings.SlotEnabled[5] = _interrupt.Checked;
         _settings.CombatOnly = !_outOfCombat.Checked;
         _settings.AutoTargetEnabled = _autoTarget.Checked;
         _settings.InteractEnabled = _autoInteract.Checked;
@@ -1506,44 +1665,10 @@ internal sealed class MainForm : Form
             _hotkeyRegistered = false;
         }
 
-        if (!TryParseHotkey(_settings.PauseHotkey, out var modifiers, out var key)) return;
-        _hotkeyRegistered = Native.RegisterHotKey(Handle, PauseHotkeyId, modifiers, (uint)key);
-    }
-
-    private static bool TryParseHotkey(string text, out uint modifiers, out Keys key)
-    {
-        const uint modAlt = 0x0001, modControl = 0x0002, modShift = 0x0004, modWin = 0x0008;
-
-        modifiers = 0;
-        key = Keys.None;
-        if (string.IsNullOrWhiteSpace(text)) return false;
-
-        var parts = text.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        foreach (var part in parts)
-        {
-            switch (part.ToLowerInvariant())
-            {
-                case "ctrl":
-                case "control":
-                    modifiers |= modControl;
-                    break;
-                case "alt":
-                    modifiers |= modAlt;
-                    break;
-                case "shift":
-                    modifiers |= modShift;
-                    break;
-                case "win":
-                    modifiers |= modWin;
-                    break;
-                default:
-                    if (!Enum.TryParse(part, true, out Keys parsed)) return false;
-                    key = parsed;
-                    break;
-            }
-        }
-
-        return key != Keys.None;
+        // v1.3.3: unified parser (MovementGuard.TryParseHotkey shares the
+        // canonical KeyNames table — mouse/OEM/alias coverage included).
+        if (!MovementGuard.TryParseHotkey(_settings.PauseHotkey, out var modifiers, out var vk)) return;
+        _hotkeyRegistered = Native.RegisterHotKey(Handle, PauseHotkeyId, modifiers, vk);
     }
 
     // ----- dynamic sizing: fit the working area, stay resizable -----
@@ -1559,7 +1684,7 @@ internal sealed class MainForm : Form
     {
         var area = Screen.FromPoint(Cursor.Position).WorkingArea;
         var wantW = 760;
-        var wantH = 1000;
+        var wantH = CollapsedWantHeight;
         var w = Math.Max(MinWindowWidth, Math.Min(wantW, area.Width));
         var h = Math.Max(560, Math.Min(wantH, area.Height));
         MinimumSize = new Size(MinWindowWidth, 560);

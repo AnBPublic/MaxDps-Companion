@@ -315,11 +315,11 @@ internal sealed class LinkLamp : Control
 }
 
 /// <summary>
-/// Renders the eight MaxDps pixel-bridge cells from the sampled hex string, so
-/// the hero shows the actual strip the addon is drawing: magic, main, CD,
-/// interrupt, defensive, consumable, state+heartbeat, ver+checksum. The magic
-/// cell carries a brass tick underneath. Unparseable samples draw as empty
-/// outlines.
+/// Renders the nine MaxDps pixel-bridge cells from the sampled hex string, so
+/// the hero shows the actual strip the addon is drawing: magic, main,
+/// offensive, interrupt, defensive, consumable, trinket, state+heartbeat,
+/// ver+checksum. The magic cell carries a brass tick underneath.
+/// Unparseable samples draw as empty outlines.
 /// </summary>
 internal sealed class StripView : Control
 {
@@ -333,7 +333,8 @@ internal sealed class StripView : Control
 
     public StripView()
     {
-        Size = new Size(272, 30);
+        // 9 cells × (28px + 6px gap) = 306px wide.
+        Size = new Size(306, 30);
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint
             | ControlStyles.OptimizedDoubleBuffer | ControlStyles.SupportsTransparentBackColor, true);
         BackColor = Color.Transparent;
@@ -343,7 +344,7 @@ internal sealed class StripView : Control
     {
         const int sw = 28, h = 18, gap = 6, y = 2;
         var tokens = _sample.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        for (var i = 0; i < 8; i++)
+        for (var i = 0; i < PixelProtocol.CellCount; i++)
         {
             var x = i * (sw + gap);
             var rect = new Rectangle(x, y, sw, h);
@@ -509,6 +510,49 @@ internal sealed class RoundedCard : Panel
     }
 }
 
+/// <summary>
+/// Eyebrow group header: brass tick + small-caps label + hairline rule, the
+/// same visual language as <see cref="RuleSection"/>. Used to segment the
+/// hero card into labelled groups (spell slots / behaviour / interrupt) so
+/// the groups read as segments instead of one undifferentiated block.
+/// </summary>
+internal sealed class GroupHeader : Control
+{
+    public GroupHeader()
+    {
+        Height = 22;
+        Margin = new Padding(4, 0, 4, 0);
+        Font = new Font(MainForm.UiFontPublic, 9F, FontStyle.Bold);
+        DoubleBuffered = true;
+        SetStyle(ControlStyles.SupportsTransparentBackColor | ControlStyles.ResizeRedraw, true);
+        BackColor = Color.Transparent;
+        ForeColor = ConsolePalette.Tidewash;
+    }
+
+    public GroupHeader(string title) : this()
+    {
+        Text = title;
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        using var tick = new SolidBrush(ConsolePalette.Brass);
+        e.Graphics.FillRectangle(tick, 14, 8, 6, 6);
+        var label = Text.ToUpperInvariant();
+        using var text = new SolidBrush(ForeColor);
+        e.Graphics.DrawString(label, Font, text, 26, 4);
+        var size = e.Graphics.MeasureString(label, Font);
+        var y = 15;
+        var x1 = 26 + (int)Math.Ceiling(size.Width) + 12;
+        if (x1 < Width - 14)
+        {
+            using var pen = new Pen(ConsolePalette.Keyline, 1F);
+            e.Graphics.DrawLine(pen, x1, y, Width - 14, y);
+        }
+    }
+}
+
 internal sealed class SettingRow : Panel
 {
     private readonly Label titleLabel;
@@ -521,24 +565,32 @@ internal sealed class SettingRow : Panel
         DoubleBuffered = true;
         BackColor = Color.Transparent;
         SetStyle(ControlStyles.SupportsTransparentBackColor | ControlStyles.ResizeRedraw, true);
+        // Epoch-4: fixed 76px row, labels measured to fit. The table row
+        // reserves the same 76px, so the row is never squeezed (the old
+        // percent-row bug) and never mis-measured (the AutoSize flow bug).
+        // Subtitles wrap to two lines via MeasureHeights; see OnLayout.
 
         titleLabel = new Label
         {
             Text = title,
             AutoSize = false,
             TextAlign = ContentAlignment.MiddleLeft,
-            Font = new Font("Segoe UI Semibold", 11.25F),
-            ForeColor = Color.FromArgb(250, 250, 252),
+            Font = new Font("Segoe UI Semibold", 11.5F),
+            // Epoch-2 type scale: near-white title on the smoke fill clears
+            // WCAG AA large-text contrast with margin.
+            ForeColor = Color.FromArgb(252, 253, 254),
             BackColor = Color.Transparent
         };
         subtitleLabel = new Label
         {
             Text = subtitle,
             AutoSize = false,
-            AutoEllipsis = true,
+            AutoEllipsis = false,
             TextAlign = ContentAlignment.TopLeft,
-            Font = new Font("Segoe UI", 8.75F),
-            ForeColor = Color.FromArgb(190, 207, 215),
+            Font = new Font("Segoe UI", 9F),
+            // Epoch-2: subtitle lifted two tonal steps so secondary text
+            // still passes AA against the smoke fill in daylight conditions.
+            ForeColor = Color.FromArgb(226, 235, 240),
             BackColor = Color.Transparent
         };
         toggle.Anchor = AnchorStyles.None;
@@ -548,17 +600,50 @@ internal sealed class SettingRow : Panel
         Controls.Add(toggle);
     }
 
-    protected override void OnLayout(LayoutEventArgs levent)
+    private int TextWidthFor(int width)
     {
-        base.OnLayout(levent);
         const int left = 18;
         const int right = 18;
         const int toggleGap = 22;
-        var textWidth = Math.Max(40, ClientSize.Width - left - right - toggle.Width - toggleGap);
-        titleLabel.Bounds = new Rectangle(left, 13, textWidth, 29);
-        subtitleLabel.Bounds = new Rectangle(left, 43, textWidth, 26);
+        return Math.Max(40, width - left - right - toggle.Width - toggleGap);
+    }
+
+    private void MeasureHeights(int textWidth, out int titleH, out int subH)
+    {
+        titleH = TextRenderer.MeasureText(titleLabel.Text, titleLabel.Font,
+            new Size(textWidth, 0), TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix).Height;
+        subH = TextRenderer.MeasureText(subtitleLabel.Text, subtitleLabel.Font,
+            new Size(textWidth, 0), TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix).Height;
+        // Cap the subtitle at two lines: every hero subtitle fits in two
+        // lines even at the minimum window width, so the row stays compact.
+        var lineH = Math.Max(12, subtitleLabel.Font.Height);
+        subH = Math.Min(subH, lineH * 2 + 4);
+    }
+
+    protected override void OnLayout(LayoutEventArgs levent)
+    {
+        base.OnLayout(levent);
+        // Epoch-5 compact row (64px): title at top-8, subtitle wraps to at
+        // most two lines, toggle vertically centred. Title 11.5pt ≈ 22px,
+        // subtitle 9pt ≈ 2x15px: 8+22+2+30+2 = 64 exactly.
+        const int left = 18;
+        const int right = 18;
+        var textWidth = TextWidthFor(ClientSize.Width);
+        MeasureHeights(textWidth, out var titleH, out var subH);
+        titleLabel.Bounds = new Rectangle(left, 8, textWidth, titleH);
+        subtitleLabel.Bounds = new Rectangle(left, 8 + titleH + 2, textWidth, subH);
         toggle.Location = new Point(ClientSize.Width - right - toggle.Width, Math.Max(0, (ClientSize.Height - toggle.Height) / 2));
     }
+
+    private static readonly Color RowFill = Color.FromArgb(84, 107, 121);
+    private static readonly Color RowFillAlt = Color.FromArgb(78, 100, 114);
+
+    /// <summary>Alternating row depth for group scanning (zebra): even rows
+    /// use the base smoke fill, odd rows the half-step darker tone. The
+    /// difference is deliberately subtle (±6) — a scan aid, not a stripe.
+    /// Set by the parent after construction; defaults to the base fill.
+    /// </summary>
+    internal bool AlternateFill { get; set; }
 
     protected override void OnPaint(PaintEventArgs e)
     {
@@ -566,8 +651,12 @@ internal sealed class SettingRow : Panel
         e.Graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
         var bounds = new Rectangle(1, 1, Math.Max(1, Width - 3), Math.Max(1, Height - 3));
         using var path = RoundedCardPath(bounds, 14);
-        using var fill = new SolidBrush(Color.FromArgb(44, 19, 39, 50));
-        using var border = new Pen(Color.FromArgb(34, 255, 255, 255));
+        // Design epoch-6: layered tonal cards (+ zebra). The filled body
+        // sits on the card's frosted surface, so a flat smoke fill with a
+        // single 1px lowlight reads depth; the old translucent dark wash
+        // muddied low-contrast subtitles (WCAG body-text contrast).
+        using var fill = new SolidBrush(AlternateFill ? RowFillAlt : RowFill);
+        using var border = new Pen(Color.FromArgb(120, 255, 255, 255), 1F);
         e.Graphics.FillPath(fill, path);
         e.Graphics.DrawPath(border, path);
         base.OnPaint(e);
@@ -654,7 +743,10 @@ internal sealed class ToggleSwitch : Control
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
         var track = new Rectangle(1, 3, Width - 2, Height - 6);
         using var trackPath = Capsule(track);
-        using var trackBrush = new SolidBrush(Checked ? Color.FromArgb(36, 132, 246) : Color.FromArgb(83, 98, 106));
+        // Epoch-2 switch semantics: ON keeps the product blue, OFF drops to
+        // a desaturated slate so state is luminance + hue, never hue alone
+        // (colour-vision safe); thumb carries a soft drop shadow for depth.
+        using var trackBrush = new SolidBrush(Checked ? Color.FromArgb(36, 132, 246) : Color.FromArgb(96, 110, 119));
         e.Graphics.FillPath(trackBrush, trackPath);
         var diameter = Height - 10;
         var x = Checked ? Width - diameter - 5 : 5;

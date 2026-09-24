@@ -18,8 +18,17 @@ internal sealed class ScreenSampler : IDisposable
     /// <summary>Samples taken per cell at 2px+; the median wins. Must stay odd.</summary>
     public const int TapsPerCell = 5;
 
+    /// <summary>
+    /// Samples the widest strip (v2, 9 cells). Callers that need version
+    /// tolerance trim the tail: a v1 addon renders 8 cells, so cell 8 of
+    /// the capture is background — Classify/Decode reject by length, and
+    /// DetectVersion picks the layout that parses.
+    /// </summary>
     public Color[] Sample(Point origin, int cellSize) =>
-        SampleCells(origin, cellSize, (x, y) => ReadPixel(x, y));
+        SampleCells(origin, cellSize, PixelProtocol.CellCount, (x, y) => ReadPixel(x, y));
+
+    public Color[] SampleV1(Point origin, int cellSize) =>
+        SampleCells(origin, cellSize, PixelProtocol.CellCountV1, (x, y) => ReadPixel(x, y));
 
     /// <summary>
     /// Samples a full client-area bitmap reader (used by the calibrate-pattern
@@ -33,14 +42,22 @@ internal sealed class ScreenSampler : IDisposable
         return colors;
     }
 
-    private Color[] SampleCells(Point origin, int cellSize, Func<int, int, Color> read)
+    public static Color[] SampleRegionV1(Func<int, int, Color> read, int blockX, int blockY, int cellSize)
     {
-        var width = cellSize * PixelProtocol.CellCount;
+        var colors = new Color[PixelProtocol.CellCountV1];
+        for (var i = 0; i < PixelProtocol.CellCountV1; i++)
+            colors[i] = SampleCell((x, y) => read(blockX + x, blockY + y), i, cellSize);
+        return colors;
+    }
+
+    private Color[] SampleCells(Point origin, int cellSize, int cellCount, Func<int, int, Color> read)
+    {
+        var width = cellSize * cellCount;
         var height = cellSize;
 
         EnsureSurface(width, height);
 
-        var colors = new Color[PixelProtocol.CellCount];
+        var colors = new Color[cellCount];
 
         if (!Native.BitBlt(_memoryDc, 0, 0, width, height, _screenDc, origin.X, origin.Y,
                 Native.SRCCOPY | Native.CAPTUREBLT))
@@ -48,7 +65,7 @@ internal sealed class ScreenSampler : IDisposable
             return colors;
         }
 
-        for (var i = 0; i < PixelProtocol.CellCount; i++)
+        for (var i = 0; i < cellCount; i++)
             colors[i] = SampleCell((x, y) => ReadPixel(x, y), i, cellSize);
         return colors;
     }

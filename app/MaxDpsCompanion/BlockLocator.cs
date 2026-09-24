@@ -89,7 +89,12 @@ internal static class BlockLocator
         return null;
     }
 
-    /// <summary>Confirms the candidate really is our strip by decoding all 8 cells.</summary>
+    /// <summary>
+    /// Confirms the candidate really is our strip by decoding all cells.
+    /// Tries v2 (9 cells) first, then v1 (8 cells, stale addon): the sweep
+    /// must find a stale strip too, or recalibrate can never repair the
+    /// version skew it is meant to diagnose.
+    /// </summary>
     private static unsafe bool Verify(byte* scan, int stride, Size area, int x, int y, int size, ColorProfile? profile)
     {
         var centre = size / 2;
@@ -101,6 +106,9 @@ internal static class BlockLocator
 
         if (statusX >= area.Width || statusY >= area.Height) return false;
 
+        // v2 window first (current addon). When the strip is v1 the 9th
+        // cell reads background, so Decode/Classify reject by length and
+        // we retry the 8-cell window below.
         var cells = new Color[PixelProtocol.CellCount];
         for (var i = 0; i < PixelProtocol.CellCount; i++)
         {
@@ -108,11 +116,21 @@ internal static class BlockLocator
             cells[i] = Read(scan, stride, px, statusY);
         }
 
-        // Normal path: the full 8-cell strip decodes. Calibrate path: the strip
+        // Normal path: the full strip decodes. Calibrate path: the strip
         // renders the learning pattern, which strict Decode rejects — but
         // finding the pattern IS the job during calibration.
         if (PixelProtocol.Decode(cells, profile) is not null) return true;
-        return ColorLearner.Classify(cells, profile) >= 0;
+        if (ColorLearner.Classify(cells, profile) >= 0) return true;
+
+        // v1 window (stale addon): 8 cells starting at the same magic cell.
+        var old = new Color[PixelProtocol.CellCountV1];
+        for (var i = 0; i < PixelProtocol.CellCountV1; i++)
+        {
+            var px = Math.Min(x + size * i + centre, area.Width - 1);
+            old[i] = Read(scan, stride, px, statusY);
+        }
+        if (PixelProtocol.Decode(old, profile) is not null) return true;
+        return ColorLearner.Classify(old, profile) >= 0;
     }
 
     private static unsafe int RunLength(byte* scan, int stride, int x, int y, int dx, int dy, int limit, ColorProfile? profile)

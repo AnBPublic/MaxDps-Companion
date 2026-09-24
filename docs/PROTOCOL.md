@@ -1,7 +1,23 @@
-# Pixel protocol v1 — MaxDpsBridge ↔ MaxDpsCompanion
+# Pixel protocol v2 — MaxDpsBridge ↔ MaxDpsCompanion
 
-Normative spec. Bridge encodes, companion decodes. 8 cells, left to right,
+Normative spec. Bridge encodes, companion decodes. 9 cells, left to right,
 each `CellSize` physical pixels square. The app samples the centre pixel.
+
+> **Compatibility contract (Sep-2026 outage lesson):** the companion MUST
+> decode the previous protocol version too (v1: 8 cells, slots 1-5, status
+> 6, version 7). The in-game addon goes stale whenever the user runs a new
+> exe without `install-addon.ps1` + `/reload` — the Sep-2026 v2-only
+> `Classify` rejected the live v1 pattern outright and calibration read
+> "no pattern on screen" although the pattern WAS visible. Rule for all
+> future protocol bumps: **companion decodes N and N-1, addon encodes N**,
+> and the app warns (never hard-fails) on a version skew so recalibrate
+> itself is the repair path.
+
+Slot naming mirrors the in-game Spell Frame categories (MaxDps `Options.lua`
+/ `SpellFrame.lua`): offensive = `classCooldowns` offensive bucket,
+defensive = `GlowDefensiveHPMidnight`, consumable = `MaxDps.Consumables`
+potions, trinket = other `ItemSpells` (equipped on-use trinkets). Interrupt
+has no Spell Frame row and stays its own slot.
 
 ## Nibble encoding
 
@@ -16,12 +32,13 @@ resampling. Decode: `nibble = round(channel / 17)`, tolerance ±8 unless a
 | :--- | :--- | :--- | :--- | :--- |
 | 0 | 15 | 0 | 15 | magic: presence + alignment + calibration reference (pure magenta) |
 | 1 | Main id hi | Main id lo | flags | next spell to cast |
-| 2 | CD id hi | CD id lo | flags | cooldown suggestion |
-| 3 | Interrupt id hi | Interrupt id lo | flags | interrupt suggestion |
-| 4 | Defensive id hi | Defensive id lo | flags | defensive suggestion |
-| 5 | Consumable id hi | Consumable id lo | flags | potion / trinket |
-| 6 | state | heartbeat | version (1) | engine state + liveness |
-| 7 | version (1) | checksum | commit | integrity + calibrate id |
+| 2 | Offensive id hi | Offensive id lo | flags | offensive suggestion (Spell Frame "Show offensive spells") |
+| 3 | Interrupt id hi | Interrupt id lo | flags | interrupt suggestion (no Spell Frame row) |
+| 4 | Defensive id hi | Defensive id lo | flags | defensive suggestion (Spell Frame "Show defensive spells") |
+| 5 | Consumable id hi | Consumable id lo | flags | potion suggestion (Spell Frame "Show consumable spells") |
+| 6 | Trinket id hi | Trinket id lo | flags | on-use trinket suggestion (Spell Frame "Show trinket spells") |
+| 7 | state | heartbeat | version (2) | engine state + liveness |
+| 8 | version (2) | checksum | commit | integrity + calibrate id |
 
 Spell id = 12-bit MaxDps spell index (`hi` = id >> 4, `lo` = id & 0xF).
 `0x000` = no suggestion in this slot.
@@ -51,18 +68,19 @@ Heartbeat (cell 6 G): increments every addon frame, wraps 0–15. A value
 frozen for >500 ms means the addon stopped rendering — treat as link lost.
 Cell 6 B mirrors the protocol version (1).
 
-### Checksum + commit (cell 7)
+### Checksum + commit (cell 8)
 
-- R: protocol version (1).
-- G: checksum = XOR of all R/G/B nibbles of cells 1–6. Mismatch = drop the
+- R: protocol version (2).
+- G: checksum = XOR of all R/G/B nibbles of cells 1–7. Mismatch = drop the
   frame, keep previous state, count a decode error.
 - B: commit/calibrate counter — increments on every `/mdb calibrate` run so
   the app can tell a fresh calibration from a stale strip.
 
 ## Calibration (54-step pattern)
 
-`/mdb calibrate on` replaces the strip with 54 cells: black, white, then one
-step per channel axis (16 steps × R/G/B = 48) plus 4 anchors. The companion
+`/mdb calibrate on` replaces the strip with a 54-step cycling pattern:
+black, white, then one step per channel axis (16 steps × R/G/B = 48) plus
+4 anchors. All six slot cells carry the flat level. The companion
 learns per-channel black/white ranges into `[Color]` and the bridge reports
 state 2 (paused) until `/mdb calibrate off`. Learning completes when black,
 white, and ≥1 step per axis are known — normally a few seconds. `/mdb off`

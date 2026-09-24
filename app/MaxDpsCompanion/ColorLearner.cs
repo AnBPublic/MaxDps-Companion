@@ -5,8 +5,8 @@ namespace MaxDpsCompanion;
 /// <summary>
 /// Learns the display-chain colour profile from the addon's `/mdb calibrate`
 /// pattern: black step, white step, then per-channel 0..15 ramps. Each step is
-/// found by its flat level on slot cells 1-5 while cell 0 holds the magic
-/// reference and cell 6 (status) holds the Paused encoding. Median sampling
+/// found by its flat level on slot cells 1-6 while cell 0 holds the magic
+/// reference and cell 7 (status) holds the Paused encoding. Median sampling
 /// rejects HDR dither.
 ///
 /// ReShade / RenoDX / HDR shift the whole chain (lifted blacks, tinted
@@ -70,9 +70,11 @@ internal static class ColorLearner
         {
             if (cancel?.Invoke() == true) return null;
             var cells = sample(block, cellSize);
-            if (cells.Length != PixelProtocol.CellCount) return null;
+            if (cells.Length != PixelProtocol.CellCount
+                && cells.Length != PixelProtocol.CellCountV1) return null;
             var step = Classify(cells, profile);
-            var level = step >= 0 ? Average(cells, 1, 5) : Color.Empty;
+            var (from, to) = SlotRange(cells);
+            var level = step >= 0 ? Average(cells, from, to) : Color.Empty;
             if (step < 0)
             {
                 stable = 0;
@@ -131,12 +133,23 @@ internal static class ColorLearner
     /// so repeated anchors (black/white render twice per cycle) stay fresh
     /// instead of double-counting.
     /// </summary>
+    /// <summary>
+    /// Slot range of a frame: v2 averages cells 1-6, v1 cells 1-5.
+    /// Mixed-version frame lists never occur in practice (one addon renders
+    /// one pattern), but every helper resolves per-frame so a mixed list
+    /// still learns instead of throwing.
+    /// </summary>
+    private static (int From, int To) SlotRange(Color[] cells) =>
+        cells.Length == PixelProtocol.CellCountV1 ? (1, 5) : (1, 6);
+
     internal static void AddOrReplace(List<Color[]> frames, Color[] cells)
     {
-        var level = Average(cells, 1, 5);
+        var (from, to) = SlotRange(cells);
+        var level = Average(cells, from, to);
         for (var i = 0; i < frames.Count; i++)
         {
-            var other = Average(frames[i], 1, 5);
+            var (ff, ft) = SlotRange(frames[i]);
+            var other = Average(frames[i], ff, ft);
             if (Math.Abs(other.R - level.R) <= 12
                 && Math.Abs(other.G - level.G) <= 12
                 && Math.Abs(other.B - level.B) <= 12)
@@ -175,10 +188,12 @@ internal static class ColorLearner
         var usable = 0;
         foreach (var cells in frames)
         {
-            if (cells.Length != PixelProtocol.CellCount) continue;
+            if (cells.Length != PixelProtocol.CellCount
+                && cells.Length != PixelProtocol.CellCountV1) continue;
             if (Classify(cells, matcher) < 0) continue;
             usable++;
-            var level = Average(cells, 1, 5);
+            var (from, to) = SlotRange(cells);
+            var level = Average(cells, from, to);
             var brightness = (level.R + level.G + level.B) / 3;
             var channels = new[] { level.R, level.G, level.B };
             Array.Sort(channels);
@@ -231,12 +246,14 @@ internal static class ColorLearner
 
         foreach (var cells in frames)
         {
-            if (cells.Length != PixelProtocol.CellCount) continue;
+            if (cells.Length != PixelProtocol.CellCount
+                && cells.Length != PixelProtocol.CellCountV1) continue;
             var step = Classify(cells, matcher);
             if (step < 0) continue;
             flats++;
             magic = cells[0];
-            var level = Average(cells, 1, 5);
+            var (from, to) = SlotRange(cells);
+            var level = Average(cells, from, to);
             var brightness = (level.R + level.G + level.B) / 3;
             // Anchors by brightness, not just exact class: a "black" step
             // through a lifting chain reads grey, a "white" step reads tinted,
@@ -283,12 +300,18 @@ internal static class ColorLearner
     /// Classifies a calibrate-pattern frame: 0 = black, 1 = white, 2 = ramp.
     /// Returns -1 when the frame is not a stable pattern step.
     ///
-    /// Shape-based so post-processing cannot hide the pattern: slot cells 1-5
+    /// Shape-based so post-processing cannot hide the pattern: slot cells
     /// must be flat and equal (spread allows HDR dither), the status cell
-    /// (index 6) must read Paused, and the verdict comes from channel
-    /// dominance, not absolute levels. A ReShade chain lifts blacks towards
-    /// grey and tints whites, but a flat is still flat and a lit channel
-    /// still leads the other two.
+    /// must read Paused, and the verdict comes from channel dominance, not
+    /// absolute levels. A ReShade chain lifts blacks towards grey and tints
+    /// whites, but a flat is still flat and a lit channel still leads the
+    /// other two.
+    ///
+    /// CONTRACT (Sep-2026 outage lesson): accepts BOTH protocol versions —
+    /// v2 (9 cells: slots 1-6, status 7) and v1 (8 cells: slots 1-5,
+    /// status 6). A stale in-game addon (user ran the new exe without
+    /// /reload after install-addon) renders the v1 pattern; rejecting it
+    /// reads as "no pattern on screen" although the pattern IS visible.
     /// </summary>
     public const int ChannelLead = 16;
     public const int BlackBrightness = 96;
@@ -298,7 +321,19 @@ internal static class ColorLearner
 
     public static int Classify(Color[] cells, ColorProfile? profile = null)
     {
-        if (cells.Length != PixelProtocol.CellCount) return -1;
+        // v2 (current): 9 cells, slots 1-6, status 7.
+        if (cells.Length == PixelProtocol.CellCount)
+            return ClassifyCells(cells, firstSlot: 1, lastSlot: 6,
+                cells[PixelProtocol.StatusCellIndex], profile);
+        // v1 (stale addon): 8 cells, slots 1-5, status 6.
+        if (cells.Length == PixelProtocol.CellCountV1)
+            return ClassifyCells(cells, firstSlot: 1, lastSlot: 5,
+                cells[PixelProtocol.StatusCellIndexV1], profile);
+        return -1;
+    }
+
+    private static int ClassifyCells(Color[] cells, int firstSlot, int lastSlot, Color status, ColorProfile? profile)
+    {
         // Magic cell must still read magenta-ish; a learned profile matches by
         // distance, otherwise a loose dominance band so a shifted chain is
         // still recognisable before any profile exists. Absolute floors are
@@ -317,12 +352,13 @@ internal static class ColorLearner
 
         // Calibrate mode holds the bridge Paused: the status cell must say so.
         // Without this gate a live rotation frame with five equal slots would
-        // misclassify as a pattern step.
-        if (!PixelProtocol.IsPausedStatus(cells[PixelProtocol.StatusCellIndex], m, profile))
+        // misclassify as a pattern step. NOTE: use the passed status cell,
+        // not StatusCellIndex — v1 patterns carry it at index 6, v2 at 7.
+        if (!PixelProtocol.IsPausedStatus(status, m, profile))
             return -1;
 
-        var level = Average(cells, 1, 5);
-        var spread = Spread(cells);
+        var level = Average(cells, firstSlot, lastSlot);
+        var spread = Spread(cells, firstSlot, lastSlot);
         if (spread > CellSpread) return -1;
 
         // A ramp step lights one channel above the other two, including dark
@@ -352,11 +388,11 @@ internal static class ColorLearner
         return Color.FromArgb(r / n, g / n, b / n);
     }
 
-    private static int Spread(Color[] cells)
+    private static int Spread(Color[] cells, int firstSlot = 1, int lastSlot = 6)
     {
         var spread = 0;
-        for (var i = 1; i <= 5; i++)
-            for (var j = i + 1; j <= 5; j++)
+        for (var i = firstSlot; i <= lastSlot; i++)
+            for (var j = i + 1; j <= lastSlot; j++)
                 spread = Math.Max(spread, Math.Max(
                     Math.Abs(cells[i].R - cells[j].R),
                     Math.Max(Math.Abs(cells[i].G - cells[j].G),

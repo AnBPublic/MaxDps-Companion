@@ -9,29 +9,32 @@ Two pieces:
 
 | Piece | What it does |
 | :--- | :--- |
-| `MaxDpsBridge` (addon, `addon/MaxDpsBridge/`) | Queries the MaxDps rotation engine (`MaxDps.Spell`) each frame and encodes the suggested spells into an 8-cell strip of flat-coloured pixels in the corner of the screen. |
+| `MaxDpsBridge` (addon, `addon/MaxDpsBridge/`) | Queries the MaxDps rotation engine (`MaxDps.Spell`) each frame and encodes the suggested spells into a 9-cell strip of flat-coloured pixels in the corner of the screen. |
 | `MaxDpsCompanion.exe` (desktop app, `app/MaxDpsCompanion/`) | Samples those pixels (~8–20x/second via `CopyFromScreen`), decodes the spell slots, and replays the player's own keybinds into the attached game window only (`PostMessage` `WM_KEYDOWN`/`WM_KEYUP`). |
 
 The pixel strip is the whole interface between them. Upstream MaxDps stays
 read-only in `vendor/`; the bridge and companion contain zero rotation
 intelligence.
 
-## Protocol v1 (8 cells)
+## Protocol v2 (9 cells)
 
 Each cell is `CellSize` physical pixels square. Every channel carries one
 nibble encoded as `nibble * 17` (0, 17, …, 255). The app samples the centre
-pixel of each cell. Full spec: `docs/PROTOCOL.md`.
+pixel of each cell. Slot names mirror the in-game Spell Frame categories
+(`Show offensive / defensive / consumable / trinket spells`). Full spec:
+`docs/PROTOCOL.md`.
 
 | Cell | R | G | B | Meaning |
 | :--- | :--- | :--- | :--- | :--- |
 | 0 | 15 | 0 | 15 | magic (presence / alignment / calibration reference) |
 | 1 | Main spell id hi | id lo | flags | next spell to cast |
-| 2 | CD spell id hi | id lo | flags | cooldown suggestion |
+| 2 | Offensive spell id hi | id lo | flags | offensive suggestion |
 | 3 | Interrupt spell id hi | id lo | flags | interrupt suggestion |
 | 4 | Defensive spell id hi | id lo | flags | defensive suggestion |
-| 5 | Consumable spell id hi | id lo | flags | potion / trinket suggestion |
-| 6 | state | heartbeat | version | engine state + liveness |
-| 7 | version | checksum | commit | protocol ver + integrity + calibrate id |
+| 5 | Consumable spell id hi | id lo | flags | potion suggestion |
+| 6 | Trinket spell id hi | id lo | flags | on-use trinket suggestion |
+| 7 | state | heartbeat | version | engine state + liveness |
+| 8 | version | checksum | commit | protocol ver + integrity + calibrate id |
 
 Cell 7: R = protocol version (1), G = checksum (XOR of cells 1–6 channels),
 B = calibrate/commit counter.
@@ -76,6 +79,7 @@ spell2=1
 spell3=1
 spell4=1
 spell5=0
+spell6=0
 
 [Timing]
 PollIntervalMs=50
@@ -104,7 +108,7 @@ BNetPath=
 | `Window` | `RequireForeground` | `1` = mouse/interact keys only send while focused. |
 | `Window` | `AllowBackgroundKeys` | `1` = spell keys send while in background. |
 | `Pause` | `Button` | Global pause hotkey (`Pause`, `F9`, …). |
-| `Spells` | `spell1`…`spell5` | Which slots may fire: Main, CD, Interrupt, Defensive, Consumable (off by default — fire manually). |
+| `Spells` | `spell1`…`spell6` | Which slots may fire: Main, Offensive, Interrupt, Defensive, Consumable + Trinket (item slots off by default — fire manually). |
 | `Timing` | `PollIntervalMs` / `MinKeyIntervalMs` / `KeyPressMs` | Sample rate / gap between inputs / hold length. |
 | `Targeting` | `AutoTargetEnabled`, `CombatOnly`, `TargetKey` | Press `TargetKey` when bridge reports no-target. Never a movement key. |
 | `Interact` | `InteractEnabled`, `InteractKey` | Press `InteractKey` when bridge reports need-interact (state 4). |
@@ -147,7 +151,7 @@ Version locations: addon `MaxDpsBridge.toc` (`## Version:`) + app title bar
 - Expect ~50–120 ms pixel-to-key latency; this is a suggestion follower,
   not a frame-perfect bot.
 - MaxDps is a **single-spell engine** — cell 1 (Main) is the rotation;
-  cells 2–5 are situational extras, most users leave Consumable off.
+  cells 2–6 are situational extras, most users leave Consumable/Trinket off.
 
 ## Layout
 
@@ -155,7 +159,7 @@ Version locations: addon `MaxDpsBridge.toc` (`## Version:`) + app title bar
 MaxDps-Companion/
   addon/MaxDpsBridge/      bridge addon (other agent owns *.lua)
   app/MaxDpsCompanion/     C# .NET 8 source (other agent owns *.cs)
-  docs/PROTOCOL.md         full 8-cell pixel protocol
+  docs/PROTOCOL.md         full 9-cell pixel protocol
   vendor/                  pinned upstream MaxDps snapshot (read-only)
   build.ps1                publish exe into dist\
   install-addon.ps1        copy bridge addon into Interface\AddOns

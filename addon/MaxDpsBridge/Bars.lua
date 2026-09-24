@@ -79,23 +79,32 @@ end
   *       so that a macro'd ability still matches the suggested spell.
   *]]
 local function ButtonTexture (Button)
-  if not Button.icon or not Button.icon:IsShown() then return nil; end
-
-  local Texture = Button.icon:GetTexture();
-  if not Texture then return nil; end
-
-  local Slot = Button.action or (Button.GetPagedID and Button:GetPagedID())
-    or (_G.ActionButton_GetPagedID and _G.ActionButton_GetPagedID(Button));
-  if Slot then
-    local ActionType, ActionID = GetActionInfo(Slot);
-    if ActionType == "macro" then
-      local _, _, MacroSpellID = GetMacroSpell(ActionID);
-      if not MacroSpellID then return nil; end
-      Texture = GetSpellTexture(MacroSpellID);
+  -- v1.3.0 zero-taint: the whole texture read runs under
+  -- dropsecretaccess() containment — every icon/macro/slot return inside
+  -- is provably plain, so plain `==` below cannot throw. Without
+  -- containment, secret macro/action IDs detonate on compare (Sep-2026).
+  -- A failure anywhere degrades to the un-resolved icon (fallback simply
+  -- skips that button — HotKey/action-bar paths cover the spell).
+  local Ok, Texture = pcall(function ()
+    if type(dropsecretaccess) == "function" then dropsecretaccess(); end
+    if not Button.icon or not Button.icon:IsShown() then return nil; end
+    local Tex = Button.icon:GetTexture();
+    if not Tex then return nil; end
+    local Slot = Button.action or (Button.GetPagedID and Button:GetPagedID())
+      or (_G.ActionButton_GetPagedID and _G.ActionButton_GetPagedID(Button));
+    if Slot then
+      local ActionType, ActionID = GetActionInfo(Slot);
+      if ActionType == "macro" then
+        local _, _, MacroSpellID = GetMacroSpell(ActionID);
+        if not MacroSpellID then return Tex; end
+        local MacroTexture = GetSpellTexture(MacroSpellID);
+        if MacroTexture then Tex = MacroTexture; end
+      end
     end
-  end
-
-  return Texture;
+    return Tex;
+  end);
+  if Ok then return Texture; end
+  return nil;
 end
 
 local function Rebuild ()

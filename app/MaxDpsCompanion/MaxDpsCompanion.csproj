@@ -17,7 +17,7 @@
     <AssemblyTitle>MaxDPS Companion</AssemblyTitle>
     <Product>MaxDPS Companion</Product>
     <RootNamespace>MaxDpsCompanion</RootNamespace>
-    <Version>1.1.0</Version>
+    <Version>1.3.6</Version>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Pixel coordinates must be physical, not DPI-virtualised. -->
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>

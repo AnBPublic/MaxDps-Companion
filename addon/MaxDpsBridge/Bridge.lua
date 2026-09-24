@@ -3,20 +3,29 @@
 -- a screen corner. MaxDpsCompanion.exe samples those pixels and replays the
 -- encoded keystrokes.
 --
--- Protocol v1 -- 8 cells, left to right, each CellSize physical pixels square.
+-- Protocol v2 -- 9 cells, left to right, each CellSize physical pixels square.
 -- Every channel carries one nibble, encoded as nibble * 17 (0, 17, ... 255),
 -- which leaves enough headroom to survive gamma and scaling.
 --
+-- Slot order = the user's 5-icon model: 1 main rotation (THE core
+-- functionality — MaxDps.Spell, always encoded when suggested), 2 offensive
+-- (classCooldowns offensive via GlowCooldownMidnight, often off-GCD), 3
+-- defensive (via GlowDefensiveHPMidnight), 4 consumable (potions in
+-- MaxDps.Consumables), 5 trinket (other ItemSpells, on-use trinkets),
+-- 6 interrupt (via GlowInteruptMidnight — situational, companion priority
+-- re-sorts at send time so it still preempts when live).
+--
 --   cell 0  magic       R=15 G=0 B=15  (magenta; presence + alignment check)
 --   cell 1  Main        R=vk hi  G=vk lo  B=flags  (MaxDps.Spell)
---   cell 2  Cooldown    R=vk hi  G=vk lo  B=flags  (Flags, not int/def/item)
---   cell 3  Interrupt   R=vk hi  G=vk lo  B=flags  (via GlowInteruptMidnight)
---   cell 4  Defensive   R=vk hi  G=vk lo  B=flags  (via GlowDefensiveHPMidnight)
---   cell 5  Consumable  R=vk hi  G=vk lo  B=flags  (ItemSpells glow)
---   cell 6  status      R=state  G=heartbeat  B=0 (reserved)
---   cell 7  version     R=1  G=checksum  B=commit (=heartbeat, tear detect)
+--   cell 2  Offensive   R=vk hi  G=vk lo  B=flags  (Flags, not int/def/item)
+--   cell 3  Defensive   R=vk hi  G=vk lo  B=flags  (via GlowDefensiveHPMidnight)
+--   cell 4  Consumable  R=vk hi  G=vk lo  B=flags  (ItemSpells in Consumables)
+--   cell 5  Trinket     R=vk hi  G=vk lo  B=flags  (ItemSpells NOT in Consumables)
+--   cell 6  Interrupt   R=vk hi  G=vk lo  B=flags  (via GlowInteruptMidnight)
+--   cell 7  status      R=state  G=heartbeat  B=flags (v4: bit0 combat, bit1 GCD)
+--   cell 8  version     R=4  G=checksum  B=commit (=heartbeat, tear detect)
 --
--- checksum = sum of R+G+B nibbles of cells 1-6, mod 16. commit must equal
+-- checksum = sum of R+G+B nibbles of cells 1-7, mod 16. commit must equal
 -- heartbeat or the frame is torn and the companion drops it.
 --
 -- flags: bit0 Shift, bit1 Ctrl, bit2 Alt, bit3 slot valid
@@ -25,8 +34,8 @@
 --
 -- Calibrate mode (`/mdb calibrate on`): renders a deterministic pattern the
 -- desktop app samples to learn the display chain (RenoDX / RTX HDR / ICC /
--- ReShade). cell 0 = magic reference, cells 1-5 = flat level for the current
--- step, cell 6 = Paused so the companion holds instead of sending keys.
+-- ReShade). cell 0 = magic reference, cells 1-6 = flat level for the current
+-- step, cell 7 = Paused so the companion holds instead of sending keys.
 -- Steps advance every ~8 ticks (~400 ms dwell at 50 ms/update) so the
 -- sampler locks through post-processing: black, white, red ramp, green ramp,
 -- blue ramp, then repeat with re-anchors. `/mdb calibrate off` (or `/mdb off`)
@@ -36,7 +45,7 @@
 
 local addonName, MDB = ...;
 
-MDB.VERSION = "1.2.0";
+MDB.VERSION = "1.3.6";
 
 -- Chat print, defined FIRST: AutoCalibrate (below) and the Update watchdog
 -- both call it, and Lua resolves locals lexically — a later `local
@@ -47,8 +56,22 @@ local function Print (Message)
   DEFAULT_CHAT_FRAME:AddMessage("|cFF00D8FFMDB|r: " .. Message);
 end
 
-local CELL_COUNT = 8;
-local PROTOCOL_VERSION = 1;
+-- Protocol v4 (Sep-2026): same 9 cells. The STATUS cell B nibble (was
+-- reserved 0) now carries COMbat/GCD flags:
+--   bit0 IN_COMBAT (UnitAffectingCombat, NeverSecret)
+--   bit1 ON_GCD    (C_Spell.GetSpellCooldown(61304).isOnGCD, NeverSecret)
+-- so the companion can (a) pause outside combat and (b) wait for the GCD
+-- instead of machine-gunning a suggestion that WoW will ignore. R bump
+-- 3→4 forces stale-decode rejection both ends (same-length misread lesson).
+local CELL_COUNT = 9;
+local PROTOCOL_VERSION = 4;
+local STATUS_FLAG_IN_COMBAT = 1;
+local STATUS_FLAG_ON_GCD = 2;
+-- v1.3.6: bit2 = a valid attackable target exists. The companion waits
+-- for a target instead of spamming suggestions into empty space (user:
+-- "attack out of combat is ok, it just shouldn't spam into empty space —
+-- wait until I target something").
+local STATUS_FLAG_HAS_TARGET = 4;
 local UPDATE_INTERVAL = 0.05;
 
 -- NOTE: a 25 s auto-cal watchdog lived here (reset strip to 0,0 when the
@@ -165,17 +188,33 @@ end
 
 --- ======= MAXDPS READOUT =======
 
-local function WriteSlot (CellIndex, SpellID, IsInterrupt)
+local function WriteSlot (CellIndex, SpellID, IsInterrupt, SkipGate)
   -- Belt-and-braces: the getters already gate on readiness, but a stale
   -- value between their check and this encode must never go on the wire.
   -- Unready spells encode as EMPTY (FLAG_VALID clear) so the companion
   -- skips the slot and fires the next ready one instead of hammering an
   -- unavailable key.
+  --
+  -- v1.3.0 zero-taint: SpellIDs arrive from scrubbed scans (proven plain
+  -- numbers); the readiness re-check below runs inside pcall so ANY taint
+  -- throw (secret verdict, secret cooldown field) degrades to EMPTY for
+  -- THIS slot only — never aborts the frame. No IsSecret call (deleted;
+  -- verdict-compare regress, Sep-2026).
+  --
+  -- v1.3.2: SkipGate=true for the MAIN slot (cell 1) — upstream's glow IS
+  -- the castability verdict (see GetMainSpellID); re-gating it here with
+  -- tainted reads vetoed correct mains (Sep-2026 stuck-rotation: E fired,
+  -- 1/2/R never did). Situational slots keep the gate.
   if SpellID then
-    local Ready;
-    if IsInterrupt then Ready = MDB.IsInterruptReady(SpellID);
-    else Ready = MDB.IsSpellReady(SpellID); end
-    if not Ready then SpellID = nil; end
+    if type(SpellID) ~= "number" or SpellID == 0 then
+      SpellID = nil;
+    elseif not SkipGate then
+      local Ok, Ready = pcall(function ()
+        if IsInterrupt then return MDB.IsInterruptReady(SpellID);
+        else return MDB.IsSpellReady(SpellID); end
+      end);
+      if not Ok or not Ready then SpellID = nil; end
+    end
   end
   local VirtualKey, Modifiers = MDB.ResolveBinding(SpellID);
   if not VirtualKey then
@@ -189,32 +228,9 @@ local function WriteSlot (CellIndex, SpellID, IsInterrupt)
   return Hi, Lo, Flags;
 end
 
--- Containment layer for the 20 Hz readout. The Reader gate is secret-safe
--- by construction (see Reader.lua header), but a future client change must
--- never turn the OnUpdate loop into Lua error spam (the v1.0.x 5595x
--- counter) or leave the checksum math with nil operands. Any throw here
--- degrades to "empty slot / no state" for that tick and is reported once.
-local function SafeReadout (Fn)
-  local Ok, Value = pcall(Fn);
-  if Ok then return Value; end
-  if not MDB._ReadoutWarned then
-    MDB._ReadoutWarned = true;
-    Print("readout probe recovered from an error (secret API?) - run /mdb status");
-  end
-  return nil;
-end
-
-local function WriteSlotSafe (CellIndex, SpellID, IsInterrupt)
-  local Ok, R, G, B = pcall(WriteSlot, CellIndex, SpellID, IsInterrupt);
-  if not Ok then return 0, 0, 0; end
-  return R or 0, G or 0, B or 0;
-end
-
 -- Target state is read-only: UnitExists/UnitIsDead/UnitCanAttack and
--- CheckInteractDistance never act on the world. A secret boolean return
--- (restricted unit comparison) or an API failure degrades to "no special
--- state" — normal rendering — instead of erroring in the hot loop.
-local function TargetStateUnsafe ()
+-- CheckInteractDistance never taint and never act on the world.
+local function TargetState ()
   if type(UnitExists) ~= "function" then return nil; end
   if not UnitExists("target") then return STATE_NEED_TARGET; end
   if type(UnitIsDead) == "function" and UnitIsDead("target") then
@@ -230,19 +246,56 @@ local function TargetStateUnsafe ()
   return nil;
 end
 
-local function TargetState ()
-  local Ok, State = pcall(TargetStateUnsafe);
-  if not Ok then return nil; end
-  return State;
+local function WriteStatus (State, Flags)
+  Flags = Flags or 0;
+  Paint(7, State, Heartbeat, Flags);
+  return State, Heartbeat, Flags;
 end
 
-local function WriteStatus (State)
-  Paint(6, State, Heartbeat, 0);
-  return State, Heartbeat, 0;
+-- v1.3.5/1.3.6: status flags from NeverSecret / plain-unit APIs only (no
+-- secrets touched — safe to compare even under taint):
+--   combat: UnitAffectingCombat("player") — plain boolean.
+--   gcd:    C_Spell.GetSpellCooldown(61304).isOnGCD — NeverSecret.
+--   target: UnitExists/UnitIsDead/UnitCanAttack on "target" — plain
+--           unit booleans (same calls TargetState already relies on).
+-- pcall-wrapped; any failure leaves the flag clear (companion fails open).
+local function StatusFlags ()
+  local Flags = 0;
+  if type(UnitAffectingCombat) == "function" then
+    local Ok, InC = pcall(UnitAffectingCombat, "player");
+    if Ok and InC == true then Flags = bit.bor(Flags, STATUS_FLAG_IN_COMBAT); end
+  end
+  if _G.C_Spell and type(_G.C_Spell.GetSpellCooldown) == "function" then
+    local Ok, Info = pcall(_G.C_Spell.GetSpellCooldown, 61304);
+    if Ok and type(Info) == "table" and Info.isOnGCD == true then
+      Flags = bit.bor(Flags, STATUS_FLAG_ON_GCD);
+    end
+  end
+  -- Valid attackable target: exists, alive, attackable. Reads only unit
+  -- booleans (never secret).
+  if type(UnitExists) == "function" then
+    local OkE, Exists = pcall(UnitExists, "target");
+    if OkE and Exists == true then
+      local Dead = false;
+      if type(UnitIsDead) == "function" then
+        local OkD, D = pcall(UnitIsDead, "target");
+        Dead = (OkD and D == true);
+      end
+      local Attackable = true;
+      if type(UnitCanAttack) == "function" then
+        local OkA, A = pcall(UnitCanAttack, "player", "target");
+        Attackable = (OkA and A == true);
+      end
+      if not Dead and Attackable then
+        Flags = bit.bor(Flags, STATUS_FLAG_HAS_TARGET);
+      end
+    end
+  end
+  return Flags;
 end
 
 local function WriteVersion (Checksum)
-  Paint(7, PROTOCOL_VERSION, Checksum, Heartbeat);
+  Paint(8, PROTOCOL_VERSION, Checksum, Heartbeat);
 end
 
 local function Update (self, Delta)
@@ -259,8 +312,8 @@ local function Update (self, Delta)
   -- (~400 ms dwell at 50 ms/update) so the sampler locks through
   -- post-processing; steps 0/52 and 1/53 are black/white anchors repeated
   -- late in the cycle so black/white can be re-found.
-  -- Only cells 1-5 carry the flat level: the learner averages exactly
-  -- cells 1-5 and requires cell 6 to read Paused.
+  -- Only cells 1-6 carry the flat level: the learner averages exactly
+  -- cells 1-6 and requires cell 7 to read Paused.
   if MaxDpsBridgeDB.Calibrate then
     CalTick = CalTick + 1;
     if CalTick >= 8 then
@@ -281,7 +334,7 @@ local function Update (self, Delta)
       Kind = "b"; Level = CalStep - 34;                           -- blue ramp 0..15
       if Level > 15 then Level = 15; end
     end
-    for i = 1, 5 do
+    for i = 1, 6 do
       if Kind == "flat" then
         Paint(i, Level, Level, Level);
       elseif Kind == "r" then
@@ -297,16 +350,16 @@ local function Update (self, Delta)
     local SR, SG, SB = WriteStatus(STATE_PAUSED);
     local SlotSum;
     if Kind == "flat" then
-      SlotSum = 5 * (Level * 3);
+      SlotSum = 6 * (Level * 3);
     else
-      SlotSum = 5 * Level;
+      SlotSum = 6 * Level;
     end
     WriteVersion((SlotSum + SR + SG + SB) % 16);
     return;
   end
 
   if not MaxDpsBridgeDB.Enabled then
-    for i = 1, 5 do Paint(i, 0, 0, 0); end
+    for i = 1, 6 do Paint(i, 0, 0, 0); end
     local SR, SG, SB = WriteStatus(STATE_PAUSED);
     WriteVersion((SR + SG + SB) % 16);
     return;
@@ -314,26 +367,45 @@ local function Update (self, Delta)
 
   MDB.EnsureHooks();
 
-  local R1, G1, B1 = WriteSlotSafe(1, SafeReadout(MDB.GetMainSpellID));
-  local R2, G2, B2 = WriteSlotSafe(2, SafeReadout(MDB.GetCooldownSpellID));
-  local R3, G3, B3 = WriteSlotSafe(3, SafeReadout(MDB.GetInterruptSpellID), true);
-  local R4, G4, B4 = WriteSlotSafe(4, SafeReadout(MDB.GetDefensiveSpellID));
-  local R5, G5, B5 = WriteSlotSafe(5, SafeReadout(MDB.GetConsumableSpellID));
+  -- Slot order = the user's 5-icon model: 1 main rotation (THE core
+  -- functionality — always encoded when MaxDps suggests anything),
+  -- 2 offensive, 3 defensive, 4 consumable, 5 trinket, 6 interrupt
+  -- (interrupt rides last: situational, companion priority re-sorts at
+  -- send time so it still preempts when live).
+  local R1, G1, B1 = WriteSlot(1, MDB.GetMainSpellID(), false, true);
+  local R2, G2, B2 = WriteSlot(2, MDB.GetOffensiveSpellID());
+  local R3, G3, B3 = WriteSlot(3, MDB.GetDefensiveSpellID());
+  local R4, G4, B4 = WriteSlot(4, MDB.GetConsumableSpellID());
+  local R5, G5, B5 = WriteSlot(5, MDB.GetTrinketSpellID());
+  local R6, G6, B6 = WriteSlot(6, MDB.GetInterruptSpellID(), true);
 
   local AnySlot = bit.band(B1, FLAG_VALID) == FLAG_VALID
     or bit.band(B2, FLAG_VALID) == FLAG_VALID
     or bit.band(B3, FLAG_VALID) == FLAG_VALID
     or bit.band(B4, FLAG_VALID) == FLAG_VALID
-    or bit.band(B5, FLAG_VALID) == FLAG_VALID;
+    or bit.band(B5, FLAG_VALID) == FLAG_VALID
+    or bit.band(B6, FLAG_VALID) == FLAG_VALID;
 
-  local State = TargetState();
-  if State == nil then
-    State = AnySlot and STATE_ACTIVE or STATE_IDLE;
+  -- v1.3.4 MELEE-STATE FIX (Sep-2026 live test: R recommended, companion
+  -- spammed InteractKey and never sent R): TargetState() returns
+  -- NeedInteract (4) whenever CheckInteractDistance(target, 3) is true —
+  -- which is TRUE FOR EVERY MELEE TARGET, i.e. the entire rotation for a
+  -- melee class. The old code let that state OVERRIDE Active, so in melee
+  -- the companion saw state 4, held the rotation, and fired the
+  -- auto-interact key every frame. THE RULE: a live suggestion ALWAYS
+  -- wins the state (Active). Target/interact states exist ONLY so the
+  -- companion can ask for a target / interact when MaxDps has NOTHING to
+  -- cast (AllSlotsEmpty) — never to suppress a pending rotation.
+  local State;
+  if AnySlot then
+    State = STATE_ACTIVE;
+  else
+    State = TargetState() or STATE_IDLE;
   end
 
-  local SR, SG, SB = WriteStatus(State);
+  local SR, SG, SB = WriteStatus(State, StatusFlags());
   WriteVersion((R1 + G1 + B1 + R2 + G2 + B2 + R3 + G3 + B3
-    + R4 + G4 + B4 + R5 + G5 + B5 + SR + SG + SB) % 16);
+    + R4 + G4 + B4 + R5 + G5 + B5 + R6 + G6 + B6 + SR + SG + SB) % 16);
 end
 
 --- ======= SLASH COMMANDS =======
@@ -413,23 +485,43 @@ local function HandleCommand (Input)
     else
       NextFn = "no-engine";
     end
-    -- Ready flags (v1.1.0): one letter per slot, uppercase = ready and
+    -- Ready flags (v1.3.1): one letter per slot, uppercase = ready and
     -- encoded, lowercase = suggested but on cooldown/unusable (skipped),
     -- '-' = no suggestion. Lets you see at a glance WHY the companion
     -- fires slot 2 while slot 1 shows a spell in MaxDps.
-    local Ready = "";
-    if MDB.GetMainSpellID() then Ready = Ready .. "M";
-    elseif _G.MaxDps and type(_G.MaxDps.Spell) == "number"
-      and MDB.IsValueSafe(_G.MaxDps.Spell) and _G.MaxDps.Spell ~= 0 then
-      Ready = Ready .. "m";
-    else Ready = Ready .. "-"; end
-    if MDB.GetCooldownSpellID() then Ready = Ready .. "C"; else Ready = Ready .. "-"; end
-    if MDB.GetInterruptSpellID() then Ready = Ready .. "I"; else Ready = Ready .. "-"; end
-    if MDB.GetDefensiveSpellID() then Ready = Ready .. "D"; else Ready = Ready .. "-"; end
-    if MDB.GetConsumableSpellID() then Ready = Ready .. "N"; else Ready = Ready .. "-"; end
+    -- Letters follow the 5-icon model: M=Main, O=Offensive, D=Defensive,
+    -- N=coNsumable, T=Trinket, I=Interrupt (last — situational).
+    -- v1.3.0 zero-taint status: the whole block runs inside ONE pcall
+    -- with dropsecretaccess() containment (a diagnostic must NEVER throw).
+    -- pcall multi-return is captured into a TABLE (locals, never secrets —
+    -- the containment strips secret access from this closure first).
+    local Ready, MainText = "??????", "-";
+    local OkStatus, Captured = pcall(function ()
+      if type(dropsecretaccess) == "function" then dropsecretaccess(); end
+      local R = "";
+      local M = MDB.GetMainSpellID();
+      if M then R = R .. "M";
+      else
+        local ES = _G.MaxDps and _G.MaxDps.Spell;
+        if type(ES) == "number" and ES ~= 0 then R = R .. "m";
+        else R = R .. "-"; end
+      end
+      if MDB.GetOffensiveSpellID() then R = R .. "O"; else R = R .. "-"; end
+      if MDB.GetDefensiveSpellID() then R = R .. "D"; else R = R .. "-"; end
+      if MDB.GetConsumableSpellID() then R = R .. "N"; else R = R .. "-"; end
+      if MDB.GetTrinketSpellID() then R = R .. "T"; else R = R .. "-"; end
+      if MDB.GetInterruptSpellID() then R = R .. "I"; else R = R .. "-"; end
+      local MT = "-";
+      if type(Main) == "number" then MT = tostring(Main); end
+      return { Ready = R, MainText = MT };
+    end);
+    if OkStatus and type(Captured) == "table" then
+      if type(Captured.Ready) == "string" then Ready = Captured.Ready; end
+      if type(Captured.MainText) == "string" then MainText = Captured.MainText; end
+    end
     Print(("v%s enabled=%s calibrate=%s offset=%d,%d cell=%dpx bound=%d spell=%s next=%s ready=%s")
       :format(MDB.VERSION, tostring(DB.Enabled), tostring(DB.Calibrate),
-        DB.OffsetX, DB.OffsetY, DB.CellSize, MDB.BindingCount(), tostring(Main), NextFn, Ready));
+        DB.OffsetX, DB.OffsetY, DB.CellSize, MDB.BindingCount(), MainText, NextFn, Ready));
   elseif Command == "version" then
     Print("MaxDpsBridge v" .. MDB.VERSION .. " (protocol v" .. PROTOCOL_VERSION .. ")");
   elseif Command == "autocal" then

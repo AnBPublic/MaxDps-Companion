@@ -218,6 +218,23 @@ internal static class Native
     internal static string BuildVersion =>
         ThisAssemblyGen.GitCommit == "dev" ? "dev build" : $"{ThisAssemblyGen.GitCommit} ({ThisAssemblyGen.BuildTime})";
 
+    /// <summary>
+    /// Product version, SINGLE-SOURCED from csproj &lt;Version&gt; via the
+    /// assembly identity — so the visible title bar can never go stale
+    /// (the Sep-2026 "outdated date/version" complaints were a hardcoded
+    /// string drifting from the csproj). Bump csproj, UI follows.
+    /// </summary>
+    internal static string AppVersion
+    {
+        get
+        {
+            var v = typeof(Native).Assembly.GetName().Version;
+            if (v is null) return "dev";
+            // 3-part display (1.3.4), dropping the always-zero Revision.
+            return $"{v.Major}.{v.Minor}.{v.Build}";
+        }
+    }
+
     // ----- global hotkey -----
 
     [DllImport("user32.dll")]

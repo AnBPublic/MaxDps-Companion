@@ -82,6 +82,26 @@ internal static class KeySender
         _ => false,
     };
 
+    /// <summary>Human-readable name incl. mouse buttons (MB5 etc. — the
+    /// Interact-on-mouse case). KeyNames.Describe lacks mouse codes.</summary>
+    public static string DescribeStroke(KeyStroke stroke)
+    {
+        var prefix = (stroke.Ctrl ? "Ctrl+" : "") + (stroke.Alt ? "Alt+" : "") + (stroke.Shift ? "Shift+" : "");
+        return prefix + (IsMouse(stroke.VirtualKey) ? MouseName(stroke.VirtualKey) : KeyNames.Describe(stroke.VirtualKey));
+    }
+
+    private static string MouseName(byte vk) => vk switch
+    {
+        VkLeftButton => "Mouse1",
+        VkRightButton => "Mouse2",
+        VkMiddleButton => "Mouse3",
+        VkXButton1 => "Mouse4",
+        VkXButton2 => "Mouse5",
+        VkWheelUp => "WheelUp",
+        VkWheelDown => "WheelDown",
+        _ => $"VK{vk:X2}",
+    };
+
     public static void Send(KeyStroke stroke, int holdMilliseconds)
     {
         var down = new List<Native.INPUT>(4);
