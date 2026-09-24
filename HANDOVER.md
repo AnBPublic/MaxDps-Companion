@@ -367,7 +367,31 @@ forward-declare helpers), companion decodes N and N-1 protocol, toggled-
 off slot types are skipped never waited on, MAIN never re-gated by
 tainted readiness, GCD + target + combat gates in that order.
 
-## v1.3.7 END-USER UI PASS (this change — design skills applied)
+## v1.3.8 ADVANCED POPUP + NO-CLIP LAYOUT (this change)
+
+User requests: keep the main design; give the setting bubbles more room so
+no text is cut off; and turn Advanced from an in-place compartment into a
+**popup dialog over the main frame** you can back out of.
+
+- Advanced is now a **popup layer**: `BuildAdvancedOverlay()` adds a scrim +
+  centred `RoundedCard` to the body canvas (added last = on top). Opening
+  it hides the body layout (`_bodyLayout.Visible=false`) and shows the
+  popup — a true screen flow, no z-order ambiguity. **Back** button and
+  **Esc** (`ProcessCmdKey`) return to the main view. The old accordion,
+  `AdvancedExtraHeight` and `ClampToScreen` are deleted; the "Advanced"
+  text link became a full-width ghost **"Advanced…"** button row.
+- No clipped text anywhere: main-card rows 60→66 (card 42 + 3×24 headers +
+  9×66 + 24 = 732); every Advanced `RuleSection` re-measured to its content
+  (Setup 190, Pixel bridge 168, Timing 124, Slots 122, Live suggestion 96,
+  Targeting 196, Color 168, Battle.net 130) and the popup body scrolls, so
+  captions/hints/checkboxes render in full.
+- New snapshot hook: `--ui-snapshot-advanced=<png>` renders the popup for
+  review (`MainForm.OpenAdvancedForSnapshot`).
+- App **1.3.8**; bridge unchanged (still 1.3.7 code) — UI-only release.
+- VALIDATED: build 0/0, smoke 0, main + popup snapshots reviewed (Setup /
+  Pixel bridge / Timing rows fully legible, no ellipsis).
+
+## v1.3.7 END-USER UI PASS (previous — design skills applied)
 
 Brief: fewer words, narrower blocks, high-contrast group descriptions, no
 debug readouts — end-user UI only. Applied the opencode design skills

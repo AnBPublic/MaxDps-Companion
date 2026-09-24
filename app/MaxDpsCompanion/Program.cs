@@ -42,6 +42,25 @@ internal static class Program
                 bitmap.Save(snapshotArg[(snapshotArg.IndexOf('=') + 1)..]);
                 return;
             }
+            // Renders the Advanced popup (overlay) for design review.
+            var advArg = args.FirstOrDefault(arg => arg.StartsWith("--ui-snapshot-advanced=", StringComparison.OrdinalIgnoreCase));
+            if (advArg is not null)
+            {
+                using var window = new MainForm(settings);
+                window.StartPosition = FormStartPosition.Manual;
+                window.Location = new Point(-32000, -32000);
+                window.ShowInTaskbar = false;
+                window.Show();
+                Application.DoEvents();
+                window.OpenAdvancedForSnapshot();
+                window.PerformLayout();
+                window.Refresh();
+                Application.DoEvents();
+                using var bitmap = new Bitmap(window.ClientSize.Width, window.ClientSize.Height);
+                window.DrawToBitmap(bitmap, window.ClientRectangle);
+                bitmap.Save(advArg[(advArg.IndexOf('=') + 1)..]);
+                return;
+            }
             if (args.Contains("--ui-smoke-test", StringComparer.OrdinalIgnoreCase))
             {
                 using var window = new MainForm(settings);

@@ -7,15 +7,11 @@ internal sealed class MainForm : Form
     // buttons wrap instead of clipping (fixed 5-col grid + 9.5pt keeps
     // text inside each share down to ~520px).
     private const int MinWindowWidth = 520;
-    // Collapsed chrome budget (v1.3.7): 48 title + (670 card + 20 margins)
-    // + 26 advanced link + 52 buttons + 22 canvas padding ≈ 838. No
-    // debug strip row any more. FitToScreen opens at that height when the
-    // screen allows; ClampToScreen + body scroll cover short screens.
-    private const int CollapsedWantHeight = 860;
-    // Advanced stack heights (absolute rows, must match BuildAdvanced).
-    // Total 1056 overflowed short screens; ClampToScreen caps the window
-    // and the body scrolls instead.
-    private const int AdvancedExtraHeight = 700;
+    // Collapsed chrome budget (v1.3.8): 48 title + (732 card + 20 margins)
+    // + 46 Advanced button + 52 buttons + 22 canvas padding ≈ 920.
+    // FitToScreen crops to the working area on short screens.
+    private const int CollapsedWantHeight = 920;
+
 
     private static string UiFontName()
     {
@@ -44,7 +40,7 @@ internal sealed class MainForm : Form
 
     private EngineStatus _status;
     private bool _hotkeyRegistered;
-    private int _collapsedHeight;
+
 
     private readonly ClassBadge _badge = new() { Text = "AUTO DETECT" };
     private readonly StatusDot _dot = new();
@@ -175,7 +171,6 @@ internal sealed class MainForm : Form
         StyleInputs(this);
         WireAutoSave();
         BuildTray();
-        _collapsedHeight = Height;
 
         // SlotEnabled index -> toggle wiring (Slot enum order, 5-icon model):
         // 0 Main, 1 Offensive, 2 Defensive, 3 Consumable, 4 Trinket,
@@ -393,10 +388,10 @@ internal sealed class MainForm : Form
         // alive" were developer readouts, not end-user UI — the hero status
         // line carries connection state).
         var canvas = new GradientCanvas { Dock = DockStyle.Fill, Padding = new Padding(24, 10, 24, 12) };
-        // Fixed-height card + advanced toggle + buttons rows; the WINDOW
-        // grows via FitToScreen/ClampToScreen and the body scrolls only
-        // when Advanced is open on a short screen. No FlowLayoutPanel:
-        // it mis-measured Dock.Fill children as zero-height.
+        // Fixed-height rows: card, Advanced entry button, action buttons.
+        // The Advanced POPUP is a separate layer added last (on top), so it
+        // never pushes the window size around. No FlowLayoutPanel: it
+        // mis-measured Dock.Fill children as zero-height.
         var layout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -408,17 +403,36 @@ internal sealed class MainForm : Form
         };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, CardFixedHeight + 20F));  // card + margins
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 26F));   // advanced toggle
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 46F));   // Advanced entry button
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 52F));   // buttons
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));   // advanced body (scrolls)
         _bodyLayout = layout;
         layout.Controls.Add(BuildCard(), 0, 0);
-        var advanced = BuildAdvanced(out var advancedToggle);
-        layout.Controls.Add(advancedToggle, 0, 1);
+        layout.Controls.Add(BuildAdvancedEntry(), 0, 1);
         layout.Controls.Add(BuildButtonFlow(), 0, 2);
-        layout.Controls.Add(advanced, 0, 3);
         canvas.Controls.Add(layout);
+        // Popup layer: fills the body and floats OVER the main frame while
+        // Advanced is active. Show/hide swaps the two layers (the body is
+        // hidden while the popup is up) so there is never any z-order
+        // ambiguity — it reads as a screen flow with a Back.
+        var overlay = BuildAdvancedOverlay();
+        canvas.Controls.Add(overlay);
+        overlay.BringToFront();
         return canvas;
+    }
+
+    private Control BuildAdvancedEntry()
+    {
+        _advancedEntry = new ChamferButton
+        {
+            Text = "Advanced…",
+            Role = ButtonRole.Ghost,
+            Dock = DockStyle.Fill,
+            AutoSize = false,
+            Margin = new Padding(4, 6, 4, 2),
+            Font = new Font(UiFont, 9.5F, FontStyle.Bold),
+        };
+        _advancedEntry.Click += (_, _) => ShowAdvanced();
+        return _advancedEntry;
     }
 
     // v1.3.1 card rows: status + 3 headers + 9 toggles (5 spell incl.
@@ -455,13 +469,15 @@ internal sealed class MainForm : Form
         // padding = 706 card. Compact 64px rows still fit title(22) +
         // gap(4) + 2 subtitle lines(30) with margin — verified against the
         // epoch-2 type scale (11.5pt/9pt).
-        cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40F));  // 0 status
-        cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 22F));  // 1 group header
-        for (var i = 0; i < 5; i++) cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 60F));  // 2-6 spells
-        cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 22F));  // 7 group header
-        for (var i = 0; i < 3; i++) cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 60F));  // 8-10 behaviour
-        cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 22F));  // 11 group header
-        cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 60F));  // 12 interrupt
+        // v1.3.8: rows 60 → 66 so the title + hint pair always has room
+        // (the clipping complaint). 24px longer card, no other change.
+        cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42F));  // 0 status
+        cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24F));  // 1 group header
+        for (var i = 0; i < 5; i++) cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 66F));  // 2-6 spells
+        cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24F));  // 7 group header
+        for (var i = 0; i < 3; i++) cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 66F));  // 8-10 behaviour
+        cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24F));  // 11 group header
+        cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 66F));  // 12 interrupt
 
         // Epoch-6: flat status row (dot Dock.Left + label Dock.Fill). The
         // previous triple-nested TableLayoutPanels silently collapsed to
@@ -530,11 +546,10 @@ internal sealed class MainForm : Form
     }
 
     /// <summary>
-    /// Fixed card height: status(40) + 3 headers(22) + 9 rows(60) +
-    /// card padding(24) = 670. FitToScreen clamps on short screens; the
-    /// body scrolls when Advanced is open.
+    /// Fixed card height: status(42) + 3 headers(24) + 9 rows(66) +
+    /// card padding(24) = 732. FitToScreen clamps on short screens.
     /// </summary>
-    private const int CardFixedHeight = 40 + 3 * 22 + 9 * 60 + 24;
+    private const int CardFixedHeight = 42 + 3 * 24 + 9 * 66 + 24;
 
     private static GroupHeader GroupHeaderFor(string title) =>
         new() { Text = title, Dock = DockStyle.Fill, Margin = new Padding(4, 0, 4, 0) };
@@ -571,19 +586,81 @@ internal sealed class MainForm : Form
         return buttons;
     }
 
-    // ----- advanced box, tray, hotkey, calibration -----
+    // ----- advanced popup, tray, hotkey, calibration -----
 
-    private Control BuildAdvanced(out Control toggle)
+    private Panel? _advancedOverlay;
+    private ChamferButton? _advancedEntry;
+
+    /// <summary>
+    /// Advanced is a POPUP DIALOG floating over the main frame (user
+    /// request), not an in-place accordion: a dimmed scrim fills the body
+    /// and a centred card holds the settings stack. "Back" (or Esc) returns
+    /// to the main flow. The scrim intercepts input so the frame underneath
+    /// is inert while the dialog is up, exactly like a modal.
+    /// </summary>
+    private Control BuildAdvancedOverlay()
     {
-        // Epoch-4: the advanced stack docks into the body's last table row
-        // (percent-fill) with its own scroll, exactly like the original
-        // layout. Hidden until toggled.
-        var body = new Panel
+        // Opaque scrim (Control.BackColor ignores alpha unless the control
+        // opts into transparency) — a solid deep tone reads as "the frame
+        // behind is dimmed", and behaves identically in DrawToBitmap.
+        var scrim = new Panel
         {
             Dock = DockStyle.Fill,
-            BackColor = Color.Transparent,
-            AutoScroll = true,
+            BackColor = Color.FromArgb(10, 24, 32),
             Visible = false,
+        };
+
+        var popup = new RoundedCard
+        {
+            Size = new Size(560, 520),
+            Anchor = AnchorStyles.None,
+            Padding = new Padding(6, 6, 6, 6),
+        };
+        var shell = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 2,
+            BackColor = Color.Transparent,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty,
+        };
+        shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
+        shell.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+
+        // Header: title + Back (returns to the main flow).
+        var header = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
+        var title = new Label
+        {
+            Text = "Advanced",
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleLeft,
+            Padding = new Padding(14, 0, 0, 0),
+            Font = new Font(UiFont, 11.5F, FontStyle.Bold),
+            ForeColor = ConsolePalette.Bone,
+            BackColor = Color.Transparent,
+        };
+        var back = new ChamferButton
+        {
+            Text = "Back",
+            Role = ButtonRole.Ghost,
+            Dock = DockStyle.Right,
+            Width = 96,
+            Margin = new Padding(0, 4, 8, 4),
+        };
+        back.Click += (_, _) => HideAdvanced();
+        header.Controls.Add(title);
+        header.Controls.Add(back);
+
+        // Scrollable settings stack: sections size to their content so no
+        // caption can be cut off; the popup scrolls if the screen is short.
+        var scroll = new Panel
+        {
+            Dock = DockStyle.Fill,
+            AutoScroll = true,
+            BackColor = Color.Transparent,
+            Padding = new Padding(0, 0, 6, 0),
         };
         var stack = new TableLayoutPanel
         {
@@ -593,14 +670,11 @@ internal sealed class MainForm : Form
             AutoSize = true,
             BackColor = Color.Transparent,
         };
-        stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 132));
-        stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 118));
-        stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 100));
-        stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 76));
-        stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 92));
-        stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 150));
-        stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 130));
-        stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 104));
+        // Generous fixed row heights (v1.3.8): every Advanced section was
+        // re-measured so captions, hints and inputs never clip; the popup
+        // scrolls for the rest.
+        foreach (var h in new[] { 190, 168, 124, 122, 96, 196, 168, 130 })
+            stack.RowStyles.Add(new RowStyle(SizeType.Absolute, h));
         stack.Controls.Add(BuildSetupBox(), 0, 0);
         stack.Controls.Add(BuildBridgeBox(), 0, 1);
         stack.Controls.Add(BuildTimingBox(), 0, 2);
@@ -609,55 +683,58 @@ internal sealed class MainForm : Form
         stack.Controls.Add(BuildTargetingBox(), 0, 5);
         stack.Controls.Add(BuildColorBox(), 0, 6);
         stack.Controls.Add(BuildLaunchBox(), 0, 7);
-        body.Controls.Add(stack);
+        scroll.Controls.Add(stack);
 
-        var link = new LinkLabel
+        shell.Controls.Add(header, 0, 0);
+        shell.Controls.Add(scroll, 0, 1);
+        popup.Controls.Add(shell);
+
+        // Center the popup on resize; keep it inside the scrim.
+        void Center()
         {
-            Text = "Advanced",
-            Dock = DockStyle.Fill,
-            TextAlign = ContentAlignment.MiddleLeft,
-            LinkColor = ConsolePalette.Tidewash,
-            ActiveLinkColor = ConsolePalette.Bone,
-            VisitedLinkColor = ConsolePalette.Tidewash,
-            BackColor = Color.Transparent,
-            Margin = new Padding(2, 6, 2, 2),
-        };
-        link.LinkClicked += (_, _) =>
-        {
-            body.Visible = !body.Visible;
-            link.Text = body.Visible ? "Advanced (hide)" : "Advanced";
-            // Grow the window when there is room, else the advanced panel's
-            // own scrollbar takes the overflow. No row-style bookkeeping:
-            // the advanced row is percent-fill.
-            ClampToScreen(body.Visible ? AdvancedExtraHeight : 0);
-        };
-        toggle = link;
-        return body;
+            var w = Math.Min(560, Math.Max(360, scrim.ClientSize.Width - 40));
+            var h = Math.Min(520, Math.Max(280, scrim.ClientSize.Height - 40));
+            popup.Size = new Size(w, h);
+            popup.Location = new Point(
+                Math.Max(0, (scrim.ClientSize.Width - w) / 2),
+                Math.Max(0, (scrim.ClientSize.Height - h) / 2));
+        }
+        scrim.Resize += (_, _) => Center();
+        scrim.Controls.Add(popup);
+        scrim.Layout += (_, _) => Center();
+
+        _advancedOverlay = scrim;
+        return scrim;
     }
 
-    /// <summary>
-    /// Grows/shrinks the window with the Advanced body but never past the
-    /// working area: clamps to screen height and enables the body's own
-    /// scrollbar for the rest. Fixes the runaway 1700px stretch.
-    /// </summary>
-    private void ClampToScreen(int extra)
+    private void ShowAdvanced()
     {
-        var area = Screen.FromControl(this).WorkingArea;
-        var target = _collapsedHeight + extra;
-        var maxH = area.Height;
-        Height = Math.Min(target, maxH);
-        if (target > maxH)
-        {
-            // Pin to the top of the working area so title + hero stay put
-            // and the body's AutoScroll takes the overflow.
-            Top = area.Top;
-        }
-        _collapsedHeight = Math.Min(_collapsedHeight, maxH);
+        if (_advancedOverlay is null) return;
+        if (_bodyLayout is not null) _bodyLayout.Visible = false;
+        _advancedOverlay.Visible = true;
+        _advancedOverlay.BringToFront();
+        _advancedOverlay.PerformLayout();
+        _advancedOverlay.Update();
+        _advancedOverlay.Focus();
+    }
+
+    private void HideAdvanced()
+    {
+        if (_advancedOverlay is null) return;
+        _advancedOverlay.Visible = false;
+        if (_bodyLayout is not null) _bodyLayout.Visible = true;
+    }
+
+    /// <summary>Snapshot/test hook: show the Advanced popup.</summary>
+    internal void OpenAdvancedForSnapshot()
+    {
+        ShowAdvanced();
+        PerformLayout();
     }
 
     private Control BuildSetupBox()
     {
-        var section = new RuleSection { SectionTitle = "Setup", Dock = DockStyle.Top, Height = 132 };
+        var section = new RuleSection { SectionTitle = "Setup", Dock = DockStyle.Top, Height = 190 };
         var setupGrid = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -667,10 +744,10 @@ internal sealed class MainForm : Form
         };
         setupGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 190));
         setupGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-        setupGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
-        setupGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
-        setupGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
-        setupGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
+        setupGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
+        setupGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
+        setupGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
+        setupGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
         _processName.Width = 220;
         _processName.Anchor = AnchorStyles.Left;
         _pauseHotkey.Width = 220;
@@ -705,7 +782,7 @@ internal sealed class MainForm : Form
 
     private Control BuildBridgeBox()
     {
-        var section = new RuleSection { SectionTitle = "Pixel bridge", Dock = DockStyle.Top, Height = 118 };
+        var section = new RuleSection { SectionTitle = "Pixel bridge", Dock = DockStyle.Top, Height = 168 };
         var bridgeGrid = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -753,7 +830,7 @@ internal sealed class MainForm : Form
 
     private Control BuildTimingBox()
     {
-        var section = new RuleSection { SectionTitle = "Timing", Dock = DockStyle.Top, Height = 100 };
+        var section = new RuleSection { SectionTitle = "Timing", Dock = DockStyle.Top, Height = 124 };
         var timing = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -779,7 +856,7 @@ internal sealed class MainForm : Form
 
     private Control BuildIconsBox()
     {
-        var section = new RuleSection { SectionTitle = "Slots", Dock = DockStyle.Top, Height = 76 };
+        var section = new RuleSection { SectionTitle = "Slots", Dock = DockStyle.Top, Height = 122 };
         var tip = new ToolTip();
         tip.SetToolTip(_mainSlot, "Main rotation toggle - mirrors the card's Show main rotation row");
         _mainSlot.AutoSize = true;
@@ -812,7 +889,7 @@ internal sealed class MainForm : Form
 
     private Control BuildStripBox()
     {
-        var section = new RuleSection { SectionTitle = "Live suggestion", Dock = DockStyle.Top, Height = 92 };
+        var section = new RuleSection { SectionTitle = "Live suggestion", Dock = DockStyle.Top, Height = 96 };
         var grid = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -849,7 +926,7 @@ internal sealed class MainForm : Form
 
     private Control BuildTargetingBox()
     {
-        var section = new RuleSection { SectionTitle = "Targeting", Dock = DockStyle.Top, Height = 150 };
+        var section = new RuleSection { SectionTitle = "Targeting", Dock = DockStyle.Top, Height = 196 };
         var targeting = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -897,7 +974,7 @@ internal sealed class MainForm : Form
 
     private Control BuildColorBox()
     {
-        var section = new RuleSection { SectionTitle = "Color", Dock = DockStyle.Top, Height = 130 };
+        var section = new RuleSection { SectionTitle = "Color", Dock = DockStyle.Top, Height = 168 };
         var grid = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -942,7 +1019,7 @@ internal sealed class MainForm : Form
 
     private Control BuildLaunchBox()
     {
-        var section = new RuleSection { SectionTitle = "Battle.net", Dock = DockStyle.Top, Height = 104 };
+        var section = new RuleSection { SectionTitle = "Battle.net", Dock = DockStyle.Top, Height = 130 };
         var grid = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -1651,7 +1728,17 @@ internal sealed class MainForm : Form
         var h = Math.Max(560, Math.Min(wantH, area.Height));
         MinimumSize = new Size(MinWindowWidth, 560);
         ClientSize = new Size(w, h);
-        _collapsedHeight = h;
+    }
+
+    /// <summary>Esc closes the Advanced popup (return to the main flow).</summary>
+    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+    {
+        if (keyData == Keys.Escape && _advancedOverlay is { Visible: true })
+        {
+            HideAdvanced();
+            return true;
+        }
+        return base.ProcessCmdKey(ref msg, keyData);
     }
 
     protected override void WndProc(ref Message m)
