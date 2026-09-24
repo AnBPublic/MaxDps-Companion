@@ -45,7 +45,7 @@
 
 local addonName, MDB = ...;
 
-MDB.VERSION = "1.3.6";
+MDB.VERSION = "1.3.7";
 
 -- Chat print, defined FIRST: AutoCalibrate (below) and the Update watchdog
 -- both call it, and Lua resolves locals lexically — a later `local

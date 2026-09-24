@@ -511,22 +511,33 @@ internal sealed class RoundedCard : Panel
 }
 
 /// <summary>
-/// Eyebrow group header: brass tick + small-caps label + hairline rule, the
-/// same visual language as <see cref="RuleSection"/>. Used to segment the
-/// hero card into labelled groups (spell slots / behaviour / interrupt) so
-/// the groups read as segments instead of one undifferentiated block.
+/// Group header: brass marker + Title Case label + hairline rule. Segments
+/// the card into Spells / Combat / Interrupt.
+///
+/// Design pass (skill: high-end-visual-design §4 eyebrow, frontend-design
+/// "labels are information, not decoration"; apple-design §15 tracking):
+/// the old ALL-CAPS micro-label at Tidewash contrast read as a generated
+/// eyebrow and was hard to scan — a named tell of templated UI and the
+/// user's "higher contrast group descriptions" complaint. Now: sentence
+/// case (language, not chrome), near-white weight-emphasised type
+/// (hierarchy from weight + contrast, per §16 simplicity), a slightly
+/// taller brass marker aligned to the text's optical centre, and the
+/// hairline is a soft Keyline rule so the grouping is structural — it
+/// encodes proximity, per "structural devices encode useful information".
 /// </summary>
 internal sealed class GroupHeader : Control
 {
     public GroupHeader()
     {
-        Height = 22;
+        Height = 24;
         Margin = new Padding(4, 0, 4, 0);
-        Font = new Font(MainForm.UiFontPublic, 9F, FontStyle.Bold);
+        Font = new Font(MainForm.UiFontPublic, 9.5F, FontStyle.Bold);
         DoubleBuffered = true;
         SetStyle(ControlStyles.SupportsTransparentBackColor | ControlStyles.ResizeRedraw, true);
         BackColor = Color.Transparent;
-        ForeColor = ConsolePalette.Tidewash;
+        // High-contrast group label: Bone (near-white), not the muted
+        // Tidewash that made the segments disappear into the card.
+        ForeColor = ConsolePalette.Bone;
     }
 
     public GroupHeader(string title) : this()
@@ -537,9 +548,11 @@ internal sealed class GroupHeader : Control
     protected override void OnPaint(PaintEventArgs e)
     {
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        e.Graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+        // Brass marker, optically centred on the text (8px, not 6).
         using var tick = new SolidBrush(ConsolePalette.Brass);
-        e.Graphics.FillRectangle(tick, 14, 8, 6, 6);
-        var label = Text.ToUpperInvariant();
+        e.Graphics.FillRectangle(tick, 14, 9, 5, 5);
+        var label = Text;  // sentence case as authored — no shouting caps
         using var text = new SolidBrush(ForeColor);
         e.Graphics.DrawString(label, Font, text, 26, 4);
         var size = e.Graphics.MeasureString(label, Font);
@@ -710,6 +723,18 @@ internal sealed class ToggleSwitch : Control
 {
     private bool isChecked;
     public event EventHandler? CheckedChanged;
+    // Fluid motion (skill: apple-design §1 response, §4 springs): the thumb
+    // does NOT jump. It animates from its CURRENT on-screen value toward the
+    // new one with a critically-damped approach (no overshoot by default —
+    // §4 "start most UI at damping 1.0"), so rapid toggling is interruptible
+    // and redirectable mid-flight. Transform/paint only (no layout), per
+    // §11 frame smoothness. Default state has no timer running (zero cost).
+    private float _pos;          // 0 = off, 1 = on (animated)
+    private System.Windows.Forms.Timer? _anim;
+    private bool hover;
+
+    private static readonly Color OffTrack = Color.FromArgb(96, 110, 119);
+    private static readonly Color OnTrack = Color.FromArgb(36, 132, 246);
 
     public bool Checked
     {
@@ -718,7 +743,21 @@ internal sealed class ToggleSwitch : Control
         {
             if (isChecked == value) return;
             isChecked = value;
-            Invalidate();
+            // Animate only once the switch is on screen: the initial
+            // settings load (construction time) must SNAP to its value — a
+            // control that animates itself on first paint looks broken
+            // (skill: apple-design §1 — motion answers a user action, it is
+            // not decoration). User clicks animate; programmatic first-set
+            // does not.
+            if (Visible && IsHandleCreated)
+            {
+                StartAnim();
+            }
+            else
+            {
+                _pos = value ? 1f : 0f;
+                Invalidate();
+            }
             CheckedChanged?.Invoke(this, EventArgs.Empty);
         }
     }
@@ -732,24 +771,61 @@ internal sealed class ToggleSwitch : Control
         BackColor = Color.Transparent;
     }
 
+    private void StartAnim()
+    {
+        _anim ??= new System.Windows.Forms.Timer { Interval = 15 };
+        _anim.Stop();
+        _anim.Tick -= Tick;
+        _anim.Tick += Tick;
+        _anim.Start();
+    }
+
+    private void Tick(object? sender, EventArgs e)
+    {
+        var target = isChecked ? 1f : 0f;
+        _pos += (target - _pos) * 0.35f;           // critically damped
+        if (Math.Abs(target - _pos) < 0.002f)
+        {
+            _pos = target;
+            _anim?.Stop();
+        }
+        Invalidate();
+    }
+
+    protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
+    protected override void OnMouseLeave(EventArgs e) { hover = false; Invalidate(); base.OnMouseLeave(e); }
+
     protected override void OnClick(EventArgs e)
     {
         if (Enabled) Checked = !Checked;
         base.OnClick(e);
     }
 
+    private static Color Lerp(Color a, Color b, float t) => Color.FromArgb(
+        (int)(a.R + (b.R - a.R) * t),
+        (int)(a.G + (b.G - a.G) * t),
+        (int)(a.B + (b.B - a.B) * t));
+
     protected override void OnPaint(PaintEventArgs e)
     {
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        // Settle instantly on first paint if no animation is queued.
+        if (_anim is null || !_anim.Enabled) _pos = isChecked ? 1f : 0f;
+
         var track = new Rectangle(1, 3, Width - 2, Height - 6);
         using var trackPath = Capsule(track);
-        // Epoch-2 switch semantics: ON keeps the product blue, OFF drops to
-        // a desaturated slate so state is luminance + hue, never hue alone
-        // (colour-vision safe); thumb carries a soft drop shadow for depth.
-        using var trackBrush = new SolidBrush(Checked ? Color.FromArgb(36, 132, 246) : Color.FromArgb(96, 110, 119));
+        // State is luminance + hue + thumb position, never hue alone
+        // (colour-vision safe, skill §16). Hover brightens the OFF track a
+        // touch — feedback belongs on hover, per §1.
+        var off = hover && !isChecked ? ControlPaint.Light(OffTrack, 0.15F) : OffTrack;
+        using var trackBrush = new SolidBrush(Lerp(off, OnTrack, _pos));
         e.Graphics.FillPath(trackBrush, trackPath);
         var diameter = Height - 10;
-        var x = Checked ? Width - diameter - 5 : 5;
+        var x = (int)(5 + (Width - diameter - 10) * _pos);
+        // Soft under-thumb shadow for material depth (double-bezel layered
+        // feel), then the thumb.
+        using var shadow = new SolidBrush(Color.FromArgb(40, 0, 0, 0));
+        e.Graphics.FillEllipse(shadow, x, 6, diameter, diameter);
         using var thumb = new SolidBrush(Color.White);
         e.Graphics.FillEllipse(thumb, x, 5, diameter, diameter);
     }

@@ -1,7 +1,8 @@
-1.3.6
+1.3.7
 date: 2026-09-24
 git: <commit placeholder — fill at release>
 interface: 120100 (Retail Midnight 12.1)
+note: bridge code unchanged from 1.3.6 (companion-side UI pass); version kept in lockstep
 protocol: v4 (9 cells; status cell B = flags bit0 in-combat, bit1 on-GCD, bit2 has-target)
 behaviour: v1.3.6 — out-of-combat toggle OFF ⇒ hard pause until in combat; ON ⇒ out-of-combat attack allowed but WAITS for a target (no spam into empty space)
 combat-gcd: v1.3.5 — companion waits for GCD (interrupt bypasses), presses in the availability window

@@ -7,11 +7,11 @@ internal sealed class MainForm : Form
     // buttons wrap instead of clipping (fixed 5-col grid + 9.5pt keeps
     // text inside each share down to ~520px).
     private const int MinWindowWidth = 520;
-    // Collapsed chrome budget (v1.3.1): 48 title + (706 card + 8 margins)
-    // + 48 strip + 26 advanced link + 52 buttons + 36 canvas padding ≈
-    // 924. FitToScreen opens at that height when the screen allows;
-    // ClampToScreen + body scroll cover short screens.
-    private const int CollapsedWantHeight = 924;
+    // Collapsed chrome budget (v1.3.7): 48 title + (670 card + 20 margins)
+    // + 26 advanced link + 52 buttons + 22 canvas padding ≈ 838. No
+    // debug strip row any more. FitToScreen opens at that height when the
+    // screen allows; ClampToScreen + body scroll cover short screens.
+    private const int CollapsedWantHeight = 860;
     // Advanced stack heights (absolute rows, must match BuildAdvanced).
     // Total 1056 overflowed short screens; ClampToScreen caps the window
     // and the body scrolls instead.
@@ -388,38 +388,35 @@ internal sealed class MainForm : Form
 
     private Control BuildBody()
     {
-        // Epoch-5: tighter canvas padding (sides stay 40 for the card
-        // radius; vertical drops 16/20 → 10/12) reclaims ~14px so the
-        // 706px card + strip + buttons fit the 924px window.
-        var canvas = new GradientCanvas { Dock = DockStyle.Fill, Padding = new Padding(40, 10, 40, 12) };
-        // Epoch-4 layout: fixed-height card (BuildCard) + fixed-height
-        // strip/buttons rows in a table; the WINDOW grows via
-        // FitToScreen/ClampToScreen and the body panel scrolls only when
-        // Advanced is open on a short screen. No FlowLayoutPanel anywhere:
-        // it mis-measured Dock.Fill children as zero-height (empty card,
-        // crushed buttons in iter4).
+        // Epoch-7 end-user pass: narrower blocks (sides 40 → 24) and the
+        // debug strip/link row REMOVED (the 8-cell strip view + "link
+        // alive" were developer readouts, not end-user UI — the hero status
+        // line carries connection state).
+        var canvas = new GradientCanvas { Dock = DockStyle.Fill, Padding = new Padding(24, 10, 24, 12) };
+        // Fixed-height card + advanced toggle + buttons rows; the WINDOW
+        // grows via FitToScreen/ClampToScreen and the body scrolls only
+        // when Advanced is open on a short screen. No FlowLayoutPanel:
+        // it mis-measured Dock.Fill children as zero-height.
         var layout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 5,
+            RowCount = 4,
             BackColor = Color.Transparent,
             Margin = Padding.Empty,
             Padding = Padding.Empty,
         };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, CardFixedHeight + 20F));  // card + margins
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48F));   // strip + link
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 26F));   // advanced toggle
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 52F));   // buttons
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));   // advanced body (scrolls)
         _bodyLayout = layout;
         layout.Controls.Add(BuildCard(), 0, 0);
-        layout.Controls.Add(BuildStripRow(), 0, 1);
         var advanced = BuildAdvanced(out var advancedToggle);
-        layout.Controls.Add(advancedToggle, 0, 2);
-        layout.Controls.Add(BuildButtonFlow(), 0, 3);
-        layout.Controls.Add(advanced, 0, 4);
+        layout.Controls.Add(advancedToggle, 0, 1);
+        layout.Controls.Add(BuildButtonFlow(), 0, 2);
+        layout.Controls.Add(advanced, 0, 3);
         canvas.Controls.Add(layout);
         return canvas;
     }
@@ -441,7 +438,7 @@ internal sealed class MainForm : Form
             Dock = DockStyle.Top,
             Height = CardFixedHeight,
             Margin = new Padding(0, 2, 0, 6),
-            Padding = new Padding(26, 12, 26, 12),
+            Padding = new Padding(18, 12, 18, 12),
         };
         var cardLayout = new TableLayoutPanel
         {
@@ -460,11 +457,11 @@ internal sealed class MainForm : Form
         // epoch-2 type scale (11.5pt/9pt).
         cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40F));  // 0 status
         cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 22F));  // 1 group header
-        for (var i = 0; i < 5; i++) cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 64F));  // 2-6 spells (main/off/def/cons/trin)
+        for (var i = 0; i < 5; i++) cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 60F));  // 2-6 spells
         cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 22F));  // 7 group header
-        for (var i = 0; i < 3; i++) cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 64F));  // 8-10 behaviour
+        for (var i = 0; i < 3; i++) cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 60F));  // 8-10 behaviour
         cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 22F));  // 11 group header
-        cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 64F));  // 12 interrupt
+        cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 60F));  // 12 interrupt
 
         // Epoch-6: flat status row (dot Dock.Left + label Dock.Fill). The
         // previous triple-nested TableLayoutPanels silently collapsed to
@@ -511,70 +508,39 @@ internal sealed class MainForm : Form
         // defensive / consumable / trinket. Zebra alternates within each
         // group (resets per header) so the eye can scan rows without the
         // groups blending into one block.
-        cardLayout.Controls.Add(GroupHeaderFor("Spell slots"), 0, 1);
-        cardLayout.Controls.Add(RowFor("Show main rotation", "Core rotation — fires whenever MaxDps suggests it.", _main, alt: false), 0, 2);
-        cardLayout.Controls.Add(RowFor("Show offensive spells", "Offensive slot may fire when MaxDps suggests it.", _offensive, alt: true), 0, 3);
-        cardLayout.Controls.Add(RowFor("Show defensive spells", "Defensive slot may fire when MaxDps suggests it.", _defensives, alt: false), 0, 4);
-        cardLayout.Controls.Add(RowFor("Show consumable spells", "Potion slot - off by default, fire manually.", _consumable, alt: true), 0, 5);
-        cardLayout.Controls.Add(RowFor("Show trinket spells", "On-use trinket slot - off by default, fire manually.", _trinket, alt: false), 0, 6);
+        // v1.3.7 end-user pass: fewer words (one short hint per row, or
+        // none), higher-contrast group headers (see GroupHeader), and
+        // narrower rows (card padding 26 → 18). Behaviour is unchanged.
+        cardLayout.Controls.Add(GroupHeaderFor("Spells"), 0, 1);
+        cardLayout.Controls.Add(RowFor("Main rotation", "Core rotation", _main, alt: false), 0, 2);
+        cardLayout.Controls.Add(RowFor("Offensive", "Offensive cooldowns", _offensive, alt: true), 0, 3);
+        cardLayout.Controls.Add(RowFor("Defensive", "Defensive abilities", _defensives, alt: false), 0, 4);
+        cardLayout.Controls.Add(RowFor("Consumable", "Potions", _consumable, alt: true), 0, 5);
+        cardLayout.Controls.Add(RowFor("Trinket", "On-use trinkets", _trinket, alt: false), 0, 6);
         // Group B — companion behaviour (combat + targeting kill-switches).
-        cardLayout.Controls.Add(GroupHeaderFor("Combat & targeting"), 0, 7);
-        cardLayout.Controls.Add(RowFor("Out of combat", "Let suggestions run before combat begins (inverts Combat-only).", _outOfCombat, alt: false), 0, 8);
-        cardLayout.Controls.Add(RowFor("Auto-target", "Kill-switch: press Target key when the bridge asks. Default OFF.", _autoTarget, alt: true), 0, 9);
-        cardLayout.Controls.Add(RowFor("Auto-interact", "Kill-switch: press Interact key when the bridge asks. Default OFF.", _autoInteract, alt: false), 0, 10);
+        cardLayout.Controls.Add(GroupHeaderFor("Combat"), 0, 7);
+        cardLayout.Controls.Add(RowFor("Out of combat", "Run outside combat", _outOfCombat, alt: false), 0, 8);
+        cardLayout.Controls.Add(RowFor("Auto-target", "Target when needed", _autoTarget, alt: true), 0, 9);
+        cardLayout.Controls.Add(RowFor("Auto-interact", "Interact when needed", _autoInteract, alt: false), 0, 10);
         // Group C — interrupt kill-switch (no Spell Frame equivalent).
         cardLayout.Controls.Add(GroupHeaderFor("Interrupt"), 0, 11);
-        cardLayout.Controls.Add(RowFor("Interrupt", "Interrupt slot may fire when MaxDps suggests it.", _interrupt), 0, 12);
+        cardLayout.Controls.Add(RowFor("Interrupt", "Interrupt casts", _interrupt), 0, 12);
         card.Controls.Add(cardLayout);
         return card;
     }
 
     /// <summary>
-    /// Fixed card height: status(40) + 3 headers(22) + 9 rows(64) +
-    /// card padding(24) = 706. Compact rows leave the status dot,
-    /// strip view, link label and hero buttons visible without scrolling
-    /// at the default window (window budget grew 990 → 1060 for the
-    /// extra main row; FitToScreen clamps on short screens).
+    /// Fixed card height: status(40) + 3 headers(22) + 9 rows(60) +
+    /// card padding(24) = 670. FitToScreen clamps on short screens; the
+    /// body scrolls when Advanced is open.
     /// </summary>
-    private const int CardFixedHeight = 40 + 3 * 22 + 9 * 64 + 24;
+    private const int CardFixedHeight = 40 + 3 * 22 + 9 * 60 + 24;
 
     private static GroupHeader GroupHeaderFor(string title) =>
         new() { Text = title, Dock = DockStyle.Fill, Margin = new Padding(4, 0, 4, 0) };
 
     private static SettingRow RowFor(string title, string subtitle, ToggleSwitch toggle, bool alt = false) =>
         new(title, subtitle, toggle) { Dock = DockStyle.Fill, Margin = new Padding(4, 2, 4, 2), AlternateFill = alt };
-
-    private Control BuildStripRow()
-    {
-        // Fixed 44px row inside the body table: lamp + label dock right,
-        // strip view anchors left.
-        var row = new Panel
-        {
-            Dock = DockStyle.Fill,
-            BackColor = Color.Transparent,
-            Padding = new Padding(4, 2, 4, 2),
-            Margin = new Padding(0, 2, 0, 0),
-        };
-        _stripView.Location = new Point(4, 7);
-        _stripView.Anchor = AnchorStyles.Left | AnchorStyles.Top;
-        var lampWrap = new Panel { Dock = DockStyle.Right, Width = 150, Height = 40, BackColor = Color.Transparent };
-        _linkLabel.Text = "link idle";
-        _linkLabel.AutoSize = false;
-        _linkLabel.Dock = DockStyle.Fill;
-        _linkLabel.Padding = new Padding(0, 0, 20, 0);
-        _linkLabel.TextAlign = ContentAlignment.MiddleRight;
-        _linkLabel.Font = new Font(UiFont, 9F);
-        _linkLabel.ForeColor = Color.FromArgb(147, 165, 174);
-        _linkLabel.BackColor = Color.Transparent;
-        _linkLamp.Anchor = AnchorStyles.Right;
-        _linkLamp.Location = new Point(130, 13);
-        lampWrap.Controls.Add(_linkLabel);
-        lampWrap.Controls.Add(_linkLamp);
-        row.Controls.Add(_stripView);
-        row.Controls.Add(lampWrap);
-        _rawValue.Visible = false;
-        return row;
-    }
 
     private Control BuildButtonFlow()
     {
@@ -1617,29 +1583,23 @@ internal sealed class MainForm : Form
             var idleDot = Color.FromArgb(83, 98, 106);
             if (_dot.Dot != idleDot) _dot.Dot = idleDot;
             if (_badge.Text != "AUTO DETECT") _badge.Text = "AUTO DETECT";
-            if (_linkLamp.Dot != ConsolePalette.Keyline) _linkLamp.Dot = ConsolePalette.Keyline;
-            if (_linkLabel.Text != "link idle") _linkLabel.Text = "link idle";
-            if (_stripView.Sample != "") _stripView.Sample = "";
-            if (_rawValue.Text != "-") _rawValue.Text = "-";
+            // End-user pass: no "link alive"/strip/raw debug readouts in the
+            // main UI. Those hidden fields keep their Advanced diagnostics.
             if (_slotsValue.Text != "-") _slotsValue.Text = "-";
             if (_lastKeyValue.Text != "-") _lastKeyValue.Text = "-";
             return;
         }
 
+        // Hero line is the single end-user status: a coloured dot + plain
+        // language ("Sending", "Waiting for target", "Out of combat"). The
+        // dot mirrors the same state (green = connected, red = not) so it is
+        // never colour-alone — the words carry the meaning too.
         var verb = Capitalise(_engine.Paused ? $"Paused - {status.Message}" : status.Message);
         var verbColor = status.BridgeVisible ? ConsolePalette.Bone : ConsolePalette.EmberLight;
         if (_statusValue.Text != verb || _statusValue.ForeColor != verbColor) SetStatus(verb, verbColor);
         var dot = status.BridgeVisible ? Color.FromArgb(71, 230, 148) : Color.FromArgb(202, 64, 68);
         if (_dot.Dot != dot) _dot.Dot = dot;
-        var lamp = status.BridgeVisible ? ConsolePalette.Brass : ConsolePalette.Ember;
-        if (_linkLamp.Dot != lamp) _linkLamp.Dot = lamp;
-        var link = status.BridgeVisible ? "link alive" : "link lost";
-        if (_linkLabel.Text != link) _linkLabel.Text = link;
-        var raw = string.IsNullOrEmpty(status.RawSample) ? "" : status.RawSample;
-        if (_stripView.Sample != raw) _stripView.Sample = raw;
-        // _rawValue retained so the field still updates; hidden from layout.
-        if (_rawValue.Text != raw) _rawValue.Text = raw;
-        _rawValue.Visible = false;
+        // Advanced-only diagnostics (not shown in the main UI).
         var slots = string.IsNullOrEmpty(status.SlotSummary) ? "-" : status.SlotSummary;
         if (_slotsValue.Text != slots) _slotsValue.Text = slots;
         var last = string.IsNullOrEmpty(status.LastKeySent) ? "-" : status.LastKeySent;
@@ -1683,7 +1643,9 @@ internal sealed class MainForm : Form
     private void FitToScreen()
     {
         var area = Screen.FromPoint(Cursor.Position).WorkingArea;
-        var wantW = 760;
+        // v1.3.7: narrower default (760 → 660) so the setting blocks are not
+        // so wide; buttons still fit 5-across (660-48)/5 ≈ 122px each.
+        var wantW = 660;
         var wantH = CollapsedWantHeight;
         var w = Math.Max(MinWindowWidth, Math.Min(wantW, area.Width));
         var h = Math.Max(560, Math.Min(wantH, area.Height));

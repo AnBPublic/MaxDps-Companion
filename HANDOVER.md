@@ -367,7 +367,35 @@ forward-declare helpers), companion decodes N and N-1 protocol, toggled-
 off slot types are skipped never waited on, MAIN never re-gated by
 tainted readiness, GCD + target + combat gates in that order.
 
-## v1.3.6 TARGET GATE (this change — "attack OOC ok, don't spam empty space")
+## v1.3.7 END-USER UI PASS (this change — design skills applied)
+
+Brief: fewer words, narrower blocks, high-contrast group descriptions, no
+debug readouts — end-user UI only. Applied the opencode design skills
+(high-end-visual-design, apple-design, frontend-design) to WinForms:
+
+- Copy: one short hint per row ("Core rotation", "Offensive cooldowns",
+  "Potions", "Target when needed", "Interrupt casts"); removed sentence-y
+  explanations and all system-speak (bridge/slot/COMBAT-ONLY wording).
+- Structure: three labelled groups — Spells / Combat / Interrupt — in
+  sentence case (an all-caps micro-eyebrow is a known generated-UI tell;
+  sentence case reads as language, not chrome).
+- Contrast: group headers now Bone (near-white) instead of muted Tidewash
+  — the "higher-contrast group descriptions" ask; brass marker + hairline
+  keep the grouping structural.
+- Width: window 760 → 660, canvas padding 40 → 24, card padding 26 → 18,
+  rows 64 → 60 — the blocks no longer stretch edge-to-edge.
+- Debug removed: the 8-cell strip preview and the "link alive" lamp/label
+  row are gone from the main UI; the hero dot + status word ("Sending",
+  "Waiting for target") is the single end-user status. Advanced keeps the
+  diagnostics.
+- Motion: ToggleSwitch thumb is now a critically-damped spring
+  (interruptible, transform/paint only, zero timer at rest) and snaps on
+  the initial settings load (a control that animates itself on first paint
+  looks broken — motion answers a user action).
+- Versions 1.3.7 (asset unchanged bridge, companion UI); title auto.
+- VALIDATED: build 0/0, smoke 0, snapshot reviewed, luac clean.
+
+## v1.3.6 TARGET GATE (previous — "attack OOC ok, don't spam empty space")
 
 USER follow-up on v1.3.5: out-of-combat attack is WANTED; the problem is
 spamming with no target. And: with "Out of combat" toggled OFF it should
