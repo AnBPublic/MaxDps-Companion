@@ -8,6 +8,20 @@ internal enum TriState
     No = 2,
 }
 
+/// <summary>
+/// Where the observed player HP came from (v3.0.0). Plain cell 27 wins; when it
+/// is secret/unknown a valid Ext2 HP curve supplies a band-derived reading.
+/// </summary>
+internal enum HpSource
+{
+    /// <summary>No usable reading (plain unknown and no valid curve).</summary>
+    Unknown = 0,
+    /// <summary>The bridge's plain HP percent (cell 27).</summary>
+    Plain,
+    /// <summary>The Ext2 HP curve (cell 35), band-derived and quantised.</summary>
+    Curve,
+}
+
 /// <summary>What the player is doing right now (protocol v5 cast sensor).</summary>
 internal enum PlayerCastState
 {
@@ -29,11 +43,21 @@ internal enum PlayerCastState
 /// </summary>
 internal sealed class CombatContext
 {
-    /// <summary>Whether the player HP sensor produced a plain value this tick.</summary>
+    /// <summary>Whether a usable player HP reading exists (plain or curve).</summary>
     public bool HpValid { get; init; }
+
+    /// <summary>Where <see cref="HpPct"/> came from (plain cell 27 &gt; curve &gt; unknown).</summary>
+    public HpSource HpSource { get; init; } = HpSource.Unknown;
 
     /// <summary>Player health percent (only meaningful when <see cref="HpValid"/>).</summary>
     public int HpPct { get; init; }
+
+    /// <summary>
+    /// Upper bound of the player health percent. Exact for a plain reading; for
+    /// a curve reading it is the top of the band (the overheal guard must not
+    /// assume the low end of the quantisation).
+    /// </summary>
+    public int HpPctUpper { get; init; }
 
     /// <summary>Player cast/channel state from the bridge's arg-blind unit events.</summary>
     public PlayerCastState Cast { get; init; } = PlayerCastState.Unknown;
@@ -113,13 +137,48 @@ internal sealed class CombatContext
     /// v5 sensor block (v4/v1, or a failed sensor tick) yields
     /// <see cref="Unknown"/> so every rule degrades to its safe fallback.
     /// </summary>
-    public static CombatContext FromFrame(BridgeFrame frame)
+    public static CombatContext FromFrame(BridgeFrame frame) => FromFrame(frame, hpCurve: true);
+
+    /// <summary>
+    /// Projects a decoded frame onto the policy context.
+    /// <paramref name="hpCurve"/> mirrors <c>[Intelligence] HpCurve</c>: when
+    /// false the Ext2 curve fallback is ignored entirely (plain HP only).
+    /// </summary>
+    public static CombatContext FromFrame(BridgeFrame frame, bool hpCurve)
     {
         if (!frame.ContextValid) return Unknown();
+
+        var hpSource = HpSource.Unknown;
+        var hpPct = 0;
+        var hpPctUpper = 0;
+        if (frame.HpPct >= 0)
+        {
+            // Plain cell 27 always wins (precedence: plain > curve > unknown).
+            hpSource = HpSource.Plain;
+            hpPct = frame.HpPct;
+            hpPctUpper = frame.HpPct;
+        }
+        else if (hpCurve && frame.HpCurveValid && frame.HpCurveBand >= 0)
+        {
+            var band = frame.HpCurveBand;
+            hpSource = HpSource.Curve;
+            hpPct = (int)Math.Round(band * 100.0 / 15.0);
+            hpPctUpper = Math.Min(100, (int)Math.Round((band + 0.5) * 100.0 / 15.0));
+        }
+
+        // Vendor curve staging: only when MaxDps's own nibble is unknown AND
+        // the curve supplied the HP — a plain HP read never invents urgency
+        // the addon did not send.
+        var urgency = frame.DefensiveUrgency;
+        if (urgency == DefensiveUrgency.Unknown && hpSource == HpSource.Curve)
+            urgency = UrgencyFromHp(hpPct);
+
         return new CombatContext
         {
-            HpValid = frame.HpPct >= 0,
-            HpPct = Math.Max(0, frame.HpPct),
+            HpValid = hpSource != HpSource.Unknown,
+            HpSource = hpSource,
+            HpPct = hpPct,
+            HpPctUpper = hpPctUpper,
             Cast = frame.Cast,
             TargetCasting = frame.TargetCasting,
             TargetCastInterruptible = frame.TargetCastInterruptible,
@@ -131,10 +190,17 @@ internal sealed class CombatContext
             BuffProbeValid = frame.BuffProbeValid,
             Class = frame.ClassName,
             Spec = frame.SpecName,
-            DefensiveUrgency = frame.DefensiveUrgency,
+            DefensiveUrgency = urgency,
             StaggerUrgency = frame.StaggerUrgency,
             DefensiveCatalogSource = frame.DefensiveCatalogSource,
             ContextValid = true,
         };
     }
+
+    /// <summary>Vendor curve control points: HP &lt;=30 Red, &lt;50 Orange, &lt;100 Yellow, 100 White.</summary>
+    private static DefensiveUrgency UrgencyFromHp(int hpPct) =>
+        hpPct <= 30 ? DefensiveUrgency.Red
+        : hpPct < 50 ? DefensiveUrgency.Orange
+        : hpPct < 100 ? DefensiveUrgency.Yellow
+        : DefensiveUrgency.White;
 }
