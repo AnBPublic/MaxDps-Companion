@@ -172,4 +172,162 @@ public class TtkPolicyTests
         Assert.False(TtkPolicy.DyingTargetHolds(Combat(ttkValid: true, ttkSec: 9), soloEnabled: true, emergency: false));
         Assert.False(TtkPolicy.DyingTargetHolds(Combat(ttkValid: false, ttkSec: 4), soloEnabled: true, emergency: false));
     }
+
+    // ----- A4: provider-level rule scenarios -----
+
+    private static AbilityDefinition WithGroup(AbilityDefinition ability, string group) => ability with { ConflictGroup = group };
+
+    private static ProviderInput PInput(
+        AbilityDefinition ability,
+        CombatContext ctx,
+        PolicyMemory? memory = null,
+        bool solo = false,
+        TriState range = TriState.Yes,
+        bool inCombat = true,
+        bool hasTarget = true) =>
+        new()
+        {
+            Input = new PolicyInput
+            {
+                Slot = ability.Category == AbilityCategory.Defensive ? Slot.Defensive : Slot.Offensive,
+                SpellId = ability.SpellId,
+                Context = ctx,
+                Options = new PolicyOptions { SoloEnabled = solo },
+                Memory = memory ?? new PolicyMemory(),
+                NowMs = 1000,
+                InCombat = inCombat,
+                HasTarget = hasTarget,
+            },
+            Ability = ability,
+            Catalog = Catalog,
+            Range = range,
+        };
+
+    [Fact]
+    public void Offensive_Waste_Guard_Holds_Both_Sources()
+    {
+        var ability = WithGroup(Offensive(OffensiveUsage.MajorBurst), "Burst");
+        var shortTtk = Combat(ttkValid: true, ttkSec: 5);
+        var held = CandidateProviders.Offensive.Evaluate(PInput(ability, shortTtk));
+        Assert.Equal(PolicyVerdict.Hold, held.Verdict);
+        Assert.Contains("saving", held.Reason);
+
+        // Unknown TTK passes the rule (fail open).
+        var unknown = CandidateProviders.Offensive.Evaluate(PInput(ability, Combat(ttkValid: false, ttkSec: 5)));
+        Assert.Equal(PolicyVerdict.Use, unknown.Verdict);
+    }
+
+    [Fact]
+    public void Offensive_Two_Uses_Bypasses_Active_Pair()
+    {
+        var ability = WithGroup(Offensive(OffensiveUsage.MajorBurst, cooldownMs: 120_000, durationMs: 10_000), "Burst");
+        var memory = new PolicyMemory();
+        memory.NoteUse(WithGroup(Offensive(OffensiveUsage.MajorBurst), "Burst"), 500); // pair active
+
+        // 240 s is short of 2*120+10; pairing holds.
+        var held = CandidateProviders.Offensive.Evaluate(PInput(ability, Combat(ttkValid: true, ttkSec: 240), memory));
+        Assert.Equal(PolicyVerdict.Hold, held.Verdict);
+
+        // 260 s fits a second full use: the pairing hold is bypassed and it fires.
+        var fired = CandidateProviders.Offensive.Evaluate(PInput(ability, Combat(ttkValid: true, ttkSec: 260), memory));
+        Assert.Equal(PolicyVerdict.Use, fired.Verdict);
+    }
+
+    [Fact]
+    public void Offensive_Execute_Bypasses_Active_Pair()
+    {
+        var ability = WithGroup(
+            Offensive(OffensiveUsage.MajorBurst, cooldownMs: 120_000, executeBelowPct: 20, executeFavored: true),
+            "Burst");
+        var memory = new PolicyMemory();
+        memory.NoteUse(WithGroup(Offensive(OffensiveUsage.MajorBurst), "Burst"), 500);
+
+        var fired = CandidateProviders.Offensive.Evaluate(
+            PInput(ability, Combat(ttkValid: false, ttkSec: 300, targetHpValid: true, targetHpPct: 15), memory));
+        Assert.Equal(PolicyVerdict.Use, fired.Verdict);
+
+        var notFavored = WithGroup(
+            Offensive(OffensiveUsage.MajorBurst, cooldownMs: 120_000, executeBelowPct: 20, executeFavored: false),
+            "Burst");
+        var held = CandidateProviders.Offensive.Evaluate(
+            PInput(notFavored, Combat(ttkValid: false, ttkSec: 300, targetHpValid: true, targetHpPct: 15), memory));
+        Assert.Equal(PolicyVerdict.Hold, held.Verdict);
+    }
+
+    private static AbilityDefinition Defensive(int? useBelowHp = null) =>
+        new(
+            SpellId: 900002,
+            Name: "Test Wall",
+            Category: AbilityCategory.Defensive,
+            Purpose: AbilityPurpose.DefensiveMajor,
+            Tier: DefensiveTier.Major,
+            Gcd: GcdKind.OnGcd,
+            Range: RangeKind.SelfOnly,
+            Cast: CastKind.Instant,
+            CooldownMs: 120_000,
+            DurationMs: 8000,
+            HealPctMaxHp: 0,
+            RequiresEnemyCast: false,
+            TargetRange: RangeRequirement.Any,
+            RequiresTarget: false,
+            UseBelowHpPct: useBelowHp,
+            HoldAboveHpPct: null,
+            HoldWhenBuffActive: false,
+            NeverAutomatic: false,
+            ConflictGroup: "Def.Major",
+            Priority: 0,
+            Unknown: UnknownPolicy.Use,
+            Classes: [],
+            Specs: [],
+            Note: null,
+            Source: null);
+
+    private static CombatContext DefCombat(bool ttkValid, double ttkSec, bool hpValid = false, int hp = 0) =>
+        new()
+        {
+            TtkValid = ttkValid,
+            TtkSec = ttkSec,
+            HpValid = hpValid,
+            HpPct = hp,
+            HpPctUpper = hp,
+            DefensiveUrgency = DefensiveUrgency.Red,
+        };
+
+    [Fact]
+    public void Solo_Defensive_Holds_When_Target_Dies_Imminently()
+    {
+        var ability = Defensive();
+        var held = CandidateProviders.Defensive.Evaluate(
+            PInput(ability, DefCombat(ttkValid: true, ttkSec: 4), solo: true));
+        Assert.Equal(PolicyVerdict.Hold, held.Verdict);
+        Assert.Contains("saving", held.Reason);
+    }
+
+    [Fact]
+    public void Solo_Defensive_Emergency_Overrides_The_Ttk_Hold()
+    {
+        var ability = Defensive();
+        var decision = CandidateProviders.Defensive.Evaluate(
+            PInput(ability, DefCombat(ttkValid: true, ttkSec: 4, hpValid: true, hp: 20), solo: true));
+        Assert.Equal(PolicyVerdict.Use, decision.Verdict);
+        Assert.True(decision.Emergency);
+    }
+
+    [Fact]
+    public void NonSolo_Defensive_Ignores_The_Ttk_Hold()
+    {
+        var ability = Defensive();
+        var decision = CandidateProviders.Defensive.Evaluate(
+            PInput(ability, DefCombat(ttkValid: true, ttkSec: 4), solo: false));
+        Assert.Equal(PolicyVerdict.Use, decision.Verdict);
+    }
+
+    [Fact]
+    public void Unknown_Ttk_Defensive_Is_Unaffected()
+    {
+        var ability = Defensive();
+        var decision = CandidateProviders.Defensive.Evaluate(
+            PInput(ability, DefCombat(ttkValid: false, ttkSec: 4), solo: true));
+        Assert.Equal(PolicyVerdict.Use, decision.Verdict);
+    }
 }

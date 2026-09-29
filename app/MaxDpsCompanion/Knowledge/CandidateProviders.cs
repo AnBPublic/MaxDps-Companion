@@ -191,12 +191,34 @@ internal sealed class OffensiveCandidateProvider : ICandidateProvider
 
         if (ability.HoldWhenBuffActive && ctx.SlotBuffActive[slot] == TriState.Yes)
             return D(PolicyDecision.Skip("ability's own buff already active"), src, "own buff already active");
+
+        // T1 (v3.2.0) waste guard: a valid TTK shorter than the ability's
+        // minimum means the cooldown cannot pay for itself on this target. Holds
+        // BOTH MaxDps-sourced and companion gap-fill offensives; MaxDps simply
+        // re-suggests next tick, so there is no lockout. An invalid TTK fails
+        // open (never holds).
+        if (TtkPolicy.WasteGuardHolds(ability, ctx))
+        {
+            var need = TtkPolicy.MinTtkSec(ability);
+            return D(PolicyDecision.Hold(
+                    $"target ~{ctx.TtkSec:0.#}s to die; saving {ability.Name} (needs {need:0.#}s)"),
+                src, $"TTK {ctx.TtkSec:0.#}s below minimum {need:0.#}s");
+        }
+
         // A companion offensive gap-fill never fires out of combat in Normal
         // mode — Solo mode is the only out-of-combat path (mirrors the
         // self-sustain philosophy). MaxDps-sourced candidates are unaffected.
         if (gapFill && !input.InCombat && !p.Options.SoloEnabled)
             return D(PolicyDecision.Hold("offensive gap-fill out of combat (solo off)"), src, "out of combat (offensive gap-fill)");
-        if (input.Memory.OffensiveActive(ability.ConflictGroup, input.NowMs))
+
+        // T2/T3 (v3.2.0): a paired-window hold is bypassed when the fight is
+        // long enough for a second full use, or the target is in execute range
+        // with a confirmed execute-favored burst. Both then fall through to the
+        // normal gates and may fire.
+        var pairActive = input.Memory.OffensiveActive(ability.ConflictGroup, input.NowMs);
+        if (pairActive
+            && !TtkPolicy.TwoUsesAvailable(ability, ctx)
+            && !TtkPolicy.ExecuteRange(ability, ctx))
             return D(PolicyDecision.Hold($"paired cooldown window active ({ability.ConflictGroup})"), src, $"paired window active ({ability.ConflictGroup})");
         if (ability.EnemyCountMin is > 1 && ability.Status != IntelligenceStatus.MaxDpsBacked)
             return D(PolicyDecision.Uncertain(
@@ -266,6 +288,15 @@ internal sealed class DefensiveCandidateProvider : ICandidateProvider
         }
 
         var emergency = hp is { } ehp && ehp <= opts.EmergencyHpPct;
+
+        // T4 (v3.2.0) dying-target hold: Solo mode only, non-emergency, and the
+        // current target dies sooner than the rule window — the defensive would
+        // protect nothing. Emergency HP always overrides (checked above/after);
+        // group scope is a documented follow-up (other enemies are unobservable).
+        if (ability.IsDefensive && TtkPolicy.DyingTargetHolds(ctx, opts.SoloEnabled, emergency))
+            return D(PolicyDecision.Hold(
+                    $"target dies in ~{ctx.TtkSec:0.#}s; saving {MitigationName(ability)}"),
+                src, $"TTK {ctx.TtkSec:0.#}s (solo dying target)");
 
         // ---- MaxDps defensive urgency (additive v2.3 block) ------------------
         var urgency = ability.UrgencySource == DefensiveUrgencySource.Stagger

@@ -94,6 +94,13 @@ internal sealed class AppSettings
     // [Intelligence] — paint the player HP curve strip (cell 35). ON by default.
     public bool HpCurve { get; set; } = true;
 
+    // [TimeToKill] — per-target time-to-kill estimation (v3.2.0). ON by default:
+    // the engine feeds a pure estimator every tick and the offensives/defensives
+    // apply the TTK gates. Enabled=0 turns the estimator off entirely and skips
+    // every TTK gate (the pre-TTK behaviour). Invalid estimates fail open in
+    // either case.
+    public bool TimeToKillEnabled { get; set; } = true;
+
     // [Solo] — SOLO / SELF-SUSTAIN mode (v2.0). OFF by default. ON adds the
     // survival-first layer on top of the standard policy: self-heals become
     // eligible below the sustain threshold, defensives may be used for
@@ -203,6 +210,7 @@ internal sealed class AppSettings
             case ("intelligence", "enabled"): IntelligenceEnabled = ParseBool(value, IntelligenceEnabled); break;
             case ("intelligence", "staleafterms"): IntelligenceStaleAfterMs = ParseInt(value, IntelligenceStaleAfterMs); break;
             case ("intelligence", "hpcurve"): HpCurve = ParseBool(value, HpCurve); break;
+            case ("timetokill", "enabled"): TimeToKillEnabled = ParseBool(value, TimeToKillEnabled); break;
             case ("solo", "enabled"): SoloEnabled = ParseBool(value, SoloEnabled); break;
             case ("solo", "emergencyhppct"): SoloEmergencyHpPct = Math.Clamp(ParseInt(value, SoloEmergencyHpPct), 5, 90); break;
             case ("solo", "selfsustainhppct"): SoloSelfSustainHpPct = Math.Clamp(ParseInt(value, SoloSelfSustainHpPct), 10, 99); break;
@@ -289,6 +297,11 @@ internal sealed class AppSettings
             .AppendLine($"Enabled={(IntelligenceEnabled ? 1 : 0)}")
             .AppendLine($"StaleAfterMs={IntelligenceStaleAfterMs}")
             .AppendLine($"HpCurve={(HpCurve ? 1 : 0)}")
+            .AppendLine()
+            .AppendLine("; Per-target time-to-kill estimation (default on). 0 = no estimator;")
+            .AppendLine("; every TTK gate is skipped. Invalid estimates always fail open.")
+            .AppendLine("[TimeToKill]")
+            .AppendLine($"Enabled={(TimeToKillEnabled ? 1 : 0)}")
             .AppendLine()
             .AppendLine("; Solo / self-sustain mode (default off; requires [Intelligence] Enabled=1).")
             .AppendLine("; EmergencyHpPct: below this, survival actions outrank the rotation.")
