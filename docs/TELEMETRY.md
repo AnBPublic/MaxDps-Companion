@@ -65,6 +65,8 @@ One JSON object per line, UTF-8, `\n`-terminated; null sections are omitted.
 | `pol.du` / `pol.dsu` | tick | v2.3 MaxDps defensive urgency: `Unknown`/`White`/`Yellow`/`Orange`/`Red` (`du` from the HP curve, `dsu` from the stagger curve). **A policy record without `du` is a legacy pre-v2.3 record** — see Replay below. |
 | `pol.dsrc` | tick | `true` when the Defensive slot was supplied by the catalog gap-fill rather than MaxDps itself; omitted when false. |
 | `pol.cls` / `pol.spec` | tick | v3.0.0 additive: the decoded class/spec the tick ran under (omitted on legacy records). The Offensive gap-fill has no wire source bit, so replay needs the same class/spec to re-derive its `CompanionGapFill` source by id membership. |
+| `pol.ttk` | tick | v3.2.0 additive: the estimator's per-target time-to-kill in seconds (one decimal), omitted when `[TimeToKill] Enabled=0` or the estimate is invalid. Informational only — the replay reconstructs the estimator and does not compare this field. |
+| `thp` / `ttkMs` | tick | v3.2.0 additive: the decoded target HP percent (`thp`, omitted when unknown) and the exact engine timestamp the estimator was fed with (`ttkMs`, omitted when there was no real frame or `[TimeToKill] Enabled=0`). The replay feeds `(ttkMs, hasTarget, thp)` in order to rebuild the identical estimator. |
 | `pol.cdWait` / `pol.lastTriedMs` | tick | r2: `cdWait` true when the plan held with reason `SelfHealCoolingDown` (HP in the sustain window, no ready heal); `lastTriedMs` is the last SelfHeal attempt/send (ms). Omitted when false/never; **replay does not compare them**, so legacy fixtures stay at 0 mismatches. |
 | `pol.opts` | tick | The exact policy options the record ran with: `solo`, `em`/`sus`/`esc` (the `[Solo]` thresholds) and v2.3 `on`/`off` (the `[Abilities]` explicit override lists, sorted comma lists, omitted when empty). Replay rebuilds `PolicyOptions` from this exactly. |
 | `send` | send | `what` (`spell` \| `target` \| `interact`), `slot`, `key`, `intervalMs` (gap since the previous send), `sp` (sent ability spell id; omitted when unknown). |
@@ -112,6 +114,13 @@ both sides. Legacy recordings (no `pol.opts`) skip verdict replay.
 recorded, so a defensive verdict that depended on urgency, the gap-fill
 source or a user ON/OFF override recomputes deterministically. `dsrc` absent
 means the slot was a MaxDps recommendation.
+
+**TTK replay (v3.2.0).** When a tick records `ttkMs`, the runner feeds the
+recorded `(ttkMs, hasTarget, thp)` series into a fresh `TtkEstimator` before
+recomputing that tick's verdicts; the rebuilt estimate (`CombatContext.WithTtk`)
+drives the T1–T4 gates exactly as live. A record without `ttkMs` (legacy, or
+`[TimeToKill] Enabled=0`) leaves every TTK gate skipped, so the six legacy
+fixtures stay at 0 mismatches.
 
 **Legacy pre-v2.3 records.** A `pol` record written before v2.3 carries no
 `du` field: defensive urgency was not recorded, so its verdicts cannot be
@@ -209,3 +218,4 @@ report.
 | `tests/MaxDpsCompanion.Tests/fixtures/defensive-warrior-urgency.jsonl` | Canonical v2.3 defensive-urgency recording (16 verdicts, 0 mismatches; White/Yellow/Orange/Red + user-OFF + gap-fill). |
 | `tests/MaxDpsCompanion.Tests/fixtures/offensive-interrupt-warrior.jsonl` | Canonical v2.6 offensive-interrupt recording (7 verdicts, 0 mismatches; five-state incl. Unavailable/Unknown). |
 | `tests/MaxDpsCompanion.Tests/fixtures/solo-hidden-hp-warrior.jsonl` | v3.0.0 hidden-HP curve recording (6 verdicts, 0 mismatches; `hpSrc`/`hpUp` + `~% (curve)` reasons). |
+| `tests/MaxDpsCompanion.Tests/fixtures/ttk-warrior-burst.jsonl` | v3.2.0 TTK recording (12 verdicts, 0 mismatches; T1 trash hold + T4 solo defensive hold + long-lived-target fire; `ttk`/`thp`/`ttkMs`). |

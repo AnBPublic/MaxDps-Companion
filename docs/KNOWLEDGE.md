@@ -327,6 +327,50 @@ offensive-appropriate gates:
   other companion-only sources; the curated lists only contain entries that are
   catalogued with real intelligence.
 
+## TTK estimator + gates (v3.2.0)
+
+The companion estimates per-target time-to-kill (TTK) and uses it to stop
+wasting cooldowns. Nothing new is observed: the estimator consumes the target HP
+band already on the wire (cell 29) plus the frame clock.
+
+- **Estimator (`Knowledge/TtkEstimator.cs`).** Pure and fake-clock. `frac =
+  (band + 0.5) / 15`. It RESETs (new epoch) on no target, on HP unknown for
+  more than 10 s, or when `frac` jumps UP by more than 0.12 (new target / big
+  heal). It feeds only real declines (`inst = (prevFrac - frac) / dt`, ignored
+  below 0.004 frac/s as noise) into an EWMA with a 3 s time constant. A valid
+  estimate needs ≥2 fed samples, a ≥2.5 s observation span and `ewma ≥ 0.004`;
+  `TtkSec = clamp(frac / ewma, 0, 300)` (a trickle reads as 300 s "long"). An
+  invalid estimate **fails open**: every TTK gate is skipped, because holding a
+  cooldown on an unknown target is exactly the DPS loss the feature avoids.
+- **Plumbing.** `RotationEngine` owns one estimator and feeds it once per real
+  frame, before the policy. The result is attached to the policy's
+  `CombatContext` (`WithTtk`) so no scheduler signature changes. `[TimeToKill]
+  Enabled=0` disables the estimator and skips all gates. Target HP is still
+  never used for anything but the estimator; the plain percent is reconstructed
+  from the band for the execute gate.
+- **Defaults (`Knowledge/TtkPolicy.cs`).** When `abilities.json` has no curated
+  `minTtkSec`, the usage default applies: MajorBurst 12 s, Transformation/Summon
+  20 s, WindowDriven 10 s, ShortCooldown/ProcDriven/AoeOnly/SingleTargetOnly/
+  ResourceDriven/Execute 5 s, DefensiveOffensiveHybrid 0 (never gate), unknown
+  10 s.
+- **Gates (`CandidateProviders`).**
+  - **T1 waste guard (Offensive, all sources):** valid TTK below the ability's
+    minimum ⇒ Hold `"target ~Xs to die; saving <name> (needs Ns)"`. MaxDps
+    re-suggests next tick — no lockout.
+  - **T2 two-uses (Offensive):** valid TTK ≥ `2·cd + dur` (curated cooldown;
+    absent cooldown skips the rule) ⇒ bypass the pairing hold and fire.
+  - **T3 execute (Offensive):** `executeFavored` and valid target HP ≤
+    `executeBelowPct` ⇒ bypass the pairing hold and fire. `executeBelowPct`
+    without `executeFavored` is inert documentation.
+  - **T4 dying target (Defensive, Solo only):** not emergency and valid TTK
+    below 6 s ⇒ Hold `"target dies in ~Xs; saving <mitigation>"`. Emergency HP
+    always overrides; group scope is a follow-up because other enemies are
+    unobservable.
+- **Schema.** `minTtkSec` (number, optional), `executeBelowPct` (0–100,
+  optional) and `executeFavored` (bool, optional) are parsed by
+  `AbilityCatalog` into `AbilityDefinition`. Curation is owned by the T-B
+  workstream; T-A only parses.
+
 ## User ability policy (`[Abilities]`)
 
 `Knowledge/AbilityPolicy.cs` stores an immutable explicit ON/OFF override per
@@ -528,9 +572,11 @@ See `docs/research/ABILITY_RESEARCH.md` §4 and its v2.1 addendum:
   duration hints. A stale (v4/v1) addon session loses the defensive
   sequencing/trinket-pairing memory entirely (spell ids are absent) while
   still firing fail-open.
-- **Target HP is transmitted but never read by the policy** (no rule needs
-  it yet); player HP is UNKNOWN whenever the client hides it, and the solo
-  layer then conserves rather than guesses.
+- **Target HP is a band, not a measurement.** The coarse 0..14 target-HP band
+  (cell 29) feeds only the TTK estimator (v3.2.0); the plain HP percent is
+  reconstructed from the band for the execute gate, and no defensive/offensive
+  rule treats it as exact. Player HP is UNKNOWN whenever the client hides it,
+  and the solo layer then conserves rather than guesses.
 - **Telemetry**: the policy record exists only for ticks where the
   scheduler actually ran (`pol.fresh=true`); legacy-path ticks are recorded
   without a policy block instead of a stale plan.
