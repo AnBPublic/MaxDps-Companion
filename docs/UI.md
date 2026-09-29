@@ -31,11 +31,44 @@ MainForm (borderless; 2px ring red stopped / green running; tray; pause hotkey)
 ```
 
 - Default client **660 × min(content, working area)**; `MinimumSize` **520×560**.
+  The client height is the measured content height (no fixed 920, no empty
+  zone below the buttons); `FitToScreen` only caps it to the working area.
 - Remembered `[Window] Width/Height` is honoured **only** when
   `[Window] Layout=classic3`; otherwise the v2 geometry is ignored and the
   layout tag is recorded (persisted on the next save).
 - The two `Modes`/`Spells` toggles mirror the Advanced checkboxes (one setting).
 - `Esc` closes the topmost popup. `settings.ini` schema is unchanged.
+
+## Width tiers (D5)
+
+The client width selects one tier; every tier moves the whole type hierarchy by
+one shared step (system Segoe UI Variable chain only, no bundled faces) and
+re-measures row heights, card padding, button heights and toggle size. Applied
+to the main window **and** both popups:
+
+| Client width | Tier | Font step | Base | Row | Toggle |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| ≤ 560 | compact | −1 pt | 9 | 56 | 46×26 |
+| ≤ 700 | classic | 0 pt | 10 | 66 | 52×30 |
+| ≤ 950 | roomy | +1 pt | 11 | 74 | 58×34 |
+| > 950 | wide | +2 pt | 12 | 82 | 64×38 |
+
+The tier is recomputed on a **120 ms debounced** resize only — never while the
+user drags — so no layout runs mid-drag. Each control's *own* designed size is
+captured once and re-applied with the step (body/meta hierarchy preserved).
+
+## Motion (D6)
+
+- A popup opens synchronously (config/diagnostics built once, lazily) and then
+  runs exactly **one** fade of ≤120 ms driven by a single WinForms timer; the
+  UI thread is never blocked (no sleep, no nested message loop).
+- The fade is skipped entirely while the engine is running — the scrim is
+  applied instantly so a live rotation never competes for the UI thread.
+- No chained animations: `ClassSkillsView` settles instantly when reached
+  through the popup, so the popup's single scrim fade is the only motion.
+- Reopening the Abilities popup with an unchanged class/spec reuses the built
+  row tree instead of recreating every row and window handle.
+- `UiClickable` (the v2.8.1 real mouse-message click fix) is unchanged.
 
 ## Advanced popup (A4)
 
@@ -89,7 +122,7 @@ widths the list column dominates.
 
 ## Verification
 
-- `dotnet test -c Release` (from `tests\MaxDpsCompanion.Tests`): 451 tests.
+- `dotnet test -c Release` (from `tests\MaxDpsCompanion.Tests`): 496 tests.
 - `--ui-smoke-test`: shows the form offscreen, selects every popup tab, and
   runs the structural invariants (zero size, text fit, card content, Tab
   reachability, accessible names, sibling overlap). Exit 0 = pass; findings
@@ -98,9 +131,11 @@ widths the list column dominates.
   `bench-ui.txt`. Targets: mean < 300 µs, p95 < 1 ms, startup < 500 ms.
 - Snapshots: `--ui-snapshot-page=main|advanced-config|advanced-diag|
   advanced-intel|abilities-class|abilities-explorer` with `--ui-snapshot=`,
-  `--ui-snapshot-width=`, `--ui-snapshot-height=`; the review set is 6 pages ×
-  {660×920, 520×560} in `dist/ui-snapshots`. Snapshots are design artifacts,
-  never behavioral proof; real DPI/live runs stay OWED.
+  `--ui-snapshot-width=`, `--ui-snapshot-height=`. The review set is 6 pages ×
+  {660×920, 520×560} plus `main` and `abilities-explorer` at 900×1100 and
+  1100×1100 (16 files). The requested width tier is applied and the requested
+  height is kept. Snapshots are design artifacts, never behavioral proof; real
+  DPI/live runs stay OWED.
 
 ## Rules
 
