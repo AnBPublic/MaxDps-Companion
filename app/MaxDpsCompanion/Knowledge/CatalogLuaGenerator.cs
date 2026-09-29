@@ -67,6 +67,11 @@ internal static class CatalogLuaGenerator
         sb.AppendLine("-- defensive: Red-urgency gap-fill candidates for the Defensive slot");
         sb.AppendLine("--   (derived from the vendor per-spec defensive lists, Major first, ");
         sb.AppendLine("--   immunities excluded); used only when MaxDps names no bound defensive.");
+        sb.AppendLine("-- defensiveMinor: short-cooldown (Minor/None) gap-fill candidates for");
+        sb.AppendLine("--   the Defensive slot's Orange tier (v3.0.0); majors still need Red.");
+        sb.AppendLine("-- offensive: curated major offensive gap-fill candidates (shared burst");
+        sb.AppendLine("--   first, spec-specific second); used only when MaxDps names no bound");
+        sb.AppendLine("--   offensive. The companion detects this source by id membership.");
         sb.AppendLine("MDB.Extras = {");
         foreach (var className in AbilityCatalog.ClassOrder)
         {
@@ -78,13 +83,18 @@ internal static class CatalogLuaGenerator
             {
                 var mobility = catalog.Extras(className, specs[i], AbilityCategory.Mobility);
                 var selfHeal = catalog.Extras(className, specs[i], AbilityCategory.SelfHeal);
+                var offensive = catalog.OffensiveGapFill(className, specs[i]);
                 var defensive = catalog.DefensiveGapFill(className, specs[i]);
-                if (mobility.Length == 0 && selfHeal.Length == 0 && defensive.Length == 0) continue;
+                var defensiveMinor = catalog.DefensiveGapFillMinor(className, specs[i]);
+                if (mobility.Length == 0 && selfHeal.Length == 0 && offensive.Length == 0
+                    && defensive.Length == 0 && defensiveMinor.Length == 0) continue;
                 any = true;
                 sb.Append($" [\"{Escape(specs[i])}\"] = {{");
                 if (mobility.Length > 0) sb.Append($" mobility = {{ {string.Join(", ", mobility)} }},");
                 if (selfHeal.Length > 0) sb.Append($" selfHeal = {{ {string.Join(", ", selfHeal)} }},");
+                if (offensive.Length > 0) sb.Append($" offensive = {{ {string.Join(", ", offensive)} }},");
                 if (defensive.Length > 0) sb.Append($" defensive = {{ {string.Join(", ", defensive)} }},");
+                if (defensiveMinor.Length > 0) sb.Append($" defensiveMinor = {{ {string.Join(", ", defensiveMinor)} }},");
                 sb.Append(" },");
             }
             if (any) sb.AppendLine();
