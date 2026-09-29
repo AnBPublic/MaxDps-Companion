@@ -1,6 +1,41 @@
-2.8.1
-Date: 2026-09-28
-Companion 2.8.1 / bridge 2.7.0 (unchanged). Protocol v5 unchanged.
+3.0.0
+Date: 2026-09-29
+Companion 2.8.1 (unchanged on this workstream; v3 companion lands with the
+merge) / bridge 3.0.0. Protocol v5 wire version nibble unchanged; the strip
+grows to 40 cells with the additive Ext2 block (docs/PROTOCOL.md).
+
+v3.0.0 BRIDGE 3.0.0 - EXT2 (workstream B)
+
+- SPELL VARIANTS: MDB.SpellVariants(id) resolves an ability across base /
+  talent-override / alias ids (FindBaseSpellByID, FindSpellOverrideByID,
+  GetOverrideSpell, MDB.SpellAliases), every call pcall-contained and
+  scrubbed. MDB.ActiveVariant(id) picks the variant the player actually
+  knows (C_SpellBook.IsSpellKnown / IsPlayerSpell), failing open on UNKNOWN.
+- BINDS BY ANY VARIANT: HotKey overlay, action-bar scan and the texture
+  fallback now match any variant id; /cast macros count when GetMacroSpell
+  resolves to a variant. So Impending Victory encoded as 202168 still fires
+  when the bar carries Victory Rush 34428.
+- EXTRAS SELECTION: MDB.ExtraCandidates(kind, count) returns the first
+  distinct ready AND bound entries, each encoded as the known variant; the
+  SelfHeal slot (8) uses the first, Ext2 cells 36-38 the second.
+- EXT2 ENCODE (cell 35 HP curve, 36-38 SelfHeal2, 39 checksum): the bridge
+  PASSES UnitHealthPercent's colour into SetVertexColor without ever reading
+  or comparing it; no checksum covers cell 35. Cell 33 B gains bit2 EXT2
+  PRESENT and bit3 HP CURVE ACTIVE; cell 28 B bits0-1 carry the SelfHeal2
+  range. The v5 checksums (cells 10, 34) keep covering their original ranges,
+  and a cell-39 failure drops only SelfHeal2.
+- COMMANDS: /mdb heal (per-entry known/ready/usable/key/why), /mdb hpcurve
+  on|off (SavedVariables, default on), /mdb status now prints ext2=1,
+  hpcurve=<on|off>, sh2=<id|->.
+- ENSURE ENGINE: MDB.EnsureEngine is nudged at most once a second while
+  MaxDps.Spells is empty so a cold idle login can populate the strip.
+- HARNESS: lua tests/secret_harness.lua 143/143 (was 94; +49 Ext2 checks
+  incl. a secret HP sentinel asserting GetRGBA->SetVertexColor passthrough,
+  the bit2/bit3 truth table and the cell 36-38/39 checksum).
+
+LIVE OWED (retail 12.1): install bridge 3.0.0 + /reload, then /mdb status
+(ext2=1 hpcurve=on sh2=...), /mdb heal, /mdb hpcurve off fallback, and the
+40-cell decode with the v3 companion. NOT validated on a live client here.
 
 v2.8.1 MOUSE-ACTIVATION + SPACING FIX (reported: "the menu buttons on the
 left don't do anything; can no longer access other menus")

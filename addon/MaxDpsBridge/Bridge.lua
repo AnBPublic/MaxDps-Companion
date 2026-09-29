@@ -3,7 +3,8 @@
 -- a screen corner. MaxDpsCompanion.exe samples those pixels and replays the
 -- encoded keystrokes.
 --
--- Protocol v5 -- 35 cells, left to right, each CellSize physical pixels square.
+-- Protocol v5 + Ext2 -- 40 cells, left to right, each CellSize physical
+-- pixels square (cells 0-34 are the original v5 strip, 35-39 the Ext2 block).
 -- Every channel carries one nibble, encoded as nibble * 17 (0, 17, ... 255),
 -- which leaves enough headroom to survive gamma and scaling.
 --
@@ -28,7 +29,8 @@
 --   cell 10       version      R=5 G=checksum(cells 1-9) B=commit (=heartbeat)
 --   cells 11-26   spell ids    6 nibbles per slot (2 cells): MSB in cell A.R
 --   cell 27       vitals       R=hp% hi G=hp% lo B=bit0 valid
---   cell 28       cast state   R=0 none/1 cast/2 channel/15 unknown G=band B=flags
+--   cell 28       cast state   R=0 none/1 cast/2 channel/15 unknown G=band
+--                              B=bits0-1 SelfHeal2 range tri-state (0/1/2)
 --   cell 29       target       R=bit0 melee bit1 melee-unknown
 --                              G=target hp band 0-14 (15 unknown)
 --                              B=bit0 casting bit1 unknown bit2 interruptible
@@ -38,8 +40,13 @@
 --   cell 31 B     bit0 = defensive slot is a catalog gap-fill candidate
 --   cell 32       buff active  R=bits0-3 slots 1-4 G=bits0-3 slots 5-8
 --                 B = stagger-curve defensive urgency (Purifying Brew)
---   cell 33       class/spec   R=class id G=spec id B=bit0 valid
+--   cell 33       class/spec   R=class id G=spec id
+--                              B=bit0 valid bit1 buff-valid bit2 EXT2 bit3 hpcurve
 --   cell 34       ext checksum R=0 G=checksum(cells 11-33) B=commit
+--   cell 35       HP curve     SetVertexColor(UnitHealthPercent colour); black off
+--   cell 36       SelfHeal2    R=vk hi G=vk lo B=flags
+--   cells 37-38   SelfHeal2 id 6 nibbles
+--   cell 39       Ext2 checksum R=0 G=checksum(cells 36-38) B=commit
 --
 -- The defensive urgency mirrors MaxDps's own glow curves at their control
 -- points (vendor Buttons.lua:1056-1110); see Reader.lua.
@@ -64,7 +71,7 @@
 
 local addonName, MDB = ...;
 
-MDB.VERSION = "2.7.0";
+MDB.VERSION = "3.0.0";
 
 -- Chat print, defined FIRST: AutoCalibrate (below) and the Update watchdog
 -- both call it, and Lua resolves locals lexically -- a later `local
@@ -75,7 +82,7 @@ local function Print (Message)
   DEFAULT_CHAT_FRAME:AddMessage("|cFF00D8FFMDB|r: " .. Message);
 end
 
--- Protocol v5 (bridge 2.7.0): 35 cells. Additive blocks on reserved nibbles:
+-- Protocol v5 (bridge 3.0.0): 40 cells. Additive blocks on reserved nibbles:
 -- defensive urgency (cell 31 G/B, cell 32 B) from bridge 2.3 and the self-buff
 -- probe-block validity bit (cell 33 B bit1) from bridge 2.7. The version nibble
 -- STAYS 5, so an older companion exe still decodes this strip (it ignores
@@ -84,7 +91,13 @@ end
 -- The status cell B keeps the v4 combat/GCD/target flags and v5's bit3 =
 -- context-valid. Cells 1-8 keep the v4 slot semantics so the companion's
 -- legacy fallback decode stays valid.
-local CELL_COUNT = 35;
+-- Ext2 (bridge 3.0.0, protocol v5 additive): the strip grows to 40 cells and
+-- the trailing block is ignored by old companions (cell 33 B bit2 = EXT2
+-- PRESENT). Cells 0-34 keep the exact v5 semantics; the version nibble STAYS
+-- 5. Cell 35 is the HP-curve colour, cells 36-38 are the SelfHeal2 slot and
+-- cell 39 is the Ext2 checksum. The v5 checksums (cells 10 and 34) keep
+-- covering only their original ranges.
+local CELL_COUNT = 40;
 local PROTOCOL_VERSION = 5;
 
 local STATUS_FLAG_IN_COMBAT = 1;
@@ -105,6 +118,17 @@ local BUFF_CELL = 32;
 local CLASSSPEC_CELL = 33;
 local EXT_CELL = 34;
 local SLOT_COUNT = 8;
+
+-- Ext2 (v3.0.0) additive block.
+local HP_CURVE_CELL = 35;
+local SELFHEAL2_CELL = 36;
+local SELFHEAL2_ID_CELL = 37;   -- cells 37-38
+local EXT2_CELL = 39;
+
+local CLASS_SPEC_VALID = 1;
+local BUFF_VALID = 2;
+local EXT2_PRESENT = 4;
+local HP_CURVE_ACTIVE = 8;
 
 -- Slots whose range is probed per tick (target-facing only; the other slots
 -- are self-targeted and the policy ignores their range). Slot 8 (SelfHeal) is
@@ -138,6 +162,9 @@ local Defaults = {
   -- HDR dither corrupts the single read point) and failed live.
   CellSize = 8,
   Calibrate = false,
+  -- Ext2 HP-curve cell 35: on by default. Off paints black and clears
+  -- cell 33 B bit3, so the companion falls back to its plain vitals path.
+  HpCurve = true,
 };
 
 local Root, Cells;
@@ -145,6 +172,8 @@ local Heartbeat = 0;
 local Elapsed = 0;
 local CalStep = 0;
 local CalTick = 0;
+local HpCurveBase = false;     -- cell 35 base (white) painted for vertex colour
+local EnsureEngineElapsed = 0; -- B7: 1/s EnsureEngine throttle for a cold login
 
 --- ======= PIXEL PLUMBING =======
 
@@ -180,6 +209,7 @@ local function Layout ()
   local Stale = _G.MaxDpsBridge_Border;
   if Stale then Stale:Hide(); end
   LastPaint = {};
+  HpCurveBase = false;
   SetNibbles(0, 15, 0, 15);
   LastPaint[0] = 15 * 256 + 0 * 16 + 15;
 end
@@ -257,13 +287,16 @@ end
 
 -- Spell id cells: 24-bit id, 6 nibbles, two cells. 0 = no identity (the
 -- companion treats the ability as uncatalogued and fails open).
-local function WriteSpellId (SlotIndex, SpellID)
-  local Base = SPELLID_CELL + (SlotIndex - 1) * 2;
+local function WriteSpellIdAt (Base, SpellID)
   if type(SpellID) ~= "number" or SpellID < 0 or SpellID > 0xFFFFFF then SpellID = 0; end
   local Hi12 = bit.band(bit.rshift(SpellID, 12), 0x0FFF);
   local Lo12 = bit.band(SpellID, 0x0FFF);
   Paint(Base, bit.band(bit.rshift(Hi12, 8), 0x0F), bit.band(bit.rshift(Hi12, 4), 0x0F), bit.band(Hi12, 0x0F));
   Paint(Base + 1, bit.band(bit.rshift(Lo12, 8), 0x0F), bit.band(bit.rshift(Lo12, 4), 0x0F), bit.band(Lo12, 0x0F));
+end
+
+local function WriteSpellId (SlotIndex, SpellID)
+  WriteSpellIdAt(SPELLID_CELL + (SlotIndex - 1) * 2, SpellID);
 end
 
 local function IdNibbleSum (SpellID)
@@ -360,12 +393,15 @@ local function WriteVitals ()
   return Hi, Lo, Flags;
 end
 
-local function WriteCast ()
+local function WriteCast (SelfHeal2Range)
   local State = CAST_STATE_UNKNOWN;
   if MDB.GetCastState then State = MDB.GetCastState(); end
   local Band = 15;   -- remaining-time band is not safely observable; reserved
-  Paint(CAST_CELL, State, Band, 0);
-  return State, Band, 0;
+  -- Ext2: cell 28 B bits0-1 carry the SelfHeal2 range tri-state (0 unknown /
+  -- 1 in / 2 out); was reserved 0. Bits2-3 remain reserved.
+  local Range = bit.band(SelfHeal2Range or 0, 3);
+  Paint(CAST_CELL, State, Band, Range);
+  return State, Band, Range;
 end
 
 local function WriteTarget ()
@@ -432,18 +468,71 @@ local function WriteBuffs (Ids, StaggerUrgency)
   return R, G, B, Valid;
 end
 
-local function WriteClassSpec (BuffValid)
+local function WriteClassSpec (BuffValid, HpCurveOn)
   local ClassId, SpecId = 0, 0;
   if MDB.GetClassSpec then ClassId, SpecId = MDB.GetClassSpec(); end
   local Valid = 0;
   if type(ClassId) == "number" and ClassId > 0 then Valid = 1; else ClassId = 0; end
   if type(SpecId) ~= "number" then SpecId = 0; end
-  -- v2.7 additive: bit1 of the B nibble = the self-buff probe block is
-  -- trustworthy. Pre-2.7 encoders leave it 0; old companions read only bit0.
+  -- bit0 class/spec valid, bit1 self-buff probe block valid (v2.7 additive),
+  -- bit2 EXT2 PRESENT (v3.0.0), bit3 HP CURVE ACTIVE. Pre-2.7/3.0 encoders
+  -- leave the upper bits 0; old companions read only the bits they know.
   local Flags = Valid;
-  if BuffValid == 1 then Flags = bit.bor(Flags, 2); end
+  if BuffValid == 1 then Flags = bit.bor(Flags, BUFF_VALID); end
+  Flags = bit.bor(Flags, EXT2_PRESENT);
+  if HpCurveOn == 1 then Flags = bit.bor(Flags, HP_CURVE_ACTIVE); end
   Paint(CLASSSPEC_CELL, ClassId, SpecId, Flags);
   return ClassId, SpecId, Flags;
+end
+
+-- Ext2 cell 35: the HP-curve colour. The bridge never reads the player HP
+-- value — it passes MDB.HpCurve (linear green->red) into UnitHealthPercent
+-- and forwards the returned colour straight into SetVertexColor. Nothing is
+-- compared, stringified or arithmetized. Returns 1 when the cell is live so
+-- cell 33 B bit3 is set; 0 (black cell) otherwise.
+local function WriteHpCurve ()
+  local Tex = Cells[HP_CURVE_CELL];
+  if not Tex then return 0; end
+  local Curve = nil;
+  if MaxDpsBridgeDB.HpCurve ~= false and MDB.EnsureHpCurve then
+    local OkC, C = pcall(MDB.EnsureHpCurve);
+    if OkC then Curve = C; end
+  end
+  if not Curve then
+    Tex:SetColorTexture(0, 0, 0, 1);
+    HpCurveBase = false;
+    LastPaint[HP_CURVE_CELL] = nil;
+    return 0;
+  end
+  if not HpCurveBase then
+    -- White base once; SetVertexColor multiplies it, so the per-frame path
+    -- is a single engine call.
+    Tex:SetColorTexture(1, 1, 1, 1);
+    HpCurveBase = true;
+  end
+  -- The returned colour object is secret-capable: it is only ever passed
+  -- through GetRGBA -> SetVertexColor, all inside the pcall. A failure
+  -- degrades to black and bit3=0.
+  local Ok = pcall(function ()
+    local Color = UnitHealthPercent("player", false, Curve);
+    Tex:SetVertexColor(Color:GetRGBA());
+  end);
+  LastPaint[HP_CURVE_CELL] = nil;   -- never let Paint() clobber the colour
+  if Ok then return 1; end
+  Tex:SetColorTexture(0, 0, 0, 1);
+  HpCurveBase = false;
+  return 0;
+end
+
+-- Ext2 cells 36-39: the SelfHeal2 slot. Cell 36 = vk hi|lo|flags, cells 37-38
+-- = the spell id, cell 39 = R0 / G = checksum(cells 36-38) mod 16 / B commit.
+-- A missing/blank candidate still paints a valid zero block so the companion
+-- can distinguish "no second self-heal" from "old addon".
+local function WriteSelfHeal2 (SpellID)
+  local Hi, Lo, Flags, Id = WriteSlot(SELFHEAL2_CELL, SpellID);
+  local Sum = (Hi or 0) + (Lo or 0) + (Flags or 0) + IdNibbleSum(Id or 0);
+  WriteSpellIdAt(SELFHEAL2_ID_CELL, Id or 0);
+  Paint(EXT2_CELL, 0, Sum % 16, Heartbeat);
 end
 
 -- A complete, valid v5 frame with no suggestions and no context. Used while
@@ -463,10 +552,21 @@ local function WriteEmptyFrame (State)
   Paint(RANGE_CELL, 0, 0, 0);
   Paint(RANGE_CELL2, 0, 0, 0);
   Paint(BUFF_CELL, 0, 0, 0);
-  Paint(CLASSSPEC_CELL, 0, 0, 0);
+  -- Ext2 present (bit2) but curve inactive (bit3 clear): a Paused frame still
+  -- advertises the block so the companion knows 35-39 are meaningful.
+  local Kh, Kg, Kf = 0, 0, EXT2_PRESENT;
+  Paint(CLASSSPEC_CELL, Kh, Kg, Kf);
+  local Tex = Cells[HP_CURVE_CELL];
+  if Tex then Tex:SetColorTexture(0, 0, 0, 1); end
+  HpCurveBase = false;
+  LastPaint[HP_CURVE_CELL] = nil;
+  Paint(SELFHEAL2_CELL, 0, 0, 0);
+  WriteSpellIdAt(SELFHEAL2_ID_CELL, 0);
+  Paint(EXT2_CELL, 0, 0, Heartbeat);
   local Sr, Sg, Sb = WriteStatus(State, 0);
   WriteVersion((Sr + Sg + Sb) % 16);
-  local ExtSum = Ch + Cg + Cf + Th + Tg + Tf;
+  -- v5 extension checksum covers cells 11-33 exactly (Ext2 cells excluded).
+  local ExtSum = Ch + Cg + Cf + Th + Tg + Tf + Kh + Kg + Kf;
   Paint(EXT_CELL, 0, ExtSum % 16, Heartbeat);
 end
 
@@ -535,6 +635,22 @@ local function Update (self, Delta)
 
   MDB.EnsureHooks();
 
+  -- B7: a cold idle login can leave MaxDps.NextSpell nil with nothing
+  -- scheduled, so the strip (and the companion) sits idle until first
+  -- combat. Nudge the engine exactly like the login event path does, but
+  -- only while no spell has been fetched and at most once a second.
+  local MaxDpsGlobal = _G.MaxDps;
+  if (not MaxDpsGlobal or not MaxDpsGlobal.Spells or not next(MaxDpsGlobal.Spells))
+    and MDB.EnsureEngine then
+    EnsureEngineElapsed = EnsureEngineElapsed + Delta;
+    if EnsureEngineElapsed >= 1 then
+      EnsureEngineElapsed = 0;
+      pcall(MDB.EnsureEngine);
+    end
+  else
+    EnsureEngineElapsed = 0;
+  end
+
   -- PERF: reset the per-tick memo ONCE per update (the slot getters share
   -- one Flags scrub, one item map and one class/spec resolve per tick).
   if MDB.BeginTick then MDB.BeginTick(); end
@@ -571,7 +687,17 @@ local function Update (self, Delta)
   R[5], G[5], B[5], Id[5] = WriteSlot(5, SafeRead(MDB.GetTrinketSpellID));
   R[6], G[6], B[6], Id[6] = WriteSlot(6, SafeRead(MDB.GetInterruptSpellID), true);
   R[7], G[7], B[7], Id[7] = WriteSlot(7, SafeRead(MDB.GetMobilitySpellID));
-  R[8], G[8], B[8], Id[8] = WriteSlot(8, SafeRead(MDB.GetSelfHealSpellID));
+  -- Ext2: the two SelfHeal candidates are computed once here (the second is
+  -- the next DISTINCT ready+bound entry); slot 8 encodes the first, the Ext2
+  -- block encodes the second.
+  local Heal1, Heal2 = nil, nil;
+  if MDB.ExtraCandidates then
+    local OkHeal, Candidates = pcall(MDB.ExtraCandidates, "selfHeal", 2);
+    if OkHeal and type(Candidates) == "table" then
+      Heal1, Heal2 = Candidates[1], Candidates[2];
+    end
+  end
+  R[8], G[8], B[8], Id[8] = WriteSlot(8, Heal1);
 
   for i = 1, SLOT_COUNT do
     WriteSpellId(i, Id[i] or 0);
@@ -601,11 +727,20 @@ local function Update (self, Delta)
   end
 
   local Vh, Vl, Vf = WriteVitals();
-  local Ch, Cg, Cf = WriteCast();
+  local SelfHeal2Range = 0;
+  if Heal2 and MDB.GetSlotRange then
+    local OkR2, R2 = pcall(MDB.GetSlotRange, Heal2);
+    if OkR2 and type(R2) == "number" then SelfHeal2Range = bit.band(R2, 3); end
+  end
+  local Ch, Cg, Cf = WriteCast(SelfHeal2Range);
   local Th, Tg, Tf = WriteTarget();
   local R30, G30, B30, R31, G31, B31 = WriteRanges(Id, Urgency, DefCatalog);
   local Bh, Bg, Bb, BuffValid = WriteBuffs(Id, StaggerUrgency);
-  local Kh, Kg, Kf = WriteClassSpec(BuffValid);
+  -- Ext2 cell 35 + bits: paint the curve first so its activity bit is known.
+  local HpCurveOn = WriteHpCurve();
+  local Kh, Kg, Kf = WriteClassSpec(BuffValid, HpCurveOn);
+  -- Ext2 cells 36-39: the second distinct SelfHeal candidate.
+  WriteSelfHeal2(Heal2);
 
   -- v1.3.4 MELEE-STATE FIX: a live suggestion ALWAYS wins the state (Active).
   -- Target/interact states exist ONLY so the companion can ask for a target
@@ -641,6 +776,31 @@ local function HandleCommand (Input)
   -- Diagnostics live in Reader.lua (needs MaxDps internals there).
   if Command == "diag" and MDB.Diag then
     MDB.Diag();
+    return;
+  end
+
+  if Command == "heal" then
+    if MDB.SelfHealDiag then
+      local OkHeal, Text = pcall(MDB.SelfHealDiag);
+      Print(OkHeal and Text or "heal diag failed (contained)");
+    else
+      Print("heal diag unavailable");
+    end
+    return;
+  end
+
+  if Command == "hpcurve" then
+    if DB.HpCurve == nil then DB.HpCurve = true; end
+    if Arg1 == "on" then
+      DB.HpCurve = true;
+    elseif Arg1 == "off" then
+      DB.HpCurve = false;
+    else
+      Print("hpcurve is " .. (DB.HpCurve and "ON" or "OFF") .. " - use '/mdb hpcurve on|off'");
+      return;
+    end
+    HpCurveBase = false;
+    Print("hpcurve " .. (DB.HpCurve and "|cFF00FF00on|r" or "|cFFFF0000off|r"));
     return;
   end
 
@@ -739,8 +899,15 @@ local function HandleCommand (Input)
       if type(Captured.Extras) == "string" then ExtrasText = Captured.Extras; end
       if type(Captured.Urgency) == "string" then UrgencyText = Captured.Urgency; end
     end
-    Print(("v%s protocol=%d enabled=%s calibrate=%s offset=%d,%d cell=%dpx bound=%d spell=%s next=%s ready=%s urg=%s extras=%s")
-      :format(MDB.VERSION, PROTOCOL_VERSION, tostring(DB.Enabled), tostring(DB.Calibrate),
+    local Sh2Text = "-";
+    if MDB.GetSelfHeal2SpellID then
+      local OkSh2, Sh2 = pcall(MDB.GetSelfHeal2SpellID);
+      if OkSh2 and type(Sh2) == "number" then Sh2Text = tostring(Sh2); end
+    end
+    if DB.HpCurve == nil then DB.HpCurve = true; end
+    Print(("v%s protocol=%d ext2=1 hpcurve=%s sh2=%s enabled=%s calibrate=%s offset=%d,%d cell=%dpx bound=%d spell=%s next=%s ready=%s urg=%s extras=%s")
+      :format(MDB.VERSION, PROTOCOL_VERSION, DB.HpCurve and "on" or "off", Sh2Text,
+        tostring(DB.Enabled), tostring(DB.Calibrate),
         DB.OffsetX, DB.OffsetY, DB.CellSize, MDB.BindingCount(), MainText, NextFn, Ready, UrgencyText, ExtrasText));
   elseif Command == "version" then
     Print("MaxDpsBridge v" .. MDB.VERSION .. " (protocol v" .. PROTOCOL_VERSION .. ")");
@@ -749,6 +916,7 @@ local function HandleCommand (Input)
   else
     Print("commands: |cFFFFFF00on|r / |cFFFFFF00off|r / |cFFFFFF00toggle|r / "
       .. "|cFFFFFF00offset <x> <y>|r / |cFFFFFF00cellsize <px>|r / |cFFFFFF00calibrate on|off|r / "
+      .. "|cFFFFFF00hpcurve on|off|r / |cFFFFFF00heal|r / "
       .. "|cFFFFFF00status|r / |cFFFFFF00diag|r / |cFFFFFF00autocal|r / |cFFFFFF00reset|r / |cFFFFFF00version|r");
   end
 end
