@@ -218,6 +218,182 @@ public class ClassicUiTests
             result.buttons);
     }
 
+    /// <summary>D3: every hero setting row sizes to its wrapped text — no subtitle clipping.</summary>
+    [Fact]
+    public void ClassicUi_HeroRows_SizeToContent_NoClipping()
+    {
+        var (result, error) = RunOnSta(() =>
+        {
+            var settings = new AppSettings();
+            using var form = new MainForm(settings);
+            ShowOffscreen(form);
+            var body = form.MainBodyForTest;
+            var rows = Descendants(body).OfType<SettingRow>().ToArray();
+            var clipped = new List<string>();
+            foreach (var row in rows)
+            {
+                var parent = row.Parent;
+                if (parent is null) { clipped.Add("orphan"); continue; }
+                var need = ((IUiMeasured)row).MeasuredHeight(row.Width);
+                if (row.Bounds.Bottom > parent.ClientSize.Height + 1 || row.Height < need - 1)
+                    clipped.Add($"{row.Controls.OfType<Label>().FirstOrDefault()?.Text}: rowH={row.Height} parentH={parent.ClientSize.Height} need={need}");
+            }
+            var modeLabels = Descendants(body).OfType<Label>()
+                .Where(l => l.Text is "Target when needed" or "Interact when needed")
+                .Select(l => (l.Text, l.Height, Bottom: l.Bounds.Bottom, ParentH: l.Parent?.ClientSize.Height ?? -1))
+                .ToArray();
+            return (Rows: rows.Length, Clipped: clipped, Mode: modeLabels);
+        });
+
+        Assert.Null(error);
+        Assert.Equal(12, result.Rows);
+        Assert.True(result.Clipped.Count == 0, string.Join("; ", result.Clipped));
+        Assert.Equal(2, result.Mode.Length);
+        foreach (var m in result.Mode)
+            Assert.True(m.Bottom <= m.ParentH, $"{m.Text} bottom {m.Bottom} > parent {m.ParentH}");
+    }
+
+    /// <summary>D4: the window opens at the measured content height, not the fixed 920.</summary>
+    [Fact]
+    public void ClassicUi_ContentHeight_IsMeasured_NoDeadZone()
+    {
+        var (result, error) = RunOnSta(() =>
+        {
+            var settings = new AppSettings();
+            using var form = new MainForm(settings);
+            ShowOffscreen(form);
+            return (Height: form.ClientSize.Height, Measured: form.MeasuredContentHeightForTest,
+                Min: form.MinimumSizeForTest.Height);
+        });
+
+        Assert.Null(error);
+        Assert.True(result.Measured > 0);
+        Assert.True(result.Height < 920, $"expected the measured height below the old fixed 920, got {result.Height}");
+        Assert.True(Math.Abs(result.Height - result.Measured) <= 2,
+            $"window {result.Height} != measured content {result.Measured}");
+        Assert.True(result.Height >= result.Min);
+    }
+
+    /// <summary>D5: width tiers pick the base font step + row height at 520/660/900/1100.</summary>
+    [Fact]
+    public void ClassicUi_WidthTiers_ScaleFontAndRowHeight()
+    {
+        var (result, error) = RunOnSta(() =>
+        {
+            var settings = new AppSettings();
+            using var form = new MainForm(settings);
+            ShowOffscreen(form);
+            var samples = new List<(int Width, float Font, int Row)>();
+            foreach (var width in new[] { 520, 660, 900, 1100 })
+            {
+                form.ClientSize = new Size(width, form.ClientSize.Height);
+                form.ApplyTierNowForTest();
+                samples.Add((form.ClientSize.Width, form.ScaleForTest.BaseFont, form.ScaleForTest.RowHeight));
+            }
+            return samples;
+        });
+
+        Assert.Null(error);
+        Assert.Equal(new[] { 520, 660, 900, 1100 }, result.Select(s => s.Width).ToArray());
+        Assert.Equal(new[] { 9f, 10f, 11f, 12f }, result.Select(s => s.Font).ToArray());
+        Assert.Equal(new[] { 56, 66, 74, 82 }, result.Select(s => s.Row).ToArray());
+    }
+
+    /// <summary>D5: the width tier also reaches the Advanced + Abilities popups.</summary>
+    [Fact]
+    public void ClassicUi_WidthTiers_Scale_Popups()
+    {
+        var (result, error) = RunOnSta(() =>
+        {
+            var settings = new AppSettings();
+            using var form = new MainForm(settings);
+            ShowOffscreen(form);
+            form.OpenAdvancedForTest();
+            var samples = new List<(int Width, int Pad, Size Toggle, float AdvFont, float AbFont)>();
+            foreach (var width in new[] { 520, 660, 900, 1100 })
+            {
+                form.ApplyPopupTierForTest(width);
+                samples.Add((width,
+                    form.AdvancedPopupForTest.Padding.Left,
+                    form.AdvancedMainToggleForTest.Size,
+                    form.AdvancedTabFontForTest,
+                    form.AbilitiesTabFontForTest));
+            }
+            return samples;
+        });
+
+        Assert.Null(error);
+        Assert.Equal(new[] { 520, 660, 900, 1100 }, result.Select(s => s.Width).ToArray());
+        Assert.Equal(new[] { 4, 6, 6, 8 }, result.Select(s => s.Pad).ToArray());
+        Assert.Equal(
+            new[] { new Size(46, 26), new Size(52, 30), new Size(58, 34), new Size(64, 38) },
+            result.Select(s => s.Toggle).ToArray());
+        Assert.Equal(new[] { 9f, 10f, 11f, 12f }, result.Select(s => s.AdvFont).ToArray());
+        Assert.Equal(new[] { 9f, 10f, 11f, 12f }, result.Select(s => s.AbFont).ToArray());
+    }
+
+    /// <summary>
+    /// D6: popups open under 150 ms of wall time and run exactly one bounded
+    /// (≤120 ms) fade timer; with the engine running the animation is skipped
+    /// entirely and the scrim is already opaque. The UI thread is never blocked
+    /// because the fade is a normal WinForms timer, not a wait.
+    /// </summary>
+    [Fact]
+    public void ClassicUi_PopupOpen_Fast_SingleBoundedFade()
+    {
+        var (result, error) = RunOnSta(() =>
+        {
+            var settings = new AppSettings();
+            using var form = new MainForm(settings);
+            ShowOffscreen(form);
+
+            // The first open is the one-time lazy build of the config/diag tree;
+            // the D6 budget is the open *transition*, so warm it once first.
+            form.OpenAdvancedForTest();
+            form.HideAdvancedForTest();
+            form.OpenAbilitiesForTest();
+            form.HideAbilitiesForTest();
+
+            form.OpenAdvancedForTest();
+            var advancedMs = form.LastPopupOpenMsForTest;
+            var fadeActiveAdvanced = form.PopupFadeActiveForTest;
+            form.HideAdvancedForTest();
+
+            form.OpenAbilitiesForTest();
+            var abilitiesMs = form.LastPopupOpenMsForTest;
+            var fadeActiveAbilities = form.PopupFadeActiveForTest;
+            form.HideAbilitiesForTest();
+
+            form.EngineRunningForFadeGate = true;
+            form.OpenAdvancedForTest();
+            var runningFadeActive = form.PopupFadeActiveForTest;
+            var runningAlpha = form.AdvancedScrimColorForTest.A;
+            form.HideAdvancedForTest();
+            form.EngineRunningForFadeGate = false;
+
+            return (advancedMs, abilitiesMs, fadeActiveAdvanced, fadeActiveAbilities,
+                runningFadeActive, runningAlpha, FadeMs: MainForm.PopupFadeDurationMs);
+        });
+
+        Assert.Null(error);
+        Assert.True(result.advancedMs < 150, $"Advanced opened in {result.advancedMs:F1} ms (target < 150)");
+        Assert.True(result.abilitiesMs < 150, $"Abilities opened in {result.abilitiesMs:F1} ms (target < 150)");
+        Assert.True(result.FadeMs > 0 && result.FadeMs <= 120, $"fade duration {result.FadeMs} ms must be ≤ 120");
+        Assert.True(result.fadeActiveAdvanced, "the single fade timer should run when the engine is stopped");
+        Assert.True(result.fadeActiveAbilities, "the single fade timer should run for the Abilities popup");
+        Assert.False(result.runningFadeActive, "no popup animation while the engine is running");
+        Assert.Equal(228, result.runningAlpha);
+    }
+
+    private static void ShowOffscreen(Form form)
+    {
+        form.StartPosition = FormStartPosition.Manual;
+        form.Location = new Point(-32000, -32000);
+        form.ShowInTaskbar = false;
+        form.Show();
+        System.Windows.Forms.Application.DoEvents();
+    }
+
     private static IEnumerable<Control> Descendants(Control root)
     {
         var stack = new Stack<Control>();

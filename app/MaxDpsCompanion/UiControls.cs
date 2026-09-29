@@ -186,6 +186,13 @@ internal sealed class ChamferButton : Button
         return new Size(text.Width + Padding.Horizontal + glyph + 8, Math.Max(38, text.Height + 16));
     }
 
+    /// <summary>Width-tier type step (D5); the owning row owns the height.</summary>
+    public void ApplyScale(UiScale scale)
+    {
+        Font = DesignTokens.Type(Math.Max(8f, scale.BaseFont - 0.5f), FontStyle.Bold);
+        Invalidate();
+    }
+
     protected override void OnSizeChanged(EventArgs e)
     {
         base.OnSizeChanged(e);
@@ -473,6 +480,13 @@ internal sealed class GroupHeader : Control
         Text = title;
     }
 
+    /// <summary>Width-tier type step (D5).</summary>
+    public void ApplyScale(UiScale scale)
+    {
+        Font = new Font(MainForm.UiFontPublic, Math.Max(8f, scale.BaseFont - 0.5f), FontStyle.Bold);
+        Invalidate();
+    }
+
     protected override void OnPaint(PaintEventArgs e)
     {
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
@@ -541,6 +555,19 @@ internal sealed class SettingRow : Panel, IUiMeasured
         var textWidth = TextWidthFor(width);
         MeasureHeights(textWidth, out var titleH, out var subH);
         return 9 + titleH + 2 + subH + 12;
+    }
+
+    /// <summary>
+    /// Re-applies a width tier (D5): title/subtitle type scale and the toggle
+    /// size. Re-measures, so the owning row must be laid out again afterwards.
+    /// </summary>
+    public void ApplyScale(UiScale scale)
+    {
+        titleLabel.Font = DesignTokens.Type(scale.BaseFont + 1f, FontStyle.Bold);
+        subtitleLabel.Font = DesignTokens.Type(scale.BaseFont);
+        toggle.Size = scale.ToggleSize;
+        PerformLayout();
+        Invalidate();
     }
 
     private static readonly ToolTip SharedTip = new()
@@ -634,6 +661,46 @@ internal sealed class SettingRow : Panel, IUiMeasured
         path.AddArc(rectangle.Left, rectangle.Bottom - diameter, diameter, diameter, 90, 90);
         path.CloseFigure();
         return path;
+    }
+}
+
+/// <summary>
+/// One "Spells"/"Modes" row: two <see cref="SettingRow"/>s side by side. It is
+/// <see cref="IUiMeasured"/>, so the hero card sizes the row to the real
+/// wrapped text (D3) instead of a fixed 66 px literal that clipped subtitles.
+/// </summary>
+internal sealed class ToggleRowPanel : Panel, IUiMeasured
+{
+    private readonly SettingRow _left;
+    private readonly SettingRow _right;
+
+    public int Gap { get; set; } = DesignTokens.SpaceS;
+
+    public ToggleRowPanel(SettingRow left, SettingRow right)
+    {
+        _left = left;
+        _right = right;
+        SetStyle(ControlStyles.ResizeRedraw | ControlStyles.SupportsTransparentBackColor, true);
+        BackColor = Color.Transparent;
+        Margin = Padding.Empty;
+        Controls.Add(left);
+        Controls.Add(right);
+    }
+
+    public int MeasuredHeight(int width)
+    {
+        var half = Math.Max(80, (width - Gap) / 2);
+        return Math.Max(_left.MeasuredHeight(half), _right.MeasuredHeight(half));
+    }
+
+    protected override void OnLayout(LayoutEventArgs e)
+    {
+        base.OnLayout(e);
+        var half = Math.Max(80, (ClientSize.Width - Gap) / 2);
+        _left.Bounds = new Rectangle(0, 0, half, ClientSize.Height);
+        _right.Bounds = new Rectangle(half + Gap, 0, Math.Max(40, ClientSize.Width - half - Gap), ClientSize.Height);
+        _left.PerformLayout();
+        _right.PerformLayout();
     }
 }
 
