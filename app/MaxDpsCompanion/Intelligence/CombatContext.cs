@@ -203,4 +203,38 @@ internal sealed class CombatContext
         : hpPct < 50 ? DefensiveUrgency.Orange
         : hpPct < 100 ? DefensiveUrgency.Yellow
         : DefensiveUrgency.White;
+
+    /// <summary>
+    /// A copy with one slot's range replaced. Used by the scheduler to evaluate
+    /// the Ext2 SelfHeal2 alternate with its OWN range probe (cell 28 B) instead
+    /// of the primary SelfHeal slot's (cell 31 R).
+    /// </summary>
+    public CombatContext WithSlotRange(int slot, TriState value)
+    {
+        if (slot < 0 || slot >= SlotRange.Length || SlotRange[slot] == value) return this;
+        var range = (TriState[])SlotRange.Clone();
+        range[slot] = value;
+        return new CombatContext
+        {
+            HpValid = HpValid,
+            HpSource = HpSource,
+            HpPct = HpPct,
+            HpPctUpper = HpPctUpper,
+            Cast = Cast,
+            TargetCasting = TargetCasting,
+            TargetCastInterruptible = TargetCastInterruptible,
+            TargetInMelee = TargetInMelee,
+            TargetHpValid = TargetHpValid,
+            TargetHpPct = TargetHpPct,
+            SlotRange = range,
+            SlotBuffActive = SlotBuffActive,
+            BuffProbeValid = BuffProbeValid,
+            DefensiveUrgency = DefensiveUrgency,
+            StaggerUrgency = StaggerUrgency,
+            DefensiveCatalogSource = DefensiveCatalogSource,
+            Class = Class,
+            Spec = Spec,
+            ContextValid = ContextValid,
+        };
+    }
 }

@@ -321,6 +321,7 @@ internal sealed class ActionScheduler
             if (!policyOn && slot is Slot.Mobility or Slot.SelfHeal) continue;
 
             PolicyDecision? decision = null;
+            var alternateRecorded = false;
             if (policyOn)
             {
                 decision = PolicyEvaluator.Evaluate(new PolicyInput
@@ -334,6 +335,47 @@ internal sealed class ActionScheduler
                     InCombat = frame.InCombat,
                     HasTarget = frame.HasTarget,
                 }, catalog);
+
+                // Ext2 (v3.0.0): when the primary SelfHeal candidate does not
+                // Use but the bridge encoded a second distinct candidate,
+                // evaluate the alternate with its own range (cell 28 B) and let
+                // a Use win the slot. Rank, the one-action-per-tick rule and the
+                // rest of the pipeline are unchanged: this is one more candidate
+                // for the same SelfHeal slot.
+                if (slot == Slot.SelfHeal
+                    && decision.Value.Verdict != PolicyVerdict.Use
+                    && frame.SelfHeal2 is { } sh2
+                    && sh2.SpellId > 0
+                    && sh2.Stroke.VirtualKey != 0)
+                {
+                    var altContext = context.WithSlotRange((int)Slot.SelfHeal, sh2.Range);
+                    var alt = PolicyEvaluator.Evaluate(new PolicyInput
+                    {
+                        Slot = Slot.SelfHeal,
+                        SpellId = sh2.SpellId,
+                        Context = altContext,
+                        Options = input.Options!,
+                        Memory = _policyMemory,
+                        NowMs = input.NowMs,
+                        InCombat = frame.InCombat,
+                        HasTarget = frame.HasTarget,
+                    }, catalog);
+                    if (alt.Verdict == PolicyVerdict.Use)
+                    {
+                        candidate = new ActionCandidate(Slot.SelfHeal, sh2.Stroke, true, true,
+                            input.NowMs, input.NowMs, 0, false, sh2.SpellId);
+                        decision = alt;
+                        alternateRecorded = true;
+                        verdicts?.Add(new PolicyVerdictEntry(Slot.SelfHeal, sh2.SpellId, alt.Verdict, alt.Reason)
+                        {
+                            Provider = alt.Provider,
+                            Source = alt.Source,
+                            Evidence = alt.Evidence,
+                            Alternate = true,
+                            Range = sh2.Range,
+                        });
+                    }
+                }
 
                 if (decision.Value.Verdict != PolicyVerdict.Use)
                 {
@@ -362,12 +404,13 @@ internal sealed class ActionScheduler
                     });
                     continue;
                 }
-                verdicts?.Add(new PolicyVerdictEntry(slot, candidate.SpellId, PolicyVerdict.Use, decision.Value.Reason)
-                {
-                    Provider = decision.Value.Provider,
-                    Source = decision.Value.Source,
-                    Evidence = decision.Value.Evidence,
-                });
+                if (!alternateRecorded)
+                    verdicts?.Add(new PolicyVerdictEntry(slot, candidate.SpellId, PolicyVerdict.Use, decision.Value.Reason)
+                    {
+                        Provider = decision.Value.Provider,
+                        Source = decision.Value.Source,
+                        Evidence = decision.Value.Evidence,
+                    });
             }
             else
             {

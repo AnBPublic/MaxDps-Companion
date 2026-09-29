@@ -87,6 +87,16 @@ internal readonly record struct PolicyVerdictEntry(Slot Slot, int SpellId, Polic
 
     /// <summary>Human-readable "why" facts (v2.7).</summary>
     public IReadOnlyList<string> Evidence { get; init; } = [];
+
+    /// <summary>
+    /// Ext2 (v3.0.0): this verdict is for the SelfHeal2 alternate (the primary
+    /// SelfHeal candidate did not Use). The replay applies <see cref="Range"/>
+    /// to the SelfHeal slot when recomputing it.
+    /// </summary>
+    public bool Alternate { get; init; }
+
+    /// <summary>Ext2: the SelfHeal2 range tri-state this alternate verdict was evaluated with.</summary>
+    public TriState Range { get; init; } = TriState.Unknown;
 }
 
 /// <summary>One pressable action in scheduler rank order.</summary>

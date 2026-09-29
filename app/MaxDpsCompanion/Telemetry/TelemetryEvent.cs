@@ -90,6 +90,16 @@ internal sealed record TelemetryVerdict
     [JsonPropertyName("why")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string[]? Evidence { get; init; }
+
+    /// <summary>Ext2 (v3.0.0): this verdict is the SelfHeal2 alternate (omitted when false).</summary>
+    [JsonPropertyName("alt")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool Alternate { get; init; }
+
+    /// <summary>Ext2: the alternate's own range tri-state ('U'/'I'/'O'); null for a primary verdict.</summary>
+    [JsonPropertyName("arng")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? AlternateRange { get; init; }
 }
 
 /// <summary>
@@ -141,6 +151,16 @@ internal sealed record TelemetryPolicy
 
     [JsonPropertyName("hp")] public int? HpPct { get; init; }
     [JsonPropertyName("hpKnown")] public bool HpKnown { get; init; }
+
+    /// <summary>Ext2 (v3.0.0): where the HP reading came from (Plain/Curve/Unknown); omitted on legacy records.</summary>
+    [JsonPropertyName("hpSrc")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? HpSource { get; init; }
+
+    /// <summary>Ext2: upper bound of a curve HP band (overheal guard); null on legacy/plain records.</summary>
+    [JsonPropertyName("hpUp")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? HpPctUpper { get; init; }
     [JsonPropertyName("cast")] public string? Cast { get; init; }
     [JsonPropertyName("melee")] public string? Melee { get; init; }
     [JsonPropertyName("tcast")] public string? TargetCast { get; init; }
@@ -281,6 +301,8 @@ internal sealed record TelemetryEvent
                     Provider = string.IsNullOrEmpty(entry.Provider) ? null : entry.Provider,
                     Source = entry.Source == CandidateSourceKind.None ? null : entry.Source.ToString(),
                     Evidence = entry.Evidence.Count > 0 ? entry.Evidence.ToArray() : null,
+                    Alternate = entry.Alternate,
+                    AlternateRange = entry.Alternate ? EncodeTriState(entry.Range) : null,
                 };
             }
         }
@@ -301,6 +323,8 @@ internal sealed record TelemetryEvent
             Why = headWhy,
             HpPct = combat is { HpValid: true } c ? c.HpPct : null,
             HpKnown = combat?.HpValid ?? false,
+            HpSource = combat is { HpValid: true } csrc ? csrc.HpSource.ToString() : null,
+            HpPctUpper = combat is { HpValid: true } cup ? cup.HpPctUpper : null,
             Cast = combat?.Cast.ToString(),
             Melee = combat?.TargetInMelee.ToString(),
             TargetCast = combat?.TargetCasting.ToString(),
@@ -327,6 +351,13 @@ internal sealed record TelemetryEvent
     /// <summary>Empty override sets are omitted (old line shape preserved).</summary>
     private static string? EncodeOverrides(string? encoded) =>
         string.IsNullOrEmpty(encoded) ? null : encoded;
+
+    private static string EncodeTriState(TriState value) => value switch
+    {
+        TriState.Yes => "I",
+        TriState.No => "O",
+        _ => "U",
+    };
 
     private static string EncodeRange(TriState[] range)
     {

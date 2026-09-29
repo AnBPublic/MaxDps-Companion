@@ -196,11 +196,17 @@ internal static class ReplayRunner
                             var pendingCatalog = replayCatalog ??= AbilityCatalog.Default;
                             foreach (var recordedVerdict in pendingVerdicts)
                             {
+                                // Ext2 alternate verdicts were evaluated with the
+                                // SelfHeal2 candidate's OWN range probe; apply it
+                                // so the recomputation sees the same context.
+                                var verdictCombat = recordedVerdict.Alternate
+                                    ? pendingCombat.WithSlotRange((int)recordedVerdict.Slot, ParseTriEncoded(recordedVerdict.AlternateRange))
+                                    : pendingCombat;
                                 var recomputedVerdict = PolicyEvaluator.Evaluate(new PolicyInput
                                 {
                                     Slot = recordedVerdict.Slot,
                                     SpellId = recordedVerdict.SpellId,
-                                    Context = pendingCombat,
+                                    Context = verdictCombat,
                                     Options = pendingPolicyOptions,
                                     Memory = policyMemory,
                                     NowMs = evt.TMs,
@@ -378,10 +384,18 @@ internal static class ReplayRunner
     /// Rebuilds the exact combat context the policy saw for one recorded tick
     /// (the pol record carries every field the policy may read).
     /// </summary>
-    private static CombatContext ToCombat(TelemetryPolicy policy) => new()
+    private static CombatContext ToCombat(TelemetryPolicy policy)
     {
+        // hpSrc is absent on records written before v3.0.0; a known HP then was
+        // necessarily a plain cell-27 reading, so default it to Plain.
+        var hpSource = ParseEnum(policy.HpSource, HpSource.Unknown);
+        if (policy.HpKnown && hpSource == HpSource.Unknown) hpSource = HpSource.Plain;
+        return new CombatContext
+        {
         HpValid = policy.HpKnown,
+        HpSource = hpSource,
         HpPct = policy.HpPct ?? 0,
+        HpPctUpper = policy.HpPctUpper ?? policy.HpPct ?? 0,
         Cast = ParseEnum(policy.Cast, PlayerCastState.Unknown),
         TargetCasting = ParseTriState(policy.TargetCast),
         TargetCastInterruptible = ParseTriState(policy.TargetInterruptible),
@@ -392,12 +406,21 @@ internal static class ReplayRunner
         StaggerUrgency = ParseEnum(policy.StaggerUrgency, DefensiveUrgency.Unknown),
         DefensiveCatalogSource = policy.DefensiveCatalogSource ?? false,
         ContextValid = policy.ContextValid,
-    };
+        };
+    }
 
     private static TriState ParseTriState(string? value) => value switch
     {
         nameof(TriState.Yes) => TriState.Yes,
         nameof(TriState.No) => TriState.No,
+        _ => TriState.Unknown,
+    };
+
+    /// <summary>Decodes the compact 'U'/'I'/'O' alternate-range field.</summary>
+    private static TriState ParseTriEncoded(string? value) => value switch
+    {
+        "I" => TriState.Yes,
+        "O" => TriState.No,
         _ => TriState.Unknown,
     };
 
