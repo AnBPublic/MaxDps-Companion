@@ -10,7 +10,7 @@ cd tests\MaxDpsCompanion.Tests
 dotnet test -c Release
 ```
 
-521 tests, all fake-clock (no wall time, no I/O except temp files). Groups:
+571 tests, all fake-clock (no wall time, no I/O except temp files). Groups:
 
 | File | Covers |
 | :--- | :--- |
@@ -238,10 +238,11 @@ LIVE WOW VERIFIED (owed - observe in a real client, Intelligence ON):
 Offline evidence is NEVER live proof. Mark every line below on the machine
 that ran retail: `LIVE VERIFIED` / `LIVE UNVERIFIED` / `LIVE FAILED`.
 OFFLINE VERIFIED (this session, do not re-claim live): build 0/0;
-`dotnet test` 521/521; `lua tests/secret_harness.lua` 153/153;
+`dotnet test` 571/571; `lua tests/secret_harness.lua` 153/153;
 `--ui-smoke-test` PASS (structural checks); `--bench-scheduler` sends=1620
-sha256=b71a999d5e46570e; 6 replays 0 mismatches (solo 9, defensive 16,
-offensive-interrupt 7, solo-hidden-hp 6, cooldown-reset 8, offensive-gapfill);
+sha256=b71a999d5e46570e; 7 replays 0 mismatches (solo 9, defensive 16,
+offensive-interrupt 7, solo-hidden-hp 6, cooldown-reset 8, offensive-gapfill,
+ttk-warrior-burst 18);
 `tools/ability_audit.ps1` exit 0 (Violations 0 / Warnings 0 / Missing 0 /
 Stale 0; addon Catalog.lua matches).
 
@@ -317,6 +318,8 @@ MaxDpsCompanion.exe --replay=<file.jsonl>        # deterministic decision replay
                                                  # --replay=tests\MaxDpsCompanion.Tests\fixtures\solo-cooldown-reset-warrior.jsonl
                                                  # offensive gap-fill fixture (r1):
                                                  # --replay=tests\MaxDpsCompanion.Tests\fixtures\offensive-gapfill-warrior.jsonl
+                                                 # TTK fixture (v3.2.0):
+                                                 # --replay=tests\MaxDpsCompanion.Tests\fixtures\ttk-warrior-burst.jsonl
 MaxDpsCompanion.exe --ability-audit=<path>         # registry audit report (Violations 0 / Warnings 0 / Missing 0 / Stale 0 enforced by tools/ability_audit.ps1, exit 3 when non-clean)
 MaxDpsCompanion.exe --ability-coverage=<path>      # v2.7 machine-readable coverage manifest (default ABILITY_COVERAGE.json)
 MaxDpsCompanion.exe --ability-info=<spellId>       # inspect one ability (writes ability-info.txt + stdout)

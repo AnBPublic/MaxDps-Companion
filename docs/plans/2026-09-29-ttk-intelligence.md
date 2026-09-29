@@ -40,7 +40,7 @@
 - Inputs per tick: `nowMs (long)`, `hasTarget (bool)`, `targetHpValid (bool)`, `targetHpBand (0..14, 15=unknown)`.
 - `frac = (band + 0.5) / 15.0`.
 - RESET (epoch++, clear EWMA) when: `!hasTarget`; `!targetHpValid` continuously for >10s (track unknown-since; keep last estimate but mark stale until then); `frac` jumps UP by >0.12 (new target or big heal — re-learn).
-- FEED on HP decline only: `inst = (prevFrac - frac) / dtSec`; if `inst < 0.004` ignore for EWMA (noise/heal; still update prev). Else `ewma = α·inst + (1-α)·ewma`, `α = 1 - exp(-dt/3.0)` (3s half-life).
+- FEED on HP decline only, measured from the last FED anchor (not tick-to-tick): `inst = (feedFrac - frac) / feedDtSec`, so flat ticks (band not moved yet) accumulate time instead of biasing the rate upward. If `inst < 0.004` ignore for EWMA (noise/small heal; re-anchor if frac rose; still update prev). Else `ewma = inst` on the first fed sample, then `ewma = α·inst + (1-α)·ewma`, `α = 1 - exp(-feedDt/3.0)` (3s time constant).
 - VALID when: ≥2 fed samples AND observation span ≥2.5s AND `ewma >= 0.004` frac/s. Else invalid.
 - `TtkSec = clamp(frac / ewma, 0, 300)`. Below min rate → 300 ("long").
 - Output: `(bool Valid, double TtkSec, double TargetHpFrac)`.
@@ -54,7 +54,7 @@
 
 ### 3.3 Defaults (`MinTtkSec` by `OffensiveUsage`, T-A, when curated absent)
 
-MajorBurst 12, Transformation 20, Summon 20, WindowDriven 10, ShortCooldown 5, ProcDriven 5, AoeOnly 5, SingleTargetOnly 5, ResourceDriven 5, DefensiveOffensiveHybrid n/a (defensive path), unknown usage 10.
+MajorBurst 12, Transformation 20, Summon 20, WindowDriven 10, ShortCooldown 5, ProcDriven 5, AoeOnly 5, SingleTargetOnly 5, ResourceDriven 5, Execute 5, DefensiveOffensiveHybrid n/a (defensive path), unknown usage 10.
 
 ### 3.4 Gates (providers, T-A)
 

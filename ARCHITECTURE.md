@@ -14,7 +14,8 @@ Vendor discovery (read-only): MaxDps:GlowDefensiveHPMidnight (Buttons.lua:1056)
   curve's own control points — see docs/research/ABILITY_RESEARCH.md §6.
        │
        ▼
-MaxDpsBridge addon — 40-cell pixel strip (bridge 3.0.0)
+MaxDpsBridge addon — 40-cell pixel strip (bridge 3.2.0; version-only bump
+  from 3.0.0 — the Ext2 layout is unchanged)
   v5 core (35 cells, version nibble stays 5): magic · 8 slots (Main/Off/Def/
         Cons/Trin/Int/Mobility/SelfHeal) · status · version+checksum · 8 × 24-bit
         spell id · vitals · cast · target · range tri-states · self-buff bits
@@ -72,11 +73,23 @@ Candidate tracker (Decision/CandidateTracker)
   slots — one scheduler input, one send path, no second rotation engine.
   Ext2 SelfHeal2 (v3.0.0) is the alternate self-sustain candidate: the
   scheduler evaluates it with its OWN range probe (cell 28 B) when the primary
-  SelfHeal verdict is not Use, and a Use from either wins the slot; rank,
-  one-action-per-tick and timing are unchanged.
-       │
-       ▼
+   SelfHeal verdict is not Use, and a Use from either wins the slot; rank,
+   one-action-per-tick and timing are unchanged.
+        │
+        ▼
+TTK estimator (Knowledge/TtkEstimator) — v3.2.0, fed pre-policy
+  RotationEngine owns ONE pure/fake-clock estimator and feeds it once per real
+  frame, before the policy. Inputs are already-decoded fields only: nowMs,
+  hasTarget, targetHpValid, targetHpBand (the 0..14 band reconstructed exactly
+  from the decoded target percent). frac = (band+0.5)/15; resets on no target,
+  >10 s unknown, or a >0.12 upward jump; feeds real declines from the last FED
+  anchor into a 3 s EWMA (first sample seeds it). The result is attached via
+  CombatContext.WithTtk (no scheduler signature change) and feeds the T1–T4
+  gates; an invalid estimate fails open (every gate skipped).
+        │
+        ▼
 Execution safety (Knowledge/PolicyEvaluator.ExecutionSafety) — ALWAYS
+
   while the player is casting or channeling, every GCD-riding / unverified
   ability is held (CastHold / ChannelHold) — including the main rotation,
   because a channel is not ours to clip. Exempt: Interrupt / Consumable /
@@ -117,13 +130,20 @@ Situational policy (Knowledge/PolicyEvaluator) — [Intelligence] Enabled=1
   · offensives: no casts/channels, no curated pairing window, own-buff skip,
     melee/range gates, curated EnemyCountMin for companion-backed rows
     (MaxDps-backed rows delegate); "ready never means use now"
+    · TTK gates (v3.2.0): T1 holds an offensive when valid TTK < minTtkSec
+      (usage default or curated); T2 bypasses the pairing hold when valid TTK
+      ≥ 2·cd+dur (absent cd skips); T3 bypasses it when executeFavored and target
+      HP ≤ executeBelowPct. Invalid TTK skips all three (fail open)
   · mobility: gap closers need a confirmed out-of-melee target + in-range
     ability; escapes/movement are never automatic
-  · self-heals: emergency self-heal (HP <= EmergencyHpPct, default 35) is a
-    survival Use in BOTH Normal and Solo and outranks main; the wider Solo
-    sustain layer stays Solo-only (sustain HP gate, overheal guard, ability
-    ceiling useBelowHpPct, immunity / conservation guards, target/range
-    preconditions, never-automatic veto); above emergency in Normal it holds
+   · self-heals: emergency self-heal (HP <= EmergencyHpPct, default 35) is a
+     survival Use in BOTH Normal and Solo and outranks main; the wider Solo
+     sustain layer stays Solo-only (sustain HP gate, overheal guard, ability
+     ceiling useBelowHpPct, immunity / conservation guards, target/range
+     preconditions, never-automatic veto); above emergency in Normal it holds
+   · defensives T4 (v3.2.0): in Solo only and not emergency, a valid TTK < 6 s
+     holds the defensive ("target dies in ~Xs; saving <mitigation>"); emergency
+     HP always overrides, and Normal mode is unaffected
    · audit/inspector: `--ability-audit=<path>` + `tools/ability_audit.ps1`
      (Violations 0 / Warnings 0 / Missing 0 / Stale 0 enforced; exit 3 when
      non-clean, 2 on addon Catalog.lua drift); `--ability-info=<spellId>` app
@@ -167,13 +187,15 @@ PostMessage WM_KEYDOWN/WM_KEYUP → WoW window only
 Local telemetry (opt-in: [Telemetry] Enabled, default 0)
   every Report tick → JSONL event (tick/send/link) with the plan head,
   policy verdicts + reasons, combat context (range/buff/interruptible/
-  options) and candidate snapshot → bounded in-memory ring (no disk until
+  options) and candidate snapshot, plus the additive `ttk`/`thp`/`ttkMs`
+  fields (v3.2.0) → bounded in-memory ring (no disk until
   Export) ──► Export file ──► ReplayRunner: recorded DecisionContext →
   DecisionEngine.Evaluate AND every recorded policy verdict →
   PolicyEvaluator.Evaluate (memory rebuilt from send events in live order:
-  a send precedes its own tick, so a tick never sees its own send) →
-  diagnostic report (legacy decisions and policy verdicts must both
-  recompute with 0 mismatches)
+  a send precedes its own tick, so a tick never sees its own send; the TTK
+  estimator is rebuilt by feeding the recorded (ttkMs, hasTarget, thp)
+  series in order) → diagnostic report (legacy decisions and policy verdicts
+  must both recompute with 0 mismatches)
 ```
 
 No memory read, no injection, no OCR at any stage. The knowledge base is
@@ -268,7 +290,8 @@ MainForm (borderless; 660-wide fixed frame; 2px ring red stopped / green
 
 ```
 MaxDps-Companion/
-  addon/MaxDpsBridge/        bridge addon 3.0.0 (v5 + Ext2 encoder, /mdb commands)
+  addon/MaxDpsBridge/        bridge addon 3.2.0 (version-only bump; v5 + Ext2
+                             encoder, /mdb commands)
     Catalog.lua              GENERATED class/spec ids + extras (--gen-catalog,
                              incl. per-spec offensive (curated), defensive
                              (Red) and defensiveMinor (Orange) gap-fill lists,
@@ -302,7 +325,13 @@ MaxDps-Companion/
                              automatable / delegated / manual / stale / missing
                              + live-verified classes) and stale/newer detection
       CandidateProviders.cs  v2.7 explicit candidate providers + candidate
-                             source identity + structured decision evidence
+                             source identity + structured decision evidence;
+                             v3.2.0 T1-T4 TTK gates
+      TtkEstimator.cs        v3.2.0 pure/fake-clock per-target TTK estimator
+                             (band -> frac, reset/feed-from-anchor/EWMA seed,
+                             clamp 300 s; invalid fails open)
+      TtkPolicy.cs           v3.2.0 MinTtkSec usage defaults + TTK field
+                             forwarding for the T1-T4 gates
       AbilityPolicy.cs       user per-spell ON/OFF overrides ([Abilities],
                              incl. Modes SoloOnly/NormalOnly/Manual/Never/
                              Always/Automatic)
@@ -353,7 +382,7 @@ MaxDps-Companion/
     Decision/                legacy decision layer (v1.4.0, opt-in)
     Telemetry/               local rotation telemetry + replay (opt-in)
     ThisAssembly.Gen.cs      build stamp (git HEAD + date, title bar)
-  tests/MaxDpsCompanion.Tests/ xunit suite (490 tests)
+  tests/MaxDpsCompanion.Tests/ xunit suite (571 tests)
     ClassicUiTests.cs        classic shell: scroll survives refreshes, no Layout
                              events on value-only refreshes, default/min sizes,
                              7 button labels, real mouse-message clicks, launcher
@@ -408,8 +437,18 @@ MaxDps-Companion/
                              hostile slug rejection, official-slug single
                              request
     fixtures/defensive-warrior-urgency.jsonl  canonical defensive session
+    TtkEstimatorTests.cs     v3.2.0 estimator: convergence, reset on switch/
+                             heal/no-target/sustained-unknown, coarse-band
+                             staircase, noise, clamp, determinism
+    TtkPolicyTests.cs        v3.2.0 T1-T4 gate matrix (waste hold, two-uses,
+                             execute, Solo T4 + emergency override, unknown
+                             fail-open, kill-switch)
+    TtkReplayTests.cs        v3.2.0 recorded-series estimator rebuild (in-memory
+                             + the checked-in ttk fixture, 0 mismatches)
+    fixtures/ttk-warrior-burst.jsonl  canonical v3.2.0 TTK recording (18 policy
+                             verdicts, 0 mismatches; trash hold / boss fire)
   tests/secret_harness.lua   offline bridge secret-safety + v5/Ext2 encode
-                             harness (143 checks)
+                             harness (153 checks)
   tools/Extract-VendorAbilities.ps1  vendor Cooldowns.lua -> JSON
   tools/ability_audit.ps1  registry audit + addon Catalog.lua drift check
                            (exit 0 clean, 1 run failure, 2 drift)
@@ -552,6 +591,13 @@ MaxDps-Companion/
   frame, the send history and settings — fake-clock testable, no clock/OS
   reads inside. Telemetry replay recomputes the decision layer with 0
   mismatches; policy verdicts are recorded with reasons.
+- **TTK knowledge is advisory and fails open (v3.2.0).** The estimator is pure
+  and fake-clock (built only from decoded fields), **no wire field and no Lua
+  change** — it reuses the target HP band already on the wire. An invalid/
+  unknown estimate skips every T1–T4 gate, because holding a cooldown on an
+  unknown target is the DPS loss the feature exists to avoid. T1 is a hold,
+  never a lockout: MaxDps re-suggests next tick. The `[TimeToKill]` kill-switch
+  disables the estimator and all gates without touching any other path.
 - **Execution safety before intelligence.** Cast/channel protection is not
   knowledge filtering: it runs in every mode (policy on/off, scheduler
   on/off, v5 frames) and is the *only* thing allowed to hold the main

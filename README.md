@@ -1,4 +1,4 @@
-# MaxDPS Companion (Retail Midnight 12.1, v3.1.0)
+# MaxDPS Companion (Retail Midnight 12.1, v3.2.0)
 
 Pixel bridge driver for [kaminaris MaxDps](https://www.curseforge.com/wow/addons/maxdps)
 (vendor pin: MaxDps v11.3.49). No memory read, no injection, no OCR, no LLM.
@@ -70,6 +70,18 @@ is reported as `SelfHealCoolingDown`). The classic shell also scales by width
 tier (Compact/Classic/Roomy/Wide) and measured content height. Protocol is
 unchanged (v5 core + additive Ext2); all of it is offline-proven — the live
 retail checklist stays OWED.
+
+## TTK intelligence (v3.2.0)
+
+A pure, fake-clock estimator derives a per-target time-to-kill from the target
+HP band already on the wire (no wire change, no Lua change) and uses it to stop
+wasting cooldowns: **T1** holds a major offensive while the target dies before
+the cooldown pays off, **T2** fires early (bypassing the pairing hold) when the
+fight is long enough for two full uses, **T3** fires a favored execute cooldown
+below its HP threshold, and **T4** saves a non-emergency Solo defensive when the
+target dies imminently. An unknown/invalid estimate fails open (every gate is
+skipped), and `[TimeToKill] Enabled=0` disables the whole feature. Telemetry
+records `ttk`/`thp`/`ttkMs` so replay rebuilds the estimator deterministically.
 
 ## Ability intelligence (v2.6.0)
 

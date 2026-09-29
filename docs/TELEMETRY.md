@@ -218,4 +218,4 @@ report.
 | `tests/MaxDpsCompanion.Tests/fixtures/defensive-warrior-urgency.jsonl` | Canonical v2.3 defensive-urgency recording (16 verdicts, 0 mismatches; White/Yellow/Orange/Red + user-OFF + gap-fill). |
 | `tests/MaxDpsCompanion.Tests/fixtures/offensive-interrupt-warrior.jsonl` | Canonical v2.6 offensive-interrupt recording (7 verdicts, 0 mismatches; five-state incl. Unavailable/Unknown). |
 | `tests/MaxDpsCompanion.Tests/fixtures/solo-hidden-hp-warrior.jsonl` | v3.0.0 hidden-HP curve recording (6 verdicts, 0 mismatches; `hpSrc`/`hpUp` + `~% (curve)` reasons). |
-| `tests/MaxDpsCompanion.Tests/fixtures/ttk-warrior-burst.jsonl` | v3.2.0 TTK recording (12 verdicts, 0 mismatches; T1 trash hold + T4 solo defensive hold + long-lived-target fire; `ttk`/`thp`/`ttkMs`). |
+| `tests/MaxDpsCompanion.Tests/fixtures/ttk-warrior-burst.jsonl` | v3.2.0 TTK recording (18 policy verdicts, 0 mismatches; T1 trash hold + T4 solo defensive hold + long-lived-target fire; `ttk`/`thp`/`ttkMs`). |

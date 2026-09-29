@@ -1,3 +1,46 @@
+3.2.0
+Date: 2026-09-29
+Companion 3.2.0 / bridge 3.2.0 (version-only bridge bump; no Lua change). TTK
+intelligence: a pure per-target time-to-kill estimator gates offensive and solo
+defensive cooldowns. Protocol unchanged: v5 core (35 cells, version nibble 5) +
+additive Ext2 40-cell block; no wire field was added (the estimator reuses the
+target HP band already on the wire).
+
+v3.2.0 TTK INTELLIGENCE (T-A estimator/gates + T-B curation)
+
+- Estimator (Knowledge/TtkEstimator.cs, pure/fake-clock): frac = (band+0.5)/15;
+  resets on no target, >10s unknown, or a >0.12 upward frac jump; feeds only
+  real declines measured from the last FED anchor (flat ticks accumulate time,
+  not rate) into an EWMA (3s time constant; the first fed sample seeds it).
+  Valid at >=2 fed samples, >=2.5s span, ewma >=0.004 frac/s; TtkSec =
+  clamp(frac/ewma, 0, 300). Invalid fails open, skipping every gate.
+- Gates (CandidateProviders): T1 waste guard (offensive, all sources) holds when
+  valid TTK < minTtk; T2 two-uses fires (bypasses the pairing hold) when TTK >=
+  2*cd+dur (absent cd skips); T3 execute fires when executeFavored and target HP
+  <= executeBelowPct; T4 dying-target holds a non-emergency Solo defensive when
+  TTK < 6s (emergency overrides). Reasons cite the TTK seconds.
+- Defaults (TtkPolicy) by OffensiveUsage: MajorBurst 12, Transformation/Summon
+  20, WindowDriven 10, ShortCooldown/ProcDriven/AoeOnly/SingleTargetOnly/
+  ResourceDriven/Execute 5, unknown 10; DefensiveOffensiveHybrid never gates.
+  [TimeToKill] Enabled=1 kill-switch (default ON) + one Modes-card toggle row.
+- Curation (abilities.json): 9 explicit minTtkSec values (Army 30, five summons
+  20, two short CDs 5, Void Metamorphosis 20); one execute synergy (Deathmark
+  35%). B1 corrected Metamorphosis cdMs 240000->120000 and removed Void
+  Metamorphosis's timer fields (resource-gated), each with a sourceUrl.
+- Telemetry additive ttk/thp/ttkMs on policy records; replay reconstructs the
+  estimator from the recorded (ttkMs, hasTarget, thp) series. New fixture
+  ttk-warrior-burst.jsonl replays 18 policy verdicts / 0 mismatches; the six
+  legacy fixtures still replay 0 mismatches. Target-band freshness verified
+  (Reader.lua:1323-1341, 1397-1402; Bridge.lua:407-415,573,740) -> no Lua change.
+
+VALIDATED (this machine): build 0 warnings / 0 errors; dotnet test 571/571;
+lua harness 153/153; audit Violations 0 / Warnings 0 / Missing 0 / Stale 0; 7
+replay fixtures 0 mismatches; bench-scheduler UNCHANGED sends=1620
+sha256=b71a999d5e46570e; ui-smoke PASS.
+
+LIVE OWED (retail 12.1): trash-hold / boss-fire / execute / Solo-T4 / replay.
+NOT validated on a live client here.
+
 3.1.0
 Date: 2026-09-29
 Companion 3.1.0 / bridge 3.1.0. Protocol unchanged: v5 core (35 cells, version

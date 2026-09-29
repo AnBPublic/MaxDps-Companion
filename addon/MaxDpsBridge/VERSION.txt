@@ -1,3 +1,18 @@
+3.2.0
+date: 2026-09-29
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: v5 core 35 cells + ADDITIVE Ext2 40-cell block (bridge 3.2.0). No
+          wire change in 3.2.0: the version nibble stays 5 and cells/counts are
+          the same. TTK intelligence is companion-side only - the estimator
+          reuses the target HP band already on the wire, so no bridge code or
+          new protocol field was added. This VERSION bump tracks the companion
+          3.2.0 release; the B4 freshness audit confirmed the target band is
+          re-read every tick with no cache (Reader.lua:1323-1341, 1397-1402;
+          Bridge.lua:407-415, 573, 740).
+v3.2.0:   VERSION bump only. No Lua behaviour change. The companion's TTK
+          estimator/gates (T1-T4) consume the existing target HP band (cell
+          29) and the frame clock; protocol and Catalog.lua are unchanged.
 3.1.0
 date: 2026-09-29
 git: <commit placeholder - fill at release>

@@ -334,10 +334,13 @@ wasting cooldowns. Nothing new is observed: the estimator consumes the target HP
 band already on the wire (cell 29) plus the frame clock.
 
 - **Estimator (`Knowledge/TtkEstimator.cs`).** Pure and fake-clock. `frac =
-  (band + 0.5) / 15`. It RESETs (new epoch) on no target, on HP unknown for
-  more than 10 s, or when `frac` jumps UP by more than 0.12 (new target / big
-  heal). It feeds only real declines (`inst = (prevFrac - frac) / dt`, ignored
-  below 0.004 frac/s as noise) into an EWMA with a 3 s time constant. A valid
+  (band + 0.5) / 15` (the band midpoint). It RESETs (new epoch) on no target,
+  on HP unknown for more than 10 s, or when `frac` jumps UP by more than 0.12
+  (new target / big heal). It feeds only real declines, measured from the last
+  **fed anchor** (`inst = (feedFrac - frac) / feedDt`, so flat ticks accumulate
+  time instead of biasing the rate upward), ignored below 0.004 frac/s as
+  noise. The **first** fed sample **seeds** the EWMA (`ewma = inst`); later
+  samples blend with a 3 s time constant (`α = 1 - exp(-feedDt/3)`). A valid
   estimate needs ≥2 fed samples, a ≥2.5 s observation span and `ewma ≥ 0.004`;
   `TtkSec = clamp(frac / ewma, 0, 300)` (a trickle reads as 300 s "long"). An
   invalid estimate **fails open**: every TTK gate is skipped, because holding a

@@ -1,6 +1,112 @@
 # Handover — MaxDps-Companion
 
-## Status: v3.1.0 — offensive/defensive gap-fill, reset-aware self-sustain, dynamic UI scaling (521 xunit tests + 153 Lua harness checks, live validation owed)
+## Status: v3.2.0 — TTK intelligence: per-target time-to-kill estimator + T1–T4 cooldown gates (571 xunit tests + 153 Lua harness checks, 7 replays 0 mismatches, live validation owed)
+
+## v3.2.0 TTK INTELLIGENCE (T-A + T-B, this change)
+
+GOAL: stop wasting cooldowns. A pure per-target time-to-kill (TTK) estimate now
+gates offensive cooldowns and Solo defensive cooldowns: hold a major fired into
+a target that dies before the CD pays off, fire early (bypass the pairing hold)
+when the fight is long enough for two full uses or the target is in execute
+range, and save a non-emergency Solo defensive when the target dies imminently.
+No wire change and no Lua behaviour change: the estimator reuses the target HP
+band already on the wire.
+
+T-A — estimator + gates + plumbing (merge `f842a29`; A1–A6 `aa166cc`,
+`cd9dda3`, `20f04ca`, `3d01da2`, `31ab1c1`):
+- `Knowledge/TtkEstimator.cs` (new, pure/fake-clock): `frac = (band+0.5)/15`;
+  RESET on no target, >10 s continuous unknown, or a >0.12 upward `frac` jump.
+  FEED measures the decline from the last **FED anchor** (`inst =
+  (feedFrac-frac)/feedDt`, so flat ticks accumulate time instead of biasing the
+  rate upward) into an EWMA with a 3 s time constant; the **first** fed sample
+  **seeds** `ewma` directly (no zero-bias warm-up). VALID at ≥2 fed samples,
+  ≥2.5 s span and `ewma ≥ 0.004`; `TtkSec = clamp(frac/ewma, 0, 300)`. The
+  anchor+seed method is the implemented §3.1 (amended below).
+- `Knowledge/TtkPolicy.cs`: `MinTtkSec` usage defaults + offensives forwarding.
+  `Knowledge/AbilityModel.cs` / `AbilityCatalog.cs`: parse `minTtkSec` /
+  `executeBelowPct` / `executeFavored`; `AbilityIntelligence.cs` inspector line.
+- `Knowledge/CandidateProviders.cs` gates: **T1** waste guard (Offensive, all
+  sources; valid TTK < minTtk ⇒ Hold `"target ~Xs to die; saving <name> (needs
+  Ns)"`), **T2** two-uses (valid TTK ≥ `2·cd+dur`, absent cd skips, ⇒ bypass
+  the pairing hold), **T3** execute (`executeFavored` + target HP ≤
+  `executeBelowPct` ⇒ bypass the pairing hold), **T4** dying-target (Defensive,
+  **Solo only**, not emergency, valid TTK < 6 s ⇒ Hold). Unknown TTK skips all
+  gates (fail open).
+- `RotationEngine.cs` owns one estimator, feeds it once per real frame before
+  the policy, and attaches the result via `CombatContext.WithTtk` (no scheduler
+  signature change). `[TimeToKill] Enabled=1` kill-switch (AppSettings +
+  settings.ini + one Modes-card toggle row in `MainForm.cs`). Telemetry gains
+  additive `ttk`/`thp`/`ttkMs`; `ReplayRunner` rebuilds the estimator from the
+  recorded `(ttkMs, hasTarget, thp)` series. New fixture
+  `fixtures/ttk-warrior-burst.jsonl` replays **18 policy verdicts / 0
+  mismatches**; the six legacy fixtures still replay 0 mismatches.
+T-B — curation + validation (merge `c33cbf4`; B1–B4 `2dc1b19`):
+- `abilities.json` gains **9 explicit `minTtkSec`** values (Army of the Dead 30;
+  Summon Infernal/Shadowfiend/Gargoyle/Darkglare/Demonic Tyrant 20; Unholy
+  Assault/Primordial Wave 5; Void Metamorphosis 20) and **one execute synergy**
+  (Deathmark 35%, Maxroll "Zoldyck Recipe") — sparse, default OFF elsewhere.
+- B1 cooldown corrections with sources: Metamorphosis (Havoc) `cdMs` 240000 →
+  120000 (Blizzard Midnight pre-expansion notes + Icy Veins 12.1; the wiki's
+  stale 3 min was superseded); Void Metamorphosis timer fields removed
+  (resource-gated: 50 Soul Fragments / 35 with Soul Glutton, Fury-bar duration).
+  Full trail in `docs/research/TTK_CURATION.md`.
+- B4 freshness verdict: **no Lua change needed** — the target band is re-read
+  every tick with no not-ready cache (`Reader.lua:1323-1341` `HealthPct` fresh
+  `pcall` per call; `Reader.lua:1397-1402` `MDB.GetTargetContext` derives the
+  0..14 band each call; `Bridge.lua:407-415` `WriteTarget` no cache;
+  `Bridge.lua:573`→`740` per-tick `OnUpdate`). Harness therefore stays at 153.
+
+REVIEW OUTCOME: **GO-WITH-FIXES**. The adversarial review of the merged diff
+raised two amendments, both committed here as plan-doc changes (they document
+what the code already does, no code edit):
+1. **§3.1 feed correction** — measure from the last fed anchor and seed the EWMA
+   on the first sample (the code's `_feedFrac`/`_feedMs` + `_samples == 0 ? inst
+   : α·inst + …`).
+2. **§3.3 Execute default** — add Execute 5 to the documented default table
+   (`TtkPolicy` already applies it).
+
+VALIDATED (this machine, v3.2.0):
+- `dotnet test -c Release`: **571/571** (v3.1.0 was 521). `pwsh -File build.ps1`
+  build 0 warnings / 0 errors.
+- `lua tests/secret_harness.lua`: **153/153**.
+- `tools/ability_audit.ps1`: exit 0 — Violations 0 / Warnings 0 / Missing 0 /
+  Stale 0.
+- **7 replay fixtures 0 mismatches**: solo 9, defensive 16, offensive-interrupt
+  7, solo-hidden-hp 6, cooldown-reset 8, offensive-gapfill, ttk-warrior-burst
+  18 policy verdicts.
+- `--bench-scheduler`: **UNCHANGED** sends=1620 sha256=`b71a999d5e46570e`.
+- `--ui-smoke-test` **PASS**.
+
+LIVE OWED (retail 12.1 — not run here):
+- **Trash-hold:** a major offensive is held into a short-lived target (telemetry
+  `waiting on TTK` / `target ~Xs to die`), then fires on the boss.
+- **Boss-fire:** the same CD fires once the TTK estimate supports it.
+- **Execute:** Deathmark fires at/below 35% HP.
+- **Solo-T4:** a non-emergency defensive is saved when the last mob is < 6 s from
+  death; emergency HP still overrides.
+- **Replay:** record a live session with `[TimeToKill] Enabled=1`, export, and
+  `--replay` 0 mismatches. `/reload` only (addon pre-installed by the router).
+
+HONEST LIMITS:
+- **No live retail run.** Every T1–T4 behaviour is offline-proven only.
+- **Coarse-band anchor behaviour.** The estimator's `frac` is the midpoint of a
+  ~6.67%-wide wire band, and the execute gate uses the band's integer percent
+  (≈ band·6.67, not the midpoint); both inherit the ±3.3% band resolution, so a
+  threshold can be crossed one band early/late and the estimate's precision is
+  bounded by the wire band, not by the EWMA.
+- **Most vendor offensives lack a curated cooldown,** so T2's two-uses rule
+  cannot evaluate for them and the T1 waste guard is the only gate that applies.
+- **Void Metamorphosis is unmodeled:** it is resource-gated (Soul Fragments), so
+  the linear TTK estimator cannot predict its availability; its curated timer
+  fields were removed and it carries only a flat `minTtkSec`.
+- **Band round-trip (review):** the recorded `thp` and `TtkEstimator
+  .BandFromPercent` reproduce all 0..14 protocol bands exactly (`band→pct =
+  round(band·100/15)`, `pct→band = round(pct·15/100)`), but the reconstructed
+  percent is the band's integer value while TTK uses the band midpoint, so the
+  two views of "current HP" differ by up to ~3.3%; replay is exact because it
+  feeds the same recorded series.
+
+## Status (previous): v3.1.0 — offensive/defensive gap-fill, reset-aware self-sustain, dynamic UI scaling (521 xunit tests + 153 Lua harness checks, live validation owed)
 
 ## v3.1.0 — R1 gap-fill + R2 reset-aware sustain + popup budget (this change)
 
