@@ -1,16 +1,30 @@
-2.7.0
-date: 2026-09-28
+3.0.0
+date: 2026-09-29
 git: <commit placeholder - fill at release>
 interface: 120100 (Retail Midnight 12.1)
-protocol: v5 (35 cells; 8 slots incl. Mobility/SelfHeal; raw 24-bit spell ids;
-          vitals / cast / target / range / buff / class-spec sensor block;
-          ADDITIVE blocks on reserved nibbles: cell 31 G = HP-curve urgency,
-          cell 31 B bit0 = catalog gap-fill source, cell 32 B = stagger
-          urgency (bridge 2.3); cell 33 B bit1 = self-buff probe block valid
-          (bridge 2.7); core + extension checksums). The version nibble STAYS
-          5, so older companion exes still decode this strip (they ignore
-          reserved bits; the extension checksum already covered them). Zero
-          means UNKNOWN and the policy keeps its documented fail-open.
+protocol: v5 core 35 cells + ADDITIVE Ext2 40-cell block (bridge 3.0.0). The
+          v5 core is unchanged: 8 slots incl. Mobility/SelfHeal; raw 24-bit
+          spell ids; vitals / cast / target / range / buff / class-spec sensor
+          block; additive cell 31 G = HP-curve urgency, cell 31 B bit0 =
+          catalog gap-fill source, cell 32 B = stagger urgency (bridge 2.3);
+          cell 33 B bit1 = self-buff probe block valid (bridge 2.7). Ext2 adds
+          cell 35 (HP-curve colour), cells 36-38 (second distinct ready+bound
+          self-heal slot), cell 39 (Ext2 checksum, scope = cells 36-38 only),
+          presence bits cell 33 B bit2 EXT2 / bit3 HP CURVE, and the SelfHeal2
+          range tri-state in cell 28 B bits0-1. The v5 checksums (cells 10, 34)
+          keep covering their original ranges. The wire version nibble STAYS
+          5, so older companion exes still decode the 35-cell prefix (they
+          ignore the extension) and old 35-cell addons still drive the v3
+          companion (bit2=0 → Ext2 ignored). Zero means UNKNOWN and the policy
+          keeps its documented fail-open.
+v3.0.0:   Ext2 - spell variants (FindBaseSpellByID / FindSpellOverrideByID /
+          GetOverrideSpell / MDB.SpellAliases, pcall + scrubbed), binds matched
+          by ANY variant (bar, HotKey overlay, macros), extras selection of the
+          first two DISTINCT ready+bound self-heals encoded as the known
+          variant, HP-curve cell 35 passed through UnitHealthPercent's colour
+          via SetVertexColor with NO read/compare, /mdb heal + /mdb hpcurve
+          on|off, /mdb status prints ext2=1 hpcurve= sh2=, and a throttled
+          MDB.EnsureEngine nudge on a cold idle login.
 v2.7:     self-buff tri-state. GetSlotBuff returns 1/0/nil (ran / none /
           failed-or-secret); WriteBuffs clears the block-valid bit when ANY
           probe degraded, so a failed aura probe can never masquerade as "buff

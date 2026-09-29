@@ -1,5 +1,87 @@
 # Handover — MaxDps-Companion
 
+## Status: v3.0.0 — classic UI shell, Ext2 40-cell protocol (HP curve + SelfHeal2), all-class Solo self-sustain (490 xunit tests + 143 Lua harness checks, live validation owed)
+
+## v3.0.0 CLASSIC UI + EXT2 + ALL-CLASS SOLO (this workstream)
+
+GOAL: restore a fast v1.3.9-style classic UI, keep all v2.8.1 functionality,
+and make Solo self-sustain fire reliably for every class — including when the
+game hides HP. Three parallel workstreams (C intel → B bridge → A ui) sharing
+the frozen Ext2 contract, merged on `v3/base`.
+
+WHAT WAS BUILT — workstream A (classic UI):
+- `app/MaxDpsCompanion/MainForm.cs`, `UiControls.cs`, `Ui/**`,
+  `ClassSkillsView.cs`, `Program.cs`, `MaxDpsCompanion.csproj`: fixed 660-wide
+  borderless frame (default 660 × min(content, working area), MinimumSize
+  520×560, no AutoScroll on any timer path), hero RoundedCard (status/LinkLamp
+  + ClassBadge, live "Now:" action/why, StripView, Spells + Modes two-toggle
+  rows), Start|Stop|Launch Game and Recalibrate|Abilities…|Advanced…|Open
+  Folder rows, Advanced… (Configuration|Diagnostics|Intelligence) and Abilities…
+  (Class skills|Explorer) scrim popups built lazily once, `--bench-ui`, 12
+  snapshots. Deleted `Ui/AppShell.cs`, `Ui/AmbientBackground.cs`, `Ui/UiFonts.cs`,
+  `Ui/Pages.cs` HomePage, `assets/fonts/Geist-*.ttf` + OFL; kept `UiClickable`.
+- `tests/…/ClassicUiTests.cs`, `UiShellTests.cs`, `docs/UI.md`.
+WHAT WAS BUILT — workstream B (bridge 3.0.0):
+- `addon/MaxDpsBridge/{Reader,Bridge,Bars,Keymap,Options}.lua`,
+  `MaxDpsBridge.toc`, `VERSION.txt`, `tests/secret_harness.lua`: 40-cell Ext2
+  encode (cell 35 HP curve via `SetVertexColor(UnitHealthPercent(...))` with no
+  read/compare, cells 36-38 SelfHeal2, cell 39 scoped checksum, cell 33 B
+  bit2/bit3 presence, SelfHeal2 range in cell 28 B), spell variants +
+  variant-aware binds, first-two-distinct extras selection, `/mdb heal`,
+  `/mdb hpcurve on|off`, `ext2=1 hpcurve= sh2=` status, throttled EnsureEngine.
+WHAT WAS BUILT — workstream C (intel):
+- `PixelProtocol.cs` (+`PixelProtocolExt2Tests.cs`), `ScreenSampler.cs`,
+  `BlockLocator.cs`, `ColorLearner.cs`, `RotationEngine.cs`, `Intelligence/**`,
+  `Knowledge/**` + `CatalogLuaGenerator.cs`, `Scheduler/**`, `Telemetry/**`,
+  `Decision/**`, `addon/MaxDpsBridge/Catalog.lua` (+fixture): 40-cell decode
+  with SelfHeal2/curve, `CombatContext.HpSource{HpPct,HpPctUpper}` precedence
+  plain > curve > unknown, curve-derived urgency, SelfHeal2 alternate with its
+  own range, all-class self-heal extras + aliases (202168↔34428, 19647↔119910),
+  telemetry `hpSrc`/`hpUp`/`alt`/`arng`; new tests `CombatContextHpTests.cs`,
+  `KnowledgeExtrasTests.cs`, `SelfSustainAlternateTests.cs`, `SoloHiddenHpTests.cs`
+  and fixture `fixtures/solo-hidden-hp-warrior.jsonl`; `docs/KNOWLEDGE.md`,
+  `docs/TELEMETRY.md`.
+
+VALIDATED (this machine, this session):
+- `dotnet test -c Release`: **490/490** (was 446); build 0 warnings / 0 errors.
+- `lua tests/secret_harness.lua`: **143/143** (was 94).
+- `pwsh tools/ability_audit.ps1`: exit 0 — **Violations 0 / Warnings 0 /
+  Missing 0 / Stale 0**.
+- 4 replays **0 mismatches**: solo 9, defensive 16, offensive-interrupt 7,
+  solo-hidden-hp 6 verdicts.
+- `--bench-scheduler`: **UNCHANGED** sends=1620 sha256=`b71a999d5e46570e`.
+- `--bench-ui`: mean ~**4.1 µs**, p95 ~**4.6 µs**, startup ~**416 ms** → PASS
+  (targets <300 µs / <1 ms / <500 ms).
+- `--ui-smoke-test` **PASS**; 12 snapshots (6 pages × {660×920, 520×560}).
+
+LIVE OWED (retail 12.1 — not run here):
+- **L0 (can run today on 2.8.1):** Warrior, Solo ON, telemetry ON; take damage
+  below 65% in combat; Export → grep `hpKnown:false` / `player HP unknown` to
+  confirm or rule out the hidden-HP hypothesis (H1). This chooses whether the
+  curve path is even needed for the reported case.
+- **L1 (v3):** `/reload` → `/mdb status` shows `ext2=1 hpcurve=on`; `/mdb heal`
+  lists keys; window 660 wide, scroll sticks, Launch Game works; Warrior Solo
+  <65% in combat → Impending Victory fires once per CD then the rotation
+  resumes; a bar holding 34428 (Victory Rush) still fires the 202168 intent;
+  repeat with a second class (Hunter Exhilaration or Paladin Word of Glory);
+  `/mdb hpcurve off` falls back to plain HP; record + export + `--replay`
+  0 mismatches.
+
+HONEST LIMITS:
+- **HP-curve ToS/policy risk.** Cell 35 reads the player's HP through the
+  vendor's `UnitHealthPercent` *rendering* rather than the hidden `UnitHealth`
+  value. It is a colour passthrough (never compared), but it deliberately
+  recovers information Blizzard hides in Midnight; whether that is acceptable
+  under the addon/client policy is a product decision to make before shipping.
+- **Curve resolution ±3.3%.** One band is ~6.67% HP, so a curve-derived HP is
+  a coarse band; `HpPctUpper` is the band top, but the exact value is
+  unobservable.
+- **No live retail run.** The curve is only trusted through the `14..16`
+  R+G window because it has no checksum; a live client could render the ramp
+  differently (gamma/colour profile) and must be verified.
+- Snapshots are design artifacts, never behavioral proof; DPI 100/150/200%
+  and the L0/L1 checklist stay OWED.
+
 ## Status: v2.8.1 — mouse-activation fix (rail/toggle/chips/tiles), vertical spacing, negative-scroll guard (446 xunit tests + 94 Lua harness checks, live validation owed)
 
 ## v2.8.1 MOUSE-ACTIVATION + SPACING FIX (reported by the user)

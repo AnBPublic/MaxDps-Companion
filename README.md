@@ -1,4 +1,4 @@
-# MaxDPS Companion (Retail Midnight 12.1, v2.8.0)
+# MaxDPS Companion (Retail Midnight 12.1, v3.0.0)
 
 Pixel bridge driver for [kaminaris MaxDps](https://www.curseforge.com/wow/addons/maxdps)
 (vendor pin: MaxDps v11.3.49). No memory read, no injection, no OCR, no LLM.
@@ -9,7 +9,7 @@ Two pieces:
 
  | Piece | What it does |
  | :--- | :--- |
- | `MaxDpsBridge` (addon, `addon/MaxDpsBridge/`) | Queries the MaxDps rotation engine each frame and encodes suggestions, ability ids and combat context into a 35-cell strip of flat-coloured pixels. |
+ | `MaxDpsBridge` (addon, `addon/MaxDpsBridge/`) | Queries the MaxDps rotation engine each frame and encodes suggestions, ability ids and combat context into a 40-cell strip of flat-coloured pixels (35-cell v5 core + additive Ext2 block). |
  | `MaxDpsCompanion.exe` (desktop app, `app/MaxDpsCompanion/`) | Samples those pixels, decodes the frame, evaluates every situational suggestion (USE / HOLD / SKIP / UNAVAILABLE / UNKNOWN) against an embedded ability intelligence registry + explicit candidate providers, schedules one action at a time, and replays the player's own keybinds into the attached game window. |
 
 ## Intelligence coverage (v2.7.0, unchanged in 2.8)
@@ -40,24 +40,21 @@ companion gap-fill / none) and attach structured "why" evidence. The Utility
 provider is structurally incapable of firing. Verdicts and reason strings are
 unchanged, and the scheduler hash is pinned (`b71a999d5e46570e`).
 
-## UI 2.8 - Ethereal Glass × brass
+## Classic UI (v3.0.0)
 
-A real application shell, not a settings form: **Home** is a responsive bento
-(status, live action with a human-readable why, identity, intelligence health),
-**Abilities** is a searchable virtualized explorer with a master-detail
-inspector, **Intelligence** is the coverage dashboard, and **Configuration** /
-**Diagnostics** group every original setting. The visual system is Ethereal
-Glass × brass: OLED ink, an ambient glow backdrop, double-bezel glass cards,
-pill buttons with a nested trailing-icon circle, hand-drawn 1.4px nav icons,
-and bundled **Geist** (SIL OFL; system-font fallback). A hardened structural
-smoke test (`--ui-smoke-test`) fails on zero-size controls, overlaps,
-owner-drawn text clipping, empty or overflowing card content, wrapped-label
-clipping and unreachable controls. 30 page snapshots (5 pages × 6 widths) live
-in `dist/ui-snapshots`. Architecture: `docs/UI.md`.
+A fast fixed 660-wide classic shell replaces the v2.8.1 rail/pages layout: one
+non-scrolling main window whose hero card shows status, the live action with a
+human-readable why, the sampled strip, and two-toggle rows for the Spells and
+Modes. `Start` / `Stop` / `Launch Game` sit under it, with `Recalibrate`,
+`Abilities…` and `Advanced…`. `Advanced…` opens a tabbed popup (Configuration |
+Diagnostics | Intelligence) and `Abilities…` hosts Class skills | Explorer;
+`Esc` closes the topmost. The shell never owns engine state. `--bench-ui`
+measures 2000 refreshes (mean/p95 µs + startup ms); 12 snapshots (6 pages ×
+{660×920, 520×560}) live in `dist/ui-snapshots`. Architecture: `docs/UI.md`.
 
 ```
 MaxDpsCompanion.exe --ui-smoke-test
-MaxDpsCompanion.exe --ui-snapshot-page=home --ui-snapshot=home.png --ui-snapshot-width=1280
+MaxDpsCompanion.exe --ui-snapshot-page=main --ui-snapshot=main.png --ui-snapshot-width=660 --ui-snapshot-height=920
 ```
 
 ## Ability intelligence (v2.6.0)
@@ -81,14 +78,15 @@ responsive; situational abilities (offensive, defensive, interrupt,
 consumable, trinket, mobility, self-heal) are only pressed when the policy
 says now is the right time.
 
-## Protocol v5 (35 cells, additive urgency)
+## Protocol v5 35-cell core + Ext2 40-cell block
 
 Each cell is `CellSize` physical pixels square; every channel carries one
 nibble (`nibble * 17`). Slot names mirror the in-game Spell Frame categories.
-The defensive-urgency block is **additive** on the v5 wire (35 cells): it
-fills nibbles that were reserved and always `0` before bridge 2.3, and the
-version nibble **stays 5**, so an updated addon still decodes with an older
-companion exe. Full spec: `docs/PROTOCOL.md`.
+The wire version nibble **stays 5**: both the defensive-urgency nibbles
+(bridge 2.3) and the Ext2 block (bridge 3.0.0) are **additive** on reserved
+bits, so an updated addon still decodes with an older companion exe and a
+stale 35-cell addon still drives the current exe. Full spec:
+`docs/PROTOCOL.md`.
 
 | Cells | Contents |
 | :--- | :--- |
@@ -98,33 +96,39 @@ companion exe. Full spec: `docs/PROTOCOL.md`.
 | 10 | protocol version + core checksum + commit |
 | 11-26 | per-slot 24-bit spell id (0 = unknown identity) |
 | 27 | player HP% (or unknown) |
-| 28 | player cast/channel state (arg-blind unit events) |
+| 28 | player cast/channel state + Ext2 SelfHeal2 range (bits0-1) |
 | 29 | target: melee flag, HP band, cast/interruptible flags |
 | 30-31 | per-slot range tri-state (unknown / in / out) + additive HP-curve defensive urgency + gap-fill source bit |
 | 32 | per-slot self-buff-active bits + additive stagger-curve defensive urgency |
-| 33 | class + spec wire ids (bit0 valid, bit1 = self-buff probe block valid, v2.7 additive) |
+| 33 | class + spec wire ids (bit0 valid, bit1 buff block valid, bit2 Ext2 present, bit3 HP curve active) |
 | 34 | extension checksum + commit |
+| 35 | Ext2 HP curve (a live reading when bit3 is set, otherwise black; never checksummed) |
+| 36-38 | Ext2 SelfHeal2 key + 24-bit spell id (the next distinct ready+bound self-heal) |
+| 39 | Ext2 checksum over cells 36-38 (a failure drops only SelfHeal2) |
 
-The companion decodes v5 (35 cells), v6 (accepted forward-compatible, same
-35-cell layout), v4 (9 cells) and v1 (8 cells): a stale in-game addon degrades
-gracefully (urgency and context UNKNOWN → fail-open/conservative) and the app
-says so instead of going blind. The addon encodes v5 and its urgency nibbles
-are additive, so an updated addon still decodes with a pre-2.3 companion exe.
-The self-buff block is tri-state since bridge 2.7: bit1 of cell 33 B is set
-only when every aura probe ran clean; without it the block reads UNKNOWN (a
-failed probe can never masquerade as "buff absent").
-The addon is installed by `install-addon.ps1`; after updating always `/reload`
-(or `/mdb status` to confirm `protocol=5`).
+The companion decodes the 40-cell Ext2 frame, v5/v6 (35 cells), v4 (9 cells)
+and v1 (8 cells): a stale in-game addon degrades gracefully (urgency and
+context UNKNOWN → fail-open/conservative) and the app says so instead of going
+blind. The Ext2 **HP curve** gives Solo a coarse HP reading when the game
+hides cell 27 (priority: plain cell 27 > curve > unknown); the **SelfHeal2**
+slot is a second, independently ranged self-sustain candidate. The self-buff
+block is tri-state since bridge 2.7. Solo mode itself is unchanged from v2.8:
+`[Solo] Enabled=1` runs the survival layer (sustain at ≤65%, emergency at
+≤35%, self-heals as an independent candidate source) — see the Solo section
+below. The addon is installed by `install-addon.ps1`; after updating always
+`/reload` (or `/mdb status` to confirm `protocol=5 ext2=1`).
 
 ## In-game commands (`/mdb`)
 
 | Command | Effect |
 | :--- | :--- |
-| `/mdb status` | Offset, cell size, state, bound slots, class/spec + extras. |
+| `/mdb status` | Offset, cell size, state, bound slots, class/spec + extras; `ext2=1 hpcurve=<on\|off> sh2=<id\|->`. |
 | `/mdb on` / `/mdb off` / `/mdb toggle` | Enable / pause the bridge. |
 | `/mdb offset <x> <y>` | Move the strip in physical pixels from top-left. |
 | `/mdb cellsize <px>` | Resize cells (1–64; 8 default/recommended). |
 | `/mdb calibrate on\|off` | Show/hide the 54-step calibration pattern. |
+| `/mdb heal` | Per curated self-heal entry: known / ready / usable / key / why (slot-8 + SelfHeal2 selection). |
+| `/mdb hpcurve on\|off` | Ext2 HP-curve cell on/off (SavedVariables, default on). |
 | `/mdb diag` | Scrubbed MaxDps internals snapshot. |
 | `/mdb reset` | Back to defaults (clears calibrate mode). |
 

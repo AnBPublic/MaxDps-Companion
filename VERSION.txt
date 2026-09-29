@@ -1,8 +1,46 @@
 3.0.0
 Date: 2026-09-29
-Companion 2.8.1 (unchanged on this workstream; v3 companion lands with the
-merge) / bridge 3.0.0. Protocol v5 wire version nibble unchanged; the strip
-grows to 40 cells with the additive Ext2 block (docs/PROTOCOL.md).
+Companion 3.0.0 / bridge 3.0.0. Protocol v5 wire version nibble unchanged; the
+strip grows to 40 cells with the additive Ext2 block (docs/PROTOCOL.md). Classic
+fixed 660-wide UI shell with Advanced/Abilities popups replaces the v2.8.1
+rail/pages shell.
+
+v3.0.0 CLASSIC UI (workstream A)
+
+- Restored a fast, fixed classic shell: borderless main window, default client
+  660 x min(content, working area), MinimumSize 520x560, TableLayoutPanel fixed
+  absolute rows and NO AutoScroll on the timer path (the v2.8.1
+  NormalizeScroll defect class is pinned by
+  ClassicUiTests.ClassicUi_ScrollSurvivesRefresh).
+- Hero RoundedCard: status row (LinkLamp + state + ClassBadge), live "Now:
+  <action> - <why>" row, StripView, Spells (4 two-toggle rows) and Modes
+  (2 two-toggle rows); button row 1 Start | Stop | Launch Game, row 2
+  Recalibrate | Abilities... | Advanced... | Open Folder.
+- Advanced... popup (scrim + centred card, tabs Configuration | Diagnostics |
+  Intelligence) hosts every v2.8.1 control/readout, built lazily once.
+  Abilities... popup hosts Class skills | Explorer. Esc closes the topmost.
+- Removed AppShell, NavigationRail/PageHost, AmbientBackground, UiFonts +
+  embedded Geist, HomePage; UiClickable (v2.8.1 mouse fix) retained;
+  DesignTokens.FamilyName uses the system variable-font chain.
+- --bench-ui (2000x RefreshStatus) mean ~4.1 us / p95 ~4.6 us / startup
+  ~416 ms PASS; 12 snapshots (6 pages x {660x920, 520x560}).
+
+v3.0.0 INTELLIGENCE + DECODE (workstream C)
+
+- Decode the 40-cell Ext2 capture: BridgeFrame HpCurveValid / HpCurveBand /
+  SelfHeal2; cell-39 checksum failure drops only SelfHeal2; a 35-cell stale
+  addon still decodes (bit2=0 ignores cells 35-39).
+- CombatContext HpSource {Plain, Curve, Unknown} with precedence plain cell 27
+  > curve cell 35 > unknown; HpPctUpper is the top of the curve band so the
+  overheal guard never assumes the low end; a valid curve derives urgency when
+  cell 31 G is UNKNOWN.
+- Self-sustain: emergency/sustain gates use the resolved HP, the alternate
+  SelfHeal2 candidate is evaluated with its OWN range probe and a Use verdict
+  wins the slot; all-class extras (Victory Rush 34428 added, Regrowth fixed to
+  8936), aliases emitted into Catalog.lua. Telemetry hpSrc/hpUp/alt/arng.
+- New tests PixelProtocolExt2Tests, CombatContextHpTests, SelfSustainAlternateTests,
+  SoloHiddenHpTests, KnowledgeExtrasTests; fixture solo-hidden-hp-warrior.jsonl
+  (6 verdicts, 0 mismatches).
 
 v3.0.0 BRIDGE 3.0.0 - EXT2 (workstream B)
 

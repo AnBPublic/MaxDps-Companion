@@ -1,23 +1,25 @@
-# Pixel protocol v5 (additive defensive urgency) — MaxDpsBridge ↔ MaxDpsCompanion
+# Pixel protocol v5 + Ext2 (40-cell, additive) — MaxDpsBridge ↔ MaxDpsCompanion
 
-Normative spec. Bridge encodes, companion decodes. **35 cells**, left to
-right, each `CellSize` physical pixels square. The app samples the centre
-pixel (5-tap median at ≥2 px cells).
+Normative spec. Bridge encodes, companion decodes. The frame is the **35-cell
+v5 core** plus the **additive Ext2 block** (cells 35-39), so a bridge 3.0.0
+strip is **40 cells**, left to right, each `CellSize` physical pixels square.
+The app samples the centre pixel (5-tap median at ≥2 px cells).
 
 > **Compatibility contract (Sep-2026 outage lesson):** the companion MUST
-> decode the previous protocol versions too. It decodes **v5 (35 cells), v6
-> (35 cells, accepted forward-compatible), v4 (9 cells) and v1 (8 cells)**;
-> the in-game addon encodes **v5** (bridge 2.3.0). The addon goes stale
-> whenever the user runs a new exe without `install-addon.ps1` + `/reload`.
-> Rule for every protocol bump: **companion decodes N and the older
-> supported widths; addon encodes N**, and the app warns (never hard-fails)
-> on skew so recalibrate is the repair path. The defensive-urgency block is
-> **additive**: a pre-2.3 encoder leaves the three reserved nibbles at `0` =
-> UNKNOWN, which the policy treats conservatively (see the additive urgency
-> section below and docs/KNOWLEDGE.md). Because the wire version nibble stays
-> `5`, an updated addon still decodes with an older companion exe — the old
-> decoder ignores the reserved nibbles, whose extension checksum it already
-> covered.
+> decode the previous protocol versions too. It decodes **v5 + Ext2 (40
+> cells), v5/v6 (35 cells, v6 accepted forward-compatible), v4 (9 cells) and
+> v1 (8 cells)**; the in-game addon encodes **v5 + Ext2** (bridge 3.0.0). The
+> addon goes stale whenever the user runs a new exe without
+> `install-addon.ps1` + `/reload`. Rule for every protocol bump: **companion
+> decodes N and the older supported widths; addon encodes N**, and the app
+> warns (never hard-fails) on skew so recalibrate is the repair path. Both the
+> defensive-urgency block and Ext2 are **additive**: a pre-2.3 encoder leaves
+> the three urgency nibbles at `0` = UNKNOWN, and a pre-3.0 encoder leaves
+> cell 33 B bit2 clear, so the decoder ignores cells 35-39. The wire version
+> nibble stays `5` in both directions — an updated addon still decodes with an
+> older companion exe (it ignores the reserved nibbles, whose extension
+> checksum it already covered), and a 35-cell stale addon still drives the v3
+> companion (Ext2 absent).
 
 Slot naming: slots 1-6 mirror the in-game Spell Frame categories (offensive =
 `classCooldowns` offensive bucket, defensive = `GlowDefensiveHPMidnight`,
@@ -56,12 +58,12 @@ profile says otherwise.
 | 23-24 | 6 nibbles | | | Mobility spell id |
 | 25-26 | 6 nibbles | | | SelfHeal spell id |
 | 27 | hp% hi | hp% lo | hp flags | player health |
-| 28 | cast state | remaining band | reserved | player cast/channel |
+| 28 | cast state | remaining band | Ext2: SelfHeal2 range bits0-1 (rest reserved) | player cast/channel (+ alternate range) |
 | 29 | target flags | target hp band | target cast flags | target state |
 | 30 | slot1\|slot2 | slot3\|slot4 | slot5\|slot6 | per-slot range tri-state (2 bits each) |
 | 31 | slot7\|slot8 | defensive urgency (HP curve) | gap-fill source | per-slot range tri-state + additive urgency |
 | 32 | bits 0-3 | bits 4-7 | stagger urgency | per-slot self-buff active + additive stagger urgency |
-| 33 | class id | spec id | bit0 class/spec valid, bit1 self-buff block valid (v2.7 additive) | class + spec (wire ids) |
+| 33 | class id | spec id | bit0 class/spec valid, bit1 self-buff block valid (v2.7), bit2 Ext2 present, bit3 HP curve active (v3.0.0) | class + spec (wire ids) |
 | 34 | 0 | checksum(cells 11-33) | commit (=heartbeat) | extension integrity |
 
 ## Additive urgency block (v2.3, wire version stays 5)
@@ -283,11 +285,13 @@ arithmetic on them:
 
 | Command | Effect |
 | :--- | :--- |
-| `/mdb status` | offset, cell size, state, bound slots, class/spec + extras |
+| `/mdb status` | offset, cell size, state, bound slots, class/spec + extras; bridge 3.0.0 adds `ext2=1 hpcurve=<on\|off> sh2=<id\|->` |
 | `/mdb on` / `off` / `toggle` | enable / pause / flip |
 | `/mdb offset <x> <y>` | strip origin, physical px from top-left |
 | `/mdb cellsize <px>` | 1-64, default 8 (recommended 8) |
 | `/mdb calibrate on\|off` | 54-step pattern show/hide |
+| `/mdb heal` | per curated self-heal entry: known / ready / usable / key / why (explains the slot-8 + SelfHeal2 selection) |
+| `/mdb hpcurve on\|off` | Ext2 HP-curve cell 35 on/off (SavedVariables, default on); off paints black and clears bit3 |
 | `/mdb diag` | scrubbed MaxDps internals snapshot |
 | `/mdb reset` | defaults + pattern cleared |
 
@@ -303,29 +307,46 @@ The engine re-decodes the legacy 9-cell and 8-cell windows out of the same
 35-cell capture, so even an old addon drives the current companion. Those
 frames carry no defensive urgency, cast state, target state or range
 tri-state: every additive field is UNKNOWN and the policy falls back to its
-documented pre-v2.3 behaviour. The addon encodes v5 with the additive urgency
-nibbles (`addon/MaxDpsBridge/Bridge.lua`, `PROTOCOL_VERSION = 5`).
+documented pre-v2.3 behaviour. Bridge 3.0.0 encodes v5 + Ext2: the 40-cell
+strip with the additive urgency nibbles and the Ext2 HP-curve / SelfHeal2
+block (`addon/MaxDpsBridge/Bridge.lua`, `PROTOCOL_VERSION = 5`).
 
 ## Ext2 block (v3.0.0, additive)
 
-```
-Frame width becomes 40 cells. Cells 0-34 are unchanged (v5, version nibble stays 5).
-Cell 33 B: bit0 class/spec valid, bit1 buff block valid,
-           bit2 EXT2 PRESENT, bit3 HP CURVE ACTIVE.
-Cell 28 B: bits0-1 = SelfHeal2 range tri-state (0 unknown/1 in/2 out); was reserved 0.
-Cell 35: HP curve. The bridge paints it with SetVertexColor(color:GetRGBA()), where
-         color = UnitHealthPercent("player", false, MDB.HpCurve) and HpCurve is linear:
-         0.0 -> (0,1,0,1), 1.0 -> (1,0,0,1).  R = hp fraction, G = 1-hp, B = 0.
-         No checksum covers it (Lua cannot read the value). If bit3 = 0, paint black.
-Cell 36: SelfHeal2 vk hi | vk lo | flags   (same semantics as slot cells 1-8)
-Cells 37-38: SelfHeal2 spell id (6 nibbles, same as cells 11-26)
-Cell 39: R=0, G = sum of the R/G/B nibbles of cells 36-38 mod 16, B = commit (=heartbeat)
-Decoder: if bit2 = 0, ignore cells 35-39 (old addon). A cell-39 checksum failure drops
-         ONLY SelfHeal2, never the whole frame. HP curve is valid iff bit2 & bit3 &
-         14 <= nR+nG <= 16 (nibbles via the learned ColorProfile).
-         band = nR (0..15); HpPct = round(nR*100/15);
-         HpPctUpper = min(100, round((nR+0.5)*100/15)).
-Selection: SelfHeal = first ready+bound entry; SelfHeal2 = the next distinct
-         ready+bound entry.
-HP precedence (companion): plain cell 27 > curve > unknown.
-```
+Ext2 extends the strip to **40 cells**; cells 0-34 are the unchanged v5 core
+and the version nibble stays `5`. A pre-3.0 encoder leaves cell 33 B bit2
+clear, which the v3 decoder treats as "no extension" and ignores cells 35-39.
+
+| Cell | Channel | Ext2 (v3.0.0) meaning |
+| :--- | :--- | :--- |
+| 33 | B | bit2 EXT2 PRESENT, bit3 HP CURVE ACTIVE (bit0 class/spec, bit1 buff block as before) |
+| 28 | B | bits0-1 = SelfHeal2 range tri-state (0 unknown / 1 in / 2 out); was reserved `0` |
+| 35 | R/G/B | HP curve: the bridge paints `SetVertexColor(color:GetRGBA())` where `color = UnitHealthPercent("player", false, MDB.HpCurve)` and the curve is linear `0.0 -> (0,1,0,1)`, `1.0 -> (1,0,0,1)`, so `R = hp fraction`, `G = 1-hp`, `B = 0`. The bridge never reads or compares the colour; no checksum covers it (Lua cannot read the value). If bit3 = 0 the cell is painted black. |
+| 36 | R/G/B | SelfHeal2 key: vk hi \| vk lo \| flags (same semantics as slot cells 1-8) |
+| 37-38 | 6 nibbles | SelfHeal2 24-bit spell id (identical packing to cells 11-26 and the extension checksum) |
+| 39 | R/G/B | Ext2 checksum: `R = 0`, `G = sum(R,G,B nibbles of cells 36-38) mod 16`, `B = commit (= heartbeat)` |
+
+**Decode rules (companion):**
+
+- The extension is read only from a **40-cell capture**; a 35-cell addon
+  decodes with `bit2 = 0` and cells 35-39 ignored. `ext2Present = bit2 &&
+  cells.Length >= 40`.
+- A cell-39 checksum failure (or a commit mismatch) drops **only SelfHeal2**;
+  the frame, the v5 core and the HP curve are kept. SelfHeal2 also requires
+  cell 36 flags bit3 (valid) to be set.
+- The HP curve is valid iff `bit2 & bit3` **and** the nibble sum is in the
+  accepted band `14 <= nR + nG <= 16`. Then `band = nR (0..15)`,
+  `HpPct = round(nR*100/15)` and
+  `HpPctUpper = min(100, round((nR+0.5)*100/15))`.
+- The band check is deliberately tight because the bridge paints a linear
+  two-channel ramp and never reads it; a corrupt cell can therefore never be
+  trusted as a reading.
+- The core checksums (cells 10 and 34) keep covering exactly cells 1-9 and
+  11-33; they do not change.
+- **Selection:** the bridge fills slot 8 (SelfHeal) with the first ready AND
+  bound curated entry and Ext2 cells 36-38 with the **next distinct** ready +
+  bound entry, each encoded as the variant the player actually knows.
+- **HP precedence (companion):** plain cell 27 > curve cell 35 > unknown. A
+  valid curve supplies fallback HP only when cell 27 is secret/unknown, and
+  `HpPctUpper` is the band's top so the overheal guard never assumes the low
+  end. If `[Intelligence] HpCurve=0`, the curve is ignored entirely.

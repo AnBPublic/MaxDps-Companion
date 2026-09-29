@@ -64,8 +64,8 @@ internal static class DesignTokens
     private static string? _family;
 
     /// <summary>
-    /// Resolved UI typeface: bundled Geist when its faces loaded, otherwise the
-    /// system variable font chain (same fallback semantics as before).
+    /// Resolved UI typeface: the system variable-font chain (same fallback
+    /// semantics as before).
     /// </summary>
     public static string FamilyName
     {

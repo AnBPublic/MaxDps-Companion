@@ -14,13 +14,21 @@ Vendor discovery (read-only): MaxDps:GlowDefensiveHPMidnight (Buttons.lua:1056)
   curve's own control points — see docs/research/ABILITY_RESEARCH.md §6.
        │
        ▼
-MaxDpsBridge addon — 35-cell pixel strip (protocol v5 + additive urgency, bridge 2.3.0)
-  cells: magic · 8 slots (Main/Off/Def/Cons/Trin/Int/Mobility/SelfHeal)
-        · status · version+checksum · 8 × 24-bit spell id
-        · vitals · cast · target · range tri-states · self-buff bits
+MaxDpsBridge addon — 40-cell pixel strip (bridge 3.0.0)
+  v5 core (35 cells, version nibble stays 5): magic · 8 slots (Main/Off/Def/
+        Cons/Trin/Int/Mobility/SelfHeal) · status · version+checksum · 8 × 24-bit
+        spell id · vitals · cast · target · range tri-states · self-buff bits
         · additive defensive urgency (cell 31 G HP curve, cell 32 B stagger curve)
         · additive Defensive gap-fill source bit (cell 31 B bit0)
         · class/spec · extension checksum
+  Ext2 (cells 35-39, additive): cell 35 HP curve (UnitHealthPercent's colour
+        passed to SetVertexColor, never read/compared) · cells 36-38 SelfHeal2
+        key + 24-bit id · cell 39 checksum (scope = cells 36-38 only); presence
+        bits cell 33 B bit2/bit3, SelfHeal2 range in cell 28 B bits0-1
+  variant resolution (bridge 3.0.0): every slot key resolves across base /
+        talent-override / alias ids (FindBaseSpellByID, FindSpellOverrideByID,
+        GetOverrideSpell, generated MDB.SpellAliases), so a bar holding
+        Victory Rush 34428 still matches an intent written as 202168
   sensors: arg-blind RegisterUnitEvent cast tracking (player + target),
            pcall+scrub HP/target-HP/stagger, IsSpellInRange tri-states (incl.
            the SelfHeal slot), aura probe,
@@ -30,7 +38,10 @@ MaxDpsBridge addon — 35-cell pixel strip (protocol v5 + additive urgency, brid
            entry that is ready AND has a resolvable keybind — MaxDps itself
            never suggests these abilities (Impending Victory, Exhilaration,
            Crimson Vial, ...), so without this path Solo mode would have no
-           candidate to act on. The Defensive slot keeps MaxDps's
+           candidate to act on. Bridge 3.0.0 encodes the first entry into slot
+           8 and the NEXT DISTINCT entry into Ext2 cells 36-38 (SelfHeal2),
+           each as the variant the player actually knows. The Defensive slot
+           keeps MaxDps's
            flagged+ready+bound candidate first; only when MaxDps names none
            AND the observed HP urgency is Red does the generated
            Catalog.lua defensive list supply a gap-fill candidate (Major
@@ -41,15 +52,21 @@ MaxDpsBridge addon — 35-cell pixel strip (protocol v5 + additive urgency, brid
        │   UNKNOWN — never throws, never compares a secret value)
        ▼
 MaxDpsCompanion.exe — DIB BitBlt sample @ PollIntervalMs
-  decode v5 (v6 accepted forward-compatible; v4/v1 fallback by width) → BridgeFrame
-  (slots + keybinds + spell ids + CombatContext: HP, cast, target, range,
-   defensive urgency, stagger urgency, defensive gap-fill source)
+  decode 40-cell Ext2 capture (v5/v6 35-cell accepted; v4/v1 fallback by width)
+  → BridgeFrame (slots + keybinds + spell ids + SelfHeal2 + CombatContext:
+   HP + HpSource + HpPctUpper, cast, target, range, defensive urgency,
+   stagger urgency, defensive gap-fill source). HP precedence: plain cell 27
+  > Ext2 curve > unknown; `[Intelligence] HpCurve=0` ignores the curve.
        │
        ▼
 Candidate tracker (Decision/CandidateTracker)
   per-slot observation history: stroke + spell id, first-seen/changed,
   pressed-since-change. Companion-only slots enter here exactly like MaxDps
   slots — one scheduler input, one send path, no second rotation engine.
+  Ext2 SelfHeal2 (v3.0.0) is the alternate self-sustain candidate: the
+  scheduler evaluates it with its OWN range probe (cell 28 B) when the primary
+  SelfHeal verdict is not Use, and a Use from either wins the slot; rank,
+  one-action-per-tick and timing are unchanged.
        │
        ▼
 Execution safety (Knowledge/PolicyEvaluator.ExecutionSafety) — ALWAYS
@@ -184,45 +201,65 @@ filter curation, and `--ui-snapshot-class-skills=<png>`
 [`--ui-snapshot-class=CLASS --ui-snapshot-spec=SPEC`] renders the screen for
 design review without a game.
 
-## UI 2.0 shell (v2.7; measured rebuild v2.8)
+## Classic UI shell (v3.0.0; replaces the v2.8 rail/pages shell)
 
 ```
-MainForm (borderless, remembered size, red/green state ring, tray, hotkey)
-  └─ AppShell (Ui/AppShell.cs): ambient backdrop painted by the shell itself
-     (cached glows + grain, never a child control), NavigationRail (hand-drawn
-     1.4px icons, compact under 880px) + PageHost + short slide transitions
-       ├─ Home          bento: status hero + live action/why + identity +
-       │                intelligence health; single column under 980px
-       ├─ Abilities     VirtualAbilityList (owner-drawn rows, docked) +
-       │                debounced search + wrapping chip strips + inspector
-       ├─ Intelligence  auto-sized metric tiles + proportion bar + patch card
-       ├─ Configuration grouped measured cards + Class skills entry
-       └─ Diagnostics   grouped measured cards (protocol/telemetry/calibration)
-  Measured layout core (Ui/Layout.cs): VertStack / WrapFlow / GridPanel /
-  BentoSplit + UiMeasure — NO Dock-inside-FlowLayoutPanel anywhere (the v2.7
-  collapse class), wrapping labels are container-owned and re-measure on width
-  change. Primitives (Ui/UiPrimitives.cs): double-bezel GlassCard, KvRow,
-  auto-sizing StatusPill/MetricTile/FilterChip, tracked eyebrows.
-  Type: bundled Geist (OFL) via Ui/UiFonts.cs; system variable-font fallback.
-  --ui-smoke-test validates structure WITHOUT a Visible gate (the headless form
-  is never shown, so v2.7's checks were vacuous): text-fit for owner-drawn
-  primitives, card content rendered inside its body, wrapped-label coverage,
-  zero-size/overlap/Tab/accessibility checks; exits 1 on findings.
-  --ui-snapshot-page=<page> [--ui-snapshot=<path>] [--ui-snapshot-width=<px>]
-  renders any page offscreen; the review set lives in dist/ui-snapshots.
+MainForm (borderless; 660-wide fixed frame; 2px ring red stopped / green
+          running; tray; pause hotkey; remembered size only when
+          [Window] Layout=classic3)
+  ├─ title bar 48px
+  └─ GradientCanvas
+       ├─ classic body (TableLayoutPanel, fixed absolute rows; NO AutoScroll on
+       │   any timer path — the v2.8.1 NormalizeScroll defect class is pinned
+       │   by ClassicUiTests.ClassicUi_ScrollSurvivesRefresh)
+       │     hero RoundedCard: status 42 (LinkLamp + state + ClassBadge)
+       │       · live 42 ("Now: <action> — <why>", ellipsis + tooltip)
+       │       · strip 40 (StripView, live sampled cells)
+       │       · "Spells" header + 4 two-toggle rows (Main|Offensive,
+       │         Defensive|Interrupt, Self-heal|Mobility, Consumable|Trinket)
+       │       · "Modes" header + 2 two-toggle rows (Solo|Out of combat,
+       │         Auto-target|Auto-interact)
+       │     button row 1 (52): Start | Stop | Launch Game
+       │     button row 2 (46): Recalibrate | Abilities… | Advanced… | Open Folder
+       │     status line (26)
+       ├─ Advanced scrim + centred card (tabs Configuration | Diagnostics |
+       │   Intelligence), built lazily once, one AutoScroll panel of fixed
+       │   RuleSections per tab
+       └─ Abilities scrim + centred card (tabs Class skills | Explorer)
+  Default client 660 × min(content, working area); MinimumSize 520×560; Esc
+  closes the topmost popup. Restored classic primitives live in UiControls.cs
+  (LinkLamp, StripView, ClassBadge, RoundedCard, RuleSection, GradientCanvas,
+  WheelSafeNumeric forwarding the wheel to its scrollable parent); the tabbed
+  pages still use Ui/Layout.cs (VertStack/WrapFlow/GridPanel/BentoSplit/
+  UiMeasure) and Ui/UiPrimitives.cs (GlassCard/KvRow/pills/tiles/chips/
+  UiClickable, the v2.8.1 mouse-gesture base). Type: system variable-font chain
+  (DesignTokens.FamilyName) — bundled Geist/UiFonts removed in v3.
+  --ui-smoke-test shows the form offscreen, opens every popup tab and runs the
+  structural invariants (zero size, text fit, card content, Tab reachability,
+  accessible names, sibling overlap); exits 1 on findings.
+  --bench-ui: 2000× RefreshStatus → mean/p95 µs + startup-to-shown ms
+  (targets mean < 300 µs, p95 < 1 ms, startup < 500 ms).
+  --ui-snapshot-page=main|advanced-config|advanced-diag|advanced-intel|
+  abilities-class|abilities-explorer [--ui-snapshot= --ui-snapshot-width=
+  --ui-snapshot-height=]; the review set is 6 pages × {660×920, 520×560} in
+  dist/ui-snapshots.
 ```
 
 ## File map
 
 ```
 MaxDps-Companion/
-  addon/MaxDpsBridge/        bridge addon (v5 encoder + additive urgency, /mdb commands)
+  addon/MaxDpsBridge/        bridge addon 3.0.0 (v5 + Ext2 encoder, /mdb commands)
     Catalog.lua              GENERATED class/spec ids + extras (--gen-catalog,
-                             incl. per-spec defensive gap-fill lists)
+                             incl. per-spec defensive gap-fill lists and the
+                             aliases block emitted as MDB.SpellAliases)
     Keymap.lua               binding string -> virtual key
     Reader.lua               MaxDps readout, secret guards, v5 sensors,
-                             defensive urgency + gap-fill (additive on v5)
-    Bridge.lua               strip rendering + protocol v5 encode (additive urgency)
+                             defensive urgency + gap-fill, spell variants
+                             (base/override/alias resolution), SelfHeal2,
+                             Ext2 HP-curve source
+    Bridge.lua               strip rendering + 40-cell v5 + Ext2 encode
+                             (urgency + HP curve + SelfHeal2 + Ext2 checksum)
   app/MaxDpsCompanion/       WinForms companion (sampler → PostMessage)
     Knowledge/               ability knowledge base (v2.0; defensive v2.3; registry v2.6)
       AbilityModel.cs        enums + AbilityDefinition + slot mapping,
@@ -265,20 +302,27 @@ MaxDps-Companion/
                              ids are not merged (see ClassSpellBook)
     ClassSkillsView.cs       full-size Class skills screen: class/spec
                              dropdowns, shared + per-spec sections, toggles
-    Ui/                      UI shell: DesignTokens, UiFonts (bundled Geist),
+    Ui/                      UI shell (classic v3): DesignTokens (system
+                             variable-font chain — Geist/UiFonts removed),
                              Layout (measured VertStack/WrapFlow/GridPanel/
                              BentoSplit + UiMeasure), UiPrimitives (GlassCard,
-                             KvRow, pills/tiles/chips/buttons/toast),
-                             AmbientBackground (shell-painted cache), AppShell
-                             (rail + page host + transitions + nav icons),
+                             KvRow, pills/tiles/chips, UiClickable),
                              AbilityExplorer / AbilityInspector,
-                             Pages (Home bento / Intelligence),
+                             Pages (StackPage hosts for the popup tabs),
                              SettingsPages (Configuration/Diagnostics),
                              UiShellValidation (honest structural smoke)
-    MainForm.cs              borderless main window: 2px state ring (red
-                             stopped / green running) and remembered size
-                             ([Window] Width/Height, saved on resize/close)
-    Intelligence/CombatContext.cs  tri-state context from the v5 frame
+    UiControls.cs            restored classic primitives: RoundedCard (hero),
+                             RuleSection, GradientCanvas, LinkLamp, StripView,
+                             ClassBadge, WheelSafeNumeric
+    MainForm.cs              borderless classic 660-wide fixed main window
+                             (no AutoScroll on the timer path): 2px state ring
+                             (red stopped / green running), hero + Spells/Modes
+                             toggles + button rows, Advanced…/Abilities… scrim
+                             popups; remembered size only when
+                             [Window] Layout=classic3
+    Intelligence/CombatContext.cs  tri-state context from the frame; HpSource
+                             {Plain, Curve, Unknown} + HpPct/HpPctUpper with
+                             precedence plain > curve > unknown
     Intelligence/SpellIconCache.cs  opt-in skill icons from the WoW CDN,
                              cached in assets/icons, offline placeholder
     Scheduler/               deterministic action scheduler
@@ -289,7 +333,27 @@ MaxDps-Companion/
     Decision/                legacy decision layer (v1.4.0, opt-in)
     Telemetry/               local rotation telemetry + replay (opt-in)
     ThisAssembly.Gen.cs      build stamp (git HEAD + date, title bar)
-  tests/MaxDpsCompanion.Tests/ xunit suite (443 tests)
+  tests/MaxDpsCompanion.Tests/ xunit suite (490 tests)
+    ClassicUiTests.cs        classic shell: scroll survives refreshes, no Layout
+                             events on value-only refreshes, default/min sizes,
+                             7 button labels, real mouse-message clicks, launcher
+                             seam, toggle persistence, Esc closes popups
+    PixelProtocolExt2Tests.cs 40-cell Ext2 decode: valid curve/band, nR+nG out
+                             of range, bit2=0 with junk in 35-39, bit3=0,
+                             cell-39 checksum failure drops only SelfHeal2,
+                             v5/v4/v1 byte-identical, 35-cell addon in a 40-
+                             cell capture
+    CombatContextHpTests.cs  HpSource precedence plain > curve > unknown,
+                             HpPctUpper band top, HpCurve=0 ignores curve,
+                             curve-derived defensive urgency
+    SelfSustainAlternateTests.cs  SelfHeal2 alternate evaluated with its own
+                             range; a Use from either candidate wins the slot
+    SoloHiddenHpTests.cs     hidden plain HP + valid curve drives Solo gates
+                             (all-spec property + scheduler integration)
+    KnowledgeExtrasTests.cs  all-class self-heal extras, aliases (202168↔34428,
+                             19647↔119910), catalog sync
+    fixtures/solo-hidden-hp-warrior.jsonl  canonical hidden-HP curve recording
+                             (6 verdicts, 0 mismatches)
     AbilityCoverageTests.cs  ownership/completeness/delegation/manual reasons,
                              patch metadata, stale/newer violations, manifest
                              consistency and JSON classes
@@ -299,9 +363,9 @@ MaxDps-Companion/
     ProviderPropertyTests.cs   catalog-wide properties: OFF never Use, utility
                              never Use, unknown-context fallbacks, no evidence
                              leaks, manual/ON scopes
-    UiShellTests.cs          navigation, explorer filter/search, coverage
-                             report, hardened smoke-no-findings, Home
-                             long-value render, wrapping-label re-measure
+    UiShellTests.cs          popup navigation, explorer filter/search, coverage
+                             report, hardened smoke-no-findings, long-value
+                             render, wrapping-label re-measure
     AbilityRegistryTests.cs  registry counts, derivation rules, patch guard,
                              zero-violation audit (25 tests)
     RegistryDecisionScenarioTests.cs  registry-driven policy scenarios (18 tests)
@@ -324,11 +388,12 @@ MaxDps-Companion/
                              hostile slug rejection, official-slug single
                              request
     fixtures/defensive-warrior-urgency.jsonl  canonical defensive session
-  tests/secret_harness.lua   offline bridge secret-safety + v5 encode harness (88 checks)
+  tests/secret_harness.lua   offline bridge secret-safety + v5/Ext2 encode
+                             harness (143 checks)
   tools/Extract-VendorAbilities.ps1  vendor Cooldowns.lua -> JSON
   tools/ability_audit.ps1  registry audit + addon Catalog.lua drift check
                            (exit 0 clean, 1 run failure, 2 drift)
-  docs/PROTOCOL.md           normative v5 + additive urgency (and N-1) spec
+  docs/PROTOCOL.md           normative v5 + Ext2 (40-cell additive) spec
   docs/KNOWLEDGE.md          ability knowledge format + curation rules
   docs/research/ABILITY_REGISTRY.md  v2.6.0 registry reference
   docs/research/ABILITY_INTELLIGENCE_RESEARCH.md + registry-research.json
@@ -337,7 +402,7 @@ MaxDps-Companion/
   tools/Verify-ClassSpells.ps1  live wago.tools DB2 export (SpellName /
                              SpellMisc / ManifestInterfaceData) ->
                              spell-verification.json + pre-cached icon dirs
-  docs/PROTOCOL.md           normative v5 + additive urgency (and N-1) spec
+  docs/PROTOCOL.md           normative v5 + Ext2 (40-cell additive) spec
   docs/KNOWLEDGE.md          ability knowledge format + curation rules
   docs/TESTING.md            how to run every test layer
   docs/TELEMETRY.md          JSONL format + record/export/replay guide
@@ -360,13 +425,39 @@ MaxDps-Companion/
   action; the main slot is only gated on out-of-range and cast-in-progress.
   "MaxDps shows an ability" never means "press it now" for situational
   slots — the policy decides that.
-- **Protocol v5 is 35 cells, with the defensive-urgency block additive.**
-  Any layout change bumps cell 10 R and `docs/PROTOCOL.md` first. The
-  companion decodes v5 and v6 (35 cells, forward-compatible) + v4 (9 cells)
-  + v1 (8 cells); the addon encodes v5. The urgency nibbles reuse reserved
-  space, so a pre-2.3 encoder decodes with all of them UNKNOWN, and an
-  updated addon still drives an older exe because the version nibble stays 5.
-  Skew warns, never hard-fails (Sep-2026 outage lesson).
+- **Protocol v5 is 35 cells, with the defensive-urgency and Ext2 blocks
+  additive.** Any layout change bumps cell 10 R and `docs/PROTOCOL.md` first.
+  The companion decodes the 40-cell Ext2 frame, v5 and v6 (35 cells,
+  forward-compatible), v4 (9 cells) and v1 (8 cells); the addon encodes v5
+  plus Ext2. The urgency nibbles reuse reserved space, so a pre-2.3 encoder
+  decodes with all of them UNKNOWN, and an updated addon still drives an older
+  exe because the version nibble stays 5. Skew warns, never hard-fails
+  (Sep-2026 outage lesson).
+- **Ext2 is presence-gated and checksum-scoped (v3.0.0).** The frame grows to
+  40 cells, but cells 0-34 and both v5 checksums (cells 10, 34) are unchanged.
+  Cell 33 B bit2 = EXT2 PRESENT, bit3 = HP CURVE ACTIVE. The decoder reads
+  cells 35-39 only from a 40-cell capture with bit2 set, so a stale 35-cell
+  addon decodes byte-identically. The cell-39 checksum covers **only** cells
+  36-38: a failure (or commit mismatch) drops only SelfHeal2, never the frame
+  or the curve. SelfHeal2 additionally requires cell 36 flags bit3 and its
+  range from cell 28 B bits0-1.
+- **HP precedence is plain > curve > unknown; the curve is a rendering, never
+  a measurement.** The bridge passes `UnitHealthPercent`'s colour straight to
+  `SetVertexColor` and Lua never reads or compares it. The companion accepts
+  cell 35 as an HP band only when bit3 is set and the R+G nibble sum is in the
+  accepted `14..16` window; `[Intelligence] HpCurve=0` ignores it entirely. One
+  band is ~6.67% HP, so a curve reading resolves to ±3.3%; `HpPctUpper` is the
+  band's top so the overheal guard never assumes the low end.
+- **SelfHeal2 is an alternate, not a second rotation.** The bridge encodes the
+  next distinct ready+bound curated self-heal; the scheduler evaluates it with
+  its OWN range probe only when the primary SelfHeal verdict is not Use, and a
+  Use from either wins the slot. One action per tick and the rank order are
+  unchanged.
+- **Variant encoding (bridge 3.0.0).** Keybinds are matched against any base /
+  talent-override / alias id and the encoded slot uses the variant the player
+  actually knows, so a bar holding Victory Rush 34428 still satisfies an intent
+  written as 202168. Aliases live in the generated `Catalog.lua`
+  (`MDB.SpellAliases`), never hand-maintained in the encoder.
 - **Defensive urgency is staged from the vendor curve, not invented.**
   `GlowDefensiveHPMidnight` (`vendor/MaxDps/Buttons.lua:1056-1110`) has
   three control points; the bridge maps the rendered colour to
@@ -474,7 +565,9 @@ MaxDps-Companion/
 - **Self-sustain is an independent candidate source, not a policy on
   MaxDps suggestions.** The bridge's curated extras walk produces the
   SelfHeal slot even when MaxDps never names the ability; from the tracker
-  onward it is one more candidate in the same scheduler/send pipeline.
-  Nothing in the main rotation is synthesized or replaced.
+  onward it is one more candidate in the same scheduler/send pipeline. Ext2
+  SelfHeal2 (bridge 3.0.0) is the next distinct such candidate, so a spec with
+  two ready heals gets a real alternate instead of a shadowed one. Nothing in
+  the main rotation is synthesized or replaced.
 - `settings.ini` keys mirror `AppSettings` sections 1:1; adding a key means
   updating both plus the README table.
