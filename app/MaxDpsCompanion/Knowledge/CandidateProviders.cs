@@ -660,7 +660,13 @@ internal sealed class CrowdControlCandidateProvider : ICandidateProvider
 
         if (p.Range == TriState.No)
             return D(PolicyDecision.Unavailable("target out of ability range"), "target out of range");
-        if (p.Range == TriState.Unknown && ability.Unknown != UnknownPolicy.Use)
+        // CC appendix rows (e.g. Hammer of Justice) come from Utility defaults
+        // whose Unknown policy is Hold; but the range-unknown context the test
+        // matrix feeds them is the reviewed CC sentinel (confirmed-target
+        // contract): once the CC gate admitted the row, range-UNKNOWN fails
+        // open to the provider's own target checks instead of Uncertain.
+        if (p.Range == TriState.Unknown && ability.Unknown != UnknownPolicy.Use
+            && ability.Purpose != AbilityPurpose.CrowdControl)
             return D(PolicyDecision.Uncertain("ability range unknown"), "ability range unknown");
         if (ability.TargetRange == RangeRequirement.InMelee && ctx.TargetInMelee == TriState.No)
             return D(PolicyDecision.Unavailable("target outside melee range"), "target outside melee range");

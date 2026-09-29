@@ -48,6 +48,8 @@ internal sealed class MainForm : Form
     private readonly ToggleSwitch _autoInteract = new();
     // v3.2.0: per-target time-to-kill kill-switch (Modes card).
     private readonly ToggleSwitch _timeToKill = new() { Checked = true };
+    // v3.4.0: CC appendix opt-in (Modes card, shares the Time-to-kill row).
+    private readonly ToggleSwitch _crowdControl = new();
     private readonly ToggleSwitch _interrupt = new() { Checked = true };
     private readonly ToggleSwitch _mobility = new() { Checked = true };
     private readonly ToggleSwitch _selfHeal = new() { Checked = true };
@@ -133,6 +135,7 @@ internal sealed class MainForm : Form
     // Stream 3 wiring: solo survival-band editor (Safety card) and the
     // bridge-health banner + suggested-vs-cast audit (Diagnostics page).
     private readonly SoloBandEditor _soloBands = new();
+    private readonly CrowdControlToggle _ccToggle = new();
     private readonly SemanticBanner _bridgeBanner = new("Bridge health: unknown", StatusTone.Info);
     private readonly CastAuditView _castAuditView = new();
     private readonly ChamferButton _castAuditLoad = new() { Text = "Load audit from export...", Role = ButtonRole.Ghost };
@@ -285,6 +288,7 @@ internal sealed class MainForm : Form
         _autoTarget.CheckedChanged += (_, _) => SaveNow();
         _autoInteract.CheckedChanged += (_, _) => SaveNow();
         _timeToKill.CheckedChanged += (_, _) => SaveNow();
+        _crowdControl.CheckedChanged += (_, _) => SaveNow();
 
         // Hero "Solo" toggle mirrors the Advanced checkbox (one setting).
         _solo2.CheckedChanged += (_, _) =>
@@ -674,8 +678,8 @@ internal sealed class MainForm : Form
         layout.Controls.Add(modesHeader, 0, 8);
         layout.Controls.Add(TwoToggleRow("Solo", "Self-sustain mode", _solo2, "Out of combat", "Run outside combat", _outOfCombat, alt: false), 0, 9);
         layout.Controls.Add(TwoToggleRow("Auto-target", "Target when needed", _autoTarget, "Auto-interact", "Interact when needed", _autoInteract, alt: true), 0, 10);
-        // v3.2.0 TTK: a full-width single Modes row (add-only).
-        layout.Controls.Add(SingleToggleRow("Time-to-kill", "Estimate target kill time", _timeToKill), 0, 11);
+        // v3.2.0 TTK + v3.4.0 CC: one shared Modes row (add-only).
+        layout.Controls.Add(TwoToggleRow("Time-to-kill", "Estimate target kill time", _timeToKill, "Crowd control", "Stun on confirmed target", _crowdControl, alt: false), 0, 11);
 
         // Row order must match the RowStyles declared above.
         _heroRows.Add(_statusRow);
@@ -846,6 +850,7 @@ internal sealed class MainForm : Form
         _statusLine.Font = DesignTokens.Type(Math.Max(8f, _scale.BaseFont - 1.5f));
         _classBadge.Font = DesignTokens.Type(Math.Max(8f, _scale.BaseFont - 1.5f), FontStyle.Bold);
         _solo2.Size = _scale.ToggleSize;
+        _crowdControl.Size = _scale.ToggleSize;
         foreach (var button in new[] { _start, _stop, _launchGame, _recalibrate, _abilitiesEntry, _advancedEntry, _openFolder })
             button?.ApplyScale(_scale);
         _launchGameAdv.ApplyScale(_scale);
@@ -1234,7 +1239,9 @@ internal sealed class MainForm : Form
             (Hint("Requires Combat intelligence. Below 65% HP efficient self-heals become eligible; below 35% HP survival actions outrank damage. Emergency cooldowns are preserved while HP is safe."), 0),
             (_soloBands, 0),
             (CheckRow(_combatOnly), 30),
-            (Hint("When on, the companion only acts while you are in combat."), 0)));
+            (Hint("When on, the companion only acts while you are in combat."), 0),
+            (_ccToggle, 0),
+            (Hint("Crowd control is opt-in (default off). ON allows curated stuns on a confirmed target with DR protection; the in-game toggle can only restrict."), 0)));
 
         page.AddCard("Targeting", "Assist").Add(Stack(
             (ToggleField("Auto-target (press Target key)", _autoTargetAdv), 38),
@@ -1816,11 +1823,14 @@ internal sealed class MainForm : Form
         _autoTarget.Checked = _settings.AutoTargetEnabled;
         _autoInteract.Checked = _settings.InteractEnabled;
         _timeToKill.Checked = _settings.TimeToKillEnabled;
+        _crowdControl.Checked = _settings.CrowdControlEnabled;
+        CrowdControlGate.Configure(_settings.CrowdControlEnabled);
         _scheduler.Checked = _settings.SchedulerEnabled;
         _intelligence.Checked = _settings.IntelligenceEnabled;
         _solo.Checked = _settings.SoloEnabled;
         _solo2.Checked = _settings.SoloEnabled;
         _soloBands.LoadFrom(_settings);
+        _ccToggle.LoadFrom(_settings);
         _telemetry.Checked = _settings.TelemetryEnabled;
         _targetKey.Text = _settings.TargetKey;
         _interactKey.Text = _settings.InteractKey;
@@ -1851,10 +1861,13 @@ internal sealed class MainForm : Form
         _settings.AutoTargetEnabled = _autoTarget.Checked;
         _settings.InteractEnabled = _autoInteract.Checked;
         _settings.TimeToKillEnabled = _timeToKill.Checked;
+        _settings.CrowdControlEnabled = _crowdControl.Checked;
+        CrowdControlGate.Configure(_crowdControl.Checked);
         _settings.SchedulerEnabled = _scheduler.Checked;
         _settings.IntelligenceEnabled = _intelligence.Checked;
         _settings.SoloEnabled = _solo.Checked;
         _soloBands.ApplyTo(_settings);   // validate the ladder before SaveSettings
+        _ccToggle.ApplyTo(_settings);    // CC opt-in persists alongside solo
         _settings.TelemetryEnabled = _telemetry.Checked;
         var targetKey = _targetKey.Text.Trim();
         _settings.TargetKey = string.IsNullOrWhiteSpace(targetKey) ? "Tab" : targetKey;

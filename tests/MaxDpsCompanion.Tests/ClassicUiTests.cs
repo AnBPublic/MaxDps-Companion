@@ -211,7 +211,7 @@ public class ClassicUiTests
 
         Assert.Null(error);
         Assert.Equal(
-            new[] { "Auto-interact", "Auto-target", "Consumable", "Defensive", "Interrupt", "Main", "Mobility", "Offensive", "Out of combat", "Self-heal", "Solo", "Time-to-kill", "Trinket" },
+            new[] { "Auto-interact", "Auto-target", "Consumable", "Crowd control", "Defensive", "Interrupt", "Main", "Mobility", "Offensive", "Out of combat", "Self-heal", "Solo", "Time-to-kill", "Trinket" },
             result.toggles);
         Assert.Equal(
             new[] { "Abilities\u2026", "Advanced\u2026", "Launch Game", "Open Folder", "Recalibrate", "Start", "Stop" },
@@ -246,7 +246,7 @@ public class ClassicUiTests
         });
 
         Assert.Null(error);
-        Assert.Equal(13, result.Rows);
+        Assert.Equal(14, result.Rows);
         Assert.True(result.Clipped.Count == 0, string.Join("; ", result.Clipped));
         Assert.Equal(2, result.Mode.Length);
         foreach (var m in result.Mode)
