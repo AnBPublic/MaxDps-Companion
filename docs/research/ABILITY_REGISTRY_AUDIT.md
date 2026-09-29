@@ -1,6 +1,6 @@
 # Ability Registry Audit
 
-Generated (UTC): 2026-09-28 18:36:51  
+Generated (UTC): 2026-09-29 05:49:23  
 Game patch: 12.1 (interface 120100)  
 MaxDps version: 11.3.49  
 Registry verified: 2026-09-28  
@@ -18,25 +18,25 @@ registry. Do not hand-edit; regenerate after any curated change.
 | Defensive capability | 195 |
 | Interrupt capability | 15 |
 | Offensive capability | 213 |
-| Self-sustain capability | 30 |
+| Self-sustain capability | 31 |
 | Mobility capability | 42 |
 | Utility (CC/purge/threat/dispel) | 33 |
-| Companion-generated eligible (Autonomous) | 229 |
-| MaxDps-only (delegated) | 2971 |
+| Companion-generated eligible (Autonomous) | 230 |
+| MaxDps-only (delegated) | 2970 |
 
 ## Intelligence ownership (v2.7)
 
 | Ownership | Count |
 |---|---|
-| Companion (rules decide) | 47 |
-| MaxDps (delegated) | 3077 |
+| Companion (rules decide) | 48 |
+| MaxDps (delegated) | 3076 |
 | Shared (MaxDps surfaces, companion gates) | 76 |
 | Manual (user decides) | 79 |
 | Unavailable (audit violation) | 0 |
 
 Delegated without a reason: 0 (must be 0).  
 Manual without a reason: 0 (must be 0).  
-Live verified: 0; live unverified (automatic, companion/shared): 123.
+Live verified: 0; live unverified (automatic, companion/shared): 124.
 
 ## Coverage manifest (v2.7)
 
@@ -45,18 +45,18 @@ Live verified: 0; live unverified (automatic, companion/shared): 123.
 | DISCOVERED (union of sources) | 3279 |
 | REGISTERED | 3279 |
 | AUTOMATABLE | 3200 |
-| COMPANION-GENERATED | 47 |
-| MAXDPS-DELEGATED | 3077 |
+| COMPANION-GENERATED | 48 |
+| MAXDPS-DELEGATED | 3076 |
 | SHARED-GATED | 76 |
 | MANUAL | 79 |
 | UNOBSERVABLE | 0 |
-| RESEARCH-PENDING | 2971 |
+| RESEARCH-PENDING | 2970 |
 | STALE | 0 |
 | MISSING | 0 |
 | FILTERED (documented exclusions) | 325 |
-| duplicate display names (warning) | 103 |
+| duplicate display names (warning) | 102 |
 
-Duplicate-name findings (103 total; link them with relations instead of merging by name):
+Duplicate-name findings (102 total; link them with relations instead of merging by name):
 
 - Aegis of Light: ids 353367, 358934 share a display name with no linking relation
 - Afterimage: ids 385414, 431875 share a display name with no linking relation
@@ -78,18 +78,18 @@ Duplicate-name findings (103 total; link them with relations instead of merging 
 - Dance of Chi-Ji: ids 325201, 438439 share a display name with no linking relation
 - Dance of the Wind: ids 414132, 432181 share a display name with no linking relation
 - Dark Evangelism: ids 391099, 391112 share a display name with no linking relation
-- ... and 83 more (see the JSON coverage manifest)
+- ... and 82 more (see the JSON coverage manifest)
 
 ## Intelligence status
 
 | Status | Count |
 |---|---|
 | Verified | 0 |
-| ResearchBacked | 75 |
-| MaxDpsBacked | 61 |
-| CompanionRule | 93 |
+| ResearchBacked | 79 |
+| MaxDpsBacked | 60 |
+| CompanionRule | 91 |
 | ManualByDesign | 79 |
-| Incomplete | 2971 |
+| Incomplete | 2970 |
 | Unknown | 0 |
 
 **Violations: 0** (row violations 0 + missing 0 + stale 0; must be 0).  
@@ -105,17 +105,17 @@ acted on only when MaxDps itself suggests them.
 |---|---|---|---|---|---|---|---|---|---|
 | DEATHKNIGHT | 3 | 477 | 465 | 3 | 35 | 32 | 6 | 9 | 6 |
 | DEMONHUNTER | 3 | 294 | 283 | 3 | 17 | 35 | 0 | 5 | 6 |
-| DRUID | 4 | 852 | 822 | 4 | 28 | 37 | 9 | 16 | 12 |
+| DRUID | 4 | 855 | 825 | 4 | 28 | 37 | 12 | 16 | 12 |
 | EVOKER | 3 | 515 | 501 | 3 | 18 | 22 | 8 | 3 | 9 |
 | HUNTER | 3 | 512 | 501 | 3 | 17 | 24 | 3 | 6 | 6 |
 | MAGE | 3 | 503 | 493 | 3 | 32 | 11 | 0 | 3 | 6 |
 | MONK | 3 | 652 | 626 | 3 | 37 | 16 | 8 | 15 | 9 |
-| PALADIN | 3 | 546 | 528 | 3 | 82 | 29 | 8 | 9 | 9 |
+| PALADIN | 3 | 547 | 529 | 3 | 82 | 29 | 9 | 9 | 9 |
 | PRIEST | 3 | 508 | 494 | 1 | 36 | 20 | 8 | 6 | 6 |
 | ROGUE | 3 | 292 | 274 | 3 | 19 | 13 | 3 | 12 | 9 |
 | SHAMAN | 3 | 563 | 534 | 3 | 46 | 33 | 8 | 18 | 9 |
 | WARLOCK | 3 | 536 | 521 | 6 | 27 | 39 | 9 | 6 | 9 |
-| WARRIOR | 3 | 483 | 476 | 3 | 19 | 33 | 3 | 7 | 6 |
+| WARRIOR | 3 | 483 | 476 | 3 | 19 | 33 | 6 | 7 | 6 |
 
 ## Violations
 
@@ -176,7 +176,7 @@ None.
 | 755 | Health Funnel | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 768 | Cat Form | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 772 | Rend | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 774 | Regrowth | SelfHeal | CompanionRule | Autonomous | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 774 | Rejuvenation | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 781 | Disengage | Mobility | ManualByDesign | Manual | NotSurfaced | None | OffGcd | 20000 | - | - | Disengage |
 | 783 | Travel Form | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 845 | Cleave | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -284,7 +284,7 @@ None.
 | 8647 | Mystic Touch | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 8676 | Ambush | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 8921 | Moonfire | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 8936 | Regrowth | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 8936 | Regrowth | SelfHeal | ResearchBacked | Autonomous | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 9484 | Shackle Horror | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 10060 | Power Infusion | Offensive | ResearchBacked | Autonomous | OffensiveBucket | None | Unknown | 0 | - | WindowDriven | - |
 | 10326 | Turn Evil | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -376,7 +376,7 @@ None.
 | 33891 | Incarnation: Tree of Life | Offensive | MaxDpsBacked | Autonomous | OffensiveBucket | None | Unknown | 0 | - | Unknown | - |
 | 33917 | Mangle | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 34026 | Kill Command | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 34428 | Victory Rush | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 34428 | Victory Rush | SelfHeal | ResearchBacked | Autonomous | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 34433 | Shadowfiend | Offensive | ResearchBacked | Autonomous | OffensiveBucket | None | Unknown | 0 | - | Summon | - |
 | 34477 | Misdirection | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 34861 | Holy Word: Sanctify | Defensive | MaxDpsBacked | Autonomous | DefensiveBucket | Major | OffGcd | 0 | - | - | - |
@@ -486,7 +486,7 @@ None.
 | 73899 | Primal Strike | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 73920 | Healing Rain | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 77130 | Purify Spirit | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 77472 | Greater Healing Wave | SelfHeal | CompanionRule | Autonomous | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 77472 | Healing Wave | SelfHeal | ResearchBacked | Autonomous | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 77575 | Outbreak | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 77756 | Lava Surge | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 77764 | Stampeding Roar | Mobility | ManualByDesign | Manual | NotSurfaced | None | OffGcd | 120000 | - | - | Unknown |
@@ -728,7 +728,7 @@ None.
 | 183778 | Judgment of Light | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 183782 | Disrupting Fury | Offensive | Incomplete | MaxDpsOnly | NotSurfaced | None | Unknown | 0 | - | Unknown | - |
 | 184361 | Enrage | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 184364 | Enraged Regeneration | Defensive | MaxDpsBacked | Autonomous | DefensiveBucket | Major | OffGcd | 0 | - | - | - |
+| 184364 | Enraged Regeneration | Defensive | ResearchBacked | Autonomous | DefensiveBucket | Major | OffGcd | 120000 | - | - | - |
 | 184367 | Rampage | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 184575 | Blade of Justice | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 184662 | Shield of Vengeance | Defensive | CompanionRule | Autonomous | DefensiveBucket | Minor | OffGcd | 90000 | - | - | - |

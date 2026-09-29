@@ -50,6 +50,17 @@ internal static class CatalogLuaGenerator
         }
         sb.AppendLine("}");
         sb.AppendLine();
+        sb.AppendLine("-- Spell variants: id -> alias ids the bridge may meet on a bar or in a");
+        sb.AppendLine("-- macro (override/base/alias resolution). Symmetric; sorted by id.");
+        sb.AppendLine("MDB.SpellAliases = {");
+        foreach (var (id, aliasIds) in catalog.Aliases.OrderBy(kv => kv.Key))
+        {
+            sb.Append($"  [{id}] = {{ ");
+            sb.Append(string.Join(", ", aliasIds.OrderBy(a => a)));
+            sb.AppendLine(" },");
+        }
+        sb.AppendLine("}");
+        sb.AppendLine();
         sb.AppendLine("-- Curated companion-only slot candidates, in preference order.");
         sb.AppendLine("-- mobility: gap closers + movement; the policy decides USE/HOLD.");
         sb.AppendLine("-- selfHeal: self-sustain candidates; Solo mode only.");

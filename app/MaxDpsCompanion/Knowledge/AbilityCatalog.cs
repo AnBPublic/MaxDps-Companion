@@ -87,9 +87,18 @@ internal sealed class AbilityCatalog
     private readonly int[] _indexOf;                    // spellId -> catalog index (1-based; 0 = unknown)
     private readonly Dictionary<int, int> _idByIndex;   // catalog index -> spellId
     private readonly Dictionary<(string Class, string Spec, AbilityCategory Category), int[]> _extras;
+    private readonly Dictionary<int, int[]> _aliases;
 
     public int Count => _byId.Count;
     public IReadOnlyCollection<AbilityDefinition> All => _byId.Values;
+
+    /// <summary>
+    /// Symmetric spell-variant aliases (curated <c>aliases</c> block, e.g.
+    /// 202168 &lt;-&gt; 34428 and 19647 &lt;-&gt; 119910). The bridge uses them to
+    /// resolve a keybind/macro that names a variant id; sorted for
+    /// deterministic generation into <c>MDB.SpellAliases</c>.
+    /// </summary>
+    public IReadOnlyDictionary<int, int[]> Aliases => _aliases;
 
     /// <summary>Patch this registry was built for (from the curated file; "12.1" for the embedded one).</summary>
     public string GamePatch { get; }
@@ -124,6 +133,7 @@ internal sealed class AbilityCatalog
         int[] indexOf,
         Dictionary<int, int> idByIndex,
         Dictionary<(string, string, AbilityCategory), int[]> extras,
+        Dictionary<int, int[]> aliases,
         string gamePatch,
         int interfaceVersion,
         string? maxDpsVersion,
@@ -137,6 +147,7 @@ internal sealed class AbilityCatalog
         _indexOf = indexOf;
         _idByIndex = idByIndex;
         _extras = extras;
+        _aliases = aliases;
         GamePatch = gamePatch;
         InterfaceVersion = interfaceVersion;
         MaxDpsVersion = maxDpsVersion;
@@ -269,6 +280,34 @@ internal sealed class AbilityCatalog
             }
         }
 
+        // 4d. Curated spell aliases (variant ids the bridge may meet on a bar
+        //     or in a macro). Stored symmetric so a lookup on either id finds
+        //     the other, and validated against the catalog so a typo cannot
+        //     silently generate a dangling Lua entry.
+        var aliases = new Dictionary<int, int[]>();
+        if (curated.Aliases is { Count: > 0 })
+        {
+            var symmetric = new Dictionary<int, SortedSet<int>>();
+            void Link(int from, int to)
+            {
+                if (!byId.ContainsKey(from) || !byId.ContainsKey(to))
+                    throw new InvalidDataException($"alias {from} -> {to} references an uncatalogued spell");
+                if (!symmetric.TryGetValue(from, out var set)) symmetric[from] = set = [];
+                set.Add(to);
+            }
+            foreach (var (from, targets) in curated.Aliases)
+            {
+                if (from <= 0 || targets is null) continue;
+                foreach (var to in targets)
+                {
+                    if (to <= 0 || to == from) continue;
+                    Link(from, to);
+                    Link(to, from);
+                }
+            }
+            foreach (var (id, set) in symmetric) aliases[id] = set.ToArray();
+        }
+
         // 4b. Class-spells layer (LOWEST priority): raw vendor SpellData tokens
         // merged only for ids nobody else carries, so curated > Cooldowns >
         // class spells. Junk/passive tokens are skipped (they can never arrive
@@ -303,7 +342,7 @@ internal sealed class AbilityCatalog
         }
 
         return new AbilityCatalog(
-            byId, indexOf, idByIndex, extras,
+            byId, indexOf, idByIndex, extras, aliases,
             string.IsNullOrWhiteSpace(curated.GamePatch) ? ExpectedGamePatch : curated.GamePatch!.Trim(),
             curated.InterfaceVersion,
             curated.MaxDpsVersion,
@@ -1152,6 +1191,12 @@ internal sealed class AbilityCatalog
         public string? CompanionVersion { get; set; }
         public List<AbilityOverride>? Abilities { get; set; }
         public Dictionary<string, Dictionary<string, SpecExtras>>? Extras { get; set; }
+
+        /// <summary>
+        /// Curated spell aliases: id -> variant ids (e.g. "202168": [34428]).
+        /// Stored symmetric by the loader and emitted as <c>MDB.SpellAliases</c>.
+        /// </summary>
+        public Dictionary<int, List<int>>? Aliases { get; set; }
     }
 
     internal sealed class RelationOverride
