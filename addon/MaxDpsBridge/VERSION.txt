@@ -1,3 +1,20 @@
+3.1.0
+date: 2026-09-29
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: v5 core 35 cells + ADDITIVE Ext2 40-cell block (bridge 3.1.0). No
+          wire change in 3.1.0: the version nibble stays 5 and cells/counts are
+          the same. R1 adds the curated per-spec `offensive` gap-fill list to
+          Catalog.lua (MaxDps's flagged+ready+bound offensive first; else the
+          first ready+bound curated entry, inside enableCooldowns — there is no
+          source bit, the companion derives the source by id membership) and
+          adds `defensiveMinor` for the defensive gap-fill's Orange tier
+          (short-CD mitigation; majors/immunities still require Red). R2
+          re-reads self-heal readiness every tick (never cached) so a cooldown
+          or reset re-offers the same heal on the next tick.
+v3.1.0:   offensive + defensiveMinor gap-fill lists emitted in Catalog.lua;
+          keybind memo invalidation on bar/binding/talent/spec/cooldown events
+          (Bars.lua). Version bump only — protocol unchanged.
 3.0.0
 date: 2026-09-29
 git: <commit placeholder - fill at release>

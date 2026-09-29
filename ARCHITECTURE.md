@@ -149,8 +149,11 @@ Action scheduler (Scheduler/ActionScheduler) — deterministic state machine
   held, Skip+Unavailable = skipped, only Use scheduled)
   → rank (interrupt > emergency > defensive > self-sustain > main > mobility
   > offensive > consumable > trinket) → duplicate collapse → stale and
-  pending-confirm demotion → GCD → min interval → unavailable/retry
-  suppression → ordered plan + reason/confidence (one action per tick)
+  pending-confirm demotion (never for SelfHeal, r2) → GCD → min interval →
+  unavailable/retry suppression → ordered plan + reason/confidence (one action
+  per tick). A transient failed SelfHeal press is capped at 1.5 s with no
+  escalation; when HP is in the sustain window and no heal is ready the plan
+  holds with the distinct reason SelfHealCoolingDown (r2).
        │
        ▼
 PostMessage WM_KEYDOWN/WM_KEYUP → WoW window only
@@ -236,7 +239,14 @@ MainForm (borderless; 660-wide fixed frame; 2px ring red stopped / green
        │   RuleSections per tab
        └─ Abilities scrim + centred card (tabs Class skills | Explorer)
   Default client 660 × min(content, working area); MinimumSize 520×560; Esc
-  closes the topmost popup. Restored classic primitives live in UiControls.cs
+  closes the topmost popup. Width tiers (UiScale, D5): client width picks
+  Compact (≤560) / Classic (≤700, the 660 default) / Roomy (≤950) / Wide
+  (>950); a tier scales font step, row heights, card padding, button heights
+  and toggle size and is applied to the main window plus both popups on a
+  120 ms debounced resize (never mid-drag). The client height is the MEASURED
+  content height (`MainForm.LayoutHero` measures the hero + body rows and
+  `ApplyContentHeight` clamps it to the working area), so the window grows with
+  its content instead of scrolling. Restored classic primitives live in UiControls.cs
   (LinkLamp, StripView, ClassBadge, RoundedCard, RuleSection, GradientCanvas,
   WheelSafeNumeric forwarding the wheel to its scrollable parent); the tabbed
   pages still use Ui/Layout.cs (VertStack/WrapFlow/GridPanel/BentoSplit/
@@ -579,5 +589,18 @@ MaxDps-Companion/
   SelfHeal2 (bridge 3.0.0) is the next distinct such candidate, so a spec with
   two ready heals gets a real alternate instead of a shadowed one. Nothing in
   the main rotation is synthesized or replaced.
+- **Gap-fill enumerates existing knowledge; it never invents a candidate
+  (r1).** The offensive gap-fill list is curated in `abilities.json` and emitted
+  to `Catalog.lua`, and only true burst CDs enter it. The Defensive slot carries
+  a wire source bit (cell 31 B bit0); the Offensive slot does NOT (decode is
+  frozen) so its source is derived by id membership of the same generated list.
+  Defensive majors gap-fill only at Red; short-CD (Minor/None) gap-fill opens at
+  Orange; both stay inside MaxDps's own `enableDefensives` / `enableCooldowns`
+  switches, so muting them upstream mutes the gap-fill too.
+- **Self-sustain is reset-aware (r2).** Self-heal readiness is re-read every
+  tick and never cached; a ready SelfHeal is never stale- or pending-demoted;
+  a transient failed press is capped at 1.5 s with no escalating backoff. A
+  cooldown wait is surfaced as `SelfHealCoolingDown` (telemetry `cdWait` /
+  `lastTriedMs`, verdict `resetHint`) and never changes a verdict or an order.
 - `settings.ini` keys mirror `AppSettings` sections 1:1; adding a key means
   updating both plus the README table.

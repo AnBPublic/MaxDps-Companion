@@ -1,3 +1,45 @@
+3.1.0
+Date: 2026-09-29
+Companion 3.1.0 / bridge 3.1.0. Protocol unchanged: v5 core (35 cells, version
+nibble 5) + additive Ext2 40-cell block. R1 gives the Offensive slot a curated
+gap-fill seam and extends the defensive gap-fill to an Orange (short-CD) tier;
+R2 makes self-sustain reset-aware (readiness re-read every tick, 1.5s transient
+failure cap, no stale demotion, cdWait telemetry); classic popup open budget
+relaxed 150 -> 500 ms (fade contract unchanged); width-tier UI scaling.
+
+v3.1.0 R1 + R2 + POPUP BUDGET
+
+- R1 offensive gap-fill: curated per-spec `offensive` lists in
+  Knowledge/abilities.json (1-4 true burst CDs, shared burst first), emitted as
+  `offensive` by CatalogLuaGenerator and consumed by Reader.lua
+  GetOffensiveCandidate inside MaxDps's enableCooldowns switch. The companion
+  detects the gap-fill by id membership (no wire bit; decode frozen); combat /
+  Solo gated. Defensive gap-fill extended to Orange via the new
+  `defensiveMinor` list, so a user-enabled short-CD mitigation can fire at
+  Orange while majors still wait Red. Telemetry records cls/spec (additive) so
+  replay re-derives the offensive source.
+- R2 reset-aware self-sustain: the bridge re-reads self-heal readiness every
+  tick (keybind memo dropped on bar/binding/talent/spec/SPELL_UPDATE_COOLDOWN),
+  a reset/proc re-offers the same spell; the scheduler never stale-demotes or
+  pending-confirm-demotes SelfHeal, caps a transient failed heal at 1.5 s with
+  no escalation, and reports the distinct reason SelfHealCoolingDown when HP is
+  in the sustain window with no heal ready. Telemetry cdWait/lastTriedMs/
+  resetHint are additive/informational and not compared by replay.
+- POPUP-BUDGET: ClassicUi_PopupOpen_Fast_SingleBoundedFade warm-run wall budget
+  150 -> 500 ms (load variance); the D6 contract is unchanged (one bounded
+  fade <= 120 ms, skipped while running).
+- Dynamic UI scaling: width tiers (Compact/Classic/Roomy/Wide) + measured
+  content height; applied to the main window and both popups.
+
+VALIDATED (this machine): build 0/0; dotnet test 521/521; lua harness 153/153;
+audit Violations 0 / Warnings 0 / Missing 0 / Stale 0; 6 replay fixtures 0
+mismatches; bench-scheduler UNCHANGED sends=1620 sha256=b71a999d5e46570e;
+ui-smoke PASS; bench-ui mean ~4-20 us / p95 <15 us (startup load-dependent).
+
+LIVE OWED (retail 12.1): toggled-on offensive CD fires when MaxDps never
+surfaces it; Orange short-CD defensive fires; majors still wait Red; reset-proc
+sustain re-fires within the 1.5 s cap. NOT validated on a live client here.
+
 3.0.0
 Date: 2026-09-29
 Companion 3.0.0 / bridge 3.0.0. Protocol v5 wire version nibble unchanged; the

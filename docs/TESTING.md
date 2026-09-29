@@ -10,7 +10,7 @@ cd tests\MaxDpsCompanion.Tests
 dotnet test -c Release
 ```
 
-443 tests, all fake-clock (no wall time, no I/O except temp files). Groups:
+521 tests, all fake-clock (no wall time, no I/O except temp files). Groups:
 
 | File | Covers |
 | :--- | :--- |
@@ -25,6 +25,10 @@ dotnet test -c Release
 | `ActionSchedulerPolicyTests` | policy filtering + ranking, emergency survival above main, mobility below main, companion-slot gating, trinket lockout, failed-press rejection, GCD confirmation, escalating retry backoff, suppression not blocking other ranks, channel/cast holds (policy on and off), pending-confirm demotion, stale-interrupt main continuation, range revalidation |
 | `SelfSustainEndToEndTests` | real v5 wire frame → decode → tracker → scheduler: Impending Victory generated, policy USE, `SelfSustain`/`EmergencySurvival` selection, GCD confirmation and return to main; healthy/cooldown/out-of-range/no-target/casting/GCD/conservation negatives; Solo OFF; Intelligence OFF; bounded failure recovery |
 | `SelfSustainReplayTests` | canonical Solo recording replayed with 0 verdict mismatches (in-memory + the checked-in `fixtures/solo-warrior-selfheal.jsonl` used by `--replay`) |
+| `SelfSustainCooldownTests` | r2 reset-aware sustain: a ready heal is never stale-demoted, a transient failed press is capped at 1.5 s with no escalation, the distinct `SelfHealCoolingDown` wait is reported, and an optional curated `resetHint` is parsed (informational only) |
+| `SoloCooldownResetReplayTests` | r2 canonical cooldown/reset recording recomputes every verdict with 0 mismatches (in-memory + the checked-in `fixtures/solo-cooldown-reset-warrior.jsonl`) |
+| `OffensiveGapFillTests` | r1 offensive gap-fill: curated per-spec lists, source derived by id membership, combat/Solo gate, registry enforcement, and the unchanged reason strings for MaxDps-sourced rows |
+| `OffensiveGapFillReplayTests` | r1 canonical offensive-gap-fill recording recomputes every verdict with 0 mismatches, with `cls`/`spec` rebuilt from telemetry (in-memory + the checked-in `fixtures/offensive-gapfill-warrior.jsonl`) |
 | `DefensiveIntelligenceTests` | additive v5 protocol decode (urgency/source/stagger + reserved-nibble and extension-checksum coverage), the urgency policy matrix (White hard hold, Yellow/Orange/Red tiers, the MaxDps-recommendation one-stage discount, curated Ignore Pain Orange, stagger override + HP fallback), emergency override, user policy (OFF absolute, Vanish default-OFF and emergency-only ON), scheduler integration (Red selects, White holds and main continues, Orange gap-fill major held but minor fires, OFF reported as a skip) and failed-press recovery |
 | `DefensiveReplayTests` | canonical defensive recording recomputes every verdict with 0 mismatches (in-memory + the checked-in `fixtures/defensive-warrior-urgency.jsonl`), a failed defensive press is rejected, and a policy record with no `du` is treated as legacy pre-v2.3 (verdicts skipped, 0 mismatches, report says so) |
 | `ClassSpellBookTests` | token name decoding (incl. connector/alias cases), the junk/passive filter, merge provenance and priority (curated/vendor win over class-spells), live-client verification (official name/icon, a removed id not merged), `DefensiveGapFill` exclusion of the modeled layer, shared-vs-per-spec tree, all-class coverage, and a Main-spell opt-out through `AbilityPolicy` OFF |
@@ -46,7 +50,7 @@ wago.tools fetch is never exercised by the test run.
 lua tests/secret_harness.lua
 ```
 
-94 checks. Stubs the WoW API with Midnight secret semantics (values that
+153 checks. Stubs the WoW API with Midnight secret semantics (values that
 throw on compare/arithmetic), loads Catalog + Keymap + Reader + Bridge, fires
 `ADDON_LOADED`, and drives `Update` directly. Covers:
 
@@ -65,6 +69,13 @@ throw on compare/arithmetic), loads Catalog + Keymap + Reader + Bridge, fires
   the Purifying Brew stagger curve with its HP fallback, the Defensive
   MaxDps-first / Red-only gap-fill candidate + source bit, and every probe
   contained (a secret/nil stagger or HP reading encodes 0 = UNKNOWN);
+- offensive + defensiveMinor gap-fill (r1): a MaxDps-named offensive wins and
+  the curated `offensive` list is offered only when MaxDps names none (inside
+  `enableCooldowns`); the `defensiveMinor` list is offered at the Orange tier
+  while majors stay Red-only;
+- reset-aware self-heal readiness (r2): a keybind memo is invalidated on
+  cooldown/talent/spec events so a reset re-offers the same heal, and readiness
+  is re-read every tick (never cached);
 - getter-throw containment (`SafeRead`: frame survives, warns once);
 - self-sustain extras (v2.2): a ready-but-unbound self-heal stays empty, a
   bound one encodes (VK + spell id) and the slot-8 range probe is encoded;
@@ -227,9 +238,10 @@ LIVE WOW VERIFIED (owed - observe in a real client, Intelligence ON):
 Offline evidence is NEVER live proof. Mark every line below on the machine
 that ran retail: `LIVE VERIFIED` / `LIVE UNVERIFIED` / `LIVE FAILED`.
 OFFLINE VERIFIED (this session, do not re-claim live): build 0/0;
-`dotnet test` 440/440; `lua tests/secret_harness.lua` 94/94;
+`dotnet test` 521/521; `lua tests/secret_harness.lua` 153/153;
 `--ui-smoke-test` PASS (structural checks); `--bench-scheduler` sends=1620
-sha256=b71a999d5e46570e; replays 9/16/7 verdicts 0 mismatches;
+sha256=b71a999d5e46570e; 6 replays 0 mismatches (solo 9, defensive 16,
+offensive-interrupt 7, solo-hidden-hp 6, cooldown-reset 8, offensive-gapfill);
 `tools/ability_audit.ps1` exit 0 (Violations 0 / Warnings 0 / Missing 0 /
 Stale 0; addon Catalog.lua matches).
 
@@ -301,6 +313,10 @@ MaxDpsCompanion.exe --replay=<file.jsonl>        # deterministic decision replay
                                                  # --replay=tests\MaxDpsCompanion.Tests\fixtures\defensive-warrior-urgency.jsonl
                                                  # offensive-interrupt fixture (v2.6):
                                                  # --replay=tests\MaxDpsCompanion.Tests\fixtures\offensive-interrupt-warrior.jsonl
+                                                 # solo cooldown/reset fixture (r2):
+                                                 # --replay=tests\MaxDpsCompanion.Tests\fixtures\solo-cooldown-reset-warrior.jsonl
+                                                 # offensive gap-fill fixture (r1):
+                                                 # --replay=tests\MaxDpsCompanion.Tests\fixtures\offensive-gapfill-warrior.jsonl
 MaxDpsCompanion.exe --ability-audit=<path>         # registry audit report (Violations 0 / Warnings 0 / Missing 0 / Stale 0 enforced by tools/ability_audit.ps1, exit 3 when non-clean)
 MaxDpsCompanion.exe --ability-coverage=<path>      # v2.7 machine-readable coverage manifest (default ABILITY_COVERAGE.json)
 MaxDpsCompanion.exe --ability-info=<spellId>       # inspect one ability (writes ability-info.txt + stdout)

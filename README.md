@@ -1,4 +1,4 @@
-# MaxDPS Companion (Retail Midnight 12.1, v3.0.0)
+# MaxDPS Companion (Retail Midnight 12.1, v3.1.0)
 
 Pixel bridge driver for [kaminaris MaxDps](https://www.curseforge.com/wow/addons/maxdps)
 (vendor pin: MaxDps v11.3.49). No memory read, no injection, no OCR, no LLM.
@@ -56,6 +56,20 @@ measures 2000 refreshes (mean/p95 µs + startup ms); 12 snapshots (6 pages ×
 MaxDpsCompanion.exe --ui-smoke-test
 MaxDpsCompanion.exe --ui-snapshot-page=main --ui-snapshot=main.png --ui-snapshot-width=660 --ui-snapshot-height=920
 ```
+
+## Gap-fill + reset-aware sustain (v3.1.0)
+
+v3.1.0 closes two gaps. The Offensive slot gains a curated per-spec gap-fill
+list (1–4 true burst cooldowns, shared burst first) so a cooldown the user
+toggled ON fires even when MaxDps never surfaces it, and the defensive
+gap-fill opens a short-cooldown (Orange) tier while majors still wait for Red.
+Self-sustain is now reset-aware: self-heal readiness is re-read every tick, a
+reset proc re-offers the same spell, a transient failed press is capped at
+1.5 s, and a ready heal is never demoted behind the rotation (a cooldown wait
+is reported as `SelfHealCoolingDown`). The classic shell also scales by width
+tier (Compact/Classic/Roomy/Wide) and measured content height. Protocol is
+unchanged (v5 core + additive Ext2); all of it is offline-proven — the live
+retail checklist stays OWED.
 
 ## Ability intelligence (v2.6.0)
 
