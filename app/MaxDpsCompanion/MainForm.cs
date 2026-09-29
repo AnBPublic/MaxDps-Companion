@@ -6,8 +6,11 @@ internal sealed class MainForm : Form
 {
     private const int PauseHotkeyId = 0xA71;
     // Width floor: the shell degrades to the narrow layout before clipping.
-    private const int MinWindowWidth = 460;
-    private const int CollapsedWantHeight = 860;
+    private const int MinWindowWidth = 520;
+    private const int MinWindowHeight = 560;
+    // Classic v3 defaults (A3): 660 wide, content height <= working area.
+    private const int ClassicWantWidth = 660;
+    private const int ClassicWantHeight = 920;
 
     private static string UiFont => _uiFont ??= DesignTokens.FamilyName;
     private static string? _uiFont;
@@ -103,14 +106,24 @@ internal sealed class MainForm : Form
     private readonly Label _telemetryStatus = new();
     private TelemetryRecorder? _telemetryRecorder;
 
-    // ----- UI 2.0 shell -----
-    private AppShell _shell = null!;
-    private HomePage _home = null!;
-    private AbilityExplorer _explorer = null!;
-    private IntelligencePage _intelligencePage = null!;
-    private ConfigurationPage _config = null!;
-    private DiagnosticsPage _diagnostics = null!;
-    private readonly Dictionary<PageId, Control> _pages = [];
+    // ----- classic UI (v3.0.0 workstream A) -----
+    private Control _mainBody = null!;
+    private Panel _advancedOverlay = null!;
+    private Panel _abilitiesOverlay = null!;
+    private TabControl _advancedTabs = null!;
+    private TabControl _abilitiesTabs = null!;
+    private readonly LinkLamp _linkLamp = new();
+    private readonly Label _stateLabel = new();
+    private readonly Label _liveValue = new();
+    private readonly Label _statusLine = new();
+    private readonly ClassBadge _classBadge = new();
+    private readonly StripView _stripView = new();
+    private ChamferButton? _advancedEntry;
+    private ChamferButton? _abilitiesEntry;
+    private readonly AbilityExplorer _explorer;
+    private readonly IntelligencePage _intelligencePage = new();
+    private readonly ConfigurationPage _config = new();
+    private readonly DiagnosticsPage _diagnostics = new();
     private ClassSkillsView? _classSkills;
     private ChamferButton? _classSkillsEntry;
 
@@ -137,6 +150,25 @@ internal sealed class MainForm : Form
         NameInputs();
         FitToScreen();
 
+        _explorer = new AbilityExplorer(
+            ability => _settings.Abilities.IsEnabled(ability),
+            (ability, on) =>
+            {
+                _settings.Abilities = _settings.Abilities.With(ability.SpellId, on, !ability.NeverAutomatic);
+                _settings.Save();
+            });
+        _classSkills = new ClassSkillsView(
+            AbilityCatalog.Default,
+            ClassSpellBook.Default,
+            ability => _settings.Abilities.IsEnabled(ability),
+            (ability, on) =>
+            {
+                _settings.Abilities = _settings.Abilities.With(ability.SpellId, on, !ability.NeverAutomatic);
+                _settings.Save();
+            });
+
+        BuildConfigurationContent(_config);
+        BuildDiagnosticsContent(_diagnostics);
         BuildLayout();
         LoadFromSettings();
         StyleInputs(this);
@@ -175,6 +207,21 @@ internal sealed class MainForm : Form
         _outOfCombat.CheckedChanged += (_, _) => SyncCombatFromCard();
         _autoTarget.CheckedChanged += (_, _) => SaveNow();
         _autoInteract.CheckedChanged += (_, _) => SaveNow();
+
+        // Hero "Solo" toggle mirrors the Advanced checkbox (one setting).
+        _solo2.CheckedChanged += (_, _) =>
+        {
+            if (_solo.Checked != _solo2.Checked)
+            {
+                _solo.Checked = _solo2.Checked;
+                SaveNow();
+            }
+        };
+        _solo.CheckedChanged += (_, _) =>
+        {
+            if (_solo2.Checked != _solo.Checked) _solo2.Checked = _solo.Checked;
+        };
+        _classBadge.TextChanged += (_, _) => _classBadge.AccessibleName = $"Class and spec: {_classBadge.Text}";
 
         _saveDebounce.Tick += (_, _) =>
         {
@@ -223,10 +270,7 @@ internal sealed class MainForm : Form
         ApplyToSettings();
         _settings.Save();
         RegisterPauseHotkey();
-        _settingsSaved?.Invoke();
     }
-
-    private Action? _settingsSaved;
 
     private void WireAutoSave()
     {
@@ -295,7 +339,11 @@ internal sealed class MainForm : Form
         };
     }
 
-    // ----- chrome: custom title bar + app shell -----
+    // ----- chrome: custom title bar + classic fixed body + popups (v3 A3-A5) -----
+
+    // v1.3.9 fixed row budget: status 42 + live 42 + strip 40 + spells header 24
+    // + 4×66 + modes header 24 + 2×66 + card padding 24 = 592.
+    private const int HeroCardHeight = 42 + 42 + 40 + 24 + 4 * 66 + 24 + 2 * 66 + 24;
 
     private void BuildLayout()
     {
@@ -310,7 +358,7 @@ internal sealed class MainForm : Form
         windowLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
         windowLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         windowLayout.Controls.Add(BuildTitleBar(), 0, 0);
-        windowLayout.Controls.Add(BuildShell(), 0, 1);
+        windowLayout.Controls.Add(BuildBody(), 0, 1);
         Controls.Add(windowLayout);
     }
 
@@ -375,85 +423,381 @@ internal sealed class MainForm : Form
         return titleBar;
     }
 
-    private Control BuildShell()
+    private Control BuildBody()
     {
-        _shell = new AppShell();
-        _home = new HomePage();
-        _intelligencePage = new IntelligencePage();
-        _config = new ConfigurationPage();
-        _diagnostics = new DiagnosticsPage();
-
-        _explorer = new AbilityExplorer(
-            ability => _settings.Abilities.IsEnabled(ability),
-            (ability, on) =>
-            {
-                _settings.Abilities = _settings.Abilities.With(ability.SpellId, on, !ability.NeverAutomatic);
-                _settings.Save();
-                _shell.Toast?.Show($"{ability.Name} {(on ? "enabled" : "disabled")} for automatic use.");
-            });
-
-        _intelligencePage.DrillRequested += tag =>
+        var canvas = new GradientCanvas { Dock = DockStyle.Fill, Padding = new Padding(24, 10, 24, 12) };
+        var layout = new TableLayoutPanel
         {
-            _shell.Navigate(PageId.Abilities);
-            _explorer.ApplyPreset(tag);
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 4,
+            BackColor = Color.Transparent,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty,
         };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, HeroCardHeight + 12F)); // card + margins
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 52F));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 46F));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 26F));
+        _mainBody = layout;
+        layout.Controls.Add(BuildHeroCard(), 0, 0);
+        layout.Controls.Add(BuildButtonRow1(), 0, 1);
+        layout.Controls.Add(BuildButtonRow2(), 0, 2);
+        layout.Controls.Add(BuildStatusLine(), 0, 3);
+        canvas.Controls.Add(layout);
 
-        BuildConfigurationContent(_config);
-        BuildDiagnosticsContent(_diagnostics);
-        _intelligencePage.EnsureBuilt();
-
-        _pages[PageId.Home] = _home;
-        _pages[PageId.Abilities] = _explorer;
-        _pages[PageId.Intelligence] = _intelligencePage;
-        _pages[PageId.Configuration] = _config;
-        _pages[PageId.Diagnostics] = _diagnostics;
-        foreach (var (id, page) in _pages) _shell.AddPage(id, page);
-
-        var toast = new ToastHost();
-        _shell.AttachToast(toast);
-
-        _shell.PageChanged += id =>
-        {
-            _engine.WantDiagnostics = id == PageId.Diagnostics;
-            if (id == PageId.Intelligence) _intelligencePage.EnsureBuilt();
-            if (id == PageId.Diagnostics) UpdateTelemetryStatus();
-        };
-
-        // Class skills is a full-body overlay reachable from Configuration.
-        _classSkills = new ClassSkillsView(
-            AbilityCatalog.Default,
-            ClassSpellBook.Default,
-            ability => _settings.Abilities.IsEnabled(ability),
-            (ability, on) =>
-            {
-                _settings.Abilities = _settings.Abilities.With(ability.SpellId, on, !ability.NeverAutomatic);
-                _settings.Save();
-            });
-        _shell.Controls.Add(_classSkills);
-        _classSkills.BringToFront();
-
-        // Start/Stop live on the Home page.
-        _start.AutoSize = false;
-        _start.Dock = DockStyle.None;
-        _start.Width = 120;
-        _stop.AutoSize = false;
-        _stop.Dock = DockStyle.None;
-        _stop.Width = 120;
-        _home.ControlHost.Controls.Add(_start);
-        _home.ControlHost.Controls.Add(_stop);
-
-        _settingsSaved = () => _shell.Toast?.Show("Settings saved.", StatusTone.Success);
-        _shell.Initialise(PageId.Home);
-
-        // Logical Tab order per page (v2.7 §49): assign sequential TabIndex in
-        // container order so traversal follows reading order, not z-order.
-        foreach (var page in _pages.Values)
-        {
-            var index = 0;
-            AssignTabOrder(page, ref index);
-        }
-        return _shell;
+        _advancedOverlay = BuildAdvancedOverlay();
+        _abilitiesOverlay = BuildAbilitiesOverlay();
+        canvas.Controls.Add(_advancedOverlay);
+        canvas.Controls.Add(_abilitiesOverlay);
+        _advancedOverlay.BringToFront();
+        _abilitiesOverlay.BringToFront();
+        return canvas;
     }
+
+    private Control BuildHeroCard()
+    {
+        var card = new RoundedCard
+        {
+            Dock = DockStyle.Top,
+            Height = HeroCardHeight,
+            Margin = new Padding(0, 2, 0, 6),
+            Padding = new Padding(18, 12, 18, 12),
+        };
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 11,
+            BackColor = Color.Transparent,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty,
+        };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42F));  // 0 status
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42F));  // 1 live
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40F));  // 2 strip
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24F));  // 3 Spells header
+        for (var i = 0; i < 4; i++) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 66F));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24F));  // 8 Modes header
+        for (var i = 0; i < 2; i++) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 66F));
+
+        // Status row: lamp + state + class badge.
+        _stateLabel.AutoSize = false;
+        _stateLabel.Dock = DockStyle.Fill;
+        _stateLabel.AutoEllipsis = true;
+        _stateLabel.TextAlign = ContentAlignment.MiddleLeft;
+        _stateLabel.Font = DesignTokens.Type(10.5F, FontStyle.Bold);
+        _stateLabel.ForeColor = DesignTokens.TextPrimary;
+        _stateLabel.BackColor = Color.Transparent;
+        _stateLabel.Text = "Stopped";
+        _stateLabel.AccessibleName = "Engine state";
+        _linkLamp.Dock = DockStyle.Left;
+        _linkLamp.Width = 26;
+        _classBadge.Dock = DockStyle.Right;
+        _classBadge.Width = 150;
+        _classBadge.Text = "AUTO DETECT";
+        _classBadge.Font = DesignTokens.Type(8.25F, FontStyle.Bold);
+        var statusRow = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
+        statusRow.Controls.Add(_stateLabel);
+        statusRow.Controls.Add(_linkLamp);
+        statusRow.Controls.Add(_classBadge);
+        layout.Controls.Add(statusRow, 0, 0);
+
+        // Live row: what MaxDps suggests and why (ellipsis + tooltip).
+        _liveValue.AutoSize = false;
+        _liveValue.Dock = DockStyle.Fill;
+        _liveValue.AutoEllipsis = true;
+        _liveValue.TextAlign = ContentAlignment.MiddleLeft;
+        _liveValue.Font = DesignTokens.Type(DesignTokens.BodySize);
+        _liveValue.ForeColor = DesignTokens.TextSecondary;
+        _liveValue.BackColor = Color.Transparent;
+        _liveValue.Text = "Now: -";
+        _liveValue.AccessibleName = "Current suggestion";
+        var liveTip = new ToolTip { AutoPopDelay = 20000, InitialDelay = 300 };
+        liveTip.SetToolTip(_liveValue, "What the companion is about to send and why");
+        layout.Controls.Add(_liveValue, 0, 1);
+
+        // Strip row: the actual decoded bridge cells.
+        _stripView.Dock = DockStyle.Fill;
+        var stripRow = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
+        stripRow.Controls.Add(_stripView);
+        layout.Controls.Add(stripRow, 0, 2);
+
+        layout.Controls.Add(GroupHeaderFor("Spells"), 0, 3);
+        layout.Controls.Add(TwoToggleRow("Main", "Core rotation", _main, "Offensive", "Burst cooldowns", _offensive, alt: false), 0, 4);
+        layout.Controls.Add(TwoToggleRow("Defensive", "Mitigation and absorbs", _defensives, "Interrupt", "Kick casts", _interrupt, alt: true), 0, 5);
+        layout.Controls.Add(TwoToggleRow("Self-heal", "Solo self-sustain", _selfHeal, "Mobility", "Gap closers", _mobility, alt: false), 0, 6);
+        layout.Controls.Add(TwoToggleRow("Consumable", "Potions", _consumable, "Trinket", "On-use trinkets", _trinket, alt: true), 0, 7);
+
+        layout.Controls.Add(GroupHeaderFor("Modes"), 0, 8);
+        layout.Controls.Add(TwoToggleRow("Solo", "Self-sustain mode", _solo2, "Out of combat", "Run outside combat", _outOfCombat, alt: false), 0, 9);
+        layout.Controls.Add(TwoToggleRow("Auto-target", "Target when needed", _autoTarget, "Auto-interact", "Interact when needed", _autoInteract, alt: true), 0, 10);
+
+        card.Controls.Add(layout);
+        return card;
+    }
+
+    // Modes "Solo" is a dedicated toggle that mirrors the Advanced checkbox.
+    private readonly ToggleSwitch _solo2 = new();
+
+    private static GroupHeader GroupHeaderFor(string title) =>
+        new() { Text = title, Dock = DockStyle.Fill, Margin = new Padding(4, 0, 4, 0) };
+
+    private static Control TwoToggleRow(
+        string titleA, string hintA, ToggleSwitch toggleA,
+        string titleB, string hintB, ToggleSwitch toggleB,
+        bool alt)
+    {
+        var grid = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            BackColor = Color.Transparent,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty,
+        };
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
+        toggleA.AccessibleName = titleA;
+        toggleA.AccessibleDescription = hintA;
+        toggleB.AccessibleName = titleB;
+        toggleB.AccessibleDescription = hintB;
+        grid.Controls.Add(new SettingRow(titleA, hintA, toggleA) { Dock = DockStyle.Fill, Margin = new Padding(4, 2, 4, 2), AlternateFill = alt }, 0, 0);
+        grid.Controls.Add(new SettingRow(titleB, hintB, toggleB) { Dock = DockStyle.Fill, Margin = new Padding(4, 2, 4, 2), AlternateFill = alt }, 1, 0);
+        return grid;
+    }
+
+    private Control BuildButtonRow1()
+    {
+        var row = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 3,
+            RowCount = 1,
+            BackColor = Color.Transparent,
+            Margin = new Padding(0, 2, 0, 2),
+            Padding = new Padding(0, 5, 0, 5),
+        };
+        for (var i = 0; i < 3; i++) row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F / 3F));
+        foreach (var button in new[] { _start, _stop, _launchGame })
+        {
+            button.AutoSize = false;
+            button.Dock = DockStyle.Fill;
+            button.Margin = new Padding(4, 0, 4, 0);
+            button.Font = DesignTokens.Type(9.5F, FontStyle.Bold);
+            button.TrailingGlyph = null;
+        }
+        _start.AccentColor = DesignTokens.Accent;
+        _stop.AccentColor = DesignTokens.Danger;
+        _launchGame.AccentColor = ConsolePalette.Brass;
+        row.Controls.Add(_start, 0, 0);
+        row.Controls.Add(_stop, 1, 0);
+        row.Controls.Add(_launchGame, 2, 0);
+        return row;
+    }
+
+    private Control BuildButtonRow2()
+    {
+        _advancedEntry = new ChamferButton { Text = "Advanced\u2026", Role = ButtonRole.Ghost, AccentColor = ConsolePalette.Brass };
+        _advancedEntry.Click += (_, _) => ShowAdvanced();
+        _abilitiesEntry = new ChamferButton { Text = "Abilities\u2026", Role = ButtonRole.Ghost };
+        _abilitiesEntry.Click += (_, _) => ShowAbilities();
+
+        var row = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 4,
+            RowCount = 1,
+            BackColor = Color.Transparent,
+            Margin = new Padding(0, 2, 0, 2),
+            Padding = new Padding(0, 5, 0, 5),
+        };
+        for (var i = 0; i < 4; i++) row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25F));
+        foreach (var button in new[] { _recalibrate, _abilitiesEntry, _advancedEntry, _openFolder })
+        {
+            button.AutoSize = false;
+            button.Dock = DockStyle.Fill;
+            button.Margin = new Padding(4, 0, 4, 0);
+            button.Font = DesignTokens.Type(9.5F, FontStyle.Bold);
+            button.TrailingGlyph = null;
+        }
+        _recalibrate.AccentColor = ConsolePalette.Brass;
+        _openFolder.AccentColor = DesignTokens.Surface;
+        row.Controls.Add(_recalibrate, 0, 0);
+        row.Controls.Add(_abilitiesEntry, 1, 0);
+        row.Controls.Add(_advancedEntry, 2, 0);
+        row.Controls.Add(_openFolder, 3, 0);
+        return row;
+    }
+
+    private Control BuildStatusLine()
+    {
+        _statusLine.AutoSize = false;
+        _statusLine.Dock = DockStyle.Fill;
+        _statusLine.AutoEllipsis = true;
+        _statusLine.TextAlign = ContentAlignment.MiddleLeft;
+        _statusLine.Font = DesignTokens.Type(DesignTokens.MetaSize);
+        _statusLine.ForeColor = DesignTokens.TextMuted;
+        _statusLine.BackColor = Color.Transparent;
+        _statusLine.Text = "Stopped";
+        _statusLine.AccessibleName = "Status message";
+        return _statusLine;
+    }
+
+    // ----- Advanced popup (tabs Configuration | Diagnostics | Intelligence) -----
+
+    private Panel BuildAdvancedOverlay()
+    {
+        var (scrim, tabs) = BuildPopup("Advanced", 620, onClose: HideAdvanced);
+        _advancedTabs = tabs;
+        AddTab(tabs, "Configuration", _config);
+        AddTab(tabs, "Diagnostics", _diagnostics);
+        AddTab(tabs, "Intelligence", _intelligencePage);
+        return scrim;
+    }
+
+    private Panel BuildAbilitiesOverlay()
+    {
+        var (scrim, tabs) = BuildPopup("Abilities", 900, onClose: HideAbilities);
+        _abilitiesTabs = tabs;
+        AddTab(tabs, "Class skills", _classSkills!);
+        AddTab(tabs, "Explorer", _explorer);
+        return scrim;
+    }
+
+    private static void AddTab(TabControl tabs, string title, Control content)
+    {
+        var page = new TabPage(title)
+        {
+            BackColor = DesignTokens.Background,
+            Padding = Padding.Empty,
+        };
+        content.Dock = DockStyle.Fill;
+        page.Controls.Add(content);
+        tabs.TabPages.Add(page);
+    }
+
+    /// <summary>
+    /// Dimmed scrim + centred card (width min(client-40, <paramref name="maxWidth"/>),
+    /// height client-60) with a header (title + Back) and a tab host.
+    /// </summary>
+    private (Panel Scrim, TabControl Tabs) BuildPopup(string title, int maxWidth, Action onClose)
+    {
+        var scrim = new Panel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Color.FromArgb(228, 7, 9, 11),
+            Visible = false,
+        };
+        var popup = new RoundedCard
+        {
+            Size = new Size(maxWidth, 520),
+            Anchor = AnchorStyles.None,
+            Padding = new Padding(6, 6, 6, 6),
+        };
+        var shell = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 2,
+            BackColor = Color.Transparent,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty,
+        };
+        shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 44F));
+        shell.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+
+        var header = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
+        var titleLabel = new Label
+        {
+            Text = title,
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleLeft,
+            Padding = new Padding(6, 0, 0, 0),
+            Font = DesignTokens.Type(11.5F, FontStyle.Bold),
+            ForeColor = DesignTokens.TextPrimary,
+            BackColor = Color.Transparent,
+        };
+        var back = new ChamferButton
+        {
+            Text = "Back",
+            Role = ButtonRole.Ghost,
+            Dock = DockStyle.Right,
+            Width = 96,
+            AutoSize = false,
+            Margin = new Padding(0, 4, 8, 4),
+            TrailingGlyph = null,
+        };
+        back.Click += (_, _) => onClose();
+        header.Controls.Add(titleLabel);
+        header.Controls.Add(back);
+
+        var tabs = new TabControl { Dock = DockStyle.Fill, Font = DesignTokens.Type(DesignTokens.BodySize) };
+
+        shell.Controls.Add(header, 0, 0);
+        shell.Controls.Add(tabs, 0, 1);
+        popup.Controls.Add(shell);
+        scrim.Controls.Add(popup);
+
+        void Center()
+        {
+            var w = Math.Min(maxWidth, Math.Max(360, scrim.ClientSize.Width - 40));
+            var h = Math.Max(280, scrim.ClientSize.Height - 60);
+            popup.Size = new Size(w, h);
+            popup.Location = new Point(
+                Math.Max(0, (scrim.ClientSize.Width - w) / 2),
+                Math.Max(0, (scrim.ClientSize.Height - h) / 2));
+        }
+        scrim.Resize += (_, _) => Center();
+        scrim.Layout += (_, _) => Center();
+        return (scrim, tabs);
+    }
+
+    private void ShowAdvanced()
+    {
+        _engine.WantDiagnostics = true;
+        _intelligencePage.EnsureBuilt();
+        if (_mainBody is not null) _mainBody.Visible = false;
+        _advancedTabs.SelectedIndex = 0;
+        _advancedOverlay.Visible = true;
+        _advancedOverlay.BringToFront();
+        _advancedOverlay.PerformLayout();
+        _advancedOverlay.Focus();
+    }
+
+    private void HideAdvanced()
+    {
+        if (_advancedOverlay is null) return;
+        _advancedOverlay.Visible = false;
+        _engine.WantDiagnostics = false;
+        if (_mainBody is not null) _mainBody.Visible = true;
+    }
+
+    private void ShowAbilities()
+    {
+        if (_mainBody is not null) _mainBody.Visible = false;
+        _abilitiesTabs.SelectedIndex = 0;
+        _abilitiesOverlay.Visible = true;
+        _abilitiesOverlay.BringToFront();
+        _classSkills?.Open(
+            _engine.TryGetLiveClass(out var cls) ? cls : null,
+            _engine.TryGetLiveSpec(out var spec) ? spec : null);
+        _abilitiesOverlay.PerformLayout();
+        _abilitiesOverlay.Focus();
+    }
+
+    private void HideAbilities()
+    {
+        if (_abilitiesOverlay is null) return;
+        _abilitiesOverlay.Visible = false;
+        if (_mainBody is not null) _mainBody.Visible = true;
+    }
+
+    private bool AnyPopupVisible => (_advancedOverlay?.Visible ?? false) || (_abilitiesOverlay?.Visible ?? false);
 
     private static void AssignTabOrder(Control parent, ref int index)
     {
@@ -512,13 +856,14 @@ internal sealed class MainForm : Form
     {
         _classSkillsEntry = new ChamferButton
         {
-            Text = "Class skills...",
+            Text = "Abilities\u2026",
             Role = ButtonRole.Ghost,
             AccentColor = DesignTokens.Accent,
             AutoSize = false,
             Dock = DockStyle.Fill,
+            TrailingGlyph = null,
         };
-        _classSkillsEntry.Click += (_, _) => ShowClassSkills();
+        _classSkillsEntry.Click += (_, _) => ShowAbilities();
         return _classSkillsEntry;
     }
 
@@ -671,6 +1016,8 @@ internal sealed class MainForm : Form
     private void ShowClassSkills()
     {
         if (_classSkills is null) return;
+        ShowAbilities();
+        _abilitiesTabs.SelectedIndex = 0;
         _classSkills.Open(
             _engine.TryGetLiveClass(out var className) ? className : null,
             _engine.TryGetLiveSpec(out var specName) ? specName : null);
@@ -1020,7 +1367,9 @@ internal sealed class MainForm : Form
     private void LaunchGame()
     {
         ApplyToSettings();
-        if (BattleNetLauncher.TryLaunch(string.IsNullOrWhiteSpace(_settings.BNetPath) ? null : _settings.BNetPath, out var message))
+        var path = string.IsNullOrWhiteSpace(_settings.BNetPath) ? null : _settings.BNetPath;
+        var (ok, message) = Launcher(path);
+        if (ok)
             SetStatus(message, DesignTokens.TextPrimary);
         else
             MessageBox.Show(message, "MaxDPS Companion", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -1056,6 +1405,7 @@ internal sealed class MainForm : Form
         _scheduler.Checked = _settings.SchedulerEnabled;
         _intelligence.Checked = _settings.IntelligenceEnabled;
         _solo.Checked = _settings.SoloEnabled;
+        _solo2.Checked = _settings.SoloEnabled;
         _telemetry.Checked = _settings.TelemetryEnabled;
         _targetKey.Text = _settings.TargetKey;
         _interactKey.Text = _settings.InteractKey;
@@ -1129,7 +1479,7 @@ internal sealed class MainForm : Form
         _start.Enabled = false;
         _stop.Enabled = true;
         if (_trayStartStop is not null) _trayStartStop.Text = "Stop";
-        _shell.Toast?.Show("Engine started.", StatusTone.Success);
+        SetStatus("Engine started.", DesignTokens.Success);
     }
 
     private void StopEngine()
@@ -1139,7 +1489,7 @@ internal sealed class MainForm : Form
         _start.Enabled = true;
         _stop.Enabled = false;
         if (_trayStartStop is not null) _trayStartStop.Text = "Start";
-        _shell.Toast?.Show("Engine stopped.", StatusTone.Muted);
+        SetStatus("Engine stopped.", DesignTokens.TextMuted);
     }
 
     // ----- local rotation telemetry -----
@@ -1279,12 +1629,9 @@ internal sealed class MainForm : Form
 
     // ----- status refresh (UI timer; independent of the engine tick) -----
 
-    private string _lastHomeKey = "";
-
     private void RefreshStatus()
     {
         UpdateWindowBorder();
-        _shell.SuppressTransitions = _engine.IsRunning;
 
         // Rule, enforced for life: no AutoScrollPosition writes on any timer
         // path. The v2.8.1 NormalizeScroll reset a user's scroll offset on
@@ -1323,50 +1670,46 @@ internal sealed class MainForm : Form
         if (_bridgeStateValue.Text != bridge) _bridgeStateValue.Text = bridge;
         if (_protocolValue.Text == "-") _protocolValue.Text = $"v{PixelProtocol.SupportedVersion} (supported)";
 
-        UpdateHome();
+        UpdateHero();
     }
 
-    private void UpdateHome()
+    private void UpdateHero()
     {
-        if (!_uiInitialised || _home is null) return;
+        if (!_uiInitialised) return;
         var status = _status;
         var running = _engine.IsRunning;
 
-        var connectionTone = !running ? StatusTone.Muted : status.BridgeVisible ? StatusTone.Success : StatusTone.Danger;
-        var connection = !running ? "Engine stopped" : status.BridgeVisible ? "WoW window found \u00B7 strip decoded" : "No bridge / window";
-        var maxdpsTone = !running ? StatusTone.Muted : status.BridgeVisible ? StatusTone.Success : StatusTone.Warning;
-        var maxdps = !running ? "MaxDps link idle" : status.BridgeVisible ? "MaxDps link active" : "MaxDps link unknown";
-        var companionTone = !running ? StatusTone.Muted : _engine.Paused ? StatusTone.Warning : StatusTone.Success;
-        var companion = !running ? "Stopped" : _engine.Paused ? "Paused" : "Running";
+        var (stateText, stateColor) = !running
+            ? ("Stopped", DesignTokens.TextMuted)
+            : _engine.Paused ? ("Paused", DesignTokens.Warning)
+            : status.BridgeVisible ? ("Running", DesignTokens.Success)
+            : ("No bridge / window", DesignTokens.Danger);
+        if (_stateLabel.Text != stateText) _stateLabel.Text = stateText;
+        _stateLabel.ForeColor = stateColor;
+
+        _linkLamp.Dot = !running ? DesignTokens.TextMuted
+            : status.BridgeVisible ? DesignTokens.Success : DesignTokens.Danger;
 
         var classSpec = _engine.TryGetLiveClass(out var cls) && cls is { Length: > 0 }
-            ? cls + (_engine.TryGetLiveSpec(out var spec) && spec is { Length: > 0 } ? $" / {spec}" : "")
-            : "not decoded yet";
-        var mode = _settings.SoloEnabled ? "Solo / self-sustain" : "Normal";
-        var automation = $"{(_settings.SchedulerEnabled ? "Scheduler" : "Legacy loop")} \u00B7 {(_settings.IntelligenceEnabled ? "intelligence on" : "intelligence off")}";
+            ? cls + (_engine.TryGetLiveSpec(out var spec) && spec is { Length: > 0 } ? $" {spec}" : "")
+            : "AUTO DETECT";
+        if (_classBadge.Text != classSpec) _classBadge.Text = classSpec;
 
         var current = _engine.CurrentPlanHead;
         var lastAction = _engine.LastAction;
-        var currentText = current is null ? "no plan head" : $"{current.Action} ({current.Provider})";
-        var lastText = lastAction is null ? "no action sent yet" : $"{lastAction.Action} \u2014 {lastAction.Reason} ({lastAction.Provider})";
-        var why = lastAction is { Why.Count: > 0 } ? string.Join(" \u00B7 ", lastAction.Why) : (current is { Why.Count: > 0 } ? string.Join(" \u00B7 ", current.Why) : "no reasons recorded");
+        var action = current?.Action ?? lastAction?.Action ?? "-";
+        var why = lastAction is { Why.Count: > 0 } ? string.Join(" \u00b7 ", lastAction.Why)
+            : current is { Why.Count: > 0 } ? string.Join(" \u00b7 ", current.Why)
+            : "no reasons recorded";
+        var live = $"Now: {action} \u2014 {why}";
+        if (_liveValue.Text != live) _liveValue.Text = live;
+        _liveValue.AccessibleName = live;
 
-        var coverage = _intelligencePage.Report is { } report
-            ? $"{report.Automatable} automatable \u00B7 {report.Registered} registered \u00B7 {report.Manual} manual \u00B7 live {report.LiveVerified}/{report.LiveVerified + report.LiveUnverified}"
-            : "computing...";
-        var patch = $"patch {AbilityCatalog.Default.GamePatch} \u00B7 catalog v{AbilityCatalog.CatalogVersion}";
+        var strip = string.IsNullOrEmpty(status.RawSample) ? "" : status.RawSample;
+        if (_stripView.Sample != strip) _stripView.Sample = strip;
 
-        var key = $"{connection}|{maxdps}|{companion}|{classSpec}|{mode}|{automation}|{currentText}|{lastText}|{why}|{coverage}|{patch}|{_statusMessage}|{_statusMessageTone}";
-        if (key == _lastHomeKey) return;
-        _lastHomeKey = key;
-        _home.Update(new HomeSnapshot(
-            connectionTone, connection,
-            maxdpsTone, maxdps,
-            companionTone, companion,
-            classSpec, mode, automation,
-            currentText, lastText, why,
-            coverage, patch,
-            _statusMessage, _statusMessageTone));
+        if (_statusLine.Text != _statusMessage) _statusLine.Text = _statusMessage;
+        _statusLine.ForeColor = DesignTokens.StatusColor(_statusMessageTone);
     }
 
     private void SetStatus(string message, Color color)
@@ -1376,7 +1719,7 @@ internal sealed class MainForm : Form
         if (_uiInitialised)
         {
             // Cheap: only recomputes when the shared key changes.
-            UpdateHome();
+            UpdateHero();
         }
     }
 
@@ -1411,12 +1754,22 @@ internal sealed class MainForm : Form
     private void FitToScreen()
     {
         var area = Screen.FromPoint(Cursor.Position).WorkingArea;
-        var wantW = _settings.WindowWidth > 0 ? _settings.WindowWidth : 900;
-        var wantH = _settings.WindowHeight > 0 ? _settings.WindowHeight : CollapsedWantHeight;
+        // Remembered geometry is honoured only under the classic3 layout; a
+        // v2 shell size would otherwise open the new chrome at the wrong size.
+        var classic = string.Equals(_settings.WindowLayout, "classic3", StringComparison.OrdinalIgnoreCase);
+        var wantW = classic && _settings.WindowWidth > 0 ? _settings.WindowWidth : ClassicWantWidth;
+        var wantH = classic && _settings.WindowHeight > 0 ? _settings.WindowHeight : ClassicWantHeight;
         var w = Math.Max(MinWindowWidth, Math.Min(wantW, area.Width));
-        var h = Math.Max(560, Math.Min(wantH, area.Height));
-        MinimumSize = new Size(MinWindowWidth, 560);
+        var h = Math.Max(MinWindowHeight, Math.Min(wantH, area.Height));
+        MinimumSize = new Size(MinWindowWidth, MinWindowHeight);
         ClientSize = new Size(w, h);
+        if (!classic)
+        {
+            // Record the layout tag in memory; it persists on the next Save
+            // (settings change or window close). Writing here made every
+            // AppSettings construction touch settings.ini concurrently.
+            _settings.WindowLayout = "classic3";
+        }
     }
 
     private void SaveWindowSize()
@@ -1454,32 +1807,13 @@ internal sealed class MainForm : Form
         base.OnPaint(e);
     }
 
-    /// <summary>Esc: close Class skills, else return to Home.</summary>
+    /// <summary>Esc closes the topmost popup (classic single-view shell).</summary>
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
-        if (keyData == Keys.Escape && _classSkills is { Visible: true })
+        if (keyData == Keys.Escape)
         {
-            _classSkills.Close();
-            return true;
-        }
-        if (keyData == Keys.Escape && _shell.ActivePage != PageId.Home)
-        {
-            _shell.Navigate(PageId.Home);
-            return true;
-        }
-        if ((keyData & Keys.Control) == Keys.Control)
-        {
-            var digit = (keyData & Keys.KeyCode) switch
-            {
-                Keys.D1 => 1, Keys.D2 => 2, Keys.D3 => 3, Keys.D4 => 4, Keys.D5 => 5,
-                Keys.NumPad1 => 1, Keys.NumPad2 => 2, Keys.NumPad3 => 3, Keys.NumPad4 => 4, Keys.NumPad5 => 5,
-                _ => 0,
-            };
-            if (digit > 0)
-            {
-                _shell.NavigateByDigit(digit);
-                return true;
-            }
+            if (_abilitiesOverlay is { Visible: true }) { HideAbilities(); return true; }
+            if (_advancedOverlay is { Visible: true }) { HideAdvanced(); return true; }
         }
         return base.ProcessCmdKey(ref msg, keyData);
     }
@@ -1529,13 +1863,12 @@ internal sealed class MainForm : Form
         base.OnFormClosed(e);
     }
 
-    // ----- snapshot + smoke hooks (v2.7 §47/§48) -----
+    // ----- snapshot + smoke hooks (v3 classic) -----
 
-    /// <summary>Snapshot/test hook: show the Configuration page (formerly Advanced).</summary>
+    /// <summary>Snapshot/test hook: show the Advanced popup (Configuration tab).</summary>
     internal void OpenAdvancedForSnapshot(int scrollY = -1)
     {
-        _shell.SuppressTransitions = true;
-        _shell.Navigate(PageId.Configuration);
+        ShowAdvanced();
         PerformLayout();
         if (scrollY < 0) return;
         var y = scrollY == int.MaxValue ? _config.ScrollArea.VerticalScroll.Maximum : scrollY;
@@ -1544,28 +1877,45 @@ internal sealed class MainForm : Form
         _config.ScrollArea.Update();
     }
 
-    /// <summary>Snapshot/test hook: navigate to a named page.</summary>
+    /// <summary>Snapshot/test hook: open a named classic page/tab.</summary>
     internal void OpenPageForSnapshot(string page)
     {
-        _shell.SuppressTransitions = true;
-        var id = page.Trim().ToLowerInvariant() switch
+        switch (page.Trim().ToLowerInvariant())
         {
-            "abilities" => PageId.Abilities,
-            "intelligence" => PageId.Intelligence,
-            "configuration" or "config" => PageId.Configuration,
-            "diagnostics" or "diag" => PageId.Diagnostics,
-            _ => PageId.Home,
-        };
-        _shell.Navigate(id);
-        if (id == PageId.Intelligence) _intelligencePage.EnsureBuilt();
+            case "main":
+                break;
+            case "advanced-config" or "configuration" or "config":
+                ShowAdvanced();
+                _advancedTabs.SelectedIndex = 0;
+                _config.PerformLayout();
+                break;
+            case "advanced-diag" or "diagnostics" or "diag":
+                ShowAdvanced();
+                _advancedTabs.SelectedIndex = 1;
+                _diagnostics.PerformLayout();
+                break;
+            case "advanced-intel" or "intelligence" or "intel":
+                _intelligencePage.EnsureBuilt();
+                ShowAdvanced();
+                _advancedTabs.SelectedIndex = 2;
+                _intelligencePage.PerformLayout();
+                break;
+            case "abilities" or "abilities-class":
+                ShowAbilities();
+                _abilitiesTabs.SelectedIndex = 0;
+                break;
+            case "abilities-explorer":
+                ShowAbilities();
+                _abilitiesTabs.SelectedIndex = 1;
+                _explorer.PerformLayout();
+                break;
+        }
         PerformLayout();
-        _shell.PerformLayout();
     }
 
     /// <summary>Prepare an offscreen snapshot at a narrow width.</summary>
     internal void PrepareOffscreenSnapshot(int width, int height)
     {
-        _shell.SuppressTransitions = true;
         MinimumSize = new Size(320, 400);
         StartPosition = FormStartPosition.Manual;
         Location = new Point(-32000, -32000);
@@ -1577,6 +1927,8 @@ internal sealed class MainForm : Form
     internal void OpenClassSkillsForSnapshot(string className, string specName)
     {
         if (_classSkills is null) return;
+        ShowAbilities();
+        _abilitiesTabs.SelectedIndex = 0;
         _classSkills.Open(className, specName);
         _classSkills.SnapToShown();
         PerformLayout();
@@ -1584,34 +1936,90 @@ internal sealed class MainForm : Form
 
     internal string ClassSkillsDebugState => _classSkills?.DebugState ?? "null";
 
-    internal AppShell ShellForTest => _shell;
     internal AbilityExplorer ExplorerForTest => _explorer;
-    internal HomePage HomeForTest => _home;
     internal IntelligencePage IntelligenceForTest => _intelligencePage;
+    internal ConfigurationPage ConfigurationForTest => _config;
+    internal TabControl AdvancedTabsForTest => _advancedTabs;
+    internal TabControl AbilitiesTabsForTest => _abilitiesTabs;
+    internal bool AnyPopupVisibleForTest => AnyPopupVisible;
+    internal Size MinimumSizeForTest => MinimumSize;
+    internal Size DefaultClientSizeForTest => new(ClassicWantWidth, ClassicWantHeight);
+    internal ToggleSwitch SoloToggleForTest => _solo2;
+    internal ToggleSwitch MainToggleForTest => _main;
+    internal bool StartEnabledForTest => _start.Enabled;
+    internal bool StopEnabledForTest => _stop.Enabled;
+    internal string StatusLineForTest => _statusLine.Text;
+    internal void InvokeLaunchForTest() => LaunchGame();
+    internal IReadOnlyList<string> BottomButtonLabelsForTest => new[]
+    {
+        _start.Text, _stop.Text, _launchGame.Text,
+        _recalibrate.Text, _abilitiesEntry?.Text ?? "", _advancedEntry?.Text ?? "", _openFolder.Text,
+    };
+
+    /// <summary>Launcher seam: tests must never start the real Battle.net.</summary>
+    internal Func<string?, (bool Ok, string Message)> Launcher { get; set; } =
+        path => BattleNetLauncher.TryLaunch(path, out var message) ? (true, message) : (false, message);
+
+    /// <summary>Test seam: drive the Esc handler exactly as WinForms would.</summary>
+    internal bool HandleEscapeForTest()
+    {
+        var message = new Message();
+        return ProcessCmdKey(ref message, Keys.Escape);
+    }
+
+    internal void OpenAdvancedForTest() => ShowAdvanced();
+    internal void HideAdvancedForTest() => HideAdvanced();
+    internal void OpenAbilitiesForTest() => ShowAbilities();
+    internal void HideAbilitiesForTest() => HideAbilities();
 
     /// <summary>Test seam: runs one live status-refresh tick (A1 regression).</summary>
     internal void RefreshStatusForTest() => RefreshStatus();
 
     /// <summary>
-    /// Meaningful headless smoke test (v2.7 §47): brings up every page, lays it
-    /// out and runs the structural invariants. Returns findings (empty = pass).
+    /// Meaningful headless smoke test (v3 classic): lays out the main body and
+    /// every popup tab and runs the structural invariants. Returns findings.
     /// </summary>
     internal List<string> RunSmokeTest()
     {
         var findings = new List<string>();
-        _shell.SuppressTransitions = true;
-        MinimumSize = new Size(320, 400);
-        ClientSize = new Size(1280, 900);
-        CreateControl();
+        MinimumSize = new Size(520, 560);
+        StartPosition = FormStartPosition.Manual;
+        Location = new Point(-32000, -32000);
+        ShowInTaskbar = false;
+        ClientSize = new Size(660, 920);
+        Show();
+        Application.DoEvents();
+        PerformLayout();
+        Application.DoEvents();
+
         _intelligencePage.EnsureBuilt();
-        foreach (var (id, page) in _pages)
-        {
-            _shell.Navigate(id);
-            _shell.PerformLayout();
-            page.PerformLayout();
-            Application.DoEvents();
-            findings.AddRange(UiShellValidation.Validate(page, id.ToString()));
-        }
+        findings.AddRange(UiShellValidation.Validate(_mainBody, "Main"));
+
+        // Each tab must be selected so WinForms lays its content out (a
+        // never-shown TabPage keeps its children at 0×0).
+        ShowAdvanced();
+        ValidateTabs(_advancedTabs, "Advanced", findings);
+        HideAdvanced();
+
+        ShowAbilities();
+        ValidateTabs(_abilitiesTabs, "Abilities", findings);
+        HideAbilities();
+
+        Hide();
         return findings;
+    }
+
+    private static void ValidateTabs(TabControl tabs, string prefix, List<string> findings)
+    {
+        for (var i = 0; i < tabs.TabPages.Count; i++)
+        {
+            tabs.SelectedIndex = i;
+            var page = tabs.TabPages[i];
+            var content = page.Controls.Count > 0 ? page.Controls[0] : null;
+            content?.PerformLayout();
+            Application.DoEvents();
+            if (content is not null)
+                findings.AddRange(UiShellValidation.Validate(content, $"{prefix}/{page.Text}"));
+        }
     }
 }

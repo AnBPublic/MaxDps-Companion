@@ -494,7 +494,7 @@ internal static class Program
                     : "ui-smoke-test: FAIL\n" + string.Join("\n", findings.Select(f => "FINDING " + f));
                 Console.WriteLine(report);
                 File.WriteAllText(Path.Combine(AppDir, "ui-smoke.txt"), report);
-                File.WriteAllText(Path.Combine(AppDir, "ui-smoke-layout.txt"), UiShellValidation.Dump(window.HomeForTest));
+                File.WriteAllText(Path.Combine(AppDir, "ui-smoke-layout.txt"), UiShellValidation.Dump(window));
                 File.WriteAllText(Path.Combine(AppDir, "ui-smoke-shell.txt"), UiShellValidation.Dump(window));
                 if (findings.Count > 0) Environment.ExitCode = 1;
                 return;

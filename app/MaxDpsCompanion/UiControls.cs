@@ -512,6 +512,7 @@ internal sealed class SettingRow : Panel, IUiMeasured
         {
             Text = title,
             AutoSize = false,
+            AutoEllipsis = true,
             TextAlign = ContentAlignment.MiddleLeft,
             Font = DesignTokens.Type(DesignTokens.LabelSize, FontStyle.Bold),
             ForeColor = DesignTokens.TextPrimary,
@@ -521,7 +522,7 @@ internal sealed class SettingRow : Panel, IUiMeasured
         {
             Text = subtitle,
             AutoSize = false,
-            AutoEllipsis = false,
+            AutoEllipsis = true,
             TextAlign = ContentAlignment.TopLeft,
             Font = DesignTokens.Type(DesignTokens.BodySize),
             ForeColor = DesignTokens.TextSecondary,
@@ -805,5 +806,140 @@ internal sealed class StatusDot : Control
         using var dot = new SolidBrush(_dot);
         e.Graphics.FillEllipse(glow, 1, Height / 2 - 8, 16, 16);
         e.Graphics.FillEllipse(dot, 5, Height / 2 - 4, 8, 8);
+    }
+}
+
+// ----- classic (v1.3.9) restored primitives -----
+
+/// <summary>Round link lamp. Always paired with a text word, never colour-alone.</summary>
+internal sealed class LinkLamp : Control
+{
+    private Color _dot = ConsolePalette.Keyline;
+
+    public Color Dot
+    {
+        get => _dot;
+        set { if (_dot != value) { _dot = value; Invalidate(); } }
+    }
+
+    public LinkLamp()
+    {
+        Size = new Size(14, 14);
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint
+            | ControlStyles.OptimizedDoubleBuffer | ControlStyles.SupportsTransparentBackColor, true);
+        BackColor = Color.Transparent;
+        AccessibleRole = AccessibleRole.StaticText;
+        AccessibleName = "Link lamp";
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        var bounds = new Rectangle(1, 1, Math.Max(1, Width - 2), Math.Max(1, Height - 2));
+        using var fill = new SolidBrush(_dot);
+        e.Graphics.FillEllipse(fill, bounds);
+    }
+}
+
+/// <summary>
+/// Renders the MaxDps pixel-bridge cells from the sampled hex string, so the
+/// hero shows the actual strip the addon is drawing. The magic cell carries a
+/// brass tick underneath. Unparseable samples draw as empty outlines.
+/// </summary>
+internal sealed class StripView : Control
+{
+    private string _sample = "";
+
+    public string Sample
+    {
+        get => _sample;
+        set { if (_sample != value) { _sample = value; Invalidate(); } }
+    }
+
+    public StripView()
+    {
+        Height = 30;
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint
+            | ControlStyles.OptimizedDoubleBuffer | ControlStyles.SupportsTransparentBackColor, true);
+        BackColor = Color.Transparent;
+        AccessibleRole = AccessibleRole.StaticText;
+        AccessibleName = "Bridge strip";
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        const int sw = 26, h = 18, gap = 4, y = 2;
+        var tokens = _sample.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        for (var i = 0; i < PixelProtocol.CellCount; i++)
+        {
+            var x = i * (sw + gap);
+            if (x + sw > Width) break;
+            var rect = new Rectangle(x, y, sw, h);
+            if (i < tokens.Length && TryCell(tokens[i], out var color))
+            {
+                using var fill = new SolidBrush(color);
+                e.Graphics.FillRectangle(fill, rect);
+                using var edge = new Pen(ConsolePalette.Keyline, 1F);
+                e.Graphics.DrawRectangle(edge, rect);
+                if (i == 0)
+                {
+                    using var tick = new SolidBrush(ConsolePalette.Brass);
+                    e.Graphics.FillRectangle(tick, x, y + h + 3, sw, 2);
+                }
+            }
+            else
+            {
+                using var edge = new Pen(ConsolePalette.Keyline, 1F);
+                e.Graphics.DrawRectangle(edge, rect);
+            }
+        }
+    }
+
+    private static bool TryCell(string token, out Color color)
+    {
+        color = Color.Empty;
+        if (token.Length != 6) return false;
+        try
+        {
+            var rgb = Convert.ToInt32(token, 16);
+            color = Color.FromArgb((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
+            return true;
+        }
+        catch (FormatException) { return false; }
+        catch (OverflowException) { return false; }
+    }
+}
+
+/// <summary>Class/spec pill: rounded capsule with the detected class and spec.</summary>
+internal sealed class ClassBadge : Control
+{
+    public ClassBadge()
+    {
+        DoubleBuffered = true;
+        SetStyle(ControlStyles.SupportsTransparentBackColor | ControlStyles.ResizeRedraw, true);
+        Font = DesignTokens.Type(8.25F, FontStyle.Bold);
+        ForeColor = DesignTokens.TextPrimary;
+        BackColor = Color.Transparent;
+        AccessibleRole = AccessibleRole.StaticText;
+        AccessibleName = "Class and spec";
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        e.Graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+        var bounds = new Rectangle(1, 1, Math.Max(1, Width - 3), Math.Max(1, Height - 3));
+        using var path = new GraphicsPath();
+        var radius = Math.Min(13, bounds.Height / 2);
+        var diameter = radius * 2;
+        path.AddArc(bounds.Left, bounds.Top, diameter, diameter, 180, 90);
+        path.AddArc(bounds.Right - diameter, bounds.Top, diameter, diameter, 270, 90);
+        path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
+        path.AddArc(bounds.Left, bounds.Bottom - diameter, diameter, diameter, 90, 90);
+        path.CloseFigure();
+        using var fill = new SolidBrush(DesignTokens.Tint(DesignTokens.Info, DesignTokens.Surface));
+        e.Graphics.FillPath(fill, path);
+        TextRenderer.DrawText(e.Graphics, Text, Font, bounds, ForeColor,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
     }
 }

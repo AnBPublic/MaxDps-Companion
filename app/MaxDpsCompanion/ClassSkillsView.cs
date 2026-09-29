@@ -200,6 +200,7 @@ internal sealed class ClassSkillsView : Panel
 
         _empty.Text = "Pick a class and spec to see its abilities.";
         _empty.AutoSize = false;
+        _empty.AutoEllipsis = true;
         _empty.Dock = DockStyle.Top;
         _empty.Height = 60;
         _empty.TextAlign = ContentAlignment.MiddleLeft;
@@ -650,6 +651,7 @@ internal sealed class AbilityToggleRow : Panel
         _status.BackColor = Color.Transparent;
 
         _toggle.Checked = enabled;
+        _toggle.AccessibleName = $"{ability.Name} automatic use";
         _toggle.CheckedChanged += (_, _) =>
         {
             var effective = _apply(_toggle.Checked);

@@ -72,7 +72,6 @@ internal static class DesignTokens
         get
         {
             if (_family is not null) return _family;
-            if (UiFonts.FamilyAvailable) return _family = UiFonts.FamilyName;
             foreach (var candidate in new[] { "Segoe UI Variable", "Segoe UI Variable Text", "Segoe UI" })
             {
                 try

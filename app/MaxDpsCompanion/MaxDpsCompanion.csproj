@@ -33,18 +33,9 @@
     <None Include="assets\companion.ico" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
-  <!-- Bundled Geist faces (SIL OFL, vendored next to their license). Loaded
-       from embedded resources by Ui/UiFonts.cs; absent files fall back to the
-       system variable font chain without failing the build. -->
-  <ItemGroup>
-    <EmbeddedResource Include="assets\fonts\Geist-Regular.ttf"
-                      LogicalName="MaxDpsCompanion.assets.fonts.Geist-Regular.ttf" />
-    <EmbeddedResource Include="assets\fonts\Geist-Medium.ttf"
-                      LogicalName="MaxDpsCompanion.assets.fonts.Geist-Medium.ttf" />
-    <EmbeddedResource Include="assets\fonts\Geist-Bold.ttf"
-                      LogicalName="MaxDpsCompanion.assets.fonts.Geist-Bold.ttf" />
-    <None Include="assets\fonts\OFL.txt" CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
+  <!-- Bundled Geist faces removed in v3 classic UI (A6): the shell uses the
+       system variable-font chain (DesignTokens.FamilyName). The ttf assets are
+       left on disk but no longer embedded or referenced. -->
 
   <!-- Ability knowledge base (see Knowledge/AbilityCatalog.cs). -->
   <ItemGroup>
