@@ -1286,10 +1286,9 @@ internal sealed class MainForm : Form
         UpdateWindowBorder();
         _shell.SuppressTransitions = _engine.IsRunning;
 
-        // Defensive: focus-driven scrolling must never leave the page scrolled
-        // above its own content (a large empty band above the first card).
-        _pages.TryGetValue(_shell.ActivePage, out var active);
-        if (active is StackPage stackPage) stackPage.NormalizeScroll();
+        // Rule, enforced for life: no AutoScrollPosition writes on any timer
+        // path. The v2.8.1 NormalizeScroll reset a user's scroll offset on
+        // every refresh (A1 regression: ClassicUiTests.ClassicUi_ScrollSurvivesRefresh).
 
         if (_pendingLocation is { } located)
         {
@@ -1589,6 +1588,9 @@ internal sealed class MainForm : Form
     internal AbilityExplorer ExplorerForTest => _explorer;
     internal HomePage HomeForTest => _home;
     internal IntelligencePage IntelligenceForTest => _intelligencePage;
+
+    /// <summary>Test seam: runs one live status-refresh tick (A1 regression).</summary>
+    internal void RefreshStatusForTest() => RefreshStatus();
 
     /// <summary>
     /// Meaningful headless smoke test (v2.7 §47): brings up every page, lays it
