@@ -113,16 +113,19 @@ Legacy policy fields (unchanged semantics):
   are NOT game timers: exact cooldowns are secret/ never read.
 - **healPct** — static curated estimate of the heal as a fraction of the
   player's maximum health (e.g. Impending Victory = 30). It is a policy
-  heuristic, never a live read and never exact: the solo layer uses it for
-  the overheal guard (`missing < ceil(healPct * 0.6)` holds the heal as
-  mostly wasted) and never claims the actual amount healed. `0`/absent =
-  UNKNOWN → no overheal guard; the HP thresholds still apply. Percentages
+   heuristic, never a live read and never exact: the solo layer uses it for
+   the overheal guard (`missing < ceil(healPct * 0.6)` holds the heal as
+   mostly wasted) and never claims the actual amount healed. `0`/absent =
+   UNKNOWN → no overheal guard; the HP thresholds still apply. When the HP
+   source is the Ext2 HP curve (hidden plain HP), the guard uses the band's
+   UPPER bound (`HpPctUpper`) so quantisation cannot justify an overheal.
+   Percentages
   come from the live tooltips/Wiki (sources in the research doc) and are
   marked when they describe a patch older than 12.1.
 - **requiresEnemyCast** — reflect-type abilities: without an observed
   incoming cast the policy holds (UnknownPolicy `Hold` by default).
 - **useBelowHpPct / holdAboveHpPct** — HP gates (e.g. Lay on Hands below
-  40%).
+   20%; Word of Glory covers the 20–65% sustain band).
 - **holdWhenBuffActive** — skip when the ability's own aura is already on
   the player (default true for defensives).
 - **neverAutomatic** — externals, escapes, dispels and movement utility are
@@ -203,6 +206,15 @@ Catalog.lua drift check.
    can never disagree. The extras are the only source of self-sustain
    candidates MaxDps itself never surfaces; anything MaxDps already puts in
    a slot is handled there and is not duplicated.
+   **SelfHeal2 (v3.0.0):** the bridge encodes the NEXT distinct ready+bound
+   self-heal candidate in the Ext2 cells 36–38; the companion evaluates it as
+   an alternate for the same SelfHeal slot only when the primary does not Use
+   (e.g. Lay on Hands held by its ceiling → Word of Glory). Rank and the
+   one-action-per-tick rule are unchanged.
+   **aliases (v3.0.0):** a top-level `aliases` block (e.g. 202168 ↔ 34428,
+   19647 ↔ 119910) is stored symmetrically and emitted as
+   `MDB.SpellAliases`; the bridge resolves a bar/macro variant id through it.
+   Extras ids are checked against `spell-verification.json` names.
 6. **The defensive extras are DERIVED, not hand-listed.** Unlike
    Mobility/SelfHeal, `Catalog.lua`'s per-spec `defensive` list is computed
    by `AbilityCatalog.DefensiveGapFill`: every vendor-listed defensive for
