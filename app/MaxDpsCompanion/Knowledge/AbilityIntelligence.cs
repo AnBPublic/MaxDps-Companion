@@ -367,6 +367,13 @@ internal static class AbilityIntelligence
         if (ability.HasInterruptCapability) sb.AppendLine($"Interrupt     : {ability.InterruptKind}");
         if (ability.HasOffensiveCapability)
             sb.AppendLine($"Offensive     : {ability.OffensiveUsage}{(ability.EnemyCountMin is { } n ? $" (enemies >= {n})" : "")}{(ability.HoldForBurst ? " (hold for burst window)" : "")}");
+        if (ability.HasOffensiveCapability)
+        {
+            var minTtk = TtkPolicy.MinTtkSec(ability);
+            var ttkNote = ability.MinTtkSec is null ? " (usage default)" : " (curated)";
+            var execNote = ability.ExecuteFavored && ability.ExecuteBelowPct is { } exec ? $", execute <= {exec}%" : "";
+            sb.AppendLine($"TTK           : hold below {minTtk:0.#}s{ttkNote}{execNote}");
+        }
         if (ability.HasMobilityCapability) sb.AppendLine($"Mobility      : {ability.MobilityKind}");
         if (ability.TalentNote is { Length: > 0 } talent) sb.AppendLine($"Talent        : {talent}");
         if (ability.HeroTalentNote is { Length: > 0 } hero) sb.AppendLine($"Hero talent   : {hero}");

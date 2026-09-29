@@ -74,6 +74,20 @@ internal sealed class CombatContext
     public bool TargetHpValid { get; init; }
     public int TargetHpPct { get; init; }
 
+    /// <summary>
+    /// v3.2.0 TTK passthrough: true when the engine's <see cref="TtkEstimator"/>
+    /// produced a trustworthy per-target time-to-kill this tick. False on every
+    /// legacy/replay frame and when [TimeToKill] Enabled=0 — all TTK gates are
+    /// then skipped (documented fail-open).
+    /// </summary>
+    public bool TtkValid { get; init; }
+
+    /// <summary>Estimated seconds remaining on the current target (clamped 0..300).</summary>
+    public double TtkSec { get; init; } = TtkEstimator.MaxTtkSec;
+
+    /// <summary>Last observed target-HP fraction (band midpoint); engine-owned, read-only here.</summary>
+    public double TargetHpFrac { get; init; }
+
     /// <summary>Per-slot in-range tri-state from the bridge's IsSpellInRange probe.</summary>
     public TriState[] SlotRange { get; init; } = new TriState[PixelProtocol.SlotCount];
 
@@ -205,6 +219,41 @@ internal sealed class CombatContext
         : DefensiveUrgency.White;
 
     /// <summary>
+    /// A copy with the engine's per-target TTK estimate attached (v3.2.0). The
+    /// estimator lives in <c>RotationEngine</c>; this is a pure passthrough so
+    /// the policy/providers can read it without a scheduler signature change.
+    /// </summary>
+    public CombatContext WithTtk(TtkEstimate estimate)
+    {
+        if (TtkValid == estimate.Valid && TtkSec.Equals(estimate.TtkSec)) return this;
+        return new CombatContext
+        {
+            HpValid = HpValid,
+            HpSource = HpSource,
+            HpPct = HpPct,
+            HpPctUpper = HpPctUpper,
+            Cast = Cast,
+            TargetCasting = TargetCasting,
+            TargetCastInterruptible = TargetCastInterruptible,
+            TargetInMelee = TargetInMelee,
+            TargetHpValid = TargetHpValid,
+            TargetHpPct = TargetHpPct,
+            SlotRange = SlotRange,
+            SlotBuffActive = SlotBuffActive,
+            BuffProbeValid = BuffProbeValid,
+            DefensiveUrgency = DefensiveUrgency,
+            StaggerUrgency = StaggerUrgency,
+            DefensiveCatalogSource = DefensiveCatalogSource,
+            Class = Class,
+            Spec = Spec,
+            ContextValid = ContextValid,
+            TtkValid = estimate.Valid,
+            TtkSec = estimate.TtkSec,
+            TargetHpFrac = estimate.TargetHpFrac,
+        };
+    }
+
+    /// <summary>
     /// A copy with one slot's range replaced. Used by the scheduler to evaluate
     /// the Ext2 SelfHeal2 alternate with its OWN range probe (cell 28 B) instead
     /// of the primary SelfHeal slot's (cell 31 R).
@@ -235,6 +284,9 @@ internal sealed class CombatContext
             Class = Class,
             Spec = Spec,
             ContextValid = ContextValid,
+            TtkValid = TtkValid,
+            TtkSec = TtkSec,
+            TargetHpFrac = TargetHpFrac,
         };
     }
 }
