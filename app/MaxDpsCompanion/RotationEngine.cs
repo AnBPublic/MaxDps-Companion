@@ -724,7 +724,7 @@ internal sealed class RotationEngine : IDisposable
         // Build the combat context once: the scheduler consumes it (hard
         // execution-safety gate even with intelligence off), the policy
         // consumes it, and the telemetry tick records it (explainability).
-        var combat = CombatContext.FromFrame(frame);
+        var combat = CombatContext.FromFrame(frame, _settings.HpCurve);
         _lastCombatContext = combat;
         var plan = _scheduler.Advance(new ScheduleInput
         {
@@ -862,7 +862,7 @@ internal sealed class RotationEngine : IDisposable
         // below runs even on the double-off legacy path (it is not knowledge
         // filtering). A v4/v1 frame yields an all-UNKNOWN context, so a stale
         // in-game addon keeps the byte-identical legacy behaviour.
-        var combat = CombatContext.FromFrame(frame);
+        var combat = CombatContext.FromFrame(frame, _settings.HpCurve);
         _lastCombatContext = combat;
 
         // v1.3.3: scan the order EVERY tick (Main first by default). The

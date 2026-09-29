@@ -1,0 +1,67 @@
+MaxDps Companion rotation replay
+file       : tests/MaxDpsCompanion.Tests/fixtures/solo-hidden-hp-warrior.jsonl
+format     : 1
+events     : 8 (tick 5, send 2, link 0, session 1, bad 0)
+span       : 0.000s .. 1.700s (1.700s)
+decisions  : 0 recorded
+verdicts   : 6 policy verdicts recomputed, 0 mismatch(es)
+catalog    : recorded v3, current v3
+decode errs: 0
+mismatches : 0
+
+t=0.000s  session  app=3.0.0 proto=5 capacity=10000 start
+t=1.000s  send  spell SelfHeal H  interval=0ms
+t=1.000s  tick #0  Active  hb=7  target=yes  gcd=no  link=yes  note="sending"
+  slots   : Main=E  Off=-  Def=-  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=H
+  cand    : Main       E      enabled actionable  age=0.000s unchanged=0.000s pressed=no
+  cand    : SelfHeal   H      enabled actionable  age=0.000s unchanged=0.000s pressed=no
+  decision: SelfHeal -> SelfSustain (75%)
+  policy  : SelfSustain -> SelfHeal  held=0 skipped=0 suppressed=0
+  verdict : Main       spell=12294    Use  MaxDps main candidate; actionable  [MaxDpsRotation]  why: registry: delegated to MaxDps gate
+  verdict : SelfHeal   spell=202168   Use  solo: HP ~40% (curve) below sustain 65%; self-sustain  [SelfSustain]  why: solo self-sustain window 65%
+  rejected: Main (lower rank #2)
+  timing  : last send spell SelfHeal H 0ms ago
+t=1.050s  tick #0  Active  hb=7  target=yes  gcd=no  link=yes  note="waiting for GCD"
+  slots   : Main=E  Off=-  Def=-  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=H
+  cand    : Main       E      enabled actionable  age=0.050s unchanged=0.050s pressed=no
+  cand    : SelfHeal   H      enabled actionable  age=0.050s unchanged=0.050s pressed=no
+  decision: SelfHeal -> SelfSustain (75%)
+  policy  : MinInterval  held=0 skipped=0 suppressed=0
+  verdict : Main       spell=12294    Use  MaxDps main candidate; actionable  [MaxDpsRotation]  why: registry: delegated to MaxDps gate
+  verdict : SelfHeal   spell=202168   Use  solo: HP ~40% (curve) below sustain 65%; self-sustain  [SelfSustain]  why: solo self-sustain window 65%
+  rejected: Main (lower rank #2)
+  timing  : last send spell SelfHeal H 50ms ago
+t=1.400s  send  spell SelfHeal H  interval=300ms
+t=1.400s  tick #0  Active  hb=7  target=yes  gcd=no  link=yes  note="sending"
+  slots   : Main=E  Off=-  Def=-  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=H
+  cand    : Main       E      enabled actionable  age=0.400s unchanged=0.400s pressed=no
+  cand    : SelfHeal   H      enabled actionable  age=0.000s unchanged=0.000s pressed=no
+  decision: SelfHeal -> SelfSustain (75%)
+  policy  : SelfSustain -> SelfHeal  held=0 skipped=0 suppressed=0
+  verdict : Main       spell=12294    Use  MaxDps main candidate; actionable  [MaxDpsRotation]  why: registry: delegated to MaxDps gate
+  verdict : SelfHeal   spell=34428    Use  solo: HP ~40% (curve) below sustain 65%; self-sustain  [SelfSustain]  why: solo self-sustain window 65%
+  rejected: Main (lower rank #2)
+  timing  : last send spell SelfHeal H 0ms ago
+t=1.600s  tick #0  Active  hb=7  target=yes  gcd=no  link=yes  note="holding"
+  slots   : Main=E  Off=-  Def=-  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=H
+  cand    : Main       E      enabled actionable  age=0.600s unchanged=0.600s pressed=no
+  cand    : SelfHeal   H      enabled actionable  age=0.000s unchanged=0.000s pressed=no
+  decision: SelfHeal -> SelfSustain (75%)
+  policy  : LinkLost  held=0 skipped=0 suppressed=0
+  rejected: Main (lower rank #2)
+  timing  : last send spell SelfHeal H 200ms ago
+t=1.700s  tick #0  Active  hb=7  target=yes  gcd=no  link=yes  note="conserving"
+  slots   : Main=E  Off=-  Def=-  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=H
+  cand    : Main       E      enabled actionable  age=0.700s unchanged=0.700s pressed=no
+  cand    : SelfHeal   H      enabled actionable  age=0.100s unchanged=0.100s pressed=no
+  decision: SelfHeal -> SelfSustain (75%)
+  policy  : LinkLost  held=0 skipped=0 suppressed=0
+  rejected: Main (lower rank #2)
+  timing  : last send spell SelfHeal H 300ms ago
+
+summary
+  reasons : -
+  policy  : LinkLost 2, SelfSustain 2, MinInterval 1
+  sends   : spell 2
+  faults  : -
+  notes   : sending 2, conserving 1, holding 1, waiting for GCD 1

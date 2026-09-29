@@ -70,7 +70,7 @@ internal static class ColorLearner
         {
             if (cancel?.Invoke() == true) return null;
             var cells = sample(block, cellSize);
-            if (cells.Length != PixelProtocol.CellCount
+            if (!PixelProtocol.IsV5Length(cells.Length)
                 && cells.Length != PixelProtocol.CellCountV4
                 && cells.Length != PixelProtocol.CellCountV1) return null;
             var step = Classify(cells, profile);
@@ -193,7 +193,7 @@ internal static class ColorLearner
         var usable = 0;
         foreach (var cells in frames)
         {
-            if (cells.Length != PixelProtocol.CellCount
+            if (!PixelProtocol.IsV5Length(cells.Length)
                 && cells.Length != PixelProtocol.CellCountV4
                 && cells.Length != PixelProtocol.CellCountV1) continue;
             if (Classify(cells, matcher) < 0) continue;
@@ -252,7 +252,7 @@ internal static class ColorLearner
 
         foreach (var cells in frames)
         {
-            if (cells.Length != PixelProtocol.CellCount
+            if (!PixelProtocol.IsV5Length(cells.Length)
                 && cells.Length != PixelProtocol.CellCountV4
                 && cells.Length != PixelProtocol.CellCountV1) continue;
             var step = Classify(cells, matcher);
@@ -328,8 +328,9 @@ internal static class ColorLearner
 
     public static int Classify(Color[] cells, ColorProfile? profile = null)
     {
-        // v5 (current): 35 cells, slots 1-8, status 9.
-        if (cells.Length == PixelProtocol.CellCount)
+        // v5 (current): 35 cells, slots 1-8, status 9. An Ext2 capture (40
+        // cells) keeps the same core layout, so the extra cells are ignored.
+        if (PixelProtocol.IsV5Length(cells.Length))
             return ClassifyCells(cells, firstSlot: 1, lastSlot: 8,
                 cells[PixelProtocol.StatusCellIndex], profile);
         // v4 (stale addon): 9 cells, slots 1-6, status 7.

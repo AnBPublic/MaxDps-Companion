@@ -119,9 +119,10 @@ internal static class BlockLocator
             return cells;
         }
 
-        // v5 window (current addon). Decode validates via magic + both
-        // checksums; a clipped read fails there.
-        var current = ReadWindow(PixelProtocol.CellCount);
+        // v5/Ext2 window (current addon, 40 cells). Decode validates via magic
+        // + both checksums; a clipped read fails there. A 35-cell stale addon
+        // reads its extra cells as background and decodes through the same path.
+        var current = ReadWindow(PixelProtocol.CellCountExt2);
         if (PixelProtocol.Decode(current, profile) is not null) return true;
         if (ColorLearner.Classify(current, profile) >= 0) return true;
 

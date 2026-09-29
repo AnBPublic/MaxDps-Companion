@@ -61,7 +61,7 @@ One JSON object per line, UTF-8, `\n`-terminated; null sections are omitted.
 | `slots` | tick | 8 entries (Main/Off/Def/Cons/Trin/Int/Mobility/SelfHeal): decoded keybind or null. |
 | `cands` | tick | Candidate snapshot: `slot`, `key`, `en` (slot toggle), `act` (not movement-bound), `seen`/`chg` (observation window), `pressedMs`/`pressed` (press history). |
 | `dec` | tick | `src` (`intelligence` \| `legacy`), `sel`, `reason`, `conf`, `stale`, `order`. |
-| `pol` | tick | **Policy record (v2.0; extended v2.1, v2.3, v2.6):** `fresh` (the scheduler ran this tick), `sel`/`reason`/`conf` (plan head, e.g. `CastHold`/`ChannelHold`/`PolicyHold`), `suppressed`/`held`/`skipped` counts, `detail` (first hold/skip reason), `hp`/`hpKnown`, `cast`, `melee`, `tcast` (target cast), `tint` (target interruptibility), `ctx` (sensor block valid), `rang` (8-char per-slot range: `U`/`I`/`O`), `buff` (8-char self-buff bits), `du` (v2.3 HP-curve defensive urgency string), `dsu` (v2.3 stagger-curve urgency string), `dsrc` (v2.3 catalog gap-fill source bool; omitted when false), `opts` (the exact policy options the policy ran with), `verdicts` = per-candidate `{slot, spell, v (Use/Hold/Skip/Unavailable/Unknown - v2.6 five-state), r (reason)}`. This is the explainability record: why every situational ability was or was not pressed. Present only when the scheduler actually ran (`fresh:true`); legacy-path ticks carry no policy block (a stale plan is never recorded as this tick's reasoning). Hold + Unknown recompute as held, Skip + Unavailable as skipped. |
+| `pol` | tick | **Policy record (v2.0; extended v2.1, v2.3, v2.6):** `fresh` (the scheduler ran this tick), `sel`/`reason`/`conf` (plan head, e.g. `CastHold`/`ChannelHold`/`PolicyHold`), `suppressed`/`held`/`skipped` counts, `detail` (first hold/skip reason), `hp`/`hpKnown`, v3.0.0 `hpSrc` (`Plain`/`Curve`/`Unknown`) and `hpUp` (the curve band's upper bound for the overheal guard), `cast`, `melee`, `tcast` (target cast), `tint` (target interruptibility), `ctx` (sensor block valid), `rang` (8-char per-slot range: `U`/`I`/`O`), `buff` (8-char self-buff bits), `du` (v2.3 HP-curve defensive urgency string), `dsu` (v2.3 stagger-curve urgency string), `dsrc` (v2.3 catalog gap-fill source bool; omitted when false), `opts` (the exact policy options the policy ran with), `verdicts` = per-candidate `{slot, spell, v (Use/Hold/Skip/Unavailable/Unknown - v2.6 five-state), r (reason), alt (v3.0.0: this is the SelfHeal2 alternate), arng (v3.0.0: the alternate's own range `U`/`I`/`O`)}`. This is the explainability record: why every situational ability was or was not pressed. Present only when the scheduler actually ran (`fresh:true`); legacy-path ticks carry no policy block (a stale plan is never recorded as this tick's reasoning). Hold + Unknown recompute as held, Skip + Unavailable as skipped. |
 | `pol.du` / `pol.dsu` | tick | v2.3 MaxDps defensive urgency: `Unknown`/`White`/`Yellow`/`Orange`/`Red` (`du` from the HP curve, `dsu` from the stagger curve). **A policy record without `du` is a legacy pre-v2.3 record** — see Replay below. |
 | `pol.dsrc` | tick | `true` when the Defensive slot was supplied by the catalog gap-fill rather than MaxDps itself; omitted when false. |
 | `pol.opts` | tick | The exact policy options the record ran with: `solo`, `em`/`sus`/`esc` (the `[Solo]` thresholds) and v2.3 `on`/`off` (the `[Abilities]` explicit override lists, sorted comma lists, omitted when empty). Replay rebuilds `PolicyOptions` from this exactly. |
@@ -134,6 +134,16 @@ names the scheduler's selection, so telemetry can prove
 The checked-in fixture is regenerated with the v2.3 format and replays with
 `9 policy verdicts recomputed, 0 mismatch(es)`.
 
+**Hidden-HP curve + alternate replay (v3.0.0).** `hpSrc`/`hpUp` are rebuilt into
+`CombatContext` so a verdict that depended on the Ext2 HP curve (plain HP hidden)
+recomputes exactly, with the source-labelled reason (`solo: HP ~40% (curve)
+below sustain 65%`). A verdict carrying `alt: true` was evaluated with the
+SelfHeal2 candidate's OWN range; the replay applies the recorded `arng` to the
+SelfHeal slot before recomputing that one verdict, so it stays deterministic.
+The canonical hidden-HP fixture is
+`tests/MaxDpsCompanion.Tests/fixtures/solo-hidden-hp-warrior.jsonl`
+(`6 policy verdicts recomputed, 0 mismatch(es)`).
+
 **Defensive urgency proof.** The companion fixture
 `tests/MaxDpsCompanion.Tests/fixtures/defensive-warrior-urgency.jsonl` is the
 offline acceptance for the v2.3 defensive layer: it records the urgency
@@ -187,3 +197,4 @@ report.
 | `tests/MaxDpsCompanion.Tests/fixtures/solo-warrior-selfheal.jsonl` | Canonical Solo self-sustain recording (regenerated with the v2.3 option shape; 9 verdicts, 0 mismatches). |
 | `tests/MaxDpsCompanion.Tests/fixtures/defensive-warrior-urgency.jsonl` | Canonical v2.3 defensive-urgency recording (16 verdicts, 0 mismatches; White/Yellow/Orange/Red + user-OFF + gap-fill). |
 | `tests/MaxDpsCompanion.Tests/fixtures/offensive-interrupt-warrior.jsonl` | Canonical v2.6 offensive-interrupt recording (7 verdicts, 0 mismatches; five-state incl. Unavailable/Unknown). |
+| `tests/MaxDpsCompanion.Tests/fixtures/solo-hidden-hp-warrior.jsonl` | v3.0.0 hidden-HP curve recording (6 verdicts, 0 mismatches; `hpSrc`/`hpUp` + `~% (curve)` reasons). |

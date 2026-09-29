@@ -298,7 +298,10 @@ public class PolicyEvaluatorTests
     [Fact]
     public void Lay_On_Hands_Low_Hp_Uses_Emergency()
     {
-        var result = Evaluate(Slot.Defensive, 633, Context(hpValid: true, hp: 30));
+        // v3.0.0 raised the Lay on Hands ceiling: it is only spent below 20% HP
+        // (the paladin's Word of Glory covers the 20-65% sustain band), so the
+        // emergency case must be genuinely low.
+        var result = Evaluate(Slot.Defensive, 633, Context(hpValid: true, hp: 15));
         Assert.Equal(PolicyVerdict.Use, result.Verdict);
         Assert.True(result.Emergency);
     }

@@ -399,6 +399,15 @@ internal sealed class SelfSustainCandidateProvider : ICandidateProvider
             return D(PolicyDecision.Unavailable("target out of ability range"), "target out of ability range");
 
         var hp = p.Context.HpPct;
+        // The reason carries where the HP came from: a curve reading is
+        // approximate, a plain reading is exact. Existing plain reason strings
+        // stay byte-identical ("HP 50%"); the curve reads "HP ~40% (curve)".
+        var hpText = p.Context.HpSource == HpSource.Curve ? $"~{hp}% (curve)" : $"{hp}%";
+        // The overheal guard must not assume the bottom of a curve band: use
+        // the band's upper bound so a quantised reading cannot justify a heal
+        // that would mostly overheal.
+        var hpUpper = p.Context.HpSource == HpSource.Curve ? p.Context.HpPctUpper : hp;
+
         // A running immunity already prevents the damage; healing into it is
         // waste (the emergency branch below still overrides for a lethal-low
         // health pool that must be topped up before the immunity ends).
@@ -408,27 +417,27 @@ internal sealed class SelfSustainCandidateProvider : ICandidateProvider
 
         if (hp <= opts.EmergencyHpPct)
             return D(PolicyDecision.Use(
-                $"HP {hp}% at/below emergency {opts.EmergencyHpPct}%; emergency self-sustain",
+                $"HP {hpText} at/below emergency {opts.EmergencyHpPct}%; emergency self-sustain",
                 emergency: true),
-                $"HP {hp}% at/below emergency {opts.EmergencyHpPct}%");
+                $"HP {hpText} at/below emergency {opts.EmergencyHpPct}%");
 
         if (!opts.SoloEnabled)
             return D(PolicyDecision.Hold("solo mode off; self-heal held above emergency HP"), "solo mode off");
 
         if (ability.UseBelowHpPct is { } need && hp > need)
-            return D(PolicyDecision.Hold($"solo: HP {hp}% above ability threshold {need}%"), $"HP {hp}% above ability threshold {need}%");
+            return D(PolicyDecision.Hold($"solo: HP {hpText} above ability threshold {need}%"), $"HP {hpText} above ability threshold {need}%");
         if (hp > opts.SelfSustainHpPct)
-            return D(PolicyDecision.Hold($"solo: HP {hp}% above sustain threshold {opts.SelfSustainHpPct}%; conserving"),
+            return D(PolicyDecision.Hold($"solo: HP {hpText} above sustain threshold {opts.SelfSustainHpPct}%; conserving"),
                 $"self-sustain window {opts.SelfSustainHpPct}%");
         if (ability.HealPctMaxHp > 0)
         {
-            var missing = 100 - hp;
+            var missing = 100 - hpUpper;
             var materiallyUseful = (int)Math.Ceiling(ability.HealPctMaxHp * 0.6);
             if (missing < materiallyUseful)
-                return D(PolicyDecision.Hold($"solo: HP {hp}%; heal {ability.HealPctMaxHp}% would mostly overheal"),
+                return D(PolicyDecision.Hold($"solo: HP {hpText}; heal {ability.HealPctMaxHp}% would mostly overheal"),
                     $"overheal guard: {missing}% missing vs {materiallyUseful}% needed");
         }
-        return D(PolicyDecision.Use($"solo: HP {hp}% below sustain {opts.SelfSustainHpPct}%; self-sustain"),
+        return D(PolicyDecision.Use($"solo: HP {hpText} below sustain {opts.SelfSustainHpPct}%; self-sustain"),
             $"solo self-sustain window {opts.SelfSustainHpPct}%");
     }
 

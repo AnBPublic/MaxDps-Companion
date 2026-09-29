@@ -32,10 +32,9 @@
     {"id":498,"name":"Divine Protection","purpose":"DefensiveMinor","tier":"Minor","gcd":"OffGcd","range":"SelfOnly","cdMs":60000,"durMs":8000,"group":"DR.Minor"},
     {"id":528,"name":"Dispel Magic","category":"Utility","purpose":"Dispel","neverAutomatic":true,"note":"Friendly (and hostile) magic dispel.","source":"spell-verification.json (528 verified) (2026-09-28)","status":"ManualByDesign","classes":["PRIEST"],"specs":["Discipline","Holy","Shadow"]},
     {"id":586,"name":"Fade","purpose":"DefensiveMinor","tier":"None","gcd":"OffGcd","range":"SelfOnly","cdMs":30000,"durMs":4000,"group":"DR.Minor","note":"Fade: threat/avoid, not mitigation - never blocks a real defensive"},
-    {"id":633,"name":"Lay on Hands","purpose":"SelfHeal","tier":"None","gcd":"OffGcd","range":"SelfOnly","cdMs":600000,"healPct":100,"useBelowHpPct":40,"group":"Heal.Emergency","unknownPolicy":"Use","note":"Lay on Hands: full heal on a 10 min CD - only below 40% HP"},
+    {"id":633,"name":"Lay on Hands","purpose":"SelfHeal","tier":"None","gcd":"OffGcd","range":"SelfOnly","cdMs":600000,"healPct":100,"useBelowHpPct":20,"group":"Heal.Emergency","unknownPolicy":"Use","note":"Lay on Hands: full heal on a 10 min CD - only below 20% HP (v3 ceiling; larger CD than the paladin's Word of Glory)"},
     {"id":642,"name":"Divine Shield","purpose":"Immunity","tier":"Immunity","gcd":"OffGcd","range":"SelfOnly","cdMs":300000,"durMs":8000,"holdWhenBuffActive":true,"group":"Immunity","note":"Divine Shield clears debuffs"},
     {"id":710,"name":"Banish","category":"Utility","purpose":"CrowdControl","neverAutomatic":true,"note":"Demon/elemental banish; concentration.","source":"spell-verification.json (710 verified) (2026-09-28)","status":"ManualByDesign","classes":["WARLOCK"],"specs":["Affliction","Demonology","Destruction"]},
-    {"id":774,"name":"Regrowth","category":"SelfHeal","purpose":"SelfHeal","gcd":"OnGcd","cast":"CastTime","healPct":20},
     {"id":781,"name":"Disengage","category":"Mobility","purpose":"Escape","gcd":"OffGcd","cdMs":20000,"neverAutomatic":true,"note":"Backward leap, 20s modern value.","source":"spell-verification.json; https://warcraft.wiki.gg/wiki/Disengage (2026-09-28)","mobilityKind":"Disengage"},
     {"id":853,"name":"Hammer of Justice","category":"Utility","purpose":"CrowdControl","cdMs":60000,"neverAutomatic":true,"note":"Single-target stun.","source":"spell-verification.json (853 verified) (2026-09-28)","status":"ManualByDesign","classes":["PALADIN"],"specs":["Holy","Protection","Retribution"]},
     {"id":871,"name":"Shield Wall","purpose":"DefensiveMajor","tier":"Major","gcd":"OffGcd","range":"SelfOnly","cdMs":240000,"durMs":8000,"group":"DR.Major","note":"Shield Wall; sources disagree 180-240s / 8-12s - sequencing hints only"},
@@ -83,6 +82,9 @@
     {"id":20066,"name":"Repentance","category":"Utility","purpose":"CrowdControl","cdMs":60000,"neverAutomatic":true,"note":"Ret talent, 20yd, 6s incapacitate (retail row).","source":"spell-verification.json; https://warcraft.wiki.gg/wiki/Repentance (2026-09-28)","status":"ManualByDesign","classes":["PALADIN"],"specs":["Holy","Protection","Retribution"]},
     {"id":22812,"name":"Barkskin","purpose":"DefensiveMinor","tier":"Minor","gcd":"OffGcd","range":"SelfOnly","cdMs":60000,"durMs":8000,"holdWhenBuffActive":true,"group":"DR.Minor"},
     {"id":22842,"name":"Frenzied Regeneration","purpose":"SelfHeal","tier":"None","gcd":"OffGcd","range":"SelfOnly","cdMs":36000,"durMs":3000,"healPct":24,"group":"Heal.Emergency"},
+    {"id":8936,"name":"Regrowth","category":"SelfHeal","purpose":"SelfHeal","gcd":"OnGcd","range":"SelfOnly","cast":"CastTime","healPct":20,"note":"Druid direct heal + HoT; healPct is the approximate direct share for the overheal guard","source":"spell-verification.json (8936 = Regrowth, live 12.1; 774 is Rejuvenation); https://warcraft.wiki.gg/wiki/Regrowth (2026-09-29)","sourceUrl":"https://warcraft.wiki.gg/wiki/Regrowth"},
+    {"id":34428,"name":"Victory Rush","category":"SelfHeal","purpose":"SelfHeal","gcd":"OnGcd","range":"Melee","cast":"Instant","cdMs":0,"healPct":10,"requiresTarget":true,"note":"melee strike that heals 10% of maximum health; usable only within 20 s of a killing blow, no cooldown (GCD only). MaxDps never surfaces it; Impending Victory (202168) is the same kit slot when talented.","source":"https://warcraft.wiki.gg/wiki/Victory_Rush + https://www.wowhead.com/spell=34428/victory-rush (2026-09-29): heal 10% max HP, no cooldown, killing-blow gated, melee target required","sourceUrl":"https://warcraft.wiki.gg/wiki/Victory_Rush"},
+    {"id":184364,"name":"Enraged Regeneration","purpose":"DefensiveMajor","tier":"Major","cdMs":120000,"durMs":8000,"healPct":0,"sourceConfidence":"Low","source":"https://warcraft.wiki.gg/wiki/Enraged_Regeneration (2026-09-29): Fury talent, 2 min CD, 30% damage reduction for 8 s and boosts Bloodthirst healing; no direct self-heal amount, so healPct 0"},
     {"id":23920,"name":"Spell Reflection","purpose":"Reflect","tier":"Minor","gcd":"OffGcd","range":"Melee","cdMs":25000,"durMs":5000,"requiresEnemyCast":true,"holdWhenBuffActive":true,"group":"DR.Minor","unknownPolicy":"Hold","note":"Spell Reflection: use only when an incoming cast is observed; off-GCD"},
     {"id":30449,"name":"Spellsteal","category":"Utility","purpose":"Purge","neverAutomatic":true,"note":"Steal beneficial magic; GCD/cost only.","source":"spell-verification.json (30449 verified) (2026-09-28)","status":"ManualByDesign","classes":["MAGE"],"specs":["Arcane","Fire","Frost"]},
     {"id":31224,"name":"Cloak of Shadows","purpose":"Immunity","tier":"Immunity","gcd":"OffGcd","range":"SelfOnly","cdMs":120000,"durMs":5000,"holdWhenBuffActive":true,"group":"Immunity"},
@@ -120,7 +122,7 @@
     {"id":61336,"name":"Survival Instincts","purpose":"DefensiveMajor","tier":"Major","gcd":"OffGcd","range":"SelfOnly","cdMs":180000,"durMs":6000,"group":"DR.Major"},
     {"id":62618,"name":"Power Word: Barrier","purpose":"DefensiveMajor","tier":"Major","gcd":"OffGcd","range":"SelfOnly","cdMs":180000,"durMs":10000,"group":"DR.Major"},
     {"id":73325,"name":"Leap of Faith","category":"Mobility","purpose":"External","gcd":"OffGcd","cdMs":90000,"neverAutomatic":true,"classes":["PRIEST"],"specs":["Discipline","Holy","Shadow"]},
-    {"id":77472,"name":"Greater Healing Wave","category":"SelfHeal","purpose":"SelfHeal","gcd":"OnGcd","cast":"CastTime","healPct":35},
+    {"id":77472,"name":"Healing Wave","category":"SelfHeal","purpose":"SelfHeal","gcd":"OnGcd","cast":"CastTime","healPct":35,"note":"Restoration shaman big direct heal (live-client DB2 name Healing Wave)","source":"spell-verification.json (77472 = Healing Wave); https://warcraft.wiki.gg/wiki/Healing_Wave (2026-09-29)"},
     {"id":77764,"name":"Stampeding Roar","category":"Mobility","purpose":"Movement","gcd":"OffGcd","cdMs":120000,"neverAutomatic":true,"classes":["DRUID"],"specs":["Balance","Feral","Guardian","Restoration"]},
     {"id":85673,"name":"Word of Glory","category":"SelfHeal","purpose":"SelfHeal","gcd":"OnGcd","healPct":20,"note":"holy-power gated heal"},
     {"id":86659,"name":"Guardian of Ancient Kings","purpose":"DefensiveMajor","tier":"Major","gcd":"OffGcd","range":"SelfOnly","cdMs":300000,"durMs":8000,"group":"DR.Major"},
@@ -265,11 +267,15 @@
     {"id":1221150,"purpose":"MajorOffensive","gcd":"OffGcd","note":"Collapsing Star - Midnight Devourer","source":"vendor-only"},
     {"id":1246167,"purpose":"MajorOffensive","gcd":"OffGcd","range":"Ranged","cdMs":90000,"targetRange":"OutOfMelee","note":"The Hunt (Devourer)","source":"vendor-only"}
   ],
+  "aliases": {
+    "202168": [34428],
+    "19647": [119910]
+  },
   "extras": {
     "DEATHKNIGHT": {
-      "Blood": { "mobility": [49576, 48265, 212552], "selfHeal": [45470] },
-      "Frost": { "mobility": [49576, 48265], "selfHeal": [45470] },
-      "Unholy": { "mobility": [49576, 48265], "selfHeal": [45470] }
+      "Blood": { "mobility": [49576, 48265, 212552], "selfHeal": [45470, 48743] },
+      "Frost": { "mobility": [49576, 48265], "selfHeal": [45470, 48743] },
+      "Unholy": { "mobility": [49576, 48265], "selfHeal": [45470, 48743] }
     },
     "DEMONHUNTER": {
       "Devourer": { "mobility": [195072] },
@@ -277,20 +283,20 @@
       "Vengeance": { "mobility": [189110], "selfHeal": [263648] }
     },
     "DRUID": {
-      "Balance": { "mobility": [1850, 102401], "selfHeal": [774] },
-      "Feral": { "mobility": [1850, 102401], "selfHeal": [774] },
-      "Guardian": { "mobility": [1850, 102401], "selfHeal": [774] },
-      "Restoration": { "mobility": [1850, 102401], "selfHeal": [774] }
+      "Balance": { "mobility": [1850, 102401], "selfHeal": [8936, 22842, 108238] },
+      "Feral": { "mobility": [1850, 102401], "selfHeal": [8936, 22842, 108238] },
+      "Guardian": { "mobility": [1850, 102401], "selfHeal": [8936, 22842, 108238] },
+      "Restoration": { "mobility": [1850, 102401], "selfHeal": [8936, 22842, 108238] }
     },
     "EVOKER": {
-      "Augmentation": { "mobility": [358267], "selfHeal": [361469] },
-      "Devastation": { "mobility": [358267], "selfHeal": [361469] },
-      "Preservation": { "mobility": [358267], "selfHeal": [361469] }
+      "Augmentation": { "mobility": [358267], "selfHeal": [361469, 360995] },
+      "Devastation": { "mobility": [358267], "selfHeal": [361469, 360995] },
+      "Preservation": { "mobility": [358267], "selfHeal": [361469, 360995] }
     },
     "HUNTER": {
-      "Beast Mastery": { "mobility": [781] },
-      "Marksmanship": { "mobility": [781] },
-      "Survival": { "mobility": [781, 190925] }
+      "Beast Mastery": { "mobility": [781], "selfHeal": [109304] },
+      "Marksmanship": { "mobility": [781], "selfHeal": [109304] },
+      "Survival": { "mobility": [781, 190925], "selfHeal": [109304] }
     },
     "MAGE": {
       "Arcane": { "mobility": [1953] },
@@ -298,24 +304,24 @@
       "Frost": { "mobility": [1953] }
     },
     "MONK": {
-      "Brewmaster": { "mobility": [109132, 115008, 101643], "selfHeal": [116670] },
-      "Mistweaver": { "mobility": [109132, 115008, 101643], "selfHeal": [116670, 124682] },
-      "Windwalker": { "mobility": [109132, 115008, 101643], "selfHeal": [116670] }
+      "Brewmaster": { "mobility": [109132, 115008, 101643], "selfHeal": [322101, 116670] },
+      "Mistweaver": { "mobility": [109132, 115008, 101643], "selfHeal": [322101, 116670, 124682] },
+      "Windwalker": { "mobility": [109132, 115008, 101643], "selfHeal": [322101, 116670] }
     },
     "PALADIN": {
-      "Holy": { "mobility": [190784], "selfHeal": [85673, 19750] },
-      "Protection": { "mobility": [190784], "selfHeal": [85673] },
-      "Retribution": { "mobility": [190784], "selfHeal": [85673, 19750] }
+      "Holy": { "mobility": [190784], "selfHeal": [85673, 19750, 633] },
+      "Protection": { "mobility": [190784], "selfHeal": [85673, 19750, 633] },
+      "Retribution": { "mobility": [190784], "selfHeal": [85673, 19750, 633] }
     },
     "PRIEST": {
-      "Discipline": { "mobility": [121536], "selfHeal": [2061] },
-      "Holy": { "mobility": [121536], "selfHeal": [2061] },
-      "Shadow": { "mobility": [121536], "selfHeal": [2061] }
+      "Discipline": { "mobility": [121536], "selfHeal": [19236, 2061] },
+      "Holy": { "mobility": [121536], "selfHeal": [19236, 2061] },
+      "Shadow": { "mobility": [121536], "selfHeal": [19236, 2061] }
     },
     "ROGUE": {
-      "Assassination": { "mobility": [36554, 1856, 2983] },
-      "Outlaw": { "mobility": [36554, 1856, 2983] },
-      "Subtlety": { "mobility": [36554, 1856, 2983] }
+      "Assassination": { "mobility": [36554, 1856, 2983], "selfHeal": [185311] },
+      "Outlaw": { "mobility": [36554, 1856, 2983], "selfHeal": [185311] },
+      "Subtlety": { "mobility": [36554, 1856, 2983], "selfHeal": [185311] }
     },
     "SHAMAN": {
       "Elemental": { "mobility": [192063], "selfHeal": [8004] },
@@ -323,14 +329,14 @@
       "Restoration": { "mobility": [192063], "selfHeal": [8004, 77472] }
     },
     "WARLOCK": {
-      "Affliction": { "mobility": [48020], "selfHeal": [234153] },
-      "Demonology": { "mobility": [48020], "selfHeal": [234153] },
-      "Destruction": { "mobility": [48020], "selfHeal": [234153] }
+      "Affliction": { "mobility": [48020], "selfHeal": [234153, 6789] },
+      "Demonology": { "mobility": [48020], "selfHeal": [234153, 6789] },
+      "Destruction": { "mobility": [48020], "selfHeal": [234153, 6789] }
     },
     "WARRIOR": {
-      "Arms": { "mobility": [100, 6544], "selfHeal": [202168] },
-      "Fury": { "mobility": [100, 6544], "selfHeal": [202168] },
-      "Protection": { "mobility": [100, 6544, 198304], "selfHeal": [202168, 190456] }
+      "Arms": { "mobility": [100, 6544], "selfHeal": [202168, 34428] },
+      "Fury": { "mobility": [100, 6544], "selfHeal": [202168, 34428, 184364] },
+      "Protection": { "mobility": [100, 6544, 198304], "selfHeal": [202168, 34428, 190456] }
     }
   }
 }
