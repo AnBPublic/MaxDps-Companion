@@ -543,3 +543,50 @@ references) with access dates (2026-09-27) and per-fact confidence marks.
 Vendor tables are the primary authority for this game version; external
 sources are used for behaviour (GCD, conditions) and are marked when they
 describe an older patch.
+
+## TTK curation (v3.2.0)
+
+Time-to-kill intelligence adds three **optional, companion-side** fields to a
+curated ability. They are parsed by `AbilityCatalog`/`AbilityModel` and
+consumed by T-A's policy gates; they are **not** emitted to `Catalog.lua` and
+no addon/Lua behaviour depends on them.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `minTtkSec` | number 0..300 | hold this offensive when a valid target TTK is shorter than this (waste guard) |
+| `executeBelowPct` | number 0..100 | target-HP% at/below which this burst is favored (execute) |
+| `executeFavored` | bool | arms the execute-bypass rule; without it `executeBelowPct` is inert documentation |
+
+**Tier defaults when absent** (T-A, plan §3.3): MajorBurst 12, Transformation
+20, Summon 20, WindowDriven 10, ShortCooldown / ProcDriven / AoeOnly /
+SingleTargetOnly / ResourceDriven 5, DefensiveOffensiveHybrid n/a (defensive
+path), unknown usage 10. Curation starts from these defaults and only states
+explicit values where a class/spec guide justifies a deviation.
+
+Curated deviations (v3.2.0):
+
+- **Long-setup summons** — Army of the Dead (42650, 8 min CD, rune setup)
+  `minTtkSec: 30`; the other summons (Infernal 1122, Shadowfiend 34433,
+  Gargoyle 49206, Darkglare 205180, Demonic Tyrant 265187) state `minTtkSec:
+  20` explicitly to document the summon tier.
+- **Short cooldowns** — Unholy Assault (207289) and Primordial Wave (375982)
+  `minTtkSec: 5`: at 45–75 s they read as waste-safe and are never held.
+- **Execute synergy is sparse** — only Deathmark (360194, Assassination)
+  carries `executeBelowPct: 35` + `executeFavored: true`. Maxroll's
+  Assassination raid guide (Zoldyck Recipe) advises saving the last Deathmark
+  for the boss at ≤35% HP. Everywhere else the execute rule is OFF: modern
+  guides (Method, Icy Veins) say use Recklessness/Avatar/on-CD bursts on
+  cooldown rather than holding them for an execute phase.
+- **Cooldown corrections** (B1) — Havoc Metamorphosis (191427) `cdMs`
+  corrected 240000 → 120000 (Blizzard Midnight pre-patch notes: 3 min → 2 min);
+  Void Metamorphosis (1217605) no longer claims a 120 s / 20 s timer — it is
+  Soul-Fragment gated with a Fury-driven duration, so `cdMs`/`durMs` were
+  removed and the usage classed `Transformation`.
+
+Schema conformance is enforced by `TtkCurationTests` (raw-JSON read, so it is
+valid before T-A's model lands): every MajorOffensive/Transformation/Summon
+entry is explicit or on the documented-default table; explicit values are
+0..300; every `executeBelowPct` is accompanied by `executeFavored: true` and
+`0 < pct ≤ 35`; TTK fields appear only on major offensives; and every curated
+major name matches `spell-verification.json`. Per-class sources and the full
+B1 audit trail live in `docs/research/TTK_CURATION.md`.
