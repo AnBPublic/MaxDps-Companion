@@ -5,6 +5,7 @@ if not MaxDps then return end
 
 local GetItemCooldown = C_Item.GetItemCooldown
 local usedTrinkets = {}
+local aurasSetup = true
 
 local Arcane = {}
 
@@ -48,6 +49,11 @@ function Mage:Arcane()
                 end
             end
         end
+    end
+    if MaxDpsOptions.global.enableNewAuraSystem and MaxDps.SetupAuraContainer and aurasSetup then
+        -- Arcane Barrage if Arcane Soul is active
+        MaxDps:SetupAuraContainer({[44425] = true},{[451038] = true})
+        aurasSetup = false
     end
     for itemID, spellID in pairs(usedTrinkets) do
         local itemID1 = GetInventoryItemID("player", 13)

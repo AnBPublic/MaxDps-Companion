@@ -5,6 +5,7 @@ if not MaxDps then return end
 
 local GetItemCooldown = C_Item.GetItemCooldown
 local usedTrinkets = {}
+local aurasSetup = true
 
 local Frost = {}
 
@@ -48,6 +49,13 @@ function DeathKnight:Frost()
                 end
             end
         end
+    end
+    if MaxDpsOptions.global.enableNewAuraSystem and MaxDps.SetupAuraContainer and aurasSetup then
+        --Use Howling Blast with Rime
+        MaxDps:SetupAuraContainer({[49184] = true},{[59052] = true})
+        --Use Obliterate or Frostscyth with Killing Machine
+        MaxDps:SetupAuraContainer({[49020] = true,[207230] = true},{[51124] = true})
+        aurasSetup = false
     end
     for itemID, spellID in pairs(usedTrinkets) do
         local itemID1 = GetInventoryItemID("player", 13)

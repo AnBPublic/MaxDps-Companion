@@ -5,6 +5,7 @@ if not MaxDps then return end
 
 local GetItemCooldown = C_Item.GetItemCooldown
 local usedTrinkets = {}
+local aurasSetup = true
 
 local Fire = {}
 
@@ -48,6 +49,11 @@ function Mage:Fire()
                 end
             end
         end
+    end
+    if MaxDpsOptions.global.enableNewAuraSystem and MaxDps.SetupAuraContainer and aurasSetup then
+        -- Spend Hotstreak on Pyroblast or Flamestrike
+        MaxDps:SetupAuraContainer({[11366] = true, [1254851] = true},{[48108] = true})
+        aurasSetup = false
     end
     for itemID, spellID in pairs(usedTrinkets) do
         local itemID1 = GetInventoryItemID("player", 13)

@@ -3277,3 +3277,95 @@ function MaxDps:FindDeBuffAuraData(spellID)
     end
     return aura
 end
+
+local function createButton(height, width)
+    return function(button)
+        button:SetSize(height, width)
+        button:EnableMouse(false)
+        button:SetCancelAuraButtons('RightButtonUp')
+        local Icon = button:CreateTexture(nil, 'ARTWORK')
+        Icon:SetAllPoints()
+        button:SetIcon(Icon)
+        local Time = button:CreateFontString(nil, 'OVERLAY', 'GameFontNormal')
+        Time:SetPoint('TOPLEFT', 1, -1)
+        Time:SetJustifyH('LEFT')
+        Time:SetSize(8,8)
+        button:SetDurationText(Time)
+        local cooldown = button.cooldown or CreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
+        cooldown:SetAllPoints()
+        cooldown:SetAlpha(1)
+        cooldown:SetHideCountdownNumbers(true)
+        cooldown:SetDrawEdge(false)
+        cooldown:SetDrawSwipe(true)
+        cooldown:SetReverse(true)
+        cooldown:Show()
+        button.cooldown = cooldown
+        button:SetDurationCooldown(cooldown)
+        local text = button.text
+        if not text then
+            local tframe = CreateFrame("frame", nil, button)
+            text = tframe:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            button.text = text
+            text.tframe = tframe
+            tframe:SetAllPoints()
+        end
+        local level = button:GetFrameLevel()
+        text.tframe:SetFrameLevel(level+2)
+        text:ClearAllPoints()
+        text:SetPoint("BOTTOMRIGHT", 0, 0)
+        text:Show()
+        button:SetApplicationCount(text, {})
+    end
+end
+
+function MaxDps:SetupAuraContainer(spellIDTable, AuraIDTable)
+    if not MaxDps:IsRetailWow() then return end
+    if not spellIDTable or type(spellIDTable) ~= "table" then return end
+    if not AuraIDTable or type(AuraIDTable) ~= "table" then return end
+    for spellID in pairs(spellIDTable) do
+        if MaxDps.Spells[spellID] then
+            for i,frame in pairs(MaxDps.Spells[spellID]) do
+                if not MaxDps.SpellContainers then
+                    MaxDps.SpellContainers = {}
+                end
+                if not MaxDps.SpellContainers[spellID] then
+                    MaxDps.SpellContainers[spellID] = {}
+                end
+                if MaxDps.SpellContainers[spellID] then
+                    if not MaxDps.SpellContainers[spellID]["MaxDpsAuraGroup_" .. tostring(spellID) .. "_" .. tostring(i)] then
+                        MaxDps.SpellContainers[spellID]["MaxDpsAuraGroup_" .. tostring(spellID) .. "_" .. tostring(i)] = CreateFrame('AuraContainer', nil, MaxDps.Spells[spellID][i], 'CustomAuraContainerTemplate')
+                        MaxDps.SpellContainers[spellID]["MaxDpsAuraGroup_" .. tostring(spellID) .. "_" .. tostring(i)]:SetPoint("CENTER")
+                        MaxDps.SpellContainers[spellID]["MaxDpsAuraGroup_" .. tostring(spellID) .. "_" .. tostring(i)]:SetUnit("player")
+                    end
+                    local candidateFilters = {}
+                    candidateFilters.includeSpellIDs = AuraIDTable
+                    local height, width = 16, 16
+                    if MaxDps.Spells[spellID][1].GetHeight and MaxDps.Spells[spellID][1]:GetHeight() then
+                        height, width = MaxDps.Spells[spellID][1]:GetHeight(), MaxDps.Spells[spellID][1]:GetWidth()
+                        height, width = height * 0.5, width * 0.5
+                    end
+                    local init = createButton(height, width)
+                    if not MaxDps.SpellContainers[spellID]["MaxDpsAuraGroup_" .. tostring(spellID) .. "_" .. tostring(i)]:HasAuraGroup("MaxDpsAuraGroup_" .. tostring(spellID) .. "_" .. tostring(i)) then
+                        MaxDps.SpellContainers[spellID]["MaxDpsAuraGroup_" .. tostring(spellID) .. "_" .. tostring(i)]:AddAuraGroup("MaxDpsAuraGroup_" .. tostring(spellID) .. "_" .. tostring(i), "HELPFUL", {
+                              initializeFrame = init,
+                              sortMethod = AuraContainerSortMethod.ExpirationOnly,
+                              sortDirection = AuraContainerSortDirection.Reverse,
+                              layout = {
+                                 elementSpacing = 5,
+                                 lineSpacing = 5,
+                              },
+                              maxFrameCount = 1,
+                              candidateFilters = candidateFilters
+                            }
+                        )
+                        local container = MaxDps.SpellContainers and MaxDps.SpellContainers[spellID]
+                        local auraGroup = container and container["MaxDpsAuraGroup_" .. tostring(spellID)]
+                        if auraGroup and auraGroup.UpdateAllAuras then
+                            auraGroup:UpdateAllAuras()
+                        end
+                    end
+                end
+            end
+        end
+    end
+end

@@ -1,6 +1,6 @@
 # MaxDps_Warlock
 
-## [v11.2.9](https://github.com/kaminaris/MaxDps-Warlock/tree/v11.2.9) (2026-08-11)
-[Full Changelog](https://github.com/kaminaris/MaxDps-Warlock/compare/v11.2.8...v11.2.9) [Previous Releases](https://github.com/kaminaris/MaxDps-Warlock/releases)
+## [v11.2.10](https://github.com/kaminaris/MaxDps-Warlock/tree/v11.2.10) (2026-09-20)
+[Full Changelog](https://github.com/kaminaris/MaxDps-Warlock/compare/v11.2.9...v11.2.10) [Previous Releases](https://github.com/kaminaris/MaxDps-Warlock/releases)
 
-- Bump TOC  
+- Update All Retail  

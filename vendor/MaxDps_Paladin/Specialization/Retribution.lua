@@ -5,6 +5,7 @@ if not MaxDps then return end
 
 local GetItemCooldown = C_Item.GetItemCooldown
 local usedTrinkets = {}
+local aurasSetup = true
 
 local Retribution = {}
 
@@ -48,6 +49,16 @@ function Paladin:Retribution()
                 end
             end
         end
+    end
+    if MaxDpsOptions.global.enableNewAuraSystem and MaxDps.SetupAuraContainer and aurasSetup then
+        -- 12.1 4pc tier
+        MaxDps:SetupAuraContainer({
+            [53385] = true, -- Divine Storm
+            [85256] = true, -- Templar's Verdict
+            [383328] = true, -- Final Verdict
+            [427453] = true, -- Hammer of Light
+        }, {[1306161] = true, [1306162] = true}) -- Divine Arbiter
+        aurasSetup = false
     end
     for itemID, spellID in pairs(usedTrinkets) do
         local itemID1 = GetInventoryItemID("player", 13)
