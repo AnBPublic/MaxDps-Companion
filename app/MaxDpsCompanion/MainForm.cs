@@ -156,7 +156,7 @@ internal sealed class MainForm : Form
             (ability, on) =>
             {
                 _settings.Abilities = _settings.Abilities.With(ability.SpellId, on, !ability.NeverAutomatic);
-                _settings.Save();
+                SaveSettings();
             });
         _classSkills = new ClassSkillsView(
             AbilityCatalog.Default,
@@ -165,7 +165,7 @@ internal sealed class MainForm : Form
             (ability, on) =>
             {
                 _settings.Abilities = _settings.Abilities.With(ability.SpellId, on, !ability.NeverAutomatic);
-                _settings.Save();
+                SaveSettings();
             });
 
         BuildLayout();
@@ -226,7 +226,7 @@ internal sealed class MainForm : Form
         {
             _saveDebounce.Stop();
             ApplyToSettings();
-            _settings.Save();
+            SaveSettings();
             RegisterPauseHotkey();
         };
 
@@ -263,11 +263,21 @@ internal sealed class MainForm : Form
         _auditValue.AccessibleName = "Registry audit summary";
     }
 
+    // settings.ini is process-wide (the default AppSettings path is relative),
+    // so serialize writes: construction-time migration plus debounced saves
+    // from several forms must not truncate the same file concurrently.
+    private static readonly object SettingsSaveGate = new();
+
+    private void SaveSettings()
+    {
+        lock (SettingsSaveGate) _settings.Save();
+    }
+
     private void SaveNow()
     {
         _saveDebounce.Stop();
         ApplyToSettings();
-        _settings.Save();
+        SaveSettings();
         RegisterPauseHotkey();
     }
 
@@ -333,7 +343,7 @@ internal sealed class MainForm : Form
             if (slot >= 0 && slot < _settings.SlotEnabled.Length)
             {
                 _settings.SlotEnabled[slot] = toggle.Checked;
-                _settings.Save();
+                SaveSettings();
             }
         };
     }
@@ -1133,7 +1143,7 @@ internal sealed class MainForm : Form
         }
     }
 
-    private static NumericUpDown Spin(int min, int max) =>
+    private static WheelSafeNumeric Spin(int min, int max) =>
         new() { Minimum = min, Maximum = max, Width = 90, AccessibleName = $"numeric {min} to {max}" };
 
     // ----- one-click color calibration (cancelable worker) -----
@@ -1294,7 +1304,7 @@ internal sealed class MainForm : Form
             }
             profile.Tolerance = learned.Profile.Tolerance;
             profile.LearnedAt = learned.Profile.LearnedAt;
-            _settings.Save();
+            SaveSettings();
             BeginInvoke(RefreshColorStatus);
             SetStatus(learned.Note + " - saved.", DesignTokens.TextPrimary);
             SetColorStatus(learned.Note + " - saved.");
@@ -1335,7 +1345,7 @@ internal sealed class MainForm : Form
         for (var i = 0; i < 3; i++) { profile.Black[i] = 0; profile.White[i] = 255; }
         profile.Tolerance = 64;
         profile.LearnedAt = "";
-        _settings.Save();
+        SaveSettings();
         RefreshColorStatus();
     }
 
@@ -1773,10 +1783,12 @@ internal sealed class MainForm : Form
         ClientSize = new Size(w, h);
         if (!classic)
         {
-            // Record the layout tag in memory; it persists on the next Save
-            // (settings change or window close). Writing here made every
-            // AppSettings construction touch settings.ini concurrently.
+            // Size migration (v3 classic shell): stamp the layout tag at
+            // construction and persist it, so a remembered v2 shell size is
+            // never re-honoured on the next launch. Writes through the normal
+            // AppSettings save path, serialized by SaveSettings.
             _settings.WindowLayout = "classic3";
+            SaveSettings();
         }
     }
 
@@ -1788,7 +1800,7 @@ internal sealed class MainForm : Form
         if (_settings.WindowWidth == size.Width && _settings.WindowHeight == size.Height) return;
         _settings.WindowWidth = size.Width;
         _settings.WindowHeight = size.Height;
-        _settings.Save();
+        SaveSettings();
     }
 
     protected override void OnResizeEnd(EventArgs e)
@@ -1982,6 +1994,27 @@ internal sealed class MainForm : Form
 
     /// <summary>Test seam: runs one live status-refresh tick (A1 regression).</summary>
     internal void RefreshStatusForTest() => RefreshStatus();
+
+    /// <summary>
+    /// Test seam (A7): push <paramref name="count"/> distinct decoded snapshots
+    /// through the timer body. Every field changes each tick but no control is
+    /// added, removed, resized or re-parented, so the refresh must be value-only.
+    /// </summary>
+    internal void PumpChangingSnapshotsForTest(int count)
+    {
+        for (var i = 0; i < count; i++)
+        {
+            _status = new EngineStatus(
+                $"tick-{i}",
+                BridgeVisible: true,
+                State: BridgeState.Active,
+                SlotSummary: $"10 20 30 40 50 60 70 80 {i}",
+                LastKeySent: $"key-{i}",
+                RawSample: $"AA{i % 16:X}BB",
+                Decision: $"decision-{i}");
+            RefreshStatus();
+        }
+    }
 
     /// <summary>
     /// Meaningful headless smoke test (v3 classic): lays out the main body and

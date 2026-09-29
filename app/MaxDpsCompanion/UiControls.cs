@@ -910,6 +910,39 @@ internal sealed class StripView : Control
     }
 }
 
+/// <summary>
+/// NumericUpDown that does not steal the wheel from the page it lives in.
+/// While unfocused the wheel is forwarded to the nearest scrollable ancestor
+/// (the Advanced tab's AutoScroll panel); while focused the stock value-step
+/// behaviour is kept so a user can still spin the number. This is a real-input
+/// path only, never touched by the status timer.
+/// </summary>
+internal sealed class WheelSafeNumeric : NumericUpDown
+{
+    protected override void OnMouseWheel(MouseEventArgs e)
+    {
+        if (Focused || !ForwardToScrollableParent(e.Delta)) base.OnMouseWheel(e);
+    }
+
+    private bool ForwardToScrollableParent(int delta)
+    {
+        if (delta == 0) return false;
+        for (var parent = Parent; parent is not null; parent = parent.Parent)
+        {
+            if (parent is not ScrollableControl scroll || !scroll.AutoScroll) continue;
+            var max = Math.Max(0, scroll.VerticalScroll.Maximum - scroll.ClientSize.Height);
+            if (max <= 0) return true; // scrollable but nothing to scroll: swallow, don't step the value
+            var lines = SystemInformation.MouseWheelScrollLines;
+            var step = lines < 0 ? Math.Max(1, scroll.ClientSize.Height) : Math.Max(1, lines) * 16;
+            var current = -scroll.AutoScrollPosition.Y;
+            var target = Math.Clamp(current - (int)(delta / 120.0 * step), 0, max);
+            scroll.AutoScrollPosition = new Point(Math.Max(0, -scroll.AutoScrollPosition.X), target);
+            return true;
+        }
+        return false;
+    }
+}
+
 /// <summary>Class/spec pill: rounded capsule with the detected class and spec.</summary>
 internal sealed class ClassBadge : Control
 {

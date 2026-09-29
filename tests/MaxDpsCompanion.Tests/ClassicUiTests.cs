@@ -129,4 +129,51 @@ public class ClassicUiTests
         Assert.Null(error);
         Assert.Contains("stub-launch-ok", result.Status);
     }
+
+    /// <summary>
+    /// A7 perf guard: the 250 ms timer body is value-only. Fifty refreshes with
+    /// every field changing must not perform layout anywhere in the window or
+    /// the open popup (no Add/Remove/Bounds/Visible churn on a timer path).
+    /// </summary>
+    [Fact]
+    public void ClassicUi_ValueOnlyRefresh_DoesNotLayout()
+    {
+        var (layouts, error) = RunOnSta(() =>
+        {
+            var settings = new AppSettings();
+            using var form = new MainForm(settings);
+            form.StartPosition = FormStartPosition.Manual;
+            form.Location = new Point(-32000, -32000);
+            form.ShowInTaskbar = false;
+            form.Show();
+            System.Windows.Forms.Application.DoEvents();
+
+            form.OpenAdvancedForTest();
+            form.AdvancedTabsForTest.SelectedIndex = 1; // Diagnostics: live value labels
+            System.Windows.Forms.Application.DoEvents();
+
+            var count = 0;
+            void OnLayout(object? _, LayoutEventArgs __) => count++;
+            foreach (var control in Descendants(form)) control.Layout += OnLayout;
+
+            count = 0;
+            form.PumpChangingSnapshotsForTest(50);
+            return count;
+        });
+
+        Assert.Null(error);
+        Assert.Equal(0, layouts);
+    }
+
+    private static IEnumerable<Control> Descendants(Control root)
+    {
+        var stack = new Stack<Control>();
+        stack.Push(root);
+        while (stack.Count > 0)
+        {
+            var control = stack.Pop();
+            yield return control;
+            foreach (Control child in control.Controls) stack.Push(child);
+        }
+    }
 }

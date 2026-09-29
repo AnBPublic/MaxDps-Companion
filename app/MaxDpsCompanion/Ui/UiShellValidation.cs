@@ -195,7 +195,7 @@ internal static class UiShellValidation
 
     private static bool IsInteractive(Control control)
         => control is IButtonControl or ToggleSwitch or TextBox or NumericUpDown or ComboBox or ListBox
-           || control is NavRailItem or FilterChip
+           || control is FilterChip
            || control is MetricTile { Clickable: true };
 
     private static void CheckOverlap(List<Control> siblings, string page, List<string> findings)

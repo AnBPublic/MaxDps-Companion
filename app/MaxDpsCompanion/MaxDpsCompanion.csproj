@@ -34,8 +34,8 @@
   </ItemGroup>
 
   <!-- Bundled Geist faces removed in v3 classic UI (A6): the shell uses the
-       system variable-font chain (DesignTokens.FamilyName). The ttf assets are
-       left on disk but no longer embedded or referenced. -->
+       system variable-font chain (DesignTokens.FamilyName). The ttf/OFL assets
+       were deleted with UiFonts; nothing embeds or references them. -->
 
   <!-- Ability knowledge base (see Knowledge/AbilityCatalog.cs). -->
   <ItemGroup>
