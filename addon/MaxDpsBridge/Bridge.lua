@@ -671,6 +671,10 @@ local function Update (self, Delta)
 
   local R, G, B, Id = {}, {}, {}, {};
   R[1], G[1], B[1], Id[1] = WriteSlot(1, SafeRead(MDB.GetMainSpellID), false, true);
+  -- Offensive: MaxDps flagged+bound first; when MaxDps names none the
+  -- curated gap-fill list supplies the first ready+bound entry (v3.0.0). No
+  -- source bit is encoded: the companion detects a gap-fill by id membership
+  -- in the shared generated offensive list (see docs/PROTOCOL.md).
   R[2], G[2], B[2], Id[2] = WriteSlot(2, SafeRead(MDB.GetOffensiveSpellID));
   -- Defensive: MaxDps's flagged+bound candidate, or the catalog gap-fill at
   -- Red urgency. Both returns captured (the source bit goes to cell 31 B).

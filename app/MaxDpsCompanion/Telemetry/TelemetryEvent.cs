@@ -187,6 +187,21 @@ internal sealed record TelemetryPolicy
     /// <summary>True when the Defensive slot came from the catalog gap-fill, omitted otherwise.</summary>
     [JsonPropertyName("dsrc")] public bool? DefensiveCatalogSource { get; init; }
 
+    /// <summary>
+    /// v3.0.0 additive: the decoded class/spec the tick ran under. The
+    /// Offensive gap-fill has no wire source bit, so its source is derived by
+    /// id membership in the per-spec list — replay needs the same class/spec to
+    /// re-derive it. Omitted on legacy records (null = not recorded).
+    /// </summary>
+    [JsonPropertyName("cls")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Class { get; init; }
+
+    /// <summary>v3.0.0 additive: spec name for the tick (see <see cref="Class"/>).</summary>
+    [JsonPropertyName("spec")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Spec { get; init; }
+
     [JsonPropertyName("opts")] public TelemetryOptions? Options { get; init; }
     [JsonPropertyName("verdicts")] public TelemetryVerdict[]? Verdicts { get; init; }
 }
@@ -335,6 +350,8 @@ internal sealed record TelemetryEvent
             DefensiveUrgency = combat?.DefensiveUrgency.ToString(),
             StaggerUrgency = combat?.StaggerUrgency.ToString(),
             DefensiveCatalogSource = combat is { DefensiveCatalogSource: true } ? true : null,
+            Class = combat?.Class,
+            Spec = combat?.Spec,
             Options = options is null ? null : new TelemetryOptions
             {
                 Solo = options.SoloEnabled,

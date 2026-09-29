@@ -2,7 +2,43 @@
 
 ## Status: v3.0.0 — classic UI shell, Ext2 40-cell protocol (HP curve + SelfHeal2), all-class Solo self-sustain (490 xunit tests + 143 Lua harness checks, live validation owed)
 
-## v3.0.0 CLASSIC UI + EXT2 + ALL-CLASS SOLO (this workstream)
+## v3.0.0 r1 — offensive gap-fill + defensive Orange tier (`v3/r1-offgap`)
+
+GOAL: cooldowns the user toggled ON must fire even when MaxDps does not
+surface them. The Offensive slot was MaxDps-wire-only and the Defensive
+gap-fill only fired at Red, so user-enabled offensive CDs and short-CD
+defensives never fired.
+
+WHAT WAS BUILT:
+- `Knowledge/abilities.json`: curated per-spec `offensive` gap-fill lists
+  (1-4 true burst CDs each, shared burst first; all ids verified + name-matched
+  against `spell-verification.json`). Added curated Ravager `228920` (the task's
+  legacy `152277` is absent from the 12.1 export).
+- `AbilityCatalog` `SpecExtras.Offensive` + `OffensiveGapFill` /
+  `IsOffensiveGapFill` + `DefensiveGapFillMinor`; `CatalogLuaGenerator` emits
+  `offensive` and `defensiveMinor`; `Catalog.lua` regenerated (+fixture copy).
+- `Reader.lua`: `MDB.GetOffensiveCandidate` (MaxDps flagged+bound first, else
+  the curated list inside `enableCooldowns`); defensive gap-fill extended to
+  Orange via `defensiveMinor`.
+- `CandidateProviders` offensive gap-fill: `CompanionGapFill` source derived by
+  id membership (no wire bit), combat/Solo gate; `PolicyEvaluator` registry
+  companion-only enforcement extended. `Telemetry` policy block records
+  `cls`/`spec` (additive) so replay re-derives the source.
+- Tests: `OffensiveGapFillTests.cs`, `OffensiveGapFillReplayTests.cs`,
+  fixture `offensive-gapfill-warrior.jsonl`; 5 new harness checks;
+  `docs/KNOWLEDGE.md` + `docs/PROTOCOL.md`.
+
+VALIDATED (this machine): build 0 new warnings; xunit **512/512** with one
+pre-existing flaky UI timing test `ClassicUi_PopupOpen_Fast_SingleBoundedFade`
+(threshold 150 ms; passes intermittently under load — not touched by this
+branch); harness **148/148**; `luac -p` clean; audit exit 0; 6 fixtures
+0 mismatches; `--bench-scheduler` **unchanged** sends=1620 sha256=`b71a999d5e46570e`.
+
+LIVE OWED: toggled-on offensive CD (e.g. Warrior Recklessness/Ravager) that
+MaxDps never surfaces fires in combat; a short-CD defensive (e.g. Spell
+Reflection) fires at Orange; majors still wait for Red; `/reload` + replay.
+
+
 
 GOAL: restore a fast v1.3.9-style classic UI, keep all v2.8.1 functionality,
 and make Solo self-sustain fire reliably for every class — including when the

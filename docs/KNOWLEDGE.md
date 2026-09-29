@@ -225,8 +225,22 @@ Catalog.lua drift check.
     HP urgency is Red, and the whole path stays inside MaxDps's
     `enableDefensives` switch. Catalog revision is 3 (`--gen-catalog`), and
     the committed file is pinned by tests.
+7. **The offensive extras are CURATED, not derived.** `Catalog.lua`'s
+   per-spec `offensive` list is authored in `abilities.json` under
+   `extras.<class>.<spec>.offensive`, unlike the derived defensive list. This
+   is deliberate: the vendor `classCooldowns[class][spec].offensive` bucket
+   mixes true damage-burst windows with rotational/resource fillers, so a
+   blind derivation would let the companion fire a filler. Selection rule:
+   **only true offensive cooldowns (damage burst windows), 1-4 per spec,
+   ordered shared burst first then spec-specific, never rotational fillers
+   and never utilities.** Every id must be present in
+   `spell-verification.json` with a matching live-client name (test-pinned).
+   Example: Warrior Arms `[107574 Avatar, 228920 Ravager, 262161 Warbreaker]`
+   (Avatar/Ravager are shared across specs; Warbreaker is Arms-specific). The
+   task's legacy Ravager id `152277` is not in the 12.1 DB2 export and is
+   corrected to the verified `228920`.
 
-## Defensive automation (v2.3)
+## Defensive automation (v2.3 / v3.0.0 Orange tier)
 
 MaxDps owns the defensive *trigger*; the companion adds the urgency stage,
 the user policy and the gap-fill. Nothing here replaces MaxDps's rotation.
@@ -251,14 +265,50 @@ the user policy and the gap-fill. Nothing here replaces MaxDps's rotation.
   (`Solo.EmergencyHpPct`, default 35) overrides. Escape/Movement (even when
   user-enabled) and External are emergency-only. Dispel holds (debuff state
   is not observable).
-- **Gap-fill.** `MDB.GetDefensiveCandidate()` returns the MaxDps flagged +
-  ready + bound defensive first; only when MaxDps names none AND the HP
-  urgency is Red does the generated Catalog.lua defensive list supply the
-  first ready + bound entry, with the cell 31 B bit0 source flag set. A
-  gap-fill candidate is never offered below Red and never fires above Red.
+- **Gap-fill (v2.3 Red / v3.0.0 Orange).** `MDB.GetDefensiveCandidate()`
+  returns the MaxDps flagged + ready + bound defensive first; only when MaxDps
+  names none does the generated Catalog.lua list supply the first ready +
+  bound entry, with the cell 31 B bit0 source flag set. At **Red** the major
+  list (`defensive`) is offered; at **Orange** the short-cooldown list
+  (`defensiveMinor`, Minor/None-tier mitigation only) is offered, so a
+  user-enabled short CD can fire at Orange while a major still waits for Red
+  (`MinimumUrgency` Red for major/immunity). A gap-fill is never offered below
+  Orange, a major gap-fill never fires above Red, and the whole path stays
+  inside MaxDps's `enableDefensives` switch.
 - **One dispatcher.** The whole path stays in the existing policy + scheduler
   pipeline: one defensive candidate per tick, one send path, the scheduler
   state machine unchanged.
+
+## Offensive automation (v3.0.0)
+
+Before v3.0.0 the Offensive slot was MaxDps-wire-only: a cooldown the user
+toggled ON never fired when MaxDps did not surface it. The companion now has a
+gap-fill seam for it, mirroring the defensive pattern but with
+offensive-appropriate gates:
+
+- **Source.** `MDB.GetOffensiveCandidate()` returns MaxDps's own flagged +
+  ready offensive first; when MaxDps names none, the curated per-spec
+  `offensive` list supplies the first ready + bound entry. The whole path stays
+  inside MaxDps's own `enableCooldowns` switch. There is **no wire source bit**
+  (PixelProtocol decode is frozen and every slot-flag bit is used), so the
+  companion derives `CandidateSourceKind.CompanionGapFill` by id membership in
+  the same generated list (`AbilityCatalog.IsOffensiveGapFill`); see
+  `docs/PROTOCOL.md` for why this is replay-safe (class/spec are recorded in
+  the telemetry policy block).
+- **Gates** (`CandidateProviders.OffensiveCandidateProvider`, unchanged
+  reason strings for MaxDps-sourced rows): a gap-fill candidate is offered only
+  in combat **or** in Solo mode — never out of combat in Normal mode; the
+  own-buff skip, the curated pairing window (`OffensiveActive`/`HoldForBurst`),
+  the curated `EnemyCountMin` AoE guard, the melee/range gates and the
+  cast/channel execution-safety gate all still apply. One action per tick and
+  the existing offensive rank are unchanged.
+- **User policy.** OFF stays absolute (the gap-fill never overrides it); ON is
+  eligibility only. `[Abilities] Modes` (SoloOnly/NormalOnly/Manual/Never)
+  still apply.
+- **Registry.** A companion-generated offensive gap-fill whose intelligence is
+  Incomplete/Unknown/UnsafeToAutomate is structurally skipped, exactly like the
+  other companion-only sources; the curated lists only contain entries that are
+  catalogued with real intelligence.
 
 ## User ability policy (`[Abilities]`)
 

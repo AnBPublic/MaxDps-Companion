@@ -244,10 +244,19 @@ internal sealed class AbilityCatalog
                 if (specExtras is null) continue;
                 var mobility = (specExtras.Mobility ?? []).Where(id => id > 0).Distinct().ToArray();
                 var selfHeal = (specExtras.SelfHeal ?? []).Where(id => id > 0).Distinct().ToArray();
+                var offensive = (specExtras.Offensive ?? []).Where(id => id > 0).Distinct().ToArray();
                 if (mobility.Length > 0) extras[(className, specName, AbilityCategory.Mobility)] = mobility;
                 if (selfHeal.Length > 0) extras[(className, specName, AbilityCategory.SelfHeal)] = selfHeal;
+                if (offensive.Length > 0) extras[(className, specName, AbilityCategory.Offensive)] = offensive;
                 foreach (var id in mobility) overrides.TryAdd(id, new AbilityOverride { Id = id, Category = "Mobility" });
                 foreach (var id in selfHeal) overrides.TryAdd(id, new AbilityOverride { Id = id, Category = "SelfHeal" });
+                // NOTE: offensive list ids are deliberately NOT given a synthetic
+                // override. The curated offensive list only references ids that
+                // are already catalogued (vendor Offensive rows or a curated
+                // entry), and flipping a vendor row's provenance to Curated here
+                // would turn a delegated MaxDpsBacked offensive into a
+                // companion-backed one the audit (rightly) demands usage data
+                // for. The list membership alone is the gap-fill source.
             }
         }
 
@@ -424,6 +433,58 @@ internal sealed class AbilityCatalog
             return a.SpellId.CompareTo(b.SpellId);
         });
         return candidates.Select(a => a.SpellId).ToArray();
+    }
+
+    /// <summary>
+    /// Short-cooldown defensive gap-fill for the bridge's Orange tier (v3.0.0):
+    /// the same derivation as <see cref="DefensiveGapFill"/> but restricted to
+    /// Minor/None-tier mitigation — the "short CDs" the user turned on that
+    /// never fired because the old gap-fill only offered candidates at Red.
+    /// Majors/immunities are deliberately excluded: they still require Red.
+    /// Deterministic (Tier, then curated Priority, then ascending id).
+    /// </summary>
+    public int[] DefensiveGapFillMinor(string? className, string? specName)
+    {
+        if (className is null || specName is null) return [];
+        var candidates = new List<AbilityDefinition>();
+        foreach (var ability in _byId.Values)
+        {
+            if (!ability.IsDefensive || ability.NeverAutomatic) continue;
+            if (ability.Provenance == AbilityProvenance.ClassSpell) continue;
+            if (ability.Tier is DefensiveTier.Major or DefensiveTier.Immunity) continue;
+            if (ability.Purpose == AbilityPurpose.Immunity) continue;
+            if (!MembersContain(ability.Classes, className) || !MembersContain(ability.Specs, specName)) continue;
+            candidates.Add(ability);
+        }
+        candidates.Sort((a, b) =>
+        {
+            var priority = b.Priority.CompareTo(a.Priority);
+            if (priority != 0) return priority;
+            return a.SpellId.CompareTo(b.SpellId);
+        });
+        return candidates.Select(a => a.SpellId).ToArray();
+    }
+
+    /// <summary>
+    /// Curated offensive gap-fill list for a class+spec, in the authored
+    /// preference order (shared burst first, spec-specific second). Unlike the
+    /// defensive list this is HAND-CURATED in <c>abilities.json</c> because the
+    /// vendor's offensive bucket mixes true burst windows with rotational /
+    /// resource fillers the companion must never fire blind. The bridge offers
+    /// the first ready+bound entry only when MaxDps names no bound offensive,
+    /// and the companion detects the gap-fill by id membership (there is no
+    /// spare wire source bit — PixelProtocol decode is frozen).
+    /// </summary>
+    public int[] OffensiveGapFill(string? className, string? specName) =>
+        Extras(className, specName, AbilityCategory.Offensive);
+
+    /// <summary>True when the spell is one of the curated offensive gap-fill entries for the class+spec.</summary>
+    public bool IsOffensiveGapFill(string? className, string? specName, int spellId)
+    {
+        if (spellId <= 0) return false;
+        foreach (var id in OffensiveGapFill(className, specName))
+            if (id == spellId) return true;
+        return false;
     }
 
     private static int TierRank(DefensiveTier tier) => tier switch
@@ -1210,6 +1271,9 @@ internal sealed class AbilityCatalog
     {
         public List<int>? Mobility { get; set; }
         public List<int>? SelfHeal { get; set; }
+
+        /// <summary>Curated major offensive gap-fill candidates (shared burst first, spec-specific second).</summary>
+        public List<int>? Offensive { get; set; }
     }
 
     internal sealed class AbilityOverride

@@ -42,6 +42,7 @@
     {"id":1098,"name":"Subjugate Demon","category":"Utility","purpose":"CrowdControl","neverAutomatic":true,"note":"Enslave demon; concentration.","source":"spell-verification.json (1098 verified) (2026-09-28)","status":"ManualByDesign","classes":["WARLOCK"],"specs":["Affliction","Demonology","Destruction"]},
     {"id":1122,"name":"Summon Infernal","category":"Offensive","purpose":"MajorOffensive","note":"Destro summon, 2min since 11.0; Inferno talent -30s; 1 Soul Shard.","source":"spell-verification.json verified; https://warcraft.wiki.gg/wiki/Summon_Infernal (2026-09-28)","offensiveUsage":"Summon","enemyCountMin":1},
     {"id":1719,"name":"Recklessness","category":"Offensive","purpose":"MajorOffensive","note":"Fury major. Method 12.1: effective ~45s with Anger Management; hold <=10s.","source":"spell-verification.json (Recklessness verified); https://www.method.gg/guides/fury-warrior/playstyle-and-rotation (2026-09-28)","offensiveUsage":"MajorBurst","delegation":["RotationOrdering","ComplexBuffWindow"],"delegationNote":"MaxDps owns the burst-window ordering; the companion only gates casts/range."},
+    {"id":228920,"name":"Ravager","category":"Offensive","purpose":"MajorOffensive","gcd":"OffGcd","cdMs":90000,"durMs":12000,"offensiveUsage":"MajorBurst","note":"Warrior talent burst AoE (all specs). MaxDps does not surface it as the Offensive slot, so it is a curated companion gap-fill entry (shared burst first). The task's legacy id 152277 is not in the 12.1 DB2 export; 228920 is the verified live id.","source":"spell-verification.json (228920 = Ravager, verified live 12.1); https://warcraft.wiki.gg/wiki/Ravager (2026-09-29)","sourceUrl":"https://warcraft.wiki.gg/wiki/Ravager","delegation":["RotationOrdering","ComplexBuffWindow"],"delegationNote":"MaxDps owns burst-window ordering; the companion offers it only as a gap-fill when MaxDps names no bound offensive."},
     {"id":1766,"name":"Kick","category":"Interrupt","purpose":"Interrupt","range":"Melee","cdMs":15000,"note":"Best standard lockout ratio: 6s PvE.","source":"vendor classInterrupts; Blizzard Midnight notes (2026-09-28)","status":"ResearchBacked","interruptKind":"Dedicated"},
     {"id":1776,"name":"Gouge","category":"Utility","purpose":"CrowdControl","neverAutomatic":true,"note":"Incapacitate; CD UNKNOWN.","source":"spell-verification.json (1776 verified) (2026-09-28)","status":"ManualByDesign","classes":["ROGUE"],"specs":["Assassination","Outlaw","Subtlety"]},
     {"id":1850,"name":"Dash","category":"Mobility","purpose":"Movement","gcd":"OffGcd","cdMs":120000,"neverAutomatic":true,"note":"Cat form sprint. CD conflict 120-180s; use 120s low confidence.","source":"spell-verification.json (Dash verified) (2026-09-28)","mobilityKind":"SpeedBurst"},
@@ -273,70 +274,70 @@
   },
   "extras": {
     "DEATHKNIGHT": {
-      "Blood": { "mobility": [49576, 48265, 212552], "selfHeal": [45470, 48743] },
-      "Frost": { "mobility": [49576, 48265], "selfHeal": [45470, 48743] },
-      "Unholy": { "mobility": [49576, 48265], "selfHeal": [45470, 48743] }
+      "Blood": { "mobility": [49576, 48265, 212552], "selfHeal": [45470, 48743], "offensive": [47568, 194844] },
+      "Frost": { "mobility": [49576, 48265], "selfHeal": [45470, 48743], "offensive": [47568] },
+      "Unholy": { "mobility": [49576, 48265], "selfHeal": [45470, 48743], "offensive": [47568, 49206, 343294, 207289] }
     },
     "DEMONHUNTER": {
       "Devourer": { "mobility": [195072] },
-      "Havoc": { "mobility": [195072] },
-      "Vengeance": { "mobility": [189110], "selfHeal": [263648] }
+      "Havoc": { "mobility": [195072], "offensive": [191427, 370965, 342817, 258860] },
+      "Vengeance": { "mobility": [189110], "selfHeal": [263648], "offensive": [187827, 370965, 212084] }
     },
     "DRUID": {
-      "Balance": { "mobility": [1850, 102401], "selfHeal": [8936, 22842, 108238] },
-      "Feral": { "mobility": [1850, 102401], "selfHeal": [8936, 22842, 108238] },
-      "Guardian": { "mobility": [1850, 102401], "selfHeal": [8936, 22842, 108238] },
-      "Restoration": { "mobility": [1850, 102401], "selfHeal": [8936, 22842, 108238] }
+      "Balance": { "mobility": [1850, 102401], "selfHeal": [8936, 22842, 108238], "offensive": [102560, 194223] },
+      "Feral": { "mobility": [1850, 102401], "selfHeal": [8936, 22842, 108238], "offensive": [106951, 102543, 5217] },
+      "Guardian": { "mobility": [1850, 102401], "selfHeal": [8936, 22842, 108238], "offensive": [50334, 102558, 200851] },
+      "Restoration": { "mobility": [1850, 102401], "selfHeal": [8936, 22842, 108238], "offensive": [391528] }
     },
     "EVOKER": {
-      "Augmentation": { "mobility": [358267], "selfHeal": [361469, 360995] },
-      "Devastation": { "mobility": [358267], "selfHeal": [361469, 360995] },
-      "Preservation": { "mobility": [358267], "selfHeal": [361469, 360995] }
+      "Augmentation": { "mobility": [358267], "selfHeal": [361469, 360995], "offensive": [403631, 370553] },
+      "Devastation": { "mobility": [358267], "selfHeal": [361469, 360995], "offensive": [375087, 357210, 404977] },
+      "Preservation": { "mobility": [358267], "selfHeal": [361469, 360995], "offensive": [357210, 370553] }
     },
     "HUNTER": {
-      "Beast Mastery": { "mobility": [781], "selfHeal": [109304] },
-      "Marksmanship": { "mobility": [781], "selfHeal": [109304] },
-      "Survival": { "mobility": [781, 190925], "selfHeal": [109304] }
+      "Beast Mastery": { "mobility": [781], "selfHeal": [109304], "offensive": [321530, 359844] },
+      "Marksmanship": { "mobility": [781], "selfHeal": [109304], "offensive": [288613] },
+      "Survival": { "mobility": [781, 190925], "selfHeal": [109304], "offensive": [360952] }
     },
     "MAGE": {
-      "Arcane": { "mobility": [1953] },
-      "Fire": { "mobility": [1953] },
-      "Frost": { "mobility": [1953] }
+      "Arcane": { "mobility": [1953], "offensive": [365350] },
+      "Fire": { "mobility": [1953], "offensive": [190319] },
+      "Frost": { "mobility": [1953], "offensive": [12472] }
     },
     "MONK": {
-      "Brewmaster": { "mobility": [109132, 115008, 101643], "selfHeal": [322101, 116670] },
-      "Mistweaver": { "mobility": [109132, 115008, 101643], "selfHeal": [322101, 116670, 124682] },
-      "Windwalker": { "mobility": [109132, 115008, 101643], "selfHeal": [322101, 116670] }
+      "Brewmaster": { "mobility": [109132, 115008, 101643], "selfHeal": [322101, 116670], "offensive": [387184] },
+      "Mistweaver": { "mobility": [109132, 115008, 101643], "selfHeal": [322101, 116670, 124682], "offensive": [387184] },
+      "Windwalker": { "mobility": [109132, 115008, 101643], "selfHeal": [322101, 116670], "offensive": [123904, 387184] }
     },
     "PALADIN": {
-      "Holy": { "mobility": [190784], "selfHeal": [85673, 19750, 633] },
-      "Protection": { "mobility": [190784], "selfHeal": [85673, 19750, 633] },
-      "Retribution": { "mobility": [190784], "selfHeal": [85673, 19750, 633] }
+      "Holy": { "mobility": [190784], "selfHeal": [85673, 19750, 633], "offensive": [31884, 216331, 375576, 114165] },
+      "Protection": { "mobility": [190784], "selfHeal": [85673, 19750, 633], "offensive": [31884, 389539] },
+      "Retribution": { "mobility": [190784], "selfHeal": [85673, 19750, 633], "offensive": [31884] }
     },
     "PRIEST": {
-      "Discipline": { "mobility": [121536], "selfHeal": [19236, 2061] },
-      "Holy": { "mobility": [121536], "selfHeal": [19236, 2061] },
-      "Shadow": { "mobility": [121536], "selfHeal": [19236, 2061] }
+      "Discipline": { "mobility": [121536], "selfHeal": [19236, 2061], "offensive": [34433, 123040] },
+      "Holy": { "mobility": [121536], "selfHeal": [19236, 2061], "offensive": [34433, 372760, 88625] },
+      "Shadow": { "mobility": [121536], "selfHeal": [19236, 2061], "offensive": [34433, 200174, 391109] }
     },
     "ROGUE": {
-      "Assassination": { "mobility": [36554, 1856, 2983], "selfHeal": [185311] },
-      "Outlaw": { "mobility": [36554, 1856, 2983], "selfHeal": [185311] },
-      "Subtlety": { "mobility": [36554, 1856, 2983], "selfHeal": [185311] }
+      "Assassination": { "mobility": [36554, 1856, 2983], "selfHeal": [185311], "offensive": [360194, 381623] },
+      "Outlaw": { "mobility": [36554, 1856, 2983], "selfHeal": [185311], "offensive": [13750, 315508, 381623] },
+      "Subtlety": { "mobility": [36554, 1856, 2983], "selfHeal": [185311], "offensive": [121471, 381623] }
     },
     "SHAMAN": {
-      "Elemental": { "mobility": [192063], "selfHeal": [8004] },
-      "Enhancement": { "mobility": [58875, 192063], "selfHeal": [8004] },
-      "Restoration": { "mobility": [192063], "selfHeal": [8004, 77472] }
+      "Elemental": { "mobility": [192063], "selfHeal": [8004], "offensive": [114050] },
+      "Enhancement": { "mobility": [58875, 192063], "selfHeal": [8004], "offensive": [384352, 114051] },
+      "Restoration": { "mobility": [192063], "selfHeal": [8004, 77472], "offensive": [375982, 114052] }
     },
     "WARLOCK": {
-      "Affliction": { "mobility": [48020], "selfHeal": [234153, 6789] },
-      "Demonology": { "mobility": [48020], "selfHeal": [234153, 6789] },
-      "Destruction": { "mobility": [48020], "selfHeal": [234153, 6789] }
+      "Affliction": { "mobility": [48020], "selfHeal": [234153, 6789], "offensive": [205180] },
+      "Demonology": { "mobility": [48020], "selfHeal": [234153, 6789], "offensive": [265187, 196277] },
+      "Destruction": { "mobility": [48020], "selfHeal": [234153, 6789], "offensive": [1122] }
     },
     "WARRIOR": {
-      "Arms": { "mobility": [100, 6544], "selfHeal": [202168, 34428] },
-      "Fury": { "mobility": [100, 6544], "selfHeal": [202168, 34428, 184364] },
-      "Protection": { "mobility": [100, 6544, 198304], "selfHeal": [202168, 34428, 190456] }
+      "Arms": { "mobility": [100, 6544], "selfHeal": [202168, 34428], "offensive": [107574, 228920, 262161] },
+      "Fury": { "mobility": [100, 6544], "selfHeal": [202168, 34428, 184364], "offensive": [107574, 228920, 1719] },
+      "Protection": { "mobility": [100, 6544, 198304], "selfHeal": [202168, 34428, 190456], "offensive": [107574, 228920, 385952] }
     }
   }
 }

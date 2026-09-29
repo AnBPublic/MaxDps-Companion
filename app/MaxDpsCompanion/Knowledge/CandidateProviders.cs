@@ -179,23 +179,41 @@ internal sealed class OffensiveCandidateProvider : ICandidateProvider
         var input = p.Input;
         var slot = (int)p.Slot;
 
+        // v3.0.0: there is no offensive gap-fill source bit on the wire, so the
+        // companion detects it by membership in the same generated per-spec
+        // offensive list the bridge walked (AbilityCatalog.IsOffensiveGapFill).
+        // A MaxDps-named candidate keeps MaxDpsWire; a curated list candidate
+        // is CompanionGapFill. Diagnostic/evidence only — the gates below are
+        // unchanged for MaxDps-sourced candidates.
+        var gapFill = p.Slot == Slot.Offensive
+            && p.Catalog.IsOffensiveGapFill(ctx.Class, ctx.Spec, p.SpellId);
+        var src = gapFill ? CandidateSourceKind.CompanionGapFill : CandidateSourceKind.MaxDpsWire;
+
         if (ability.HoldWhenBuffActive && ctx.SlotBuffActive[slot] == TriState.Yes)
-            return D(PolicyDecision.Skip("ability's own buff already active"), "own buff already active");
+            return D(PolicyDecision.Skip("ability's own buff already active"), src, "own buff already active");
+        // A companion offensive gap-fill never fires out of combat in Normal
+        // mode — Solo mode is the only out-of-combat path (mirrors the
+        // self-sustain philosophy). MaxDps-sourced candidates are unaffected.
+        if (gapFill && !input.InCombat && !p.Options.SoloEnabled)
+            return D(PolicyDecision.Hold("offensive gap-fill out of combat (solo off)"), src, "out of combat (offensive gap-fill)");
         if (input.Memory.OffensiveActive(ability.ConflictGroup, input.NowMs))
-            return D(PolicyDecision.Hold($"paired cooldown window active ({ability.ConflictGroup})"), $"paired window active ({ability.ConflictGroup})");
+            return D(PolicyDecision.Hold($"paired cooldown window active ({ability.ConflictGroup})"), src, $"paired window active ({ability.ConflictGroup})");
         if (ability.EnemyCountMin is > 1 && ability.Status != IntelligenceStatus.MaxDpsBacked)
             return D(PolicyDecision.Uncertain(
                 $"enemy count not observable (use condition needs {ability.EnemyCountMin})"),
-                $"enemy count not observable (needs {ability.EnemyCountMin})");
+                src, $"enemy count not observable (needs {ability.EnemyCountMin})");
         if (ability.TargetRange == RangeRequirement.InMelee && ctx.TargetInMelee == TriState.No)
-            return D(PolicyDecision.Unavailable("target outside melee range"), "target outside melee range");
-        if (p.Range == TriState.No) return D(PolicyDecision.Unavailable("target out of range"), "target out of range");
+            return D(PolicyDecision.Unavailable("target outside melee range"), src, "target outside melee range");
+        if (p.Range == TriState.No) return D(PolicyDecision.Unavailable("target out of range"), src, "target out of range");
         if (p.Range == TriState.Unknown && ability.Unknown != UnknownPolicy.Use)
-            return D(PolicyDecision.Uncertain("ability range unknown"), "ability range unknown");
-        return D(PolicyDecision.Use("offensive candidate; no conflict observed"), "no conflict observed");
+            return D(PolicyDecision.Uncertain("ability range unknown"), src, "ability range unknown");
+        return D(PolicyDecision.Use("offensive candidate; no conflict observed"), src, "no conflict observed");
     }
 
     private PolicyDecision D(PolicyDecision d, params string[] ev) => ProviderStamp.Stamp(this, d, Source, ev);
+
+    private PolicyDecision D(PolicyDecision d, CandidateSourceKind source, params string[] ev) =>
+        ProviderStamp.Stamp(this, d, source, ev);
 }
 
 /// <summary>

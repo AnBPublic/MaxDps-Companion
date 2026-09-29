@@ -127,6 +127,20 @@ usable, enabled defensive is "recommended" while the colour is its urgency.
 | 3 | Orange | 30% < HP < 50% (red→yellow blend) | 50% ≤ stagger < 100% |
 | 4 | Red | HP ≤ 30% (red anchor) | stagger ≥ 100% |
 
+### Companion gap-fill sources (v3.0.0, no wire change)
+
+Two slots carry companion-generated gap-fill candidates. The **Defensive**
+slot has the cell 31 B bit0 source flag (Red majors / Orange short-CDs). The
+**Offensive** slot has **no source bit**: PixelProtocol decode is frozen
+(no new flag field) and every slot-flag nibble bit is already used, so the
+bridge just encodes the candidate into the normal slot and the companion
+derives the source by **id membership** in the same generated per-spec
+offensive list the bridge walked (`AbilityCatalog.IsOffensiveGapFill`). No
+wire format changed; cells/counts/version nibble are untouched. Because the
+offensive gap-fill is gated on combat/Solo, the tick's decoded class/spec is
+recorded in the telemetry policy block (`cls`/`spec`, additive/omitted on
+legacy records) so a replay re-derives the same source.
+
 Cell 31 G carries the urgency for the spell currently in the Defensive slot
 (so it follows the slot's identity). Cell 32 B always carries the raw
 stagger-curve stage, which lets the policy apply the per-ability
