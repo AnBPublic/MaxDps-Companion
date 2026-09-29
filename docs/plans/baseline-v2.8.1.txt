@@ -1,0 +1,17 @@
+# Baseline v2.8.1 (branch v2.8.1-baseline, commit 1c40c48)
+
+Recorded 2026-09-29 in a detached temp worktree (removed afterwards).
+
+| command | result |
+|---|---|
+| `dotnet build app\MaxDpsCompanion\MaxDpsCompanion.csproj -c Release` | PASS 0 errors, 2 warnings CS0108 `Ui/Layout.cs(273,22)` BentoSplit.Left, `(274,22)` BentoSplit.Right (pre-existing) |
+| `dotnet test -c Release` (tests\MaxDpsCompanion.Tests) | PASS 446/446, failed 0 |
+| `lua tests/secret_harness.lua` | PASS 94 passed, 0 failed |
+| `luac -p addon/MaxDpsBridge/*.lua` | PASS 6 files, exit 0 |
+| `pwsh -File tools/ability_audit.ps1` | PASS exit 0; Violations 0, Warnings 0, Missing 0, Stale 0; discovered/registered 3279, catalog matches |
+| `--bench-scheduler` | PASS sends=1620, sha256=b71a999d5e46570e (exact match) |
+| `--replay solo-warrior-selfheal` | PASS 9 verdicts, 0 mismatches |
+| `--replay defensive-warrior-urgency` | PASS 16 verdicts, 0 mismatches |
+| `--replay offensive-interrupt-warrior` | PASS 7 verdicts, 0 mismatches |
+
+Live retail checks remain OWED.
