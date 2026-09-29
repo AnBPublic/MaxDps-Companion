@@ -329,7 +329,12 @@ internal sealed class ClassSkillsView : Panel
         {
             _syncing = false;
         }
-        Rebuild();
+        // D6 perf: recreating every ability row + its window handles on each
+        // popup open is multi-second. The tree only depends on the selected
+        // class/spec, so rebuild only when that selection actually changes.
+        var sameSelection = string.Equals(_builtClass, SelectedClass, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(_builtSpec, SelectedSpec, StringComparison.Ordinal);
+        if (!sameSelection) Rebuild();
         _closing = false;
         _fade = 0f;
         _slide = 14f;
@@ -383,6 +388,11 @@ internal sealed class ClassSkillsView : Panel
 
     private bool _syncing;
 
+    // D6: the (class, spec) the current row tree was built for; a reopen with
+    // the same selection keeps the tree instead of recreating every row.
+    private string? _builtClass;
+    private string? _builtSpec;
+
     private void PopulateSpecs()
     {
         var wasSyncing = _syncing;
@@ -435,6 +445,8 @@ internal sealed class ClassSkillsView : Panel
 
             var className = SelectedClass;
             var specName = SelectedSpec;
+            _builtClass = className;
+            _builtSpec = specName;
             if (className is null || specName is null)
             {
                 _empty.Visible = true;

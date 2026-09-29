@@ -128,6 +128,64 @@ internal sealed class MainForm : Form
     private ClassSkillsView? _classSkills;
     private ChamferButton? _classSkillsEntry;
 
+    // Advanced-popup mirrors (v3.0.0 D1/D2). A WinForms control has exactly one
+    // parent, so the popup's lazy build must never reuse a hero control: doing
+    // so silently re-parents it off the main window (the confirmed screenshot
+    // defect — spell cards lost their toggles and three bottom buttons
+    // vanished). The popup owns its own controls; these mirror the hero state.
+    private readonly ToggleSwitch _mainAdv = new() { Checked = true };
+    private readonly ToggleSwitch _offensiveAdv = new() { Checked = true };
+    private readonly ToggleSwitch _defensivesAdv = new() { Checked = true };
+    private readonly ToggleSwitch _consumableAdv = new();
+    private readonly ToggleSwitch _trinketAdv = new();
+    private readonly ToggleSwitch _interruptAdv = new() { Checked = true };
+    private readonly ToggleSwitch _mobilityAdv = new() { Checked = true };
+    private readonly ToggleSwitch _selfHealAdv = new() { Checked = true };
+    private readonly ToggleSwitch _autoTargetAdv = new();
+    private readonly ToggleSwitch _autoInteractAdv = new();
+    private readonly ChamferButton _launchGameAdv = new() { Text = "Launch Game", Role = ButtonRole.Ghost };
+    private readonly ChamferButton _recalibrateAdv = new() { Text = "Recalibrate", Role = ButtonRole.Ghost, AccentColor = ConsolePalette.Brass };
+    private readonly ChamferButton _openFolderAdvConfig = new() { Text = "Open Folder", Role = ButtonRole.Ghost };
+    private readonly ChamferButton _openFolderAdvDiag = new() { Text = "Open Folder", Role = ButtonRole.Ghost };
+
+    // Width-tier scaling (D5) + measured content (D3/D4).
+    private UiScale _scale = UiScale.For(ClassicWantWidth);
+    private RoundedCard _heroCard = null!;
+    private TableLayoutPanel _heroLayout = null!;
+    private TableLayoutPanel _bodyLayout = null!;
+    private RoundedCard _advancedPopup = null!;
+    private RoundedCard _abilitiesPopup = null!;
+    private readonly List<Control> _heroRows = new();
+    private readonly List<SettingRow> _heroSettingRows = new();
+    private readonly List<GroupHeader> _heroHeaders = new();
+    private Control _statusRow = null!;
+    private Control _liveRow = null!;
+    private Control _stripRow = null!;
+    private readonly System.Windows.Forms.Timer _resizeDebounce = new() { Interval = 120 };
+    private bool _userSizedHeight;
+    private bool _forceHeight;
+    private int _contentHeight;
+
+    // D6: popups open synchronously and then run exactly ONE bounded fade. The
+    // scrim alpha is animated by a single timer (never a chain of fades/slides),
+    // the fade finishes within PopupFadeDurationMs, and it is skipped entirely
+    // while the engine is running so a live rotation never competes for the UI
+    // thread. The UI thread is never blocked (no Sleep / no modal wait).
+    internal const int PopupFadeDurationMs = 120;
+    private const int PopupFadeStepMs = 15;
+    private const int PopupScrimAlpha = 228;
+    private static readonly Color PopupScrimOpaque = Color.FromArgb(PopupScrimAlpha, 7, 9, 11);
+    private static readonly Color PopupScrimClear = Color.FromArgb(0, 7, 9, 11);
+    private readonly System.Windows.Forms.Timer _popupFadeTimer = new() { Interval = PopupFadeStepMs };
+    private Panel? _popupFadeScrim;
+    private long _popupFadeStart;
+    private double _lastPopupOpenMs;
+
+    /// <summary>Test seam: behave as if the engine were running without starting it.</summary>
+    internal bool EngineRunningForFadeGate { get; set; }
+
+    private bool FadeSuppressed => _engine.IsRunning || EngineRunningForFadeGate;
+
     private static Image? _appIcon;
     private bool _uiInitialised;
 
@@ -178,23 +236,30 @@ internal sealed class MainForm : Form
         WireAutoSave();
         SyncTelemetryRecorder();
         BuildTray();
+        ApplyScale(resetHeight: true);
 
-        OnToggle(_main, 0);
-        OnToggle(_offensive, 1);
-        OnToggle(_defensives, 2);
-        OnToggle(_consumable, 3);
-        OnToggle(_trinket, 4);
-        OnToggle(_interrupt, 5);
-        OnToggle(_mobility, 6);
-        OnToggle(_selfHeal, 7);
+        WireSlotMirror(_main, _mainAdv, 0);
+        WireSlotMirror(_offensive, _offensiveAdv, 1);
+        WireSlotMirror(_defensives, _defensivesAdv, 2);
+        WireSlotMirror(_consumable, _consumableAdv, 3);
+        WireSlotMirror(_trinket, _trinketAdv, 4);
+        WireSlotMirror(_interrupt, _interruptAdv, 5);
+        WireSlotMirror(_mobility, _mobilityAdv, 6);
+        WireSlotMirror(_selfHeal, _selfHealAdv, 7);
+        WireModeMirror(_autoTarget, _autoTargetAdv);
+        WireModeMirror(_autoInteract, _autoInteractAdv);
 
         _start.Click += (_, _) => StartEngine();
         _stop.Click += (_, _) => StopEngine();
         _recalibrate.Click += (_, _) => RecalibrateFull();
         _telemetryExport.Click += (_, _) => ExportTelemetry();
         _telemetryReplay.Click += (_, _) => ReplayTelemetry();
-        _openFolder.Click += (_, _) => System.Diagnostics.Process.Start("explorer.exe", Program.AppDir);
+        _openFolder.Click += (_, _) => OpenAppFolder();
+        _openFolderAdvConfig.Click += (_, _) => OpenAppFolder();
+        _openFolderAdvDiag.Click += (_, _) => OpenAppFolder();
         _launchGame.Click += (_, _) => LaunchGame();
+        _launchGameAdv.Click += (_, _) => LaunchGame();
+        _recalibrateAdv.Click += (_, _) => RecalibrateFull();
         _learnColors.Click += (_, _) => LearnColors();
         _resetColors.Click += (_, _) => ResetColors();
         _bnetBrowse.Click += (_, _) => BrowseBNet();
@@ -236,6 +301,15 @@ internal sealed class MainForm : Form
 
         _uiTimer.Tick += (_, _) => RefreshStatus();
         _uiTimer.Start();
+
+        // D5: tier recompute is debounced; no re-layout while the user drags.
+        _resizeDebounce.Tick += (_, _) =>
+        {
+            _resizeDebounce.Stop();
+            if (!_userSizedHeight) { /* height is content-driven */ }
+            ApplyScale(resetHeight: !_userSizedHeight);
+        };
+        _popupFadeTimer.Tick += (_, _) => PopupFadeTick();
         _uiInitialised = true;
     }
 
@@ -340,17 +414,58 @@ internal sealed class MainForm : Form
     private bool SlotFlag(int slot, bool fallback) =>
         (slot >= 0 && slot < _settings.SlotEnabled.Length) ? _settings.SlotEnabled[slot] : fallback;
 
-    private void OnToggle(ToggleSwitch toggle, int slot)
+    /// <summary>Two-way mirror for a slot toggle (hero ↔ Advanced popup).</summary>
+    private void WireSlotMirror(ToggleSwitch hero, ToggleSwitch popup, int slot)
     {
-        toggle.CheckedChanged += (_, _) =>
+        popup.Checked = hero.Checked;
+        WireMirror(hero, popup, source =>
         {
             if (slot >= 0 && slot < _settings.SlotEnabled.Length)
+                _settings.SlotEnabled[slot] = source.Checked;
+        });
+    }
+
+    /// <summary>Two-way mirror for a mode toggle; persistence rides the hero's existing SaveNow.</summary>
+    private void WireModeMirror(ToggleSwitch hero, ToggleSwitch popup)
+    {
+        popup.Checked = hero.Checked;
+        WireMirror(hero, popup, _ => { });
+    }
+
+    /// <summary>
+    /// One shared setting, two controls. Either side changes the other and runs
+    /// <paramref name="apply"/>; the guard stops the mirror write-back from
+    /// looping.
+    /// </summary>
+    private static void WireMirror(ToggleSwitch hero, ToggleSwitch popup, Action<ToggleSwitch> apply)
+    {
+        var syncing = false;
+        hero.CheckedChanged += (_, _) =>
+        {
+            if (syncing) return;
+            syncing = true;
+            try
             {
-                _settings.SlotEnabled[slot] = toggle.Checked;
-                SaveSettings();
+                if (popup.Checked != hero.Checked) popup.Checked = hero.Checked;
+                apply(hero);
             }
+            finally { syncing = false; }
+        };
+        popup.CheckedChanged += (_, _) =>
+        {
+            if (syncing) return;
+            syncing = true;
+            try
+            {
+                if (hero.Checked != popup.Checked) hero.Checked = popup.Checked;
+                apply(popup);
+            }
+            finally { syncing = false; }
         };
     }
+
+    private static void OpenAppFolder() =>
+        System.Diagnostics.Process.Start("explorer.exe", Program.AppDir);
 
     // ----- chrome: custom title bar + classic fixed body + popups (v3 A3-A5) -----
 
@@ -449,11 +564,13 @@ internal sealed class MainForm : Form
             Padding = Padding.Empty,
         };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, HeroCardHeight + 12F)); // card + margins
+        // Heights are content-measured at every tier (D3/D4); these are seeds.
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 500F)); // hero + margins
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 52F));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 46F));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 26F));
         _mainBody = layout;
+        _bodyLayout = layout;
         layout.Controls.Add(BuildHeroCard(), 0, 0);
         layout.Controls.Add(BuildButtonRow1(), 0, 1);
         layout.Controls.Add(BuildButtonRow2(), 0, 2);
@@ -471,10 +588,10 @@ internal sealed class MainForm : Form
 
     private Control BuildHeroCard()
     {
-        var card = new RoundedCard
+        _heroCard = new RoundedCard
         {
             Dock = DockStyle.Top,
-            Height = HeroCardHeight,
+            Height = 500,
             Margin = new Padding(0, 2, 0, 6),
             Padding = new Padding(18, 12, 18, 12),
         };
@@ -487,14 +604,9 @@ internal sealed class MainForm : Form
             Margin = Padding.Empty,
             Padding = Padding.Empty,
         };
+        _heroLayout = layout;
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42F));  // 0 status
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42F));  // 1 live
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40F));  // 2 strip
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24F));  // 3 Spells header
-        for (var i = 0; i < 4; i++) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 66F));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24F));  // 8 Modes header
-        for (var i = 0; i < 2; i++) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 66F));
+        for (var i = 0; i < 11; i++) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24F));
 
         // Status row: lamp + state + class badge.
         _stateLabel.AutoSize = false;
@@ -512,11 +624,11 @@ internal sealed class MainForm : Form
         _classBadge.Width = 150;
         _classBadge.Text = "AUTO DETECT";
         _classBadge.Font = DesignTokens.Type(8.25F, FontStyle.Bold);
-        var statusRow = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
-        statusRow.Controls.Add(_stateLabel);
-        statusRow.Controls.Add(_linkLamp);
-        statusRow.Controls.Add(_classBadge);
-        layout.Controls.Add(statusRow, 0, 0);
+        _statusRow = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
+        _statusRow.Controls.Add(_stateLabel);
+        _statusRow.Controls.Add(_linkLamp);
+        _statusRow.Controls.Add(_classBadge);
+        layout.Controls.Add(_statusRow, 0, 0);
 
         // Live row: what MaxDps suggests and why (ellipsis + tooltip).
         _liveValue.AutoSize = false;
@@ -530,26 +642,38 @@ internal sealed class MainForm : Form
         _liveValue.AccessibleName = "Current suggestion";
         var liveTip = new ToolTip { AutoPopDelay = 20000, InitialDelay = 300 };
         liveTip.SetToolTip(_liveValue, "What the companion is about to send and why");
+        _liveRow = _liveValue;
         layout.Controls.Add(_liveValue, 0, 1);
 
         // Strip row: the actual decoded bridge cells.
         _stripView.Dock = DockStyle.Fill;
-        var stripRow = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
-        stripRow.Controls.Add(_stripView);
-        layout.Controls.Add(stripRow, 0, 2);
+        _stripRow = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
+        _stripRow.Controls.Add(_stripView);
+        layout.Controls.Add(_stripRow, 0, 2);
 
-        layout.Controls.Add(GroupHeaderFor("Spells"), 0, 3);
+        var spellsHeader = GroupHeaderFor("Spells");
+        _heroHeaders.Add(spellsHeader);
+        layout.Controls.Add(spellsHeader, 0, 3);
         layout.Controls.Add(TwoToggleRow("Main", "Core rotation", _main, "Offensive", "Burst cooldowns", _offensive, alt: false), 0, 4);
         layout.Controls.Add(TwoToggleRow("Defensive", "Mitigation and absorbs", _defensives, "Interrupt", "Kick casts", _interrupt, alt: true), 0, 5);
         layout.Controls.Add(TwoToggleRow("Self-heal", "Solo self-sustain", _selfHeal, "Mobility", "Gap closers", _mobility, alt: false), 0, 6);
         layout.Controls.Add(TwoToggleRow("Consumable", "Potions", _consumable, "Trinket", "On-use trinkets", _trinket, alt: true), 0, 7);
 
-        layout.Controls.Add(GroupHeaderFor("Modes"), 0, 8);
+        var modesHeader = GroupHeaderFor("Modes");
+        _heroHeaders.Add(modesHeader);
+        layout.Controls.Add(modesHeader, 0, 8);
         layout.Controls.Add(TwoToggleRow("Solo", "Self-sustain mode", _solo2, "Out of combat", "Run outside combat", _outOfCombat, alt: false), 0, 9);
         layout.Controls.Add(TwoToggleRow("Auto-target", "Target when needed", _autoTarget, "Auto-interact", "Interact when needed", _autoInteract, alt: true), 0, 10);
 
-        card.Controls.Add(layout);
-        return card;
+        // Row order must match the RowStyles declared above.
+        _heroRows.Add(_statusRow);
+        _heroRows.Add(_liveValue);
+        _heroRows.Add(_stripRow);
+        _heroRows.Add(spellsHeader);
+        for (var r = 4; r <= 10; r++) _heroRows.Add(layout.GetControlFromPosition(0, r)!);
+
+        _heroCard.Controls.Add(layout);
+        return _heroCard;
     }
 
     // Modes "Solo" is a dedicated toggle that mirrors the Advanced checkbox.
@@ -558,29 +682,25 @@ internal sealed class MainForm : Form
     private static GroupHeader GroupHeaderFor(string title) =>
         new() { Text = title, Dock = DockStyle.Fill, Margin = new Padding(4, 0, 4, 0) };
 
-    private static Control TwoToggleRow(
+    /// <summary>
+    /// One two-toggle setting row. Returns a measured <see cref="ToggleRowPanel"/>
+    /// so the hero card can size to the real wrapped subtitle text (D3) rather
+    /// than clip it at the old fixed 66 px literal.
+    /// </summary>
+    private Control TwoToggleRow(
         string titleA, string hintA, ToggleSwitch toggleA,
         string titleB, string hintB, ToggleSwitch toggleB,
         bool alt)
     {
-        var grid = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 2,
-            RowCount = 1,
-            BackColor = Color.Transparent,
-            Margin = Padding.Empty,
-            Padding = Padding.Empty,
-        };
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
         toggleA.AccessibleName = titleA;
         toggleA.AccessibleDescription = hintA;
         toggleB.AccessibleName = titleB;
         toggleB.AccessibleDescription = hintB;
-        grid.Controls.Add(new SettingRow(titleA, hintA, toggleA) { Dock = DockStyle.Fill, Margin = new Padding(4, 2, 4, 2), AlternateFill = alt }, 0, 0);
-        grid.Controls.Add(new SettingRow(titleB, hintB, toggleB) { Dock = DockStyle.Fill, Margin = new Padding(4, 2, 4, 2), AlternateFill = alt }, 1, 0);
-        return grid;
+        var left = new SettingRow(titleA, hintA, toggleA) { Dock = DockStyle.Fill, Margin = new Padding(4, 2, 4, 2), AlternateFill = alt };
+        var right = new SettingRow(titleB, hintB, toggleB) { Dock = DockStyle.Fill, Margin = new Padding(4, 2, 4, 2), AlternateFill = alt };
+        _heroSettingRows.Add(left);
+        _heroSettingRows.Add(right);
+        return new ToggleRowPanel(left, right) { Dock = DockStyle.Fill, Margin = Padding.Empty };
     }
 
     private Control BuildButtonRow1()
@@ -660,12 +780,171 @@ internal sealed class MainForm : Form
         return _statusLine;
     }
 
+    // ----- width-tier scaling + measured content (D3/D4/D5) -----
+
+    /// <summary>The canvas horizontal padding on each side (BuildBody).</summary>
+    private const int BodySidePadding = 24;
+
+    private int HeroCardWidth => Math.Max(160, ClientSize.Width - BodySidePadding * 2);
+    private int HeroInnerWidth => Math.Max(120, HeroCardWidth - 2 * _scale.CardPadding);
+
+    private int HeroRowHeight(Control row) => row switch
+    {
+        ToggleRowPanel toggle => Math.Max(_scale.RowHeight, toggle.MeasuredHeight(HeroInnerWidth)),
+        _ when row == _statusRow => _scale.StatusHeight,
+        _ when row == _liveRow => _scale.LiveHeight,
+        _ when row == _stripRow => _scale.StripHeight,
+        _ => _scale.HeaderHeight,
+    };
+
+    private int ButtonRowHeight => _scale.ButtonHeight + 12;
+    private int ButtonRow2Height => _scale.ButtonRow2Height + 8;
+
+    /// <summary>
+    /// Applies the current width tier and re-measures the hero/body. Called at
+    /// construction and from the 120 ms resize debounce; never while dragging.
+    /// </summary>
+    private void ApplyScale(bool resetHeight, bool keepHeight = false)
+    {
+        _scale = UiScale.For(ClientSize.Width);
+        _heroCard.Padding = new Padding(_scale.CardPadding);
+        foreach (var row in _heroSettingRows) row.ApplyScale(_scale);
+        foreach (var header in _heroHeaders) header.ApplyScale(_scale);
+        _stateLabel.Font = DesignTokens.Type(_scale.BaseFont + 0.5f, FontStyle.Bold);
+        _liveValue.Font = DesignTokens.Type(_scale.BaseFont);
+        _statusLine.Font = DesignTokens.Type(Math.Max(8f, _scale.BaseFont - 1.5f));
+        _classBadge.Font = DesignTokens.Type(Math.Max(8f, _scale.BaseFont - 1.5f), FontStyle.Bold);
+        _solo2.Size = _scale.ToggleSize;
+        foreach (var button in new[] { _start, _stop, _launchGame, _recalibrate, _abilitiesEntry, _advancedEntry, _openFolder })
+            button?.ApplyScale(_scale);
+        _launchGameAdv.ApplyScale(_scale);
+        _recalibrateAdv.ApplyScale(_scale);
+        _openFolderAdvConfig.ApplyScale(_scale);
+        _openFolderAdvDiag.ApplyScale(_scale);
+
+        LayoutHero();
+
+        if (!keepHeight && !_forceHeight && (resetHeight || !_userSizedHeight || ClientSize.Height < _contentHeight))
+            ApplyContentHeight();
+
+        ApplyPopupScale();
+        PerformLayout();
+    }
+
+    private void LayoutHero()
+    {
+        if (_heroLayout.RowStyles.Count != _heroRows.Count) return;
+        var total = 0;
+        for (var i = 0; i < _heroRows.Count; i++)
+        {
+            var h = HeroRowHeight(_heroRows[i]);
+            _heroLayout.RowStyles[i].Height = h;
+            total += h;
+        }
+        var heroHeight = total + 2 * _scale.CardPadding;
+        _heroCard.Height = heroHeight;
+        _bodyLayout.RowStyles[0].Height = heroHeight + 12;
+        _bodyLayout.RowStyles[1].Height = ButtonRowHeight;
+        _bodyLayout.RowStyles[2].Height = ButtonRow2Height;
+        _bodyLayout.RowStyles[3].Height = _scale.StatusLineHeight;
+
+        // Titlebar 48 + canvas vertical padding (10+12) + all body rows.
+        _contentHeight = 48 + 22 + (heroHeight + 12) + ButtonRowHeight + ButtonRow2Height + _scale.StatusLineHeight;
+    }
+
+    /// <summary>Sets the client height to the measured content, capped to the working area.</summary>
+    private void ApplyContentHeight()
+    {
+        var area = Screen.FromPoint(Cursor.Position).WorkingArea;
+        // The form is borderless with Padding(2); client height is the frame.
+        var maxH = Math.Max(MinWindowHeight, area.Height - 4);
+        var h = Math.Clamp(_contentHeight, MinWindowHeight, maxH);
+        if (ClientSize.Height == h) return;
+        ClientSize = new Size(ClientSize.Width, h);
+    }
+
+    /// <summary>Applies the tier to the Advanced/Abilities popups (D5).</summary>
+    private void ApplyPopupScale()
+    {
+        var pad = Math.Max(4, _scale.CardPadding / 3);
+        _advancedPopup.Padding = new Padding(pad);
+        _abilitiesPopup.Padding = new Padding(pad);
+        _advancedTabs.Font = DesignTokens.Type(_scale.BaseFont);
+        _abilitiesTabs.Font = DesignTokens.Type(_scale.BaseFont);
+        foreach (var host in new Control[] { _config, _diagnostics, _intelligencePage, _explorer })
+            ApplyScaleRecursive(host, _scale);
+    }
+
+    private static void ApplyScaleRecursive(Control root, UiScale scale)
+    {
+        foreach (Control child in root.Controls)
+        {
+            switch (child)
+            {
+                case ToggleSwitch toggle:
+                    toggle.Size = scale.ToggleSize;
+                    break;
+                case Label label:
+                    ApplyFontStep(label, scale.FontStep);
+                    break;
+                case CheckBox check:
+                    ApplyFontStep(check, scale.FontStep);
+                    break;
+                case Button button:
+                    ApplyFontStep(button, scale.FontStep);
+                    break;
+                case TextBox box:
+                    ApplyFontStep(box, scale.FontStep);
+                    break;
+                case NumericUpDown numeric:
+                    ApplyFontStep(numeric, scale.FontStep);
+                    break;
+            }
+            if (child.HasChildren) ApplyScaleRecursive(child, scale);
+        }
+    }
+
+    // D5: preserve each control's designed type hierarchy (body/meta/caption)
+    // and move every face by the SAME tier step. Forcing every label to the
+    // body size broke meta-sized readouts (e.g. the Explorer "N shown" count
+    // overflowed its 96 px dock at 10 pt), so the original point size is
+    // captured once per control and re-applied with the step.
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Control, System.Runtime.CompilerServices.StrongBox<float>> BaseFontSizes = new();
+
+    private static void ApplyFontStep(Control control, float step)
+    {
+        if (!BaseFontSizes.TryGetValue(control, out var box))
+        {
+            box = new System.Runtime.CompilerServices.StrongBox<float>(control.Font.SizeInPoints);
+            BaseFontSizes.Add(control, box);
+        }
+        control.Font = DesignTokens.Type(Math.Max(8f, box.Value + step), control.Font.Style);
+    }
+
+    internal (float BaseFont, int RowHeight) ScaleForTest => (_scale.BaseFont, _scale.RowHeight);
+    internal int MeasuredContentHeightForTest => _contentHeight;
+
+    /// <summary>Test/snapshot seam: apply the width tier immediately (no debounce).</summary>
+    internal void ApplyTierNowForTest()
+    {
+        ApplyScale(resetHeight: true);
+        PerformLayout();
+    }
+
+    /// <summary>Test seam: apply a popup width tier without a full main relayout.</summary>
+    internal void ApplyPopupTierForTest(int width)
+    {
+        _scale = UiScale.For(width);
+        ApplyPopupScale();
+    }
+
     // ----- Advanced popup (tabs Configuration | Diagnostics | Intelligence) -----
 
     private Panel BuildAdvancedOverlay()
     {
-        var (scrim, tabs) = BuildPopup("Advanced", 620, onClose: HideAdvanced);
+        var (scrim, tabs, popup) = BuildPopup("Advanced", 620, onClose: HideAdvanced);
         _advancedTabs = tabs;
+        _advancedPopup = popup;
         AddTab(tabs, "Configuration", _config);
         AddTab(tabs, "Diagnostics", _diagnostics);
         AddTab(tabs, "Intelligence", _intelligencePage);
@@ -674,8 +953,9 @@ internal sealed class MainForm : Form
 
     private Panel BuildAbilitiesOverlay()
     {
-        var (scrim, tabs) = BuildPopup("Abilities", 900, onClose: HideAbilities);
+        var (scrim, tabs, popup) = BuildPopup("Abilities", 900, onClose: HideAbilities);
         _abilitiesTabs = tabs;
+        _abilitiesPopup = popup;
         AddTab(tabs, "Class skills", _classSkills!);
         AddTab(tabs, "Explorer", _explorer);
         return scrim;
@@ -697,7 +977,7 @@ internal sealed class MainForm : Form
     /// Dimmed scrim + centred card (width min(client-40, <paramref name="maxWidth"/>),
     /// height client-60) with a header (title + Back) and a tab host.
     /// </summary>
-    private (Panel Scrim, TabControl Tabs) BuildPopup(string title, int maxWidth, Action onClose)
+    private (Panel Scrim, TabControl Tabs, RoundedCard Popup) BuildPopup(string title, int maxWidth, Action onClose)
     {
         var scrim = new Panel
         {
@@ -760,18 +1040,24 @@ internal sealed class MainForm : Form
         {
             var w = Math.Min(maxWidth, Math.Max(360, scrim.ClientSize.Width - 40));
             var h = Math.Max(280, scrim.ClientSize.Height - 60);
-            popup.Size = new Size(w, h);
-            popup.Location = new Point(
+            var size = new Size(w, h);
+            var location = new Point(
                 Math.Max(0, (scrim.ClientSize.Width - w) / 2),
                 Math.Max(0, (scrim.ClientSize.Height - h) / 2));
+            // Idempotent: writing the same size/location still requests another
+            // layout and can cascade on the large tab trees. Skip when unchanged.
+            if (popup.Size == size && popup.Location == location) return;
+            popup.Size = size;
+            popup.Location = location;
         }
         scrim.Resize += (_, _) => Center();
         scrim.Layout += (_, _) => Center();
-        return (scrim, tabs);
+        return (scrim, tabs, popup);
     }
 
     private void ShowAdvanced()
     {
+        var openClock = System.Diagnostics.Stopwatch.StartNew();
         _engine.WantDiagnostics = true;
         // A4: each tab is built lazily once (never by a timer), so the window
         // opens fast and the configuration/diagnostics tree is only created
@@ -789,11 +1075,14 @@ internal sealed class MainForm : Form
         _advancedOverlay.BringToFront();
         _advancedOverlay.PerformLayout();
         _advancedOverlay.Focus();
+        _lastPopupOpenMs = openClock.Elapsed.TotalMilliseconds;
+        BeginPopupFade(_advancedOverlay);
     }
 
     private void HideAdvanced()
     {
         if (_advancedOverlay is null) return;
+        EndPopupFade();
         _advancedOverlay.Visible = false;
         _engine.WantDiagnostics = false;
         if (_mainBody is not null) _mainBody.Visible = true;
@@ -801,6 +1090,7 @@ internal sealed class MainForm : Form
 
     private void ShowAbilities()
     {
+        var openClock = System.Diagnostics.Stopwatch.StartNew();
         if (_mainBody is not null) _mainBody.Visible = false;
         _abilitiesTabs.SelectedIndex = 0;
         _abilitiesOverlay.Visible = true;
@@ -808,15 +1098,60 @@ internal sealed class MainForm : Form
         _classSkills?.Open(
             _engine.TryGetLiveClass(out var cls) ? cls : null,
             _engine.TryGetLiveSpec(out var spec) ? spec : null);
+        // D6: no chained motion. The ClassSkillsView owns an exponential
+        // fade+slide+settle timer; the popup supplies the single bounded fade,
+        // so settle the screen instantly instead of stacking animations.
+        _classSkills?.SnapToShown();
         _abilitiesOverlay.PerformLayout();
         _abilitiesOverlay.Focus();
+        _lastPopupOpenMs = openClock.Elapsed.TotalMilliseconds;
+        BeginPopupFade(_abilitiesOverlay);
     }
 
     private void HideAbilities()
     {
         if (_abilitiesOverlay is null) return;
+        EndPopupFade();
         _abilitiesOverlay.Visible = false;
         if (_mainBody is not null) _mainBody.Visible = true;
+    }
+
+    // ----- D6: one bounded popup fade (never while the engine runs) -----
+
+    private void BeginPopupFade(Panel scrim)
+    {
+        EndPopupFade();
+        if (FadeSuppressed)
+        {
+            // Engine running: show at full scrim instantly, no timer at all.
+            scrim.BackColor = PopupScrimOpaque;
+            return;
+        }
+        _popupFadeScrim = scrim;
+        _popupFadeStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        scrim.BackColor = PopupScrimClear;
+        _popupFadeTimer.Start();
+    }
+
+    private void PopupFadeTick()
+    {
+        if (_popupFadeScrim is null)
+        {
+            _popupFadeTimer.Stop();
+            return;
+        }
+        var elapsedMs = (System.Diagnostics.Stopwatch.GetTimestamp() - _popupFadeStart)
+            * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+        var t = Math.Min(1.0, elapsedMs / PopupFadeDurationMs);
+        _popupFadeScrim.BackColor = Color.FromArgb((int)Math.Round(PopupScrimAlpha * t), 7, 9, 11);
+        if (t >= 1.0) EndPopupFade();
+    }
+
+    private void EndPopupFade()
+    {
+        _popupFadeTimer.Stop();
+        if (_popupFadeScrim is not null) _popupFadeScrim.BackColor = PopupScrimOpaque;
+        _popupFadeScrim = null;
     }
 
     /// <summary>
@@ -854,14 +1189,14 @@ internal sealed class MainForm : Form
             (Hint("Evaluates every situational suggestion USE / HOLD / SKIP against the ability knowledge base and live combat context. The main rotation is never gated."), 0)));
 
         page.AddCard("Combat", "Slots").Add(TwoCol(64,
-            RowFor("Main rotation", "Your damage rotation - MaxDps decides", _main),
-            RowFor("Offensive", "Burst and damage cooldowns", _offensive),
-            RowFor("Defensive", "Mitigation, absorbs, immunities", _defensives),
-            RowFor("Consumable", "Potions (health and mana)", _consumable),
-            RowFor("Trinket", "On-use trinket effects", _trinket),
-            RowFor("Mobility", "Charge in when out of range", _mobility),
-            RowFor("Self-heal", "Solo mode self-sustain", _selfHeal),
-            RowFor("Interrupt", "Kick interruptible casts", _interrupt)));
+            RowFor("Main rotation", "Your damage rotation - MaxDps decides", _mainAdv),
+            RowFor("Offensive", "Burst and damage cooldowns", _offensiveAdv),
+            RowFor("Defensive", "Mitigation, absorbs, immunities", _defensivesAdv),
+            RowFor("Consumable", "Potions (health and mana)", _consumableAdv),
+            RowFor("Trinket", "On-use trinket effects", _trinketAdv),
+            RowFor("Mobility", "Charge in when out of range", _mobilityAdv),
+            RowFor("Self-heal", "Solo mode self-sustain", _selfHealAdv),
+            RowFor("Interrupt", "Kick interruptible casts", _interruptAdv)));
 
         page.AddCard("Safety", "Modes").Add(Stack(
             (CheckRow(_solo), 30),
@@ -870,8 +1205,8 @@ internal sealed class MainForm : Form
             (Hint("When on, the companion only acts while you are in combat."), 0)));
 
         page.AddCard("Targeting", "Assist").Add(Stack(
-            (ToggleField("Auto-target (press Target key)", _autoTarget), 38),
-            (ToggleField("Auto-interact (press Interact key)", _autoInteract), 38),
+            (ToggleField("Auto-target (press Target key)", _autoTargetAdv), 38),
+            (ToggleField("Auto-interact (press Interact key)", _autoInteractAdv), 38),
             (Ui.FieldRow("Target key", _targetKey), 38),
             (Ui.FieldRow("Interact key", _interactKey), 38)));
 
@@ -884,7 +1219,7 @@ internal sealed class MainForm : Form
             (Ui.FieldRow("Game process", _processName), 38),
             (Hint("Which game window to attach to (without .exe). Recalibrate locates the strip; the engine re-aligns automatically if it moves."), 0)));
 
-        page.AddCard("Advanced", "Tools").Add(ButtonsRow(44, _classSkillsEntryBtn(), _openFolder));
+        page.AddCard("Advanced", "Tools").Add(ButtonsRow(44, _classSkillsEntryBtn(), _openFolderAdvConfig));
     }
 
     private ChamferButton _classSkillsEntryBtn()
@@ -935,7 +1270,7 @@ internal sealed class MainForm : Form
         findStrip.Click += (_, _) => RecalibratePositionOnly();
         page.AddCard("Calibration", "Strip").Add(Stack(
             (ButtonsRow(40, _learnColors, _resetColors), 40),
-            (ButtonsRow(40, findStrip, _recalibrate), 40),
+            (ButtonsRow(40, findStrip, _recalibrateAdv), 40),
             (Ui.FieldRow("Tolerance", _tolerance), 38),
             (StatusLabel(_colorStatus), 24)));
 
@@ -955,7 +1290,7 @@ internal sealed class MainForm : Form
 
         page.AddCard("Battle.net / tools", "Launch").Add(Stack(
             (Ui.FieldRow("BNet path", _bnetPath), 38),
-            (ButtonsRow(40, _bnetBrowse, _launchGame, _openFolder), 40),
+            (ButtonsRow(40, _bnetBrowse, _launchGameAdv, _openFolderAdvDiag), 40),
             (Hint("Launch Game opens Battle.net for WoW. No credentials are stored - the launcher's remembered account is used."), 0)));
     }
 
@@ -1127,6 +1462,12 @@ internal sealed class MainForm : Form
             ShowInTaskbar = false;
             _tray.Visible = true;
         }
+        // D5: debounce the tier recompute so nothing re-layouts mid-drag.
+        if (_uiInitialised && IsHandleCreated && WindowState != FormWindowState.Minimized)
+        {
+            _resizeDebounce.Stop();
+            _resizeDebounce.Start();
+        }
     }
 
     protected override void OnHandleCreated(EventArgs e)
@@ -1176,9 +1517,11 @@ internal sealed class MainForm : Form
         if (InvokeRequired) { BeginInvoke(new Action<bool>(SetCalibrating), running); return; }
         _calibrating = running;
         _recalibrate.Text = running ? "Cancel" : "Recalibrate";
+        _recalibrateAdv.Text = running ? "Cancel" : "Recalibrate";
         _learnColors.Text = running ? "Cancel calibration" : "Calibrate colors";
         _learnColors.Enabled = true;
         _recalibrate.Enabled = true;
+        _recalibrateAdv.Enabled = true;
         _start.Enabled = !running && !_engine.IsRunning;
     }
 
@@ -1823,6 +2166,8 @@ internal sealed class MainForm : Form
     protected override void OnResizeEnd(EventArgs e)
     {
         base.OnResizeEnd(e);
+        // The user chose a size: stop forcing the measured content height.
+        _userSizedHeight = true;
         SaveWindowSize();
     }
 
@@ -1889,6 +2234,8 @@ internal sealed class MainForm : Form
     {
         _uiTimer.Stop();
         _saveDebounce.Stop();
+        _resizeDebounce.Stop();
+        _popupFadeTimer.Stop();
         if (_tray is not null)
         {
             _tray.Visible = false;
@@ -1958,7 +2305,13 @@ internal sealed class MainForm : Form
         Location = new Point(-32000, -32000);
         ShowInTaskbar = false;
         var target = Math.Max(320, width);
+        // Snapshot/benchmark windows keep the exact requested client height and
+        // must not be pulled back to the measured content height on resize.
+        _forceHeight = true;
         ClientSize = new Size(target, Math.Max(500, height));
+        // Snapshots must show the tier for the requested width, but keep the
+        // exact requested height (the D5 render set is 520/660 × 560/920).
+        ApplyScale(resetHeight: false, keepHeight: true);
     }
 
     internal void OpenClassSkillsForSnapshot(string className, string specName)
@@ -1973,6 +2326,7 @@ internal sealed class MainForm : Form
 
     internal string ClassSkillsDebugState => _classSkills?.DebugState ?? "null";
 
+    internal Control MainBodyForTest => _mainBody;
     internal AbilityExplorer ExplorerForTest => _explorer;
     internal IntelligencePage IntelligenceForTest => _intelligencePage;
     internal ConfigurationPage ConfigurationForTest => _config;
@@ -1988,6 +2342,18 @@ internal sealed class MainForm : Form
     internal bool StopEnabledForTest => _stop.Enabled;
     internal string StatusLineForTest => _statusLine.Text;
     internal void InvokeLaunchForTest() => LaunchGame();
+
+    // D5 popup-width-tier seams.
+    internal RoundedCard AdvancedPopupForTest => _advancedPopup;
+    internal RoundedCard AbilitiesPopupForTest => _abilitiesPopup;
+    internal ToggleSwitch AdvancedMainToggleForTest => _mainAdv;
+    internal float AdvancedTabFontForTest => _advancedTabs.Font.SizeInPoints;
+    internal float AbilitiesTabFontForTest => _abilitiesTabs.Font.SizeInPoints;
+
+    // D6 popup-open + fade seams.
+    internal double LastPopupOpenMsForTest => _lastPopupOpenMs;
+    internal bool PopupFadeActiveForTest => _popupFadeTimer.Enabled;
+    internal Color AdvancedScrimColorForTest => _advancedOverlay?.BackColor ?? Color.Empty;
     internal IReadOnlyList<string> BottomButtonLabelsForTest => new[]
     {
         _start.Text, _stop.Text, _launchGame.Text,
