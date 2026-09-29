@@ -1,0 +1,68 @@
+MaxDps Companion rotation replay
+file       : tests\MaxDpsCompanion.Tests\fixtures\solo-warrior-selfheal.jsonl
+format     : 1
+events     : 7 (tick 5, send 1, link 0, session 1, bad 0)
+span       : 0.000s .. 1.700s (1.700s)
+decisions  : 0 recorded
+verdicts   : 9 policy verdicts recomputed, 0 mismatch(es)
+catalog    : recorded v3, current v3
+decode errs: 0
+mismatches : 0
+
+t=0.000s  session  app=2.2.0 proto=5 capacity=10000 start
+t=1.000s  send  spell SelfHeal H  interval=0ms
+t=1.000s  tick #0  Active  hb=1  target=yes  gcd=no  link=yes  note="sending"
+  slots   : Main=E  Off=-  Def=-  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=H
+  cand    : Main       E      enabled actionable  age=0.000s unchanged=0.000s pressed=no
+  cand    : SelfHeal   H      enabled actionable  age=0.000s unchanged=0.000s pressed=no
+  decision: SelfHeal -> SelfSustain (75%)
+  policy  : SelfSustain -> SelfHeal  held=0 skipped=0 suppressed=0
+  verdict : Main       spell=12294    Use  MaxDps main candidate; actionable
+  verdict : SelfHeal   spell=202168   Use  solo: HP 50% below sustain 65%; self-sustain
+  rejected: Main (lower rank #2)
+  timing  : last send spell SelfHeal H 0ms ago
+t=1.050s  tick #0  Active  hb=2  target=yes  gcd=yes  link=yes  note="waiting for GCD"
+  slots   : Main=E  Off=-  Def=-  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=H
+  cand    : Main       E      enabled actionable  age=0.050s unchanged=0.050s pressed=no
+  cand    : SelfHeal   H      enabled actionable  age=0.050s unchanged=0.050s pressed=no
+  decision: SelfHeal -> GcdHold (20%)
+  policy  : GcdHold  held=0 skipped=0 suppressed=0
+  verdict : Main       spell=12294    Use  MaxDps main candidate; actionable
+  verdict : SelfHeal   spell=202168   Use  solo: HP 55% below sustain 65%; self-sustain
+  rejected: Main (lower rank #2)
+  held    : GCD active - send path skips non-interrupt
+  timing  : last send spell SelfHeal H 50ms ago
+t=1.400s  tick #0  Active  hb=3  target=yes  gcd=no  link=yes  note="sending"
+  slots   : Main=E  Off=-  Def=-  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=-
+  cand    : Main       E      enabled actionable  age=0.400s unchanged=0.400s pressed=no
+  decision: Main -> MainRotation (70%)
+  policy  : MainRotation -> Main  held=0 skipped=0 suppressed=0
+  verdict : Main       spell=12294    Use  MaxDps main candidate; actionable
+  timing  : last send spell SelfHeal H 400ms ago
+t=1.600s  tick #0  Active  hb=4  target=yes  gcd=no  link=yes  note="holding"
+  slots   : Main=E  Off=-  Def=-  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=H
+  cand    : Main       E      enabled actionable  age=0.600s unchanged=0.600s pressed=no
+  cand    : SelfHeal   H      enabled actionable  age=0.000s unchanged=0.000s pressed=no
+  decision: SelfHeal -> SelfSustain (75%)
+  policy  : MainRotation -> Main  held=1 skipped=0 suppressed=0  "solo mode off; self-heal held above emergency HP"
+  verdict : Main       spell=12294    Use  MaxDps main candidate; actionable
+  verdict : SelfHeal   spell=202168   Hold solo mode off; self-heal held above emergency HP
+  rejected: Main (lower rank #2)
+  timing  : last send spell SelfHeal H 600ms ago
+t=1.700s  tick #0  Active  hb=5  target=yes  gcd=no  link=yes  note="sending"
+  slots   : Main=E  Off=-  Def=-  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=H
+  cand    : Main       E      enabled actionable  age=0.700s unchanged=0.700s pressed=no
+  cand    : SelfHeal   H      enabled actionable  age=0.100s unchanged=0.100s pressed=no
+  decision: SelfHeal -> SelfSustain (75%)
+  policy  : EmergencySurvival -> SelfHeal  held=0 skipped=0 suppressed=0
+  verdict : Main       spell=12294    Use  MaxDps main candidate; actionable
+  verdict : SelfHeal   spell=202168   Use  HP 30% at/below emergency 35%; emergency self-sustain
+  rejected: Main (lower rank #2)
+  timing  : last send spell SelfHeal H 700ms ago
+
+summary
+  reasons : -
+  policy  : MainRotation 2, EmergencySurvival 1, GcdHold 1, SelfSustain 1
+  sends   : spell 1
+  faults  : -
+  notes   : sending 3, holding 1, waiting for GCD 1

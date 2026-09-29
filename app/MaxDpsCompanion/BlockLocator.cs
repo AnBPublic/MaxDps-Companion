@@ -75,11 +75,19 @@ internal static class BlockLocator
                 var width = RunLength(scan, stride, x, y, 1, 0, area.Width - x, profile);
                 var height = RunLength(scan, stride, x, y, 0, 1, area.Height - y, profile);
 
-                // Cells are square; a one-pixel difference is rounding, more is
-                // some other magenta thing on screen.
+                // The strip is a single horizontal ROW of cells, so the magic
+                // cell's VERTICAL run is its true size. The horizontal run can
+                // bleed into a following slot cell: under the legacy (unlearned)
+                // gate a slot colour like (51,34,136) also satisfies the loose
+                // magenta test, so the run reads 2x the cell. Rejecting any
+                // width!=height blob therefore threw away the real strip and
+                // produced "no pixel block" on a freshly calibrated/legacy
+                // install. Use the smaller run as the size and only reject
+                // wildly non-square blobs; Verify (strict Decode/Classify)
+                // rejects genuine false positives.
                 var size = Math.Min(width, height);
                 if (size < MinCellSize || size > MaxCellSize) continue;
-                if (Math.Abs(width - height) > 1) continue;
+                if (Math.Max(width, height) > size * 4) continue;
 
                 if (Verify(scan, stride, area, x, y, size, profile))
                     return new BlockLocation(x, y, size);
@@ -91,46 +99,41 @@ internal static class BlockLocator
 
     /// <summary>
     /// Confirms the candidate really is our strip by decoding all cells.
-    /// Tries v2 (9 cells) first, then v1 (8 cells, stale addon): the sweep
-    /// must find a stale strip too, or recalibrate can never repair the
-    /// version skew it is meant to diagnose.
+    /// Tries v5 (35 cells) first, then v4 (9 cells) and v1 (8 cells, older
+    /// stale addon): the sweep must find a stale strip too, or recalibrate
+    /// can never repair the version skew it is meant to diagnose.
     /// </summary>
     private static unsafe bool Verify(byte* scan, int stride, Size area, int x, int y, int size, ColorProfile? profile)
     {
         var centre = size / 2;
-        var statusX = x + size * (PixelProtocol.CellCount - 1) + centre;
-        // Right-edge clamp, not reject: at 1px cells the strip often sits at
-        // x=0..7 and the trailing cells are what they are — Decode still
-        // validates via magic + checksum, a clipped read just fails there.
         var statusY = Math.Min(y + centre, area.Height - 1);
 
-        if (statusX >= area.Width || statusY >= area.Height) return false;
-
-        // v2 window first (current addon). When the strip is v1 the 9th
-        // cell reads background, so Decode/Classify reject by length and
-        // we retry the 8-cell window below.
-        var cells = new Color[PixelProtocol.CellCount];
-        for (var i = 0; i < PixelProtocol.CellCount; i++)
+        Color[] ReadWindow(int count)
         {
-            var px = Math.Min(x + size * i + centre, area.Width - 1);
-            cells[i] = Read(scan, stride, px, statusY);
+            var cells = new Color[count];
+            for (var i = 0; i < count; i++)
+            {
+                var px = Math.Min(x + size * i + centre, area.Width - 1);
+                cells[i] = Read(scan, stride, px, statusY);
+            }
+            return cells;
         }
 
-        // Normal path: the full strip decodes. Calibrate path: the strip
-        // renders the learning pattern, which strict Decode rejects — but
-        // finding the pattern IS the job during calibration.
-        if (PixelProtocol.Decode(cells, profile) is not null) return true;
-        if (ColorLearner.Classify(cells, profile) >= 0) return true;
+        // v5 window (current addon). Decode validates via magic + both
+        // checksums; a clipped read fails there.
+        var current = ReadWindow(PixelProtocol.CellCount);
+        if (PixelProtocol.Decode(current, profile) is not null) return true;
+        if (ColorLearner.Classify(current, profile) >= 0) return true;
 
-        // v1 window (stale addon): 8 cells starting at the same magic cell.
-        var old = new Color[PixelProtocol.CellCountV1];
-        for (var i = 0; i < PixelProtocol.CellCountV1; i++)
-        {
-            var px = Math.Min(x + size * i + centre, area.Width - 1);
-            old[i] = Read(scan, stride, px, statusY);
-        }
-        if (PixelProtocol.Decode(old, profile) is not null) return true;
-        return ColorLearner.Classify(old, profile) >= 0;
+        // v4 window (stale addon): 9 cells starting at the same magic cell.
+        var v4 = ReadWindow(PixelProtocol.CellCountV4);
+        if (PixelProtocol.Decode(v4, profile) is not null) return true;
+        if (ColorLearner.Classify(v4, profile) >= 0) return true;
+
+        // v1 window (older stale addon): 8 cells.
+        var v1 = ReadWindow(PixelProtocol.CellCountV1);
+        if (PixelProtocol.Decode(v1, profile) is not null) return true;
+        return ColorLearner.Classify(v1, profile) >= 0;
     }
 
     private static unsafe int RunLength(byte* scan, int stride, int x, int y, int dx, int dy, int limit, ColorProfile? profile)

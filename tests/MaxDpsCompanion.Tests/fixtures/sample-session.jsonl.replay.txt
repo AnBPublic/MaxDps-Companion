@@ -1,0 +1,36 @@
+MaxDps Companion rotation replay
+file       : tests\MaxDpsCompanion.Tests\fixtures\sample-session.jsonl
+format     : 1
+events     : 5 (tick 2, send 1, link 1, session 1, bad 0)
+span       : 0.000s .. 60.000s (60.000s)
+decisions  : 2 recorded
+verdicts   : 0 policy verdicts recomputed, 0 mismatch(es)
+decode errs: 0
+mismatches : 0
+
+t=0.000s  session  app=1.5.0 proto=4 capacity=10000 start
+t=10.000s  tick #2  Active  hb=3  target=yes  gcd=no  link=yes  note="sending"
+  slots   : Main=E  Off=2  Def=-  Cons=-  Trin=-  Int=-    
+  cand    : Main       E      enabled actionable  age=2.000s unchanged=2.000s pressed=no
+  cand    : Offensive  2      enabled actionable  age=1.000s unchanged=1.000s pressed=no
+  decision: Main -> MainRotation (70%)
+  recorded: Main -> MainRotation (70%)  OK
+  rejected: Offensive (lower rank #2)
+t=10.001s  send  spell Main E  interval=0ms
+t=11.000s  tick #4  Active  hb=11  target=yes  gcd=no  link=yes  note="sending"
+  slots   : Main=E  Off=2  Def=-  Cons=-  Trin=-  Int=-    
+  cand    : Main       E      enabled actionable  age=3.000s unchanged=3.000s pressed=yes
+  cand    : Offensive  2      enabled actionable  age=2.000s unchanged=2.000s pressed=no
+  decision: Offensive -> OffensiveCooldown (60%) [stale demoted]
+  recorded: Offensive -> OffensiveCooldown (60%) [stale demoted]  OK
+  rejected: Main (lower rank #2, stale)
+  stale   : a pressed candidate was demoted behind a fresh one
+  timing  : last send spell Main E 999ms ago
+t=60.000s  link  visible=no  note="no pixel block - client must be windowed or borderless"  fault=Checksum
+
+summary
+  reasons : MainRotation 1, OffensiveCooldown 1
+  policy  : -
+  sends   : spell 1
+  faults  : Checksum 1
+  notes   : sending 2, no pixel block - client must be windowed or borderless 1

@@ -1,0 +1,53 @@
+MaxDps Companion rotation replay
+file       : tests\MaxDpsCompanion.Tests\fixtures\offensive-interrupt-warrior.jsonl
+format     : 1
+events     : 7 (tick 3, send 3, link 0, session 1, bad 0)
+span       : 0.000s .. 1.600s (1.600s)
+decisions  : 0 recorded
+verdicts   : 7 policy verdicts recomputed, 0 mismatch(es)
+catalog    : recorded v3, current v3
+decode errs: 0
+mismatches : 0
+
+t=0.000s  session  app=2.6.0 proto=5 capacity=10000 start
+t=1.000s  send  spell Interrupt X  interval=0ms
+t=1.000s  tick #0  Active  hb=1  target=yes  gcd=no  link=yes  note="live interruptible cast"
+  slots   : Main=E  Off=R  Def=-  Cons=-  Trin=-  Int=X  Mobility=-  SelfHeal=-
+  cand    : Main       E      enabled actionable  age=0.000s unchanged=0.000s pressed=no
+  cand    : Offensive  R      enabled actionable  age=0.000s unchanged=0.000s pressed=no
+  cand    : Interrupt  X      enabled actionable  age=0.000s unchanged=0.000s pressed=no
+  decision: Interrupt -> InterruptUrgency (95%)
+  policy  : InterruptUrgency -> Interrupt  held=0 skipped=0 suppressed=0
+  verdict : Main       spell=12294    Use  MaxDps main candidate; actionable
+  verdict : Offensive  spell=1719     Use  offensive candidate; no conflict observed
+  verdict : Interrupt  spell=6552     Use  interrupt (Dedicated): live interruptible cast, in range or range unknown
+  rejected: Main (lower rank #2), Offensive (lower rank #3)
+  timing  : last send spell Interrupt X 0ms ago
+t=1.300s  send  spell Main E  interval=0ms
+t=1.300s  tick #0  Active  hb=2  target=yes  gcd=no  link=yes  note="cast not interruptible"
+  slots   : Main=E  Off=R  Def=-  Cons=-  Trin=-  Int=X  Mobility=-  SelfHeal=-
+  cand    : Main       E      enabled actionable  age=0.300s unchanged=0.300s pressed=no
+  cand    : Offensive  R      enabled actionable  age=0.300s unchanged=0.300s pressed=no
+  cand    : Interrupt  X      enabled actionable  age=0.300s unchanged=0.300s pressed=no
+  decision: Interrupt -> InterruptUrgency (95%)
+  policy  : InterruptUrgency -> Interrupt  held=0 skipped=0 suppressed=0
+  verdict : Main       spell=12294    Use  MaxDps main candidate; actionable
+  verdict : Offensive  spell=1719     Use  offensive candidate; no conflict observed
+  verdict : Interrupt  spell=6552     Use  interrupt (Dedicated): live interruptible cast, in range or range unknown
+  rejected: Main (lower rank #2), Offensive (lower rank #3)
+  timing  : last send spell Main E 0ms ago
+t=1.600s  send  spell Offensive R  interval=0ms
+t=1.600s  tick #0  Active  hb=3  target=yes  gcd=no  link=yes  note="offensive cooldown"
+  slots   : Main=-  Off=R  Def=-  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=-
+  cand    : Offensive  R      enabled actionable  age=0.600s unchanged=0.600s pressed=no
+  decision: Offensive -> OffensiveCooldown (60%)
+  policy  : OffensiveCooldown -> Offensive  held=0 skipped=0 suppressed=0
+  verdict : Offensive  spell=1719     Use  offensive candidate; no conflict observed
+  timing  : last send spell Offensive R 0ms ago
+
+summary
+  reasons : -
+  policy  : InterruptUrgency 2, OffensiveCooldown 1
+  sends   : spell 3
+  faults  : -
+  notes   : cast not interruptible 1, live interruptible cast 1, offensive cooldown 1

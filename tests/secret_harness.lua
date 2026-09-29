@@ -32,6 +32,11 @@ local function S(v) return setmetatable({ v = v }, SMT) end
 
 issecretvalue = function(v) return type(v) == "table" and getmetatable(v) == SMT end
 canaccessvalue = function(v) return not issecretvalue(v) end
+-- The real scrub API: secret passes through as nil, plain values unchanged.
+scrubsecretvalues = function(v)
+  if type(v) == "table" and getmetatable(v) == SMT then return nil end
+  return v
+end
 
 -- ================= WoW stubs =================
 local RealGetTime = function() return 1000.0 end
@@ -49,26 +54,66 @@ function strsplit(sep, s) local a, b = s:match("([^" .. sep .. "]*)" .. sep .. "
 function format(f, ...) return string.format(f, ...) end
 LibStub = nil
 DEFAULT_CHAT_FRAME = { AddMessage = function() end }
+function CreateColor(r, g, b, a) return { r = r, g = g, b = b, a = a } end
+Enum = { LuaCurveType = { Linear = 1 } }
 bit = {
   rshift = function(a, b) return math.floor(a / 2 ^ b) end,
-  band = function(a, b) return a % (b * 2) - (a % b) end,
-  bor = function(a, b) return a + b end,
+  lshift = function(a, b) return (a * 2 ^ b) % 4294967296 end,
+  band = function(a, b)
+    local r, p = 0, 1
+    while a > 0 and b > 0 do
+      if a % 2 == 1 and b % 2 == 1 then r = r + p end
+      a = math.floor(a / 2); b = math.floor(b / 2); p = p * 2
+    end
+    return r
+  end,
+  bor = function(a, b)
+    local r, p = 0, 1
+    while a > 0 or b > 0 do
+      local abit, bbit = a % 2, b % 2
+      if abit == 1 or bbit == 1 then r = r + p end
+      a = math.floor(a / 2); b = math.floor(b / 2); p = p * 2
+    end
+    return r
+  end,
 }
 SlashCmdList = {}
 C_Timer = nil
 
 -- frames
 local AnonCount = 0
+local AllFrames = {}
+local Textures = {}
+local TextureCount = 0
 local function FakeFrame(name)
-  local f = { _scripts = {} }
-  f.RegisterEvent = function() end
+  local f = { _scripts = {}, _textures = {} }
+  f.RegisterEvent = function(self, event)
+    self._events = self._events or {}
+    self._events[event] = true
+  end
   f.RegisterAllEvents = function() end
   f.UnregisterAllEvents = function() end
+  f.RegisterUnitEvent = function(self, event, unit)
+    self._unitEvents = self._unitEvents or {}
+    self._unitEvents[event .. ":" .. unit] = true
+  end
   f.SetScript = function(self, s, fn) self._scripts[s] = fn end
   f.SetFrameStrata = function() end
   f.SetFrameLevel = function() end
   f.EnableMouse = function() end
-  f.CreateTexture = function() return FakeFrame() end
+  f.CreateTexture = function(self)
+    TextureCount = TextureCount + 1
+    local id = TextureCount
+    local t = { _id = id }
+    t.SetColorTexture = function(self2, r, g, b, a) Textures[self2._id] = { r, g, b } end
+    t.SetAlpha = function() end
+    t.ClearAllPoints = function() end
+    t.SetPoint = function() end
+    t.SetSize = function() end
+    t.Show = function() end
+    t.Hide = function() end
+    return t
+  end
   f.SetScale = function() end
   f.GetEffectiveScale = function() return 1 end
   f.ClearAllPoints = function() end
@@ -81,8 +126,26 @@ local function FakeFrame(name)
   f.Show = function() end
   f.Hide = function() end
   if name then _G[name] = f end
+  AllFrames[#AllFrames + 1] = f
   return f
 end
+
+local function FireUnitEvent(unit, event)
+  for _, f in ipairs(AllFrames) do
+    if f._unitEvents and f._unitEvents[event .. ":" .. unit] and f._scripts.OnEvent then
+      f._scripts.OnEvent(f, event)
+    end
+  end
+end
+
+local function FirePlainEvent(event)
+  for _, f in ipairs(AllFrames) do
+    if f._events and f._events[event] and f._scripts.OnEvent then
+      f._scripts.OnEvent(f, event)
+    end
+  end
+end
+
 function CreateFrame(_, name)
   if not name then
     AnonCount = AnonCount + 1
@@ -99,11 +162,16 @@ function UnitIsDead() return false end
 function UnitCanAttack() return true end
 function UnitCastingInfo() return nil end
 function UnitChannelInfo() return nil end
-function UnitClass() return "Hunter", "HUNTER", 3 end
+function UnitClass() return "Warrior", "WARRIOR", 1 end
 function GetActionInfo() return nil end
 function GetBindingKey() return nil end
 function GetSpellTexture() return nil end
 function CheckInteractDistance() return false end
+function UnitHealth() return 80 end
+function UnitHealthMax() return 100 end
+GetSpecialization = function() return 1 end
+GetSpecializationInfo = function() return 71 end
+AuraUtil = nil
 
 -- ================= MaxDps engine stub =================
 C_Spell = {}
@@ -114,7 +182,23 @@ C_Spell.GetSpellCooldown = function()
 end
 C_Spell.IsSpellUsable = function() return true, false end
 
+-- Duration objects (the documented secret-blind cooldown path): the reader
+-- evaluates remaining time through a curve, so the harness controls
+-- "seconds remaining" directly.
+C_CurveUtil = {
+  CreateColorCurve = function()
+    return { SetType = function() end, AddPoint = function() end }
+  end,
+}
+local RemainingBySpell = {}
+C_Spell.GetSpellCooldownDuration = function(spellId)
+  local remaining = RemainingBySpell[spellId]
+  if remaining == nil then remaining = 0 end
+  return { EvaluateRemainingDuration = function() return remaining end }
+end
+
 MaxDps = {
+  idtospec = { [71] = "Arms", [72] = "Fury", [73] = "Protection" },
   Spells = { [185358] = {} },
   Flags = { [185358] = true },
   ItemSpells = {},
@@ -130,11 +214,14 @@ C_AssistedCombat = nil
 -- ================= load the addon =================
 local MDB = {}
 _G.MaxDpsBridge = MDB
+assert(loadfile("addon/MaxDpsBridge/Catalog.lua"))("MaxDpsBridge", MDB)
+assert(loadfile("addon/MaxDpsBridge/Keymap.lua"))("MaxDpsBridge", MDB)
 assert(loadfile("addon/MaxDpsBridge/Reader.lua"))("MaxDpsBridge", MDB)
 assert(loadfile("addon/MaxDpsBridge/Bridge.lua"))("MaxDpsBridge", MDB)
 assert(type(MDB.IsSpellReady) == "function")
 assert(type(MDB.IsInterruptReady) == "function")
-assert(type(MDB.IsValueSafe) == "function")
+assert(type(MDB.GetMobilitySpellID) == "function")
+assert(type(MDB.GetPlayerHpPct) == "function")
 
 -- boot the bridge: fire ADDON_LOADED like the client would, then take the
 -- OnUpdate handler the bootstrap installed on the strip frame.
@@ -147,7 +234,9 @@ local Update = Strip._scripts.OnUpdate
 assert(type(Update) == "function", "OnUpdate not wired")
 
 -- ================= 1. restricted cooldown shapes =================
--- active real cooldown: isActive=true, isOnGCD=false (NeverSecret bools)
+-- active real cooldown: isActive=true, isOnGCD=false; the Duration object
+-- reports 30 s remaining (the live path).
+RemainingBySpell[185358] = 30
 C_Spell.GetSpellCooldown = function()
   return { startTime = S(999), duration = S(30), isEnabled = true, isActive = true, isOnGCD = false }
 end
@@ -164,6 +253,7 @@ check("restricted GCD-only: no throw", ok)
 check("restricted GCD-only: ready (forgiven)", ok and ready == true)
 
 -- no cooldown: isActive=false
+RemainingBySpell[185358] = 0
 C_Spell.GetSpellCooldown = function()
   return { startTime = S(0), duration = S(0), isEnabled = true, isActive = false, isOnGCD = false }
 end
@@ -181,92 +271,69 @@ check("secret spellID ResolveBinding: no throw, nil", okVK and vk == nil)
 ok, ready = pcall(MDB.IsInterruptReady, secretID)
 check("secret spellID IsInterruptReady: no throw, false", ok and ready == false)
 
--- ================= 3. charges =================
--- secret 0 charges, recharging => fail open (documented)
-C_Spell.GetSpellCharges = function()
-  return { currentCharges = S(0), maxCharges = 2,
-           cooldownStartTime = S(999), cooldownDuration = S(30), isActive = true }
-end
-ok, ready = pcall(MDB.IsSpellReady, 185358)
-check("restricted secret 0 charges: no throw", ok)
-check("restricted secret 0 charges: fail-open ready", ok and ready == true)
-
--- secret charges but NOT recharging (isActive=false) => ready, count never read
-C_Spell.GetSpellCharges = function()
-  return { currentCharges = S(2), maxCharges = 2,
-           cooldownStartTime = S(0), cooldownDuration = S(0), isActive = false }
-end
-ok, ready = pcall(MDB.IsSpellReady, 185358)
-check("restricted max charges (isActive=false): ready", ok and ready == true)
-
--- unrestricted numeric charges keep v1.1.0 semantics
-C_Spell.GetSpellCharges = function()
-  return { currentCharges = 1, maxCharges = 2, cooldownStartTime = 975, cooldownDuration = 30, isActive = true }
-end
-ok, ready = pcall(MDB.IsSpellReady, 185358)
-check("unrestricted 1 charge: ready", ok and ready == true)
-
-C_Spell.GetSpellCharges = function()
-  return { currentCharges = 0, maxCharges = 2, cooldownStartTime = 970.2, cooldownDuration = 30, isActive = true }
-end
-ok, ready = pcall(MDB.IsSpellReady, 185358)
-check("unrestricted 0 charges, 0.2s tail: ready", ok and ready == true)
-
+-- Charges are deliberately not read (currentCharges is secret in combat):
+-- the cooldown path decides. A live 5 s cooldown must not fire.
 C_Spell.GetSpellCharges = function()
   return { currentCharges = 0, maxCharges = 2, cooldownStartTime = 975, cooldownDuration = 30, isActive = true }
 end
+C_Spell.GetSpellCooldown = function()
+  return { startTime = S(999), duration = S(30), isEnabled = true, isActive = true, isOnGCD = false }
+end
+RemainingBySpell[185358] = 5
 ok, ready = pcall(MDB.IsSpellReady, 185358)
-check("unrestricted 0 charges, 5s left: not ready", ok and ready == false)
-
+check("live 5s cooldown left: not ready", ok and ready == false)
+RemainingBySpell[185358] = 0
 C_Spell.GetSpellCharges = function() return nil end
+C_Spell.GetSpellCooldown = function()
+  return { startTime = 0, duration = 0, isEnabled = true, isActive = false, isOnGCD = false }
+end
 
--- ================= 4. numeric fallback is pcall-contained =================
--- legacy table shape (no isActive) with plain numbers and a clock that
--- throws: exercises the guarded numeric path end to end.
+-- ================= 4. duration path is pcall-contained =================
+-- legacy table shape (no isActive) + a clock that throws: the reader must
+-- still decide from the Duration object without ever calling GetTime.
 C_Spell.GetSpellCooldown = function()
   return { startTime = 990, duration = 20, isEnabled = true }
 end
+RemainingBySpell[185358] = 10
 GetTime = function() error("simulated secret arithmetic throw") end
 ok, ready = pcall(MDB.IsSpellReady, 185358)
 GetTime = RealGetTime
 check("numeric path throw contained: no throw", ok)
-check("numeric path throw: fail-open ready", ok and ready == true)
+check("Duration 10s left: not ready", ok and ready == false)
+RemainingBySpell[185358] = 0
 
--- legacy shape, plain numbers, 10s left => not ready (v1.1.0 semantics);
--- the GCD dummy spell (61304) reports a real 1.5s GCD so forgiveness does
--- not swallow a genuine 10s cooldown.
-C_Spell.GetSpellCooldown = function(id)
-  if id == 61304 then return { startTime = 990, duration = 1.5, isEnabled = true } end
-  return { startTime = 990, duration = 20, isEnabled = true }
-end
-ok, ready = pcall(MDB.IsSpellReady, 185358)
-check("legacy numeric 10s left: not ready", ok and ready == false)
-
--- ================= 5. interrupts =================
+-- the throw must not poison the next plain call
 C_Spell.GetSpellCooldown = function()
   return { startTime = 0, duration = 0, isEnabled = true, isActive = false, isOnGCD = false }
 end
--- secret flag => unknown => fail open
-UnitCastingInfo = function() return "Fireball", nil, 1, 0, 5000, false, "Cast-1", S(true), 133 end
+ok, ready = pcall(MDB.IsSpellReady, 185358)
+check("plain no-CD after throw: ready", ok and ready == true)
+
+-- ================= 5. interrupt gate =================
+-- The v1.3.0 design NEVER calls UnitCastingInfo / UnitChannelInfo: the gate
+-- trusts upstream's own live-interruptible-cast verdict (the category only
+-- goes dirty when GlowInteruptMidnight fires for a real cast). Prove no call
+-- happens and that the verdict fails open.
+UnitCastingInfo = function() error("UnitCastingInfo must not be called") end
+UnitChannelInfo = function() error("UnitChannelInfo must not be called") end
 ok, ready = pcall(MDB.IsInterruptReady, 185358)
-check("secret notInterruptible: no throw", ok)
-check("secret notInterruptible: fail-open", ok and ready == true)
--- plain flag true => deny
-UnitCastingInfo = function() return "Fireball", nil, 1, 0, 5000, false, "Cast-1", true, 133 end
+check("interrupt gate never reads cast APIs", ok)
+check("interrupt gate fails open on cast state", ok and ready == true)
+
+-- v2.1 interruptibility veto: the state is in the event NAME (no payload is
+-- ever read), so the sensor value is a plain boolean. An explicit
+-- NOT_INTERRUPTIBLE must veto the slot; unknown fails open.
+FireUnitEvent("target", "UNIT_SPELLCAST_START")
+FireUnitEvent("target", "UNIT_SPELLCAST_NOT_INTERRUPTIBLE")
 ok, ready = pcall(MDB.IsInterruptReady, 185358)
-check("plain notInterruptible=true: deny", ok and ready == false)
--- plain flag false => allow
-UnitCastingInfo = function() return "Fireball", nil, 1, 0, 5000, false, "Cast-1", false, 133 end
+check("interrupt veto: not-interruptible -> not ready", ok and ready == false)
+FireUnitEvent("target", "UNIT_SPELLCAST_INTERRUPTIBLE")
 ok, ready = pcall(MDB.IsInterruptReady, 185358)
-check("plain notInterruptible=false: allow", ok and ready == true)
+check("interrupt veto: interruptible -> ready", ok and ready == true)
+FireUnitEvent("target", "UNIT_SPELLCAST_STOP")
+ok, ready = pcall(MDB.IsInterruptReady, 185358)
+check("interrupt veto: unknown after stop -> ready (fail open)", ok and ready == true)
 UnitCastingInfo = function() return nil end
--- channel flag at index 7
-UnitChannelInfo = function() return "Mind Flay", nil, 1, 0, 5000, false, false end
-ok, ready = pcall(MDB.IsInterruptReady, 185358)
-check("plain channel interruptible: allow", ok and ready == true)
-UnitChannelInfo = function() return "Mind Flay", nil, 1, 0, 5000, false, S(false) end
-ok, ready = pcall(MDB.IsInterruptReady, 185358)
-check("secret channel flag: fail-open", ok and ready == true)
 UnitChannelInfo = function() return nil end
 
 -- ================= 6. secret engine state =================
@@ -315,6 +382,394 @@ okUpdate = pcall(Update, Strip, 0.06)
 check("Bridge Update unrestricted: no throw", okUpdate)
 ok, ready = pcall(MDB.GetMainSpellID)
 check("unrestricted main spell resolves", ok and ready == 185358)
+
+-- ================= 9. protocol v5 encode =================
+-- Warrior/Arms so the generated Catalog extras (Charge 100, Heroic Leap 6544)
+-- resolve; Spells carry HotKey texts so ResolveBinding succeeds.
+MaxDps.Spells = {
+  [185358] = { { HotKey = { GetText = function() return "1" end } } },
+  [100] = { { HotKey = { GetText = function() return "2" end } } },
+}
+MaxDps.Flags = { [185358] = true }
+MaxDps.Spell = 185358
+-- Binding results are cached per spell id; earlier sections cached misses
+-- against the old Spells table, so drop the cache for this section.
+MDB._BindCache = {}
+C_Spell.GetSpellCooldown = function()
+  return { startTime = 0, duration = 0, isEnabled = true, isActive = false, isOnGCD = false }
+end
+C_Spell.GetSpellCharges = function() return nil end
+UnitHealth = function() return 80 end
+UnitHealthMax = function() return 100 end
+CheckInteractDistance = function() return false end
+
+local function Nib (cellIndex)
+  local c = Textures[cellIndex + 1]
+  if not c then return 0, 0, 0 end
+  return math.floor(c[1] * 15 + 0.5), math.floor(c[2] * 15 + 0.5), math.floor(c[3] * 15 + 0.5)
+end
+
+local function IdAt (cellA, cellB)
+  local r0, g0, b0 = Nib(cellA)
+  local r1, g1, b1 = Nib(cellB)
+  return r0 * 2 ^ 20 + g0 * 2 ^ 16 + b0 * 2 ^ 12 + r1 * 2 ^ 8 + g1 * 2 ^ 4 + b1
+end
+
+local okV5 = pcall(Update, Strip, 0.06)
+check("v5 Update: no throw", okV5)
+
+-- Bridge.lua keeps the v5 wire version nibble (ADDITIVE urgency block): the
+-- new nibbles live in reserved cells 31/32 that the version-5 extension
+-- checksum (cells 11-33) already covered, and a pre-2.3 companion exe still
+-- decodes the frame. Only this version expectation reverted from the earlier
+-- v6 bump; the checksums are unchanged.
+local verNib = Nib(10)
+check("v5 version nibble stays 5 (additive urgency)", verNib == 5)
+local coreSum = 0
+for i = 1, 9 do local r, g, b = Nib(i); coreSum = coreSum + r + g + b end
+local _, coreCs, coreCommit = Nib(10)
+local _, heartbeat = Nib(9)
+check("v5 core checksum", (coreSum % 16) == coreCs)
+check("v5 core commit == heartbeat", coreCommit == heartbeat)
+
+local extSum = 0
+for i = 11, 33 do local r, g, b = Nib(i); extSum = extSum + r + g + b end
+local _, extCs, extCommit = Nib(34)
+check("v5 extension checksum", (extSum % 16) == extCs)
+check("v5 extension commit == heartbeat", extCommit == heartbeat)
+
+local mhi, mlo, mflags = Nib(1)
+check("v5 main slot encoded (VK 0x31)", bit.band(mflags, 8) == 8 and (mhi * 16 + mlo) == 0x31)
+check("v5 main spell id round-trips", IdAt(11, 12) == 185358)
+
+local _, _, sflags = Nib(7)
+check("v5 mobility slot encoded (Charge)", bit.band(sflags, 8) == 8)
+check("v5 mobility spell id is Charge", IdAt(23, 24) == 100)
+
+-- v2.2 SELF-SUSTAIN EXTRAS. A ready-but-UNBOUND self-heal (talent not on any
+-- bar / no MaxDps button) must stay empty: encoding it would make the
+-- companion press a key the player never bound. A bound one must encode with
+-- its spell id and the new slot-8 range probe.
+local uhi, ulo, uflags = Nib(8)
+check("unbound self-heal slot stays empty", bit.band(uflags, 8) == 0)
+check("unbound self-heal is not offered", MDB.GetSelfHealSpellID() == nil)
+
+MaxDps.Spells[202168] = { { HotKey = { GetText = function() return "H" end } } }
+MaxDps.IsSpellInRange = function() return 1 end
+MDB._BindCache = {}
+pcall(Update, Strip, 0.06)
+local hhi, hlo, hflags = Nib(8)
+check("v5 self-heal slot encodes bound IV (VK 0x48)", bit.band(hflags, 8) == 8 and (hhi * 16 + hlo) == 0x48)
+check("v5 self-heal spell id round-trips", IdAt(25, 26) == 202168)
+local r31 = Nib(31)
+check("v5 self-heal range probe encodes (slot 8 in range)", math.floor(r31 / 4) % 4 == 1)
+
+local vh, vl, vf = Nib(27)
+check("v5 vitals hp 80%", vh == 5 and vl == 0 and vf == 1)
+
+local tmelee, thp, tcast = Nib(29)
+check("v5 target out of melee", tmelee == 0)
+check("v5 target hp band", thp == 12)   -- 80% -> floor(80*15/100) = 12
+check("v5 target cast unknown without events", bit.band(tcast, 2) == 2)
+
+-- player cast sensors (arg-blind unit events)
+FireUnitEvent("player", "UNIT_SPELLCAST_START")
+pcall(Update, Strip, 0.06)
+check("v5 player casting encoded", (Nib(28)) == 1)
+FireUnitEvent("player", "UNIT_SPELLCAST_STOP")
+pcall(Update, Strip, 0.06)
+check("v5 player cast cleared", (Nib(28)) == 0)
+FireUnitEvent("player", "UNIT_SPELLCAST_CHANNEL_START")
+pcall(Update, Strip, 0.06)
+check("v5 player channeling encoded", (Nib(28)) == 2)
+FireUnitEvent("player", "UNIT_SPELLCAST_CHANNEL_STOP")
+pcall(Update, Strip, 0.06)
+
+-- v2.1 watchdog: a missed STOP must degrade the latch to UNKNOWN (fail open),
+-- never hold the rotation forever.
+FireUnitEvent("player", "UNIT_SPELLCAST_START")
+local realClock = GetTime
+GetTime = function() return 1000.0 + 20 end
+local watchdogState = MDB.GetCastState()
+GetTime = realClock
+check("cast watchdog degrades stale latch to UNKNOWN", watchdogState == 15)
+check("cast watchdog clears the latch", MDB.GetCastState() == 0)
+pcall(Update, Strip, 0.06)
+
+-- target cast sensors
+FireUnitEvent("target", "UNIT_SPELLCAST_START")
+FireUnitEvent("target", "UNIT_SPELLCAST_INTERRUPTIBLE")
+pcall(Update, Strip, 0.06)
+local _, _, tflags = Nib(29)
+check("v5 target casting + interruptible", bit.band(tflags, 1) == 1 and bit.band(tflags, 4) == 4)
+FireUnitEvent("target", "UNIT_SPELLCAST_STOP")
+pcall(Update, Strip, 0.06)
+local _, _, tflags2 = Nib(29)
+check("v5 target cast cleared", bit.band(tflags2, 1) == 0)
+
+-- class/spec cell (WARRIOR=13, Arms=1)
+local kh, kg, kf = Nib(33)
+check("v5 class/spec ids", kh == 13 and kg == 1 and kf == 1)
+
+-- v2.7: no AuraUtil -> every self-buff probe degrades -> the block-valid bit
+-- (cell33 B bit1) stays clear and no buff bit is a silent "active"; the
+-- companion reads UNKNOWN and keeps its documented fail-open.
+local _, _, buffFlags0 = Nib(33)
+local br0, bg0 = Nib(32)
+check("v2.7 buff probe block invalid without AuraUtil", bit.band(buffFlags0, 2) == 0)
+check("v2.7 no buff bits without a probe", br0 == 0 and bg0 == 0)
+
+-- A working probe marks the block valid and sets the per-slot bit (slot 1 is
+-- the Main suggestion 185358), while class/spec validity is preserved.
+AuraUtil = { FindAuraBySpellID = function(spellId)
+  if spellId == 185358 then return { spellId = spellId } end
+  return nil
+end }
+pcall(Update, Strip, 0.06)
+local kh1, kg1, kf1 = Nib(33)
+local br1 = Nib(32)
+check("v2.7 buff probe block valid bit set", bit.band(kf1, 2) == 2)
+check("v2.7 class/spec validity preserved", bit.band(kf1, 1) == 1 and kh1 == 13 and kg1 == 1)
+check("v2.7 active self-buff encoded per slot", bit.band(br1, 1) == 1)
+
+-- A throwing probe invalidates the whole block again (Unknown, not "absent").
+AuraUtil = { FindAuraBySpellID = function() error("secret") end }
+pcall(Update, Strip, 0.06)
+local _, _, kf2 = Nib(33)
+check("v2.7 failed probe clears the valid bit", bit.band(kf2, 2) == 0)
+AuraUtil = nil
+
+-- v2.1: target channel stop and target switch must clear the tracked cast
+-- state (a stale "casting" bit would gate Spell Reflection on nothing).
+FireUnitEvent("target", "UNIT_SPELLCAST_CHANNEL_START")
+FireUnitEvent("target", "UNIT_SPELLCAST_INTERRUPTIBLE")
+pcall(Update, Strip, 0.06)
+local _, _, chflags = Nib(29)
+check("v5 target channel + interruptible", bit.band(chflags, 1) == 1 and bit.band(chflags, 4) == 4)
+FireUnitEvent("target", "UNIT_SPELLCAST_CHANNEL_STOP")
+pcall(Update, Strip, 0.06)
+local _, _, chflags2 = Nib(29)
+check("v5 target channel stop clears cast bit", bit.band(chflags2, 1) == 0)
+FireUnitEvent("target", "UNIT_SPELLCAST_START")
+FirePlainEvent("PLAYER_TARGET_CHANGED")
+pcall(Update, Strip, 0.06)
+local _, _, tfchanged = Nib(29)
+check("v5 target change clears cast state", bit.band(tfchanged, 1) == 0)
+
+-- v2.1: a secret/failed CheckInteractDistance must leave melee UNKNOWN (2),
+-- never collapse to a confirmed out-of-melee (0) that would fire a gap closer.
+CheckInteractDistance = function() return S(true) end
+local secretMelee = select(1, MDB.GetTargetContext())
+CheckInteractDistance = function() return false end
+check("secret melee probe stays UNKNOWN", secretMelee == 2)
+
+-- v2.1: the deprecated GetSpecialization chain is bypassed when the modern
+-- C_SpecializationInfo namespace exists; a client with neither degrades to
+-- class/spec 0 instead of throwing.
+local realGetSpec = GetSpecialization
+local realGetSpecInfo = GetSpecializationInfo
+C_SpecializationInfo = {
+  GetSpecialization = function() return 1 end,
+  GetSpecializationInfo = function() return 72 end,   -- Fury
+}
+MDB.BeginTick()
+local mcid, msid = MDB.GetClassSpec()
+check("class/spec via C_SpecializationInfo (Fury=2)", mcid == 13 and msid == 2)
+C_SpecializationInfo = nil
+GetSpecialization = nil
+GetSpecializationInfo = nil
+MDB.BeginTick()
+mcid, msid = MDB.GetClassSpec()
+check("class/spec without spec APIs degrades to 0", mcid == 0 and msid == 0)
+GetSpecialization = realGetSpec
+GetSpecializationInfo = realGetSpecInfo
+
+-- disabled path must still produce a decodable Paused frame with both checksums
+MaxDpsBridgeDB.Enabled = false
+pcall(Update, Strip, 0.06)
+check("v5 disabled -> Paused state", (Nib(9)) == 2)
+coreSum = 0
+for i = 1, 9 do local r, g, b = Nib(i); coreSum = coreSum + r + g + b end
+local _, disabledCs = Nib(10)
+check("v5 disabled core checksum", (coreSum % 16) == disabledCs)
+extSum = 0
+for i = 11, 33 do local r, g, b = Nib(i); extSum = extSum + r + g + b end
+local _, disabledExt = Nib(34)
+check("v5 disabled ext checksum", (extSum % 16) == disabledExt)
+MaxDpsBridgeDB.Enabled = true
+
+-- ================= 10. defensive urgency (protocol v6) =================
+-- HP-curve stages mirror vendor GlowDefensiveHPMidnight's control points:
+-- <=0.3 Red(4), <0.5 Orange(3), <1.0 Yellow(2), >=1.0 White(1). Every probe
+-- is pcall-contained and scrubbed, so a secret input is UNKNOWN(0), no throw.
+local function SetHp (Hp, Max)
+  UnitHealth = function() return Hp end
+  UnitHealthMax = function() return Max or 100 end
+end
+
+SetHp(100)
+check("v6 defensive urgency 100% HP is White", MDB.GetDefensiveUrgency(871) == 1)
+SetHp(80)
+check("v6 defensive urgency 80% HP is Yellow", MDB.GetDefensiveUrgency(871) == 2)
+SetHp(45)
+check("v6 defensive urgency 45% HP is Orange", MDB.GetDefensiveUrgency(871) == 3)
+SetHp(20)
+check("v6 defensive urgency 20% HP is Red", MDB.GetDefensiveUrgency(871) == 4)
+
+UnitHealth = function() return S(50) end
+local okSecretHp, secretHpUrg = pcall(MDB.GetDefensiveUrgency, 871)
+check("v6 defensive urgency secret HP is Unknown (no throw)",
+  okSecretHp and secretHpUrg == 0)
+
+-- ================= 11. stagger urgency (protocol v6) =================
+-- Reversed curve (the Purifying Brew special case): >=1.0 Red(4),
+-- >=0.5 Orange(3), >=0.3 Yellow(2), else White(1). Secret -> UNKNOWN.
+local function SetStagger (Stagger, Max)
+  UnitStagger = function() return Stagger end
+  UnitHealthMax = function() return Max or 100 end
+end
+
+SetStagger(120)
+check("v6 stagger urgency 120/100 is Red", MDB.GetStaggerUrgency() == 4)
+SetStagger(60)
+check("v6 stagger urgency 60/100 is Orange", MDB.GetStaggerUrgency() == 3)
+SetStagger(40)
+check("v6 stagger urgency 40/100 is Yellow", MDB.GetStaggerUrgency() == 2)
+SetStagger(10)
+check("v6 stagger urgency 10/100 is White", MDB.GetStaggerUrgency() == 1)
+
+UnitStagger = function() return S(120) end
+local okSecretStagger, secretStaggerUrg = pcall(MDB.GetStaggerUrgency)
+check("v6 stagger urgency secret is Unknown (no throw)",
+  okSecretStagger and secretStaggerUrg == 0)
+
+-- Purifying Brew (119582) reads the stagger curve; any other spell uses HP.
+-- HP 100 (White) + readable stagger 90/100 (Orange): brew -> Orange, else White.
+UnitStagger = function() return 90 end
+UnitHealthMax = function() return 100 end
+SetHp(100)
+check("v6 Purifying Brew uses stagger curve (other spells use HP)",
+  MDB.GetDefensiveUrgency(119582) == 3 and MDB.GetDefensiveUrgency(871) == 1)
+
+-- When brew's stagger is unreadable the vendor falls back to the HP curve.
+UnitStagger = function() return S(90) end
+SetHp(100)
+local okBrewFallback, brewFallback = pcall(MDB.GetDefensiveUrgency, 119582)
+check("v6 Purifying Brew falls back to HP when stagger is secret (no throw)",
+  okBrewFallback and brewFallback == 1)
+
+-- ================= 12. defensive candidate / gap-fill =================
+-- Category truth comes from upstream's static class tables; the catalog
+-- gap-fill only fires below Red and only inside enableDefensives.
+MaxDps.classCooldowns = {
+  WARRIOR = { Arms = { defensive = { 871, 97462, 118038, 23920 }, offensive = {} } },
+}
+MaxDps.classInterrupts = { WARRIOR = { Arms = { 6552 } } }
+MaxDps.Spells[871] = { { HotKey = { GetText = function() return "3" end } } }
+MaxDps.db.global.enableDefensives = true
+MDB._BindCache = {}
+
+-- 1) MaxDps's own flagged + ready + bound defensive wins, source=false.
+MaxDps.Flags = { [871] = true }
+SetHp(20)
+MDB.BeginTick()
+local cand, isCatalog = MDB.GetDefensiveCandidate()
+check("v6 candidate flagged+ready+bound returns id, source false",
+  cand == 871 and isCatalog == false)
+
+-- 2) No flagged defensive + Red HP + a ready+bound catalog entry => gap-fill.
+MaxDps.Flags = {}
+SetHp(20)
+MDB.BeginTick()
+cand, isCatalog = MDB.GetDefensiveCandidate()
+check("v6 candidate no-flag + Red + catalog returns catalog id, source true",
+  cand == 871 and isCatalog == true)
+
+-- 3) Below Red the companion never substitutes its own defensive.
+SetHp(80)   -- Yellow
+MDB.BeginTick()
+cand, isCatalog = MDB.GetDefensiveCandidate()
+check("v6 candidate no-flag + Yellow is nil, false",
+  cand == nil and isCatalog == false)
+
+-- 4) enableDefensives=false mutes the gap-fill even at Red.
+MaxDps.db.global.enableDefensives = false
+SetHp(20)
+MDB.BeginTick()
+cand, isCatalog = MDB.GetDefensiveCandidate()
+check("v6 candidate enableDefensives=false is nil, false even at Red",
+  cand == nil and isCatalog == false)
+MaxDps.db.global.enableDefensives = true
+
+-- ================= 13. extras diagnostics =================
+-- Warror/Arms catalog: mobility {100,6544} = 2, selfHeal {202168} = 1,
+-- defensive {871,97462,118038,23920,202168} = 5.
+MDB.BeginTick()
+local extrasDiag = MDB.GetExtrasDiag()
+check("v6 extras diag prints def count (Arms def=5)", extrasDiag:match("def=5") ~= nil)
+check("v6 extras diag prints cls/spec and mob/heal counts",
+  extrasDiag:match("cls=13 spec=1") ~= nil
+  and extrasDiag:match("mob=2") ~= nil
+  and extrasDiag:match("heal=1") ~= nil)
+
+-- ================= 14. protocol v6 frame encode =================
+-- Drive a real Bridge.Update with a flagged+ready+bound defensive and stub
+-- UnitHealth (80% -> Yellow) + UnitStagger (60/100 -> Orange), then verify
+-- the captured cell bytes: cell 31 G = HP urgency, cell 31 B bit0 = source,
+-- cell 32 B = stagger urgency, and the extension checksum commits the new
+-- nibbles (G31 + B31 + Bb are all non-zero in this frame).
+UnitStagger = function() return 60 end
+SetHp(80)
+MaxDps.Flags = { [185358] = true, [871] = true }
+MaxDps.Spell = 185358
+MDB._BindCache = {}
+C_Spell.GetSpellCooldown = function()
+  return { startTime = 0, duration = 0, isEnabled = true, isActive = false, isOnGCD = false }
+end
+C_Spell.GetSpellCharges = function() return nil end
+
+local function ExtSumThrough33 ()
+  local Sum = 0
+  for i = 11, 33 do local r, g, b = Nib(i); Sum = Sum + r + g + b end
+  return Sum
+end
+
+local okV6, errV6 = pcall(Update, Strip, 0.06)
+check("v6 encode Update: no throw", okV6)
+if not okV6 then print("  v6 update error: " .. tostring(errV6)) end
+
+check("v6 encode flagged defensive id round-trips", IdAt(15, 16) == 871)
+
+local _, g31enc, b31enc = Nib(31)
+check("v6 encode cell31 G carries HP urgency Yellow(2), B source bit clear",
+  g31enc == 2 and bit.band(b31enc, 1) == 0)
+
+local _, _, b32enc = Nib(32)
+check("v6 encode cell32 B carries stagger urgency Orange(3)", b32enc == 3)
+
+-- The new nibbles are committed: with cell31 G (HP urgency) and cell32 B
+-- (stagger urgency) non-zero, recompute the extension sum over cells 11-33
+-- and demand it equals the painted checksum. An ExtSum that dropped either
+-- nibble would mismatch here.
+local _, v6ExtCs = Nib(34)
+check("v6 encode extension checksum commits HP + stagger urgency",
+  g31enc ~= 0 and b32enc ~= 0 and (ExtSumThrough33() % 16) == v6ExtCs)
+
+-- Catalog gap-fill in a real frame: no flagged defensive, Red HP, ready+bound
+-- catalog entry => slot 3 encodes the catalog id, cell31 B bit0 is set and
+-- cell31 G is Red; now ALL THREE v6 nibbles (G31, B31, Bb) are non-zero, so
+-- the recomputed extension checksum proves B31 is committed too.
+MaxDps.Flags = { [185358] = true }
+SetHp(20)
+MDB._BindCache = {}
+local okV6Gap = pcall(Update, Strip, 0.06)
+check("v6 encode catalog gap-fill Update: no throw", okV6Gap)
+local _, g31gap, b31gap = Nib(31)
+local _, _, b32gap = Nib(32)
+local _, v6ExtGapCs = Nib(34)
+check("v6 encode catalog gap-fill source bit + Red + checksum commits all 3",
+  bit.band(b31gap, 1) == 1 and g31gap == 4 and b32gap ~= 0
+  and b31gap ~= 0 and (ExtSumThrough33() % 16) == v6ExtGapCs)
 
 print(string.format("RESULT: %d passed, %d failed", PASS, FAIL))
 if FAIL > 0 then os.exit(1) end

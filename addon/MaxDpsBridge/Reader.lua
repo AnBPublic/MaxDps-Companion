@@ -43,6 +43,19 @@ local InterruptSet = {};  -- spellID -> true, via GlowInteruptMidnight
 local DefensiveSet = {};  -- spellID -> true, via GlowDefensiveHPMidnight
 local CooldownSet = {};   -- spellID -> true, via GlowCooldownMidnight/GlowCooldown
 
+--- ======= v2.0/v2.1 SENSOR STATE (declared above every user) =======
+-- Lua lexical rule (pinned by the 204x/287x outages): a `local` is visible
+-- only BELOW its declaration. IsInterruptReady (the readiness gate) reads
+-- TargetCastInterruptible for the interruptibility veto, so the sensor state
+-- MUST live above it; MDB.InitSensors (far below) registers the event frames
+-- that flip these plain booleans.
+local SensorEvents = false;
+local PlayerCasting, PlayerChanneling = false, false;
+local TargetCasting, TargetCastInterruptible = false, nil;
+-- Watchdog timestamps (plain GetTime numbers, never secret): a missed STOP
+-- event must not latch "casting" forever and hold the whole rotation.
+local PlayerCastSince, TargetCastSince = nil, nil;
+
 local function MaxDpsEngine ()
   local Direct = _G.MaxDps;
   if Direct and (Direct.Spells or Direct.Flags or Direct.GlowIndependent) then
@@ -379,9 +392,33 @@ local function ClassSpec ()
   local OkC, _, classFile = pcall(UnitClass, "player");
   if not OkC or not classFile then return nil; end
   local specName = nil;
-  if type(GetSpecialization) == "function" and type(GetSpecializationInfo) == "function" then
-    local OkS, specIndex = pcall(GetSpecializationInfo, GetSpecialization());
-    if OkS and specIndex and MaxDps.idtospec then specName = MaxDps.idtospec[specIndex]; end
+  -- v2.1 API HARDENING: GetSpecialization/GetSpecializationInfo are
+  -- deprecated (11.2+); prefer C_SpecializationInfo when present and fall
+  -- back to the legacy globals. Both chains are pcall-contained and the
+  -- idtospec INDEXING is contained too (no unguarded secret indexing).
+  local specID = nil;
+  if _G.C_SpecializationInfo
+    and type(_G.C_SpecializationInfo.GetSpecialization) == "function"
+    and type(_G.C_SpecializationInfo.GetSpecializationInfo) == "function" then
+    local OkS, Index = pcall(_G.C_SpecializationInfo.GetSpecialization);
+    if OkS and Index then
+      local OkI, ID = pcall(_G.C_SpecializationInfo.GetSpecializationInfo, Index);
+      if OkI and ID then specID = ID; end
+    end
+  end
+  if not specID and type(GetSpecialization) == "function" and type(GetSpecializationInfo) == "function" then
+    -- GetSpecialization() is contained on its own line: nesting a call in
+    -- pcall's argument list evaluates it OUTSIDE the pcall (a secret/throw
+    -- there would abort the whole frame).
+    local OkI, Index = pcall(GetSpecialization);
+    if OkI and Index then
+      local OkS, ID = pcall(GetSpecializationInfo, Index);
+      if OkS and ID then specID = ID; end
+    end
+  end
+  if specID and MaxDps.idtospec then
+    local OkName, Name = pcall(function () return MaxDps.idtospec[specID] end);
+    if OkName and type(Name) == "string" then specName = Name; end
   end
   if not specName then return nil; end
   Tick.Class, Tick.ClassFile, Tick.Spec = MaxDps, classFile, specName;
@@ -413,7 +450,7 @@ local function CategoryOf (Id)
   return nil;
 end
 
-local function FirstFlagged (WantCategory, IsInterrupt)
+local function FirstFlagged (WantCategory, IsInterrupt, RequireBinding)
   local Clean, MaxDps = ScrubbedFlags();
   if not Clean then return nil; end
   local Spells = MaxDps and MaxDps.Spells;
@@ -427,7 +464,7 @@ local function FirstFlagged (WantCategory, IsInterrupt)
       local Ready;
       if IsInterrupt then Ready = MDB.IsInterruptReady(SpellID);
       else Ready = MDB.IsSpellReady(SpellID); end
-      if Ready then
+      if Ready and (not RequireBinding or MDB.ResolveBinding(SpellID)) then
         if not Best or SpellID < Best then Best = SpellID; end
       end
     end
@@ -440,11 +477,8 @@ function MDB.GetInterruptSpellID ()
 end
 
 function MDB.GetDefensiveSpellID ()
-  local MaxDps = MaxDpsEngine();
-  if not (MaxDps and MaxDps.db and MaxDps.db.global and MaxDps.db.global.enableDefensives) then
-    return nil;
-  end
-  return FirstFlagged("defensive");
+  local Id = MDB.GetDefensiveCandidate and MDB.GetDefensiveCandidate();
+  return Id;
 end
 
 -- spellID -> itemID for flagged item spells, plus which itemIDs are
@@ -604,9 +638,15 @@ local function GetReadyCurve ()
   if not (_G.C_CurveUtil and type(_G.C_CurveUtil.CreateColorCurve) == "function") then return nil; end
   local Ok, Curve = pcall(_G.C_CurveUtil.CreateColorCurve);
   if not Ok or Curve == nil then return nil; end
-  pcall(Curve.SetType, Curve, Enum.LuaCurveType.Linear);
-  pcall(Curve.AddPoint, Curve, 0.0, CreateColor(1, 0, 0, 1));
-  pcall(Curve.AddPoint, Curve, 1.0, CreateColor(0, 1, 0, 1));
+  -- One containment for the whole setup: the Enum/CreateColor lookups must
+  -- be INSIDE the pcall or a client without them throws on argument
+  -- evaluation (harness-caught; a readout must never throw).
+  local OkSetup = pcall(function ()
+    Curve:SetType(Enum.LuaCurveType.Linear);
+    Curve:AddPoint(0.0, CreateColor(1, 0, 0, 1));
+    Curve:AddPoint(1.0, CreateColor(0, 1, 0, 1));
+  end);
+  if not OkSetup then return nil; end
   ReadyCurve = Curve;
   return ReadyCurve;
 end
@@ -715,6 +755,15 @@ end
 -- reached without us touching a single secret. Cooldown/usable gates
 -- above already passed, so: encode it. No second cast check exists that
 -- wouldn't reintroduce tainted reads.
+--
+-- v2.1 INTERRUPTIBILITY VETO: upstream's Flags does NOT encode
+-- interruptibility - GlowInteruptMidnight sets Flags=true for every live
+-- cast and only dims the overlay alpha to 0 for a NOT_INTERRUPTIBLE one.
+-- The v5 target sensor flips a PLAIN boolean on UNIT_SPELLCAST_INTERRUPTIBLE
+-- / UNIT_SPELLCAST_NOT_INTERRUPTIBLE (the state is in the event NAME; no
+-- payload is read). Explicit false => empty slot; nil => fail open.
+-- UnitCastingInfo's notInterruptible is secret for non-player units, so this
+-- event pair is the only safe interruptibility signal under Midnight.
 function MDB.IsInterruptReady (SpellID)
   if type(SpellID) ~= "number" or SpellID == 0 then return false; end
   if not MDB.IsSpellReady(SpellID) then return false; end
@@ -726,6 +775,11 @@ function MDB.IsInterruptReady (SpellID)
   if type(UnitExists) ~= "function" then return true; end
   local OkT, HasTarget = pcall(UnitExists, "target");
   if not OkT or not HasTarget then return false; end
+  -- v2.1 SENSOR VETO: an explicit NOT_INTERRUPTIBLE observation (plain
+  -- boolean from the event NAME; both interruptibility events fire at cast
+  -- start) must not encode. nil = unknown = fail open. Upstream's Flags
+  -- alone cannot distinguish this (it only dims the overlay alpha).
+  if SensorEvents and TargetCastInterruptible == false then return false; end
   return true;
 end
 
@@ -1006,4 +1060,437 @@ function MDB.ResolveBinding (SpellID)
     MDB._BindCache[SpellID] = { Miss = true };
   end
   return VirtualKey, Modifiers or 0;
+end
+
+--- ======= v2.0 SENSORS (protocol v5) =======
+-- Everything below is SECRET-SAFE by construction. The rules (see the header
+-- of this file and HANDOVER):
+--   * cast state comes from RegisterUnitEvent events on dedicated frames:
+--     the unit filter is applied by the game, no event argument is ever read,
+--     and the handlers only flip plain booleans. This is the only way to
+--     observe a cast without touching tainted UnitCastingInfo returns.
+--   * HP / range / buff probes wrap every Blizzard call in pcall and run
+--     every returned value through Scrubbed() (secret -> nil = UNKNOWN).
+--     Arithmetic happens only on values that survived the scrub.
+--   * nothing here is allowed to throw: a failed probe degrades to UNKNOWN
+--     and the companion's policy treats UNKNOWN with its documented fallback.
+
+-- (Sensor state is declared at the top of the file: IsInterruptReady reads
+-- TargetCastInterruptible and must see the same local — see the comment there.)
+
+-- Resets the tracked cast state (PLAYER_ENTERING_WORLD / reload). Events can
+-- be missed across a loading screen, and a cast cannot span one.
+function MDB.ResetSensors ()
+  PlayerCasting, PlayerChanneling = false, false;
+  TargetCasting, TargetCastInterruptible = false, nil;
+  PlayerCastSince, TargetCastSince = nil, nil;
+end
+
+-- Plain GetTime stamp for the watchdog (pcall-contained; nil when missing).
+local function CastTimer ()
+  if type(GetTime) ~= "function" then return nil; end
+  local Ok, Now = pcall(GetTime);
+  if Ok and type(Now) == "number" then return Now; end
+  return nil;
+end
+
+-- True when a latch has been held longer than any legitimate cast/channel:
+-- the STOP event was missed, so the state is UNKNOWN, not "still casting".
+local CAST_WATCHDOG_SECONDS = 15;
+local function CastStale (Since)
+  if type(Since) ~= "number" or type(GetTime) ~= "function" then return false; end
+  local Ok, Now = pcall(GetTime);
+  if not Ok or type(Now) ~= "number" then return false; end
+  return Now - Since > CAST_WATCHDOG_SECONDS;
+end
+
+-- Registers arg-blind unit events for one unit. Two separate frames (player,
+-- target) so the handler never has to read the unit token argument.
+local function CreateSensor (Unit, Handler)
+  if type(CreateFrame) ~= "function" then return nil; end
+  local Frame = CreateFrame("Frame");
+  if type(Frame) ~= "table" or type(Frame.RegisterUnitEvent) ~= "function" then
+    return nil;
+  end
+  local Ok = pcall(function ()
+    Frame:RegisterUnitEvent("UNIT_SPELLCAST_START", Unit);
+    Frame:RegisterUnitEvent("UNIT_SPELLCAST_STOP", Unit);
+    Frame:RegisterUnitEvent("UNIT_SPELLCAST_FAILED", Unit);
+    Frame:RegisterUnitEvent("UNIT_SPELLCAST_INTERRUPTED", Unit);
+    Frame:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_START", Unit);
+    Frame:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_STOP", Unit);
+  end);
+  if not Ok then return nil; end
+  Frame:SetScript("OnEvent", function (_, Event)
+    -- Event names are plain strings; no event payload is ever inspected.
+    Handler(Event);
+  end);
+  return Frame;
+end
+
+function MDB.InitSensors ()
+  if SensorEvents then return; end
+  SensorEvents = true;
+
+  local PlayerFrame = CreateSensor("player", function (Event)
+    if Event == "UNIT_SPELLCAST_START" then
+      PlayerCasting = true; PlayerChanneling = false; PlayerCastSince = CastTimer();
+    elseif Event == "UNIT_SPELLCAST_STOP"
+      or Event == "UNIT_SPELLCAST_FAILED"
+      or Event == "UNIT_SPELLCAST_INTERRUPTED" then
+      PlayerCasting = false; PlayerCastSince = nil;
+    elseif Event == "UNIT_SPELLCAST_CHANNEL_START" then
+      PlayerChanneling = true; PlayerCasting = false; PlayerCastSince = CastTimer();
+    elseif Event == "UNIT_SPELLCAST_CHANNEL_STOP" then
+      PlayerChanneling = false; PlayerCastSince = nil;
+    end
+  end);
+  if PlayerFrame then
+    -- The frame stays alive as long as the closure is referenced; the
+    -- PLAYER_ENTERING_WORLD reset is driven from Bridge.lua's loader.
+  end
+
+  local TargetFrame = CreateSensor("target", function (Event)
+    if Event == "UNIT_SPELLCAST_START" or Event == "UNIT_SPELLCAST_CHANNEL_START" then
+      TargetCasting = true; TargetCastInterruptible = nil; TargetCastSince = CastTimer();
+    elseif Event == "UNIT_SPELLCAST_INTERRUPTIBLE" then
+      TargetCastInterruptible = true;
+    elseif Event == "UNIT_SPELLCAST_NOT_INTERRUPTIBLE" then
+      TargetCastInterruptible = false;
+    elseif Event == "UNIT_SPELLCAST_STOP"
+      or Event == "UNIT_SPELLCAST_FAILED"
+      or Event == "UNIT_SPELLCAST_INTERRUPTED"
+      or Event == "UNIT_SPELLCAST_CHANNEL_STOP"    -- v2.1: a target channel
+      then                                          -- ending must clear too
+      TargetCasting = false; TargetCastInterruptible = nil; TargetCastSince = nil;
+    elseif Event == "PLAYER_TARGET_CHANGED" then
+      -- v2.1: the tracked cast belonged to the PREVIOUS target; without this
+      -- a target switch mid-cast leaves a stale "casting" bit that would gate
+      -- Spell Reflection onto a target that is not casting anything.
+      TargetCasting = false; TargetCastInterruptible = nil; TargetCastSince = nil;
+    end
+  end);
+  if TargetFrame then
+    pcall(function ()
+      TargetFrame:RegisterUnitEvent("UNIT_SPELLCAST_INTERRUPTIBLE", "target");
+      TargetFrame:RegisterUnitEvent("UNIT_SPELLCAST_NOT_INTERRUPTIBLE", "target");
+      TargetFrame:RegisterEvent("PLAYER_TARGET_CHANGED");
+    end);
+  end
+
+  if not PlayerFrame and not TargetFrame then
+    SensorEvents = false;   -- pre-Midnight client: stay UNKNOWN forever
+  end
+end
+
+--- Player health percent, or nil = UNKNOWN.
+local function HealthPct (Unit)
+  if type(UnitHealth) ~= "function" or type(UnitHealthMax) ~= "function" then
+    return nil;
+  end
+  local OkHp, Hp = pcall(UnitHealth, Unit);
+  if not OkHp then return nil; end
+  local OkMax, Max = pcall(UnitHealthMax, Unit);
+  if not OkMax then return nil; end
+  local PlainHp = nil;
+  local CleanHp = Scrubbed(Hp);
+  if type(CleanHp) == "number" then PlainHp = CleanHp; end
+  local PlainMax = nil;
+  local CleanMax = Scrubbed(Max);
+  if type(CleanMax) == "number" then PlainMax = CleanMax; end
+  if not PlainHp or not PlainMax or PlainMax <= 0 then return nil; end
+  local Pct = math.floor(PlainHp * 100 / PlainMax + 0.5);
+  if Pct < 0 then Pct = 0 elseif Pct > 100 then Pct = 100; end
+  return Pct;
+end
+
+function MDB.GetPlayerHpPct ()
+  return HealthPct("player");
+end
+
+function MDB.GetTargetHpPct ()
+  return HealthPct("target");
+end
+
+function MDB.GetCastState ()
+  -- 0 none, 1 casting, 2 channeling, 15 unknown
+  if not SensorEvents then return 15; end
+  if (PlayerCasting or PlayerChanneling) and CastStale(PlayerCastSince) then
+    -- A missed STOP must not latch "casting" forever (the companion would
+    -- hold the whole rotation behind a dead bit). Degrade to UNKNOWN: the
+    -- policy fails open and the main rotation resumes.
+    PlayerCasting, PlayerChanneling, PlayerCastSince = false, false, nil;
+    return 15;
+  end
+  if PlayerCasting then return 1; end
+  if PlayerChanneling then return 2; end
+  return 0;
+end
+
+-- Returns meleeFlag (0 = confirmed out of melee, 1 = in melee,
+-- 2 = unknown), target hp band (0..14 = 0..~100% in steps, 15 unknown) and
+-- target cast flags:
+--   bit0 casting, bit1 cast state unknown, bit2 interruptible,
+--   bit3 not interruptible.
+function MDB.GetTargetContext ()
+  -- Target presence first: without a target the cast latch is meaningless,
+  -- and a stale "casting" bit from the previous target must not gate reflect
+  -- or kick decisions onto nothing.
+  local HasTarget = true;
+  if type(UnitExists) == "function" then
+    local OkE, Exists = pcall(UnitExists, "target");
+    if OkE and Exists ~= true then HasTarget = false; end
+  end
+  if not HasTarget then
+    TargetCasting, TargetCastInterruptible, TargetCastSince = false, nil, nil;
+  end
+
+  local Melee = 2;   -- unknown unless CheckInteractDistance answers
+  if HasTarget and type(CheckInteractDistance) == "function" then
+    local Ok, Near = pcall(CheckInteractDistance, "target", 3);
+    if Ok then
+      -- Scrub first, then map ONLY the explicit booleans: a secret/failed
+      -- probe must stay UNKNOWN (2), never become a confirmed out-of-melee
+      -- (0) that would let a gap closer fire blind.
+      Near = Scrubbed(Near);
+      if Near == true then Melee = 1
+      elseif Near == false then Melee = 0 end;
+    end
+  end
+
+  local HpBand = 15;
+  local Pct = HealthPct("target");
+  if Pct then
+    HpBand = math.floor(Pct * 15 / 100);
+    if HpBand > 14 then HpBand = 14; end
+  end
+
+  local CastFlags = 0;
+  if SensorEvents then
+    if TargetCasting and CastStale(TargetCastSince) then
+      -- Watchdog: the STOP was missed; report UNKNOWN, not "casting".
+      TargetCasting, TargetCastInterruptible, TargetCastSince = false, nil, nil;
+      CastFlags = bit.bor(CastFlags, 2);
+    elseif TargetCasting then
+      CastFlags = bit.bor(CastFlags, 1);
+      if TargetCastInterruptible == true then
+        CastFlags = bit.bor(CastFlags, 4);
+      elseif TargetCastInterruptible == false then
+        CastFlags = bit.bor(CastFlags, 8);
+      else
+        CastFlags = bit.bor(CastFlags, 2);
+      end
+    else
+      CastFlags = bit.bor(CastFlags, 2);   -- not casting: state UNKNOWN
+    end
+  else
+    CastFlags = bit.bor(CastFlags, 2);
+  end
+  return Melee, HpBand, CastFlags;
+end
+
+-- Per-slot range probe: 0 unknown, 1 in range, 2 out of range.
+-- Uses MaxDps's own helper (the same call upstream uses) through a pcall;
+-- a secret return scrubs to nil and stays UNKNOWN.
+function MDB.GetSlotRange (SpellID)
+  if type(SpellID) ~= "number" or SpellID == 0 then return 0; end
+  local MaxDps = MaxDpsEngine();
+  if not MaxDps or type(MaxDps.IsSpellInRange) ~= "function" then return 0; end
+  if type(UnitExists) ~= "function" then return 0; end
+  local OkExists, HasTarget = pcall(function ()
+    return UnitExists("target") == true;
+  end);
+  if not OkExists or not HasTarget then return 0; end
+  local Ok, InRange = pcall(MaxDps.IsSpellInRange, MaxDps, SpellID, "target");
+  if not Ok then return 0; end
+  local Clean = Scrubbed(InRange);
+  if Clean == 1 or Clean == true then return 1; end
+  if Clean == 0 or Clean == false then return 2; end
+  return 0;
+end
+
+-- Per-slot self-buff probe: 1 when the suggested spell's own helpful aura is
+-- on the player, 0 when the probe ran and found none, nil when the probe
+-- failed / degraded (no AuraUtil, thrown call, secret value). The bridge marks
+-- the whole block invalid when any probe returns nil (v2.7 cell 33 B bit1), so
+-- the companion sees UNKNOWN instead of a silent "not active"; its policy then
+-- keeps the documented fail-open for Unknown (legacy encoders leave the bit 0
+-- and behave exactly as before).
+function MDB.GetSlotBuff (SpellID)
+  if type(SpellID) ~= "number" or SpellID == 0 then return nil; end
+  if not (_G.AuraUtil and type(_G.AuraUtil.FindAuraBySpellID) == "function") then
+    return nil;
+  end
+  local Ok, Found = pcall(function ()
+    local Aura = _G.AuraUtil.FindAuraBySpellID(SpellID, "player", "HELPFUL");
+    return Aura ~= nil;
+  end);
+  if not Ok then return nil; end
+  if Found == true then return 1; end
+  if Found == false then return 0; end
+  return nil;
+end
+
+-- Class id + spec ordinal for protocol v5 cell 33 (see Catalog.lua).
+function MDB.GetClassSpec ()
+  local _, classFile, specName = ClassSpec();
+  if not classFile or not specName then return 0, 0; end
+  local ClassId = 0;
+  if type(MDB.ClassIds) == "table" and type(MDB.ClassIds[classFile]) == "number" then
+    ClassId = MDB.ClassIds[classFile];
+  end
+  local SpecId = 0;
+  if ClassId > 0
+    and type(MDB.SpecIds) == "table"
+    and type(MDB.SpecIds[classFile]) == "table"
+    and type(MDB.SpecIds[classFile][specName]) == "number" then
+    SpecId = MDB.SpecIds[classFile][specName];
+  end
+  return ClassId, SpecId;
+end
+
+-- The curated companion-only slot candidates (Catalog.lua). First entry whose
+-- spell is currently ready AND has a resolvable keybind wins; the policy then
+-- decides USE/HOLD.
+--
+-- v2.2: the binding check matters when a list holds more than one curated
+-- ability (e.g. Warrior self-heal IV -> Enraged Regeneration): a ready but
+-- UNBOUND talent (not on any bar, no MaxDps overlay button) must not shadow a
+-- bound alternative. ResolveBinding is cached (misses included) and
+-- invalidated on bar updates, so the extra lookups are a table hit.
+local function ExtraSpellID (Kind)
+  local _, classFile, specName = ClassSpec();
+  if not classFile or not specName then return nil; end
+  local Table = MDB.Extras and MDB.Extras[classFile] and MDB.Extras[classFile][specName];
+  if type(Table) ~= "table" then return nil; end
+  local List = Table[Kind];
+  if type(List) ~= "table" then return nil; end
+  for i = 1, #List do
+    local SpellID = List[i];
+    if type(SpellID) == "number" and SpellID > 0 and MDB.IsSpellReady(SpellID)
+      and MDB.ResolveBinding and MDB.ResolveBinding(SpellID) then
+      return SpellID;
+    end
+  end
+  return nil;
+end
+
+function MDB.GetMobilitySpellID ()
+  return ExtraSpellID("mobility");
+end
+
+function MDB.GetSelfHealSpellID ()
+  return ExtraSpellID("selfHeal");
+end
+
+--- ======= DEFENSIVE URGENCY + GAP-FILL (protocol v6) =======
+-- Mirrors the vendor colour curves in MaxDps:GlowDefensiveHPMidnight
+-- (vendor/MaxDps/Buttons.lua:1056-1110) at the curves' own control points.
+-- MaxDps has no discrete colour enum: it evaluates UnitHealthPercent through
+-- GlowDcurve (0.3 red a=1, 0.5 yellow a=.5, 1.0 green a=0) and stages the
+-- RESULT as the glow colour. The stages below are exactly those anchors:
+--   HP:      <=30% Red (red anchor), <50% Orange (red->yellow blend),
+--            <100% Yellow (yellow->clear fade), 100% White (no glow).
+--   Stagger: >=100% Red, >=50% Orange, >=30% Yellow, <30% White (reversed
+--            curve, the one per-spell special case: Purifying Brew 119582).
+-- Inputs are the ALREADY-SCRUBBED HP / stagger values the vitals cell uses:
+-- a secret or failed probe is UNKNOWN, never compared. No arithmetic ever
+-- runs on a value that did not survive the scrub (the 99x/384x lesson).
+local URGENCY_UNKNOWN, URGENCY_WHITE, URGENCY_YELLOW, URGENCY_ORANGE, URGENCY_RED = 0, 1, 2, 3, 4;
+
+local function UrgencyFromFraction (Fraction)
+  if type(Fraction) ~= "number" then return URGENCY_UNKNOWN; end
+  if Fraction <= 0.3 then return URGENCY_RED; end
+  if Fraction < 0.5 then return URGENCY_ORANGE; end
+  if Fraction < 1.0 then return URGENCY_YELLOW; end
+  return URGENCY_WHITE;
+end
+
+local function UrgencyFromStagger (Fraction)
+  if type(Fraction) ~= "number" then return URGENCY_UNKNOWN; end
+  if Fraction >= 1.0 then return URGENCY_RED; end
+  if Fraction >= 0.5 then return URGENCY_ORANGE; end
+  if Fraction >= 0.3 then return URGENCY_YELLOW; end
+  return URGENCY_WHITE;
+end
+
+-- Stagger fraction (UnitStagger / UnitHealthMax) through the reversed curve.
+-- Both reads are pcall-contained and scrubbed; anything not a plain number
+-- degrades to UNKNOWN (0).
+function MDB.GetStaggerUrgency ()
+  if type(UnitStagger) ~= "function" or type(UnitHealthMax) ~= "function" then
+    return URGENCY_UNKNOWN;
+  end
+  local OkS, Stagger = pcall(UnitStagger, "player");
+  if not OkS then return URGENCY_UNKNOWN; end
+  local OkM, Max = pcall(UnitHealthMax, "player");
+  if not OkM then return URGENCY_UNKNOWN; end
+  local PlainStagger = Scrubbed(Stagger);
+  local PlainMax = Scrubbed(Max);
+  if type(PlainStagger) ~= "number" or type(PlainMax) ~= "number" or PlainMax <= 0 then
+    return URGENCY_UNKNOWN;
+  end
+  return UrgencyFromStagger(PlainStagger / PlainMax);
+end
+
+-- The urgency MaxDps would render for this spell. Purifying Brew (119582) is
+-- the vendor's only per-spell special case; when its stagger is unreadable
+-- the vendor itself falls back to the HP curve (`if not color then color =
+-- UnitHealthPercent(...)`), so the bridge mirrors that fallback exactly.
+function MDB.GetDefensiveUrgency (SpellID)
+  if SpellID == 119582 then
+    local Stagger = MDB.GetStaggerUrgency();
+    if Stagger and Stagger ~= URGENCY_UNKNOWN then return Stagger; end
+  end
+  local Pct = MDB.GetPlayerHpPct();
+  if type(Pct) ~= "number" then return URGENCY_UNKNOWN; end
+  return UrgencyFromFraction(Pct / 100);
+end
+
+-- The Defensive slot candidate, plus whether it is a catalog gap-fill.
+-- 1. MaxDps's own flagged + ready + BOUND defensive wins (the pre-2.3
+--    contract; the binding requirement is what the slot encoder applied
+--    anyway, but now failing it falls through instead of blanking the slot).
+-- 2. When MaxDps names nothing AND the observed HP urgency is Red, the
+--    catalog's derived gap-fill list (Catalog.lua, Major first, immunities
+--    excluded) supplies the first ready+bound defensive. Below Red the
+--    companion never substitutes its own defensive for MaxDps's silence.
+-- The whole path (including the gap-fill) stays inside MaxDps's own
+-- `enableDefensives` switch: muting defensive intelligence in MaxDps mutes
+-- the companion's defensive automation too. The companion's own per-ability
+-- ON/OFF and the Defensive slot toggle remain the automation controls.
+function MDB.GetDefensiveCandidate ()
+  local MaxDps = MaxDpsEngine();
+  local Enabled = MaxDps and MaxDps.db and MaxDps.db.global and MaxDps.db.global.enableDefensives;
+  if not Enabled then return nil, false; end
+  local Flagged = FirstFlagged("defensive", false, true);
+  if Flagged then return Flagged, false; end
+  if MDB.GetDefensiveUrgency(nil) == URGENCY_RED then
+    local Gap = ExtraSpellID("defensive");
+    if Gap then return Gap, true; end
+  end
+  return nil, false;
+end
+
+function MDB.GetDefensiveUrgencyNibble (SpellID)
+  local Nibble = MDB.GetDefensiveUrgency(SpellID);
+  if type(Nibble) ~= "number" or Nibble < 0 or Nibble > 4 then return 0; end
+  return Nibble;
+end
+
+-- /mdb status diagnostics for the extras lists.
+function MDB.GetExtrasDiag ()
+  local ClassId, SpecId = MDB.GetClassSpec();
+  local Parts = {};
+  Parts[#Parts + 1] = ("cls=%d spec=%d"):format(ClassId, SpecId);
+  local _, classFile, specName = ClassSpec();
+  local Table = classFile and specName and MDB.Extras
+    and MDB.Extras[classFile] and MDB.Extras[classFile][specName];
+  if type(Table) == "table" then
+    Parts[#Parts + 1] = ("mob=%d heal=%d def=%d"):format(
+      #(Table.mobility or {}), #(Table.selfHeal or {}), #(Table.defensive or {}));
+  else
+    Parts[#Parts + 1] = "no-extras";
+  end
+  return table.concat(Parts, " ");
 end

@@ -71,6 +71,7 @@ internal static class ColorLearner
             if (cancel?.Invoke() == true) return null;
             var cells = sample(block, cellSize);
             if (cells.Length != PixelProtocol.CellCount
+                && cells.Length != PixelProtocol.CellCountV4
                 && cells.Length != PixelProtocol.CellCountV1) return null;
             var step = Classify(cells, profile);
             var (from, to) = SlotRange(cells);
@@ -134,13 +135,17 @@ internal static class ColorLearner
     /// instead of double-counting.
     /// </summary>
     /// <summary>
-    /// Slot range of a frame: v2 averages cells 1-6, v1 cells 1-5.
+    /// Slot range of a frame: v5 averages cells 1-8, v4 cells 1-6, v1 cells 1-5.
     /// Mixed-version frame lists never occur in practice (one addon renders
     /// one pattern), but every helper resolves per-frame so a mixed list
     /// still learns instead of throwing.
     /// </summary>
-    private static (int From, int To) SlotRange(Color[] cells) =>
-        cells.Length == PixelProtocol.CellCountV1 ? (1, 5) : (1, 6);
+    private static (int From, int To) SlotRange(Color[] cells) => cells.Length switch
+    {
+        PixelProtocol.CellCountV1 => (1, 5),
+        PixelProtocol.CellCountV4 => (1, 6),
+        _ => (1, 8),
+    };
 
     internal static void AddOrReplace(List<Color[]> frames, Color[] cells)
     {
@@ -189,6 +194,7 @@ internal static class ColorLearner
         foreach (var cells in frames)
         {
             if (cells.Length != PixelProtocol.CellCount
+                && cells.Length != PixelProtocol.CellCountV4
                 && cells.Length != PixelProtocol.CellCountV1) continue;
             if (Classify(cells, matcher) < 0) continue;
             usable++;
@@ -247,6 +253,7 @@ internal static class ColorLearner
         foreach (var cells in frames)
         {
             if (cells.Length != PixelProtocol.CellCount
+                && cells.Length != PixelProtocol.CellCountV4
                 && cells.Length != PixelProtocol.CellCountV1) continue;
             var step = Classify(cells, matcher);
             if (step < 0) continue;
@@ -321,11 +328,15 @@ internal static class ColorLearner
 
     public static int Classify(Color[] cells, ColorProfile? profile = null)
     {
-        // v2 (current): 9 cells, slots 1-6, status 7.
+        // v5 (current): 35 cells, slots 1-8, status 9.
         if (cells.Length == PixelProtocol.CellCount)
-            return ClassifyCells(cells, firstSlot: 1, lastSlot: 6,
+            return ClassifyCells(cells, firstSlot: 1, lastSlot: 8,
                 cells[PixelProtocol.StatusCellIndex], profile);
-        // v1 (stale addon): 8 cells, slots 1-5, status 6.
+        // v4 (stale addon): 9 cells, slots 1-6, status 7.
+        if (cells.Length == PixelProtocol.CellCountV4)
+            return ClassifyCells(cells, firstSlot: 1, lastSlot: 6,
+                cells[PixelProtocol.StatusCellIndexV4], profile);
+        // v1 (older stale addon): 8 cells, slots 1-5, status 6.
         if (cells.Length == PixelProtocol.CellCountV1)
             return ClassifyCells(cells, firstSlot: 1, lastSlot: 5,
                 cells[PixelProtocol.StatusCellIndexV1], profile);
@@ -353,7 +364,8 @@ internal static class ColorLearner
         // Calibrate mode holds the bridge Paused: the status cell must say so.
         // Without this gate a live rotation frame with five equal slots would
         // misclassify as a pattern step. NOTE: use the passed status cell,
-        // not StatusCellIndex — v1 patterns carry it at index 6, v2 at 7.
+        // not StatusCellIndex — v1 patterns carry it at index 6, v4 at 7,
+        // v5 at 9.
         if (!PixelProtocol.IsPausedStatus(status, m, profile))
             return -1;
 

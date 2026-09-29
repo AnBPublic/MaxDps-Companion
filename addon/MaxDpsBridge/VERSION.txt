@@ -1,7 +1,52 @@
-1.3.9
-date: 2026-09-24
-git: <commit placeholder — fill at release>
+2.7.0
+date: 2026-09-28
+git: <commit placeholder - fill at release>
 interface: 120100 (Retail Midnight 12.1)
-protocol: v4 (9 cells; status cell B = flags bit0 in-combat, bit1 on-GCD, bit2 has-target)
-perf: v1.3.9 — per-tick memo (MDB.BeginTick): one scrubsecretvalues(Flags) + one ItemSpells map + one class/spec resolve per tick instead of ~10/~4/~6; Duration evaluation curve built once and reused (was ~6 curves/tick); no per-slot closures in the readiness gate; strip refresh 50 ms -> 33 ms (30 Hz) for lower action latency at lower total cost than the old 20 Hz path
-behaviour: unchanged from 1.3.6/1.3.7 — main/off/def/cons/trin/int, GCD + target + combat gates, interrupts execute
+protocol: v5 (35 cells; 8 slots incl. Mobility/SelfHeal; raw 24-bit spell ids;
+          vitals / cast / target / range / buff / class-spec sensor block;
+          ADDITIVE blocks on reserved nibbles: cell 31 G = HP-curve urgency,
+          cell 31 B bit0 = catalog gap-fill source, cell 32 B = stagger
+          urgency (bridge 2.3); cell 33 B bit1 = self-buff probe block valid
+          (bridge 2.7); core + extension checksums). The version nibble STAYS
+          5, so older companion exes still decode this strip (they ignore
+          reserved bits; the extension checksum already covered them). Zero
+          means UNKNOWN and the policy keeps its documented fail-open.
+v2.7:     self-buff tri-state. GetSlotBuff returns 1/0/nil (ran / none /
+          failed-or-secret); WriteBuffs clears the block-valid bit when ANY
+          probe degraded, so a failed aura probe can never masquerade as "buff
+          absent". A pre-2.7 aux encoder leaves the bit 0 and the companion
+          reads the whole block UNKNOWN (same fail-open as before). No other
+          bridge behaviour changed; Catalog.lua revision stays 3.
+sensors: arg-blind RegisterUnitEvent cast tracking (player + target, no event
+          payload ever read); pcall+scrub HP/target-HP/stagger; MaxDps:IsSpellInRange
+          range tri-state (incl. the SelfHeal slot); AuraUtil self-buff
+          probe; class/spec ids from the generated Catalog.lua; all probes
+          degrade to UNKNOWN, never throw
+extras:   Mobility / SelfHeal / Defensive slots resolve keybinds from the
+          generated Catalog.lua per-spec lists; readiness-gated like every slot
+v2.3:     defensive intelligence. The bridge stages MaxDps's own defensive glow
+          colour (vendor Buttons.lua:1056 GlowDefensiveHPMidnight) at the
+          curve's control points: HP <=30% Red, <50% Orange, <100% Yellow,
+          100% White; Purifying Brew (119582) uses the reversed stagger curve
+          with the vendor's HP fallback. The Defensive slot keeps MaxDps's
+          flagged ready+bound candidate first; when MaxDps names none and the
+          observed HP urgency is Red, the catalog's derived per-spec
+          defensive list (Major first, immunities excluded) supplies a
+          gap-fill candidate and flags the source bit. The urgency block is
+          ADDITIVE on the v5 wire (reserved nibbles, version stays 5).
+v2.1:     interrupt slots are vetoed when UNIT_SPELLCAST_NOT_INTERRUPTIBLE was
+          observed (plain boolean; upstream Flags only dims the overlay);
+          target cast state clears on target change / target loss / channel
+          stop; a 15 s watchdog degrades a missed-STOP latch to UNKNOWN (fail
+          open instead of holding the rotation forever); GetSpecialization is
+          containerised and C_SpecializationInfo is preferred when present
+v2.2:     self-sustain completion - the SelfHeal slot range is probed (a
+          confirmed out-of-range melee heal is skipped instead of burning a
+          failed press); ExtraSpellID only offers a ready spell that also has a
+          resolvable keybind (an unbound talent cannot shadow a bound
+          alternative, and a ready-but-unbound talent no longer blanks the
+          slot); curated melee heals carry requiresTarget; ability ceilings
+          (e.g. Death Pact below 50%) now gate the Defensive slot too
+behaviour: MAXDPS-compatible - MaxDps stays the only rotation source; the
+          companion decides USE/HOLD/SKIP for situational slots; MaxDps never
+          suggests the extras, the bridge surfaces them only when ready+bound

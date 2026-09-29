@@ -1,10 +1,11 @@
 ## Interface: 120100
 ## Title: MaxDps |cFF00D8FFBridge|r
-## Notes: Pixel bridge: encodes MaxDps suggestions as a 9-cell strip for MaxDpsCompanion.
+## Notes: Pixel bridge: encodes MaxDps suggestions as a 35-cell strip for MaxDpsCompanion (protocol v5 + additive defensive urgency / gap-fill nibbles; version nibble stays 5 so older companion exes keep working).
 ## Author: AnBPublic
-## Version: 1.3.9
+## Version: 2.7.0
 ## Dependencies: MaxDps
 ## SavedVariables: MaxDpsBridgeDB
+Catalog.lua
 Keymap.lua
 Bars.lua
 Reader.lua

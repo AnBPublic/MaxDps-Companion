@@ -25,3 +25,25 @@ Then the file you are changing plus its counterpart spec.
   `ARCHITECTURE.md` (pipeline/file map) in the same pass.
 - `settings.ini` default stays tracked; per-machine edits belong next to
   the exe in `dist\`, never committed.
+
+## Architect triggers (global opencode routing)
+
+Any change touching these is an L-route task: the global `smart` router must
+spawn the Claude Sonnet 5.5 `architect` before coding and the `reviewer` on
+the resulting diff:
+
+- `docs/PROTOCOL.md` (wire contract)
+- `app/MaxDpsCompanion/PixelProtocol.cs`
+- `app/MaxDpsCompanion/KeySender.cs`
+- `app/MaxDpsCompanion/Scheduler/**`
+- `app/MaxDpsCompanion/Decision/**`
+- `app/MaxDpsCompanion/Knowledge/**` (registry/policy schema changes)
+- `addon/MaxDpsBridge/*.lua`
+- `vendor/` is read-only under all circumstances — never an edit target.
+
+Offline verification bar (offline ≠ live; full detail in `docs/TESTING.md`):
+`dotnet build -c Release` (0 warnings / 0 errors), `dotnet test -c Release`
+(from `tests\MaxDpsCompanion.Tests`), `lua tests/secret_harness.lua`,
+`luac -p addon/MaxDpsBridge/*.lua`, `pwsh tools/ability_audit.ps1`.
+Live retail checks (§3 of `docs/TESTING.md`) stay marked OWED until run in a
+real client.

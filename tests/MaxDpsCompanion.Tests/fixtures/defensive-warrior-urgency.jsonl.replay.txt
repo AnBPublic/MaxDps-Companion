@@ -1,0 +1,101 @@
+MaxDps Companion rotation replay
+file       : tests\MaxDpsCompanion.Tests\fixtures\defensive-warrior-urgency.jsonl
+format     : 1
+events     : 12 (tick 8, send 3, link 0, session 1, bad 0)
+span       : 0.000s .. 4.100s (4.100s)
+decisions  : 0 recorded
+verdicts   : 16 policy verdicts recomputed, 0 mismatch(es)
+catalog    : recorded v3, current v3
+decode errs: 0
+mismatches : 0
+
+t=0.000s  session  app=2.3.0 proto=5 capacity=10000 start
+t=1.000s  tick #0  Active  hb=1  target=yes  gcd=no  link=yes  note="white urgency"
+  slots   : Main=E  Off=-  Def=R  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=-
+  cand    : Main       E      enabled actionable  age=0.000s unchanged=0.000s pressed=no
+  cand    : Defensive  R      enabled actionable  age=0.000s unchanged=0.000s pressed=no
+  decision: Main -> MainRotation (70%)
+  policy  : MainRotation -> Main  held=1 skipped=0 suppressed=0  "white defensive urgency (MaxDps renders no glow); holding"
+  verdict : Main       spell=12294    Use  MaxDps main candidate; actionable
+  verdict : Defensive  spell=871      Hold white defensive urgency (MaxDps renders no glow); holding
+  rejected: Defensive (lower rank #2)
+t=1.200s  send  spell Defensive R  interval=0ms
+t=1.200s  tick #0  Active  hb=2  target=yes  gcd=no  link=yes  note="using short defensive"
+  slots   : Main=E  Off=-  Def=R  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=-
+  cand    : Main       E      enabled actionable  age=0.200s unchanged=0.200s pressed=no
+  cand    : Defensive  R      enabled actionable  age=0.000s unchanged=0.000s pressed=no
+  decision: Main -> MainRotation (70%)
+  policy  : DefensiveUrgency -> Defensive  held=0 skipped=0 suppressed=0
+  verdict : Main       spell=12294    Use  MaxDps main candidate; actionable
+  verdict : Defensive  spell=1966     Use  MaxDps defensive recommendation + Orange urgency; short-CD mitigation eligible
+  rejected: Defensive (lower rank #2)
+  timing  : last send spell Defensive R 0ms ago
+t=1.500s  tick #0  Active  hb=3  target=yes  gcd=no  link=yes  note="holding catalog major"
+  slots   : Main=E  Off=-  Def=R  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=-
+  cand    : Main       E      enabled actionable  age=0.500s unchanged=0.500s pressed=no
+  cand    : Defensive  R      enabled actionable  age=0.000s unchanged=0.000s pressed=no
+  decision: Main -> MainRotation (70%)
+  policy  : MainRotation -> Main  held=1 skipped=0 suppressed=0  "major mitigation held at Orange urgency (needs Red)"
+  verdict : Main       spell=12294    Use  MaxDps main candidate; actionable
+  verdict : Defensive  spell=871      Hold major mitigation held at Orange urgency (needs Red)
+  rejected: Defensive (lower rank #2)
+  timing  : last send spell Defensive R 300ms ago
+t=2.000s  send  spell Defensive R  interval=0ms
+t=2.000s  tick #0  Active  hb=4  target=yes  gcd=no  link=yes  note="emergency major"
+  slots   : Main=E  Off=-  Def=R  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=-
+  cand    : Main       E      enabled actionable  age=1.000s unchanged=1.000s pressed=no
+  cand    : Defensive  R      enabled actionable  age=0.500s unchanged=0.500s pressed=no
+  decision: Main -> MainRotation (70%)
+  policy  : EmergencySurvival -> Defensive  held=0 skipped=0 suppressed=0
+  verdict : Main       spell=12294    Use  MaxDps main candidate; actionable
+  verdict : Defensive  spell=871      Use  HP 30% at/below emergency 35%; emergency mitigation
+  rejected: Defensive (lower rank #2)
+  timing  : last send spell Defensive R 0ms ago
+t=2.500s  tick #0  Active  hb=5  target=yes  gcd=no  link=yes  note="user disabled"
+  slots   : Main=E  Off=-  Def=R  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=-
+  cand    : Main       E      enabled actionable  age=1.500s unchanged=1.500s pressed=no
+  cand    : Defensive  R      enabled actionable  age=1.000s unchanged=1.000s pressed=no
+  decision: Main -> MainRotation (70%)
+  policy  : MainRotation -> Main  held=0 skipped=1 suppressed=0  "user policy disabled"
+  verdict : Main       spell=12294    Use  MaxDps main candidate; actionable
+  verdict : Defensive  spell=871      Skip user policy disabled
+  rejected: Defensive (lower rank #2)
+  timing  : last send spell Defensive R 500ms ago
+t=3.000s  tick #0  Active  hb=6  target=yes  gcd=no  link=yes  note="urgency unknown"
+  slots   : Main=E  Off=-  Def=R  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=-
+  cand    : Main       E      enabled actionable  age=2.000s unchanged=2.000s pressed=no
+  cand    : Defensive  R      enabled actionable  age=1.500s unchanged=1.500s pressed=no
+  decision: Main -> MainRotation (70%)
+  policy  : MainRotation -> Main  held=1 skipped=0 suppressed=0  "defensive urgency unknown; no automatic major defensive"
+  verdict : Main       spell=12294    Use  MaxDps main candidate; actionable
+  verdict : Defensive  spell=871      Unknown defensive urgency unknown; no automatic major defensive
+  rejected: Defensive (lower rank #2)
+  timing  : last send spell Defensive R 1000ms ago
+t=3.500s  send  spell Defensive R  interval=0ms
+t=3.500s  tick #0  Active  hb=7  target=yes  gcd=no  link=yes  note="emergency absorb"
+  slots   : Main=E  Off=-  Def=R  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=-
+  cand    : Main       E      enabled actionable  age=2.500s unchanged=2.500s pressed=no
+  cand    : Defensive  R      enabled actionable  age=0.000s unchanged=0.000s pressed=no
+  decision: Main -> MainRotation (70%)
+  policy  : EmergencySurvival -> Defensive  held=0 skipped=0 suppressed=0
+  verdict : Main       spell=12294    Use  MaxDps main candidate; actionable
+  verdict : Defensive  spell=190456   Use  HP 30% at/below emergency 35%; emergency mitigation
+  rejected: Defensive (lower rank #2)
+  timing  : last send spell Defensive R 0ms ago
+t=4.100s  tick #0  Active  hb=8  target=yes  gcd=no  link=yes  note="failed press"
+  slots   : Main=E  Off=-  Def=R  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=-
+  cand    : Main       E      enabled actionable  age=3.100s unchanged=3.100s pressed=no
+  cand    : Defensive  R      enabled actionable  age=0.600s unchanged=0.600s pressed=no
+  decision: Main -> MainRotation (70%)
+  policy  : MainRotation -> Main  held=0 skipped=0 suppressed=1
+  verdict : Main       spell=12294    Use  MaxDps main candidate; actionable
+  verdict : Defensive  spell=190456   Use  HP 30% at/below emergency 35%; emergency mitigation
+  rejected: Defensive (lower rank #2)
+  timing  : last send spell Defensive R 600ms ago
+
+summary
+  reasons : -
+  policy  : MainRotation 5, EmergencySurvival 2, DefensiveUrgency 1
+  sends   : spell 3
+  faults  : -
+  notes   : emergency absorb 1, emergency major 1, failed press 1, holding catalog major 1, urgency unknown 1, user disabled 1, using short defensive 1, white urgency 1

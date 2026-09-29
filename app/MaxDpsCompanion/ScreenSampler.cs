@@ -72,15 +72,44 @@ internal sealed class ScreenSampler : IDisposable
         var colors = new Color[cellCount];
         if (_bits == IntPtr.Zero) return colors;
 
-        if (!Native.BitBlt(_memoryDc, 0, 0, width, height, _screenDc, origin.X, origin.Y,
-                Native.SRCCOPY | Native.CAPTUREBLT))
+        if (!CopyFromScreen(origin, width, height))
         {
-            return colors;
+            // Stale GDI surface: a display-mode change, DWM reset, monitor
+            // hot-plug or session switch can invalidate the cached screen DC
+            // while the app keeps running (the "stops detecting until
+            // restart" class of bug). Rebuild everything and retry once so a
+            // mid-session change self-heals instead of going permanently
+            // blind.
+            Reset();
+            EnsureSurface(width, height);
+            if (!CopyFromScreen(origin, width, height)) return colors;
         }
 
         for (var i = 0; i < cellCount; i++)
             colors[i] = SampleCellInstance((x, y) => ReadPixel(x, y), i, cellSize);
         return colors;
+    }
+
+    private bool CopyFromScreen(Point origin, int width, int height) =>
+        _screenDc != IntPtr.Zero && _memoryDc != IntPtr.Zero
+        && Native.BitBlt(_memoryDc, 0, 0, width, height, _screenDc, origin.X, origin.Y,
+            Native.SRCCOPY | Native.CAPTUREBLT);
+
+    /// <summary>
+    /// Drops the captured surface AND the cached screen DC so the next
+    /// <see cref="Sample"/> re-acquires both. Called on a BitBlt failure and
+    /// by the engine when the strip has been missing long enough that the
+    /// capture chain must be assumed stale (even though BitBlt still
+    /// "succeeds", the content can be frozen after a display change).
+    /// </summary>
+    public void Reset()
+    {
+        ReleaseSurface();
+        if (_screenDc != IntPtr.Zero)
+        {
+            Native.ReleaseDC(IntPtr.Zero, _screenDc);
+            _screenDc = IntPtr.Zero;
+        }
     }
 
     private Color SampleCellInstance(Func<int, int, Color> read, int cell, int cellSize) =>
@@ -201,13 +230,5 @@ internal sealed class ScreenSampler : IDisposable
         _bitmapSize = Size.Empty;
     }
 
-    public void Dispose()
-    {
-        ReleaseSurface();
-        if (_screenDc != IntPtr.Zero)
-        {
-            Native.ReleaseDC(IntPtr.Zero, _screenDc);
-            _screenDc = IntPtr.Zero;
-        }
-    }
+    public void Dispose() => Reset();
 }

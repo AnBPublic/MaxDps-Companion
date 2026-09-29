@@ -58,7 +58,7 @@ internal sealed class ChamferButton : Button
         set
         {
             _role = value;
-            ForeColor = value == ButtonRole.Primary ? ConsolePalette.Iron : ConsolePalette.Bone;
+            ForeColor = value == ButtonRole.Primary ? DesignTokens.Background : DesignTokens.TextPrimary;
             Invalidate();
         }
     }
@@ -81,11 +81,11 @@ internal sealed class ChamferButton : Button
         FlatAppearance.BorderSize = 0;
         FlatAppearance.MouseDownBackColor = Color.Transparent;
         FlatAppearance.MouseOverBackColor = Color.Transparent;
-        Font = new Font(MainForm.UiFontPublic, 10F, FontStyle.Bold);
+        Font = DesignTokens.Type(DesignTokens.LabelSize, FontStyle.Bold);
         Cursor = Cursors.Hand;
         UseVisualStyleBackColor = false;
-        BackColor = ConsolePalette.Field;
-        ForeColor = ConsolePalette.Bone;
+        BackColor = DesignTokens.Surface;
+        ForeColor = DesignTokens.TextPrimary;
         Height = 40;
         // AutoSize lets FlowLayoutPanel measure the text instead of
         // clipping it at a fixed width — the narrow-window clip source.
@@ -96,10 +96,13 @@ internal sealed class ChamferButton : Button
 
     private Color BaseColor() => AccentColor ?? _role switch
     {
-        ButtonRole.Primary => ConsolePalette.Brass,
-        ButtonRole.Danger => ConsolePalette.Ember,
-        _ => ConsolePalette.Field,
+        ButtonRole.Primary => DesignTokens.Accent,
+        ButtonRole.Danger => DesignTokens.Danger,
+        _ => DesignTokens.Surface,
     };
+
+    /// <summary>Trailing glyph inside a nested circle (button-in-button). Primary only.</summary>
+    public string? TrailingGlyph { get; set; } = "\u2197"; // ↗
 
     // Magnetic press physics: pointer-down shrinks toward 0.98 instantly,
     // release springs back - no linear fades, transform-only (paint offset).
@@ -175,11 +178,19 @@ internal sealed class ChamferButton : Button
         base.OnLostFocus(e);
     }
 
+    public override Size GetPreferredSize(Size proposedSize)
+    {
+        var text = TextRenderer.MeasureText(Text, Font, new Size(int.MaxValue, int.MaxValue),
+            TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
+        var glyph = _role == ButtonRole.Primary && !string.IsNullOrEmpty(TrailingGlyph) ? 34 : 0;
+        return new Size(text.Width + Padding.Horizontal + glyph + 8, Math.Max(38, text.Height + 16));
+    }
+
     protected override void OnSizeChanged(EventArgs e)
     {
         base.OnSizeChanged(e);
         if (Width <= 0 || Height <= 0) return;
-        using var path = ConsolePalette.Chamfer(new Rectangle(0, 0, Width, Height), 6);
+        using var path = Ui.Rounded(new Rectangle(0, 0, Width, Height), Math.Max(8, Height / 2));
         Region?.Dispose();
         Region = new Region(path);
     }
@@ -188,34 +199,67 @@ internal sealed class ChamferButton : Button
     {
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
         var color = BaseColor();
-        if (!Enabled) color = ConsolePalette.Keyline;
-        else if (_pressed) color = ControlPaint.Dark(color, 0.15F);
-        else if (_hover) color = ControlPaint.Light(color, 0.12F);
+        if (!Enabled) color = DesignTokens.Disabled;
+        else if (_pressed) color = DesignTokens.Darken(color, 0.12f);
+        else if (_hover) color = DesignTokens.Lighten(color, 0.10f);
 
         // Transform-only press scale: shrink the painted shape toward center.
         var w = (int)(Width * _pressScale);
         var h = (int)(Height * _pressScale);
         var bounds = new Rectangle((Width - w) / 2, (Height - h) / 2, w, h);
-        using var path = ConsolePalette.Chamfer(bounds, 6);
-        using var fill = new SolidBrush(color);
-        e.Graphics.FillPath(fill, path);
+        var radius = Math.Max(8, Math.Min(bounds.Height / 2, DesignTokens.RadiusOuter));
+        using var path = Ui.Rounded(bounds, radius);
 
-        if (_role == ButtonRole.Ghost && Enabled)
+        var ghost = _role == ButtonRole.Ghost;
+        if (ghost)
         {
-            using var border = new Pen(ConsolePalette.Keyline, 1F);
+            using var fill = new SolidBrush(DesignTokens.Blend(Color.White, DesignTokens.Surface, _hover ? 0.07f : 0.035f));
+            using var border = new Pen(Focused ? DesignTokens.Accent : DesignTokens.Hairline, Focused ? 2F : 1F);
+            e.Graphics.FillPath(fill, path);
             e.Graphics.DrawPath(border, path);
         }
-
-        var textColor = Enabled ? ForeColor : ConsolePalette.Tidewash;
-        TextRenderer.DrawText(e.Graphics, Text, Font, ClientRectangle, textColor,
-            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
-
-        if (Focused && Enabled)
+        else
         {
-            var focusColor = _role == ButtonRole.Primary ? ConsolePalette.Iron : ConsolePalette.Brass;
+            using var fill = new SolidBrush(color);
+            e.Graphics.FillPath(fill, path);
+            // Machined inner top highlight (double-bezel edge).
+            using var hl = new Pen(DesignTokens.InnerHighlight, 1F);
+            using var hlPath = Ui.Rounded(
+                new Rectangle(bounds.X + 2, bounds.Y + 1, Math.Max(1, bounds.Width - 4), Math.Max(1, bounds.Height - 2)),
+                Math.Max(6, radius - 2));
+            e.Graphics.DrawPath(hl, hlPath);
+        }
+
+        var textColor = !Enabled ? DesignTokens.TextMuted
+            : _role == ButtonRole.Primary ? DesignTokens.Background
+            : DesignTokens.TextPrimary;
+        var glyphSpace = _role == ButtonRole.Primary && !string.IsNullOrEmpty(TrailingGlyph) ? 34 : 0;
+        var textRect = new Rectangle(bounds.X + 16, bounds.Y,
+            Math.Max(10, bounds.Width - 16 - 16 - glyphSpace), bounds.Height);
+        TextRenderer.DrawText(e.Graphics, Text, Font, textRect, textColor,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
+
+        if (glyphSpace > 0)
+        {
+            // The "button-in-button" trailing icon: its own circular wrapper,
+            // flush with the right inner padding, kinetic on hover.
+            var d = Math.Min(bounds.Height - 10, 26);
+            var shift = _hover ? 2 : 0;
+            var cx = bounds.Right - 7 - d + shift;
+            var cy = bounds.Y + (bounds.Height - d) / 2;
+            using var circle = new SolidBrush(Color.FromArgb(46, 0, 0, 0));
+            e.Graphics.FillEllipse(circle, cx, cy, d, d);
+            using var glyphFont = DesignTokens.Type(10F, FontStyle.Bold);
+            TextRenderer.DrawText(e.Graphics, TrailingGlyph!, glyphFont,
+                new Rectangle(cx, cy, d, d), textColor,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
+        }
+
+        if (Focused && Enabled && ghost)
+        {
             var focusBounds = new Rectangle(3, 3, Math.Max(1, Width - 6), Math.Max(1, Height - 6));
-            using var focusPath = ConsolePalette.Chamfer(focusBounds, 4);
-            using var focusPen = new Pen(focusColor, 2F);
+            using var focusPath = Ui.Rounded(focusBounds, Math.Max(8, focusBounds.Height / 2));
+            using var focusPen = new Pen(DesignTokens.Accent, 2F);
             e.Graphics.DrawPath(focusPen, focusPath);
         }
     }
@@ -286,107 +330,8 @@ internal sealed class RuleSection : Panel
     }
 }
 
-/// <summary>Round link lamp. Always paired with a text word, never colour-alone.</summary>
-internal sealed class LinkLamp : Control
+internal sealed class TitleBarButton : UiClickable
 {
-    private Color _dot = ConsolePalette.Keyline;
-
-    public Color Dot
-    {
-        get => _dot;
-        set { _dot = value; Invalidate(); }
-    }
-
-    public LinkLamp()
-    {
-        Size = new Size(14, 14);
-        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint
-            | ControlStyles.OptimizedDoubleBuffer | ControlStyles.SupportsTransparentBackColor, true);
-        BackColor = Color.Transparent;
-    }
-
-    protected override void OnPaint(PaintEventArgs e)
-    {
-        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        var bounds = new Rectangle(1, 1, Math.Max(1, Width - 2), Math.Max(1, Height - 2));
-        using var fill = new SolidBrush(_dot);
-        e.Graphics.FillEllipse(fill, bounds);
-    }
-}
-
-/// <summary>
-/// Renders the nine MaxDps pixel-bridge cells from the sampled hex string, so
-/// the hero shows the actual strip the addon is drawing: magic, main,
-/// offensive, interrupt, defensive, consumable, trinket, state+heartbeat,
-/// ver+checksum. The magic cell carries a brass tick underneath.
-/// Unparseable samples draw as empty outlines.
-/// </summary>
-internal sealed class StripView : Control
-{
-    private string _sample = "";
-
-    public string Sample
-    {
-        get => _sample;
-        set { if (_sample != value) { _sample = value; Invalidate(); } }
-    }
-
-    public StripView()
-    {
-        // 9 cells × (28px + 6px gap) = 306px wide.
-        Size = new Size(306, 30);
-        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint
-            | ControlStyles.OptimizedDoubleBuffer | ControlStyles.SupportsTransparentBackColor, true);
-        BackColor = Color.Transparent;
-    }
-
-    protected override void OnPaint(PaintEventArgs e)
-    {
-        const int sw = 28, h = 18, gap = 6, y = 2;
-        var tokens = _sample.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        for (var i = 0; i < PixelProtocol.CellCount; i++)
-        {
-            var x = i * (sw + gap);
-            var rect = new Rectangle(x, y, sw, h);
-            if (i < tokens.Length && TryCell(tokens[i], out var color))
-            {
-                using var fill = new SolidBrush(color);
-                e.Graphics.FillRectangle(fill, rect);
-                using var edge = new Pen(ConsolePalette.Keyline, 1F);
-                e.Graphics.DrawRectangle(edge, rect);
-                if (i == 0)
-                {
-                    using var tick = new SolidBrush(ConsolePalette.Brass);
-                    e.Graphics.FillRectangle(tick, x, y + h + 3, sw, 2);
-                }
-            }
-            else
-            {
-                using var edge = new Pen(ConsolePalette.Keyline, 1F);
-                e.Graphics.DrawRectangle(edge, rect);
-            }
-        }
-    }
-
-    private static bool TryCell(string token, out Color color)
-    {
-        color = Color.Empty;
-        if (token.Length != 6) return false;
-        try
-        {
-            var rgb = Convert.ToInt32(token, 16);
-            color = Color.FromArgb((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
-            return true;
-        }
-        catch (FormatException) { return false; }
-        catch (OverflowException) { return false; }
-    }
-}
-
-internal sealed class TitleBarButton : Control
-{
-    private bool hovered;
-
     public Color HoverColor { get; set; } = Color.FromArgb(54, 66, 73);
 
     public TitleBarButton()
@@ -395,28 +340,11 @@ internal sealed class TitleBarButton : Control
         Font = new Font(MainForm.UiFontPublic, 14F, FontStyle.Regular);
         ForeColor = Color.FromArgb(215, 224, 229);
         Cursor = Cursors.Hand;
-        DoubleBuffered = true;
-        SetStyle(ControlStyles.SupportsTransparentBackColor, true);
-        BackColor = Color.Transparent;
-    }
-
-    protected override void OnMouseEnter(EventArgs e)
-    {
-        hovered = true;
-        Invalidate();
-        base.OnMouseEnter(e);
-    }
-
-    protected override void OnMouseLeave(EventArgs e)
-    {
-        hovered = false;
-        Invalidate();
-        base.OnMouseLeave(e);
     }
 
     protected override void OnPaint(PaintEventArgs e)
     {
-        if (hovered)
+        if (Hovered)
         {
             using var brush = new SolidBrush(HoverColor);
             e.Graphics.FillRectangle(brush, ClientRectangle);
@@ -566,7 +494,7 @@ internal sealed class GroupHeader : Control
     }
 }
 
-internal sealed class SettingRow : Panel
+internal sealed class SettingRow : Panel, IUiMeasured
 {
     private readonly Label titleLabel;
     private readonly Label subtitleLabel;
@@ -577,21 +505,16 @@ internal sealed class SettingRow : Panel
         this.toggle = toggle;
         DoubleBuffered = true;
         BackColor = Color.Transparent;
-        SetStyle(ControlStyles.SupportsTransparentBackColor | ControlStyles.ResizeRedraw, true);
-        // Epoch-4: fixed 76px row, labels measured to fit. The table row
-        // reserves the same 76px, so the row is never squeezed (the old
-        // percent-row bug) and never mis-measured (the AutoSize flow bug).
-        // Subtitles wrap to two lines via MeasureHeights; see OnLayout.
+        SetStyle(ControlStyles.SupportsTransparentBackColor | ControlStyles.ResizeRedraw | ControlStyles.AllPaintingInWmPaint, true);
+        Margin = Padding.Empty;
 
         titleLabel = new Label
         {
             Text = title,
             AutoSize = false,
             TextAlign = ContentAlignment.MiddleLeft,
-            Font = new Font("Segoe UI Semibold", 11.5F),
-            // Epoch-2 type scale: near-white title on the smoke fill clears
-            // WCAG AA large-text contrast with margin.
-            ForeColor = Color.FromArgb(252, 253, 254),
+            Font = DesignTokens.Type(DesignTokens.LabelSize, FontStyle.Bold),
+            ForeColor = DesignTokens.TextPrimary,
             BackColor = Color.Transparent
         };
         subtitleLabel = new Label
@@ -600,10 +523,8 @@ internal sealed class SettingRow : Panel
             AutoSize = false,
             AutoEllipsis = false,
             TextAlign = ContentAlignment.TopLeft,
-            Font = new Font("Segoe UI", 9F),
-            // Epoch-2: subtitle lifted two tonal steps so secondary text
-            // still passes AA against the smoke fill in daylight conditions.
-            ForeColor = Color.FromArgb(226, 235, 240),
+            Font = DesignTokens.Type(DesignTokens.BodySize),
+            ForeColor = DesignTokens.TextSecondary,
             BackColor = Color.Transparent
         };
         toggle.Anchor = AnchorStyles.None;
@@ -611,6 +532,41 @@ internal sealed class SettingRow : Panel
         Controls.Add(titleLabel);
         Controls.Add(subtitleLabel);
         Controls.Add(toggle);
+    }
+
+    /// <summary>Measured height: fits title + up to three wrapped subtitle lines.</summary>
+    public int MeasuredHeight(int width)
+    {
+        var textWidth = TextWidthFor(width);
+        MeasureHeights(textWidth, out var titleH, out var subH);
+        return 9 + titleH + 2 + subH + 12;
+    }
+
+    private static readonly ToolTip SharedTip = new()
+    {
+        AutoPopDelay = 20000,
+        InitialDelay = 350,
+        ReshowDelay = 100,
+    };
+
+    private string? _hint;
+
+    /// <summary>
+    /// Longer description shown on hover (the visible subtitle stays short so
+    /// the bubble never crams). Set by the card builder after construction.
+    /// </summary>
+    internal string? Hint
+    {
+        get => _hint;
+        set
+        {
+            _hint = value;
+            if (string.IsNullOrWhiteSpace(value)) return;
+            SharedTip.SetToolTip(this, value);
+            SharedTip.SetToolTip(titleLabel, value);
+            SharedTip.SetToolTip(subtitleLabel, value);
+            SharedTip.SetToolTip(toggle, value);
+        }
     }
 
     private int TextWidthFor(int width)
@@ -627,35 +583,31 @@ internal sealed class SettingRow : Panel
             new Size(textWidth, 0), TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix).Height;
         subH = TextRenderer.MeasureText(subtitleLabel.Text, subtitleLabel.Font,
             new Size(textWidth, 0), TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix).Height;
-        // Cap the subtitle at two lines: every hero subtitle fits in two
-        // lines even at the minimum window width, so the row stays compact.
+        // Cap the subtitle at three lines: the taller pair-row bubble fits
+        // title + three wrapped lines even at the minimum window width; the
+        // full-length description is always available on hover (Hint).
         var lineH = Math.Max(12, subtitleLabel.Font.Height);
-        subH = Math.Min(subH, lineH * 2 + 4);
+        subH = Math.Min(subH, lineH * 3 + 4);
     }
 
     protected override void OnLayout(LayoutEventArgs levent)
     {
         base.OnLayout(levent);
-        // Epoch-5 compact row (64px): title at top-8, subtitle wraps to at
-        // most two lines, toggle vertically centred. Title 11.5pt ≈ 22px,
-        // subtitle 9pt ≈ 2x15px: 8+22+2+30+2 = 64 exactly.
+        // Epoch-8 bubble (84px row, two toggles per row): title at top-9,
+        // subtitle wraps to at most three lines, toggle vertically centred.
         const int left = 18;
-        const int right = 18;
+        const int right = 14;
         var textWidth = TextWidthFor(ClientSize.Width);
         MeasureHeights(textWidth, out var titleH, out var subH);
-        titleLabel.Bounds = new Rectangle(left, 8, textWidth, titleH);
-        subtitleLabel.Bounds = new Rectangle(left, 8 + titleH + 2, textWidth, subH);
+        titleLabel.Bounds = new Rectangle(left, 9, textWidth, titleH);
+        subtitleLabel.Bounds = new Rectangle(left, 9 + titleH + 2, textWidth, subH);
         toggle.Location = new Point(ClientSize.Width - right - toggle.Width, Math.Max(0, (ClientSize.Height - toggle.Height) / 2));
     }
 
-    private static readonly Color RowFill = Color.FromArgb(84, 107, 121);
-    private static readonly Color RowFillAlt = Color.FromArgb(78, 100, 114);
+    private static readonly Color RowFill = DesignTokens.Blend(Color.White, DesignTokens.Surface, 0.035f);
+    private static readonly Color RowFillAlt = DesignTokens.Blend(Color.White, DesignTokens.Surface, 0.060f);
 
-    /// <summary>Alternating row depth for group scanning (zebra): even rows
-    /// use the base smoke fill, odd rows the half-step darker tone. The
-    /// difference is deliberately subtle (±6) — a scan aid, not a stripe.
-    /// Set by the parent after construction; defaults to the base fill.
-    /// </summary>
+    /// <summary>Alternating row depth for group scanning (zebra). Set by the parent.</summary>
     internal bool AlternateFill { get; set; }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -663,13 +615,9 @@ internal sealed class SettingRow : Panel
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
         e.Graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
         var bounds = new Rectangle(1, 1, Math.Max(1, Width - 3), Math.Max(1, Height - 3));
-        using var path = RoundedCardPath(bounds, 14);
-        // Design epoch-6: layered tonal cards (+ zebra). The filled body
-        // sits on the card's frosted surface, so a flat smoke fill with a
-        // single 1px lowlight reads depth; the old translucent dark wash
-        // muddied low-contrast subtitles (WCAG body-text contrast).
+        using var path = RoundedCardPath(bounds, DesignTokens.RadiusControl);
         using var fill = new SolidBrush(AlternateFill ? RowFillAlt : RowFill);
-        using var border = new Pen(Color.FromArgb(120, 255, 255, 255), 1F);
+        using var border = new Pen(DesignTokens.Hairline, 1F);
         e.Graphics.FillPath(fill, path);
         e.Graphics.DrawPath(border, path);
         base.OnPaint(e);
@@ -688,38 +636,7 @@ internal sealed class SettingRow : Panel
     }
 }
 
-internal sealed class ClassBadge : Control
-{
-    public ClassBadge()
-    {
-        DoubleBuffered = true;
-        SetStyle(ControlStyles.SupportsTransparentBackColor | ControlStyles.ResizeRedraw, true);
-        Font = new Font("Segoe UI Semibold", 8.25F);
-        ForeColor = Color.FromArgb(224, 239, 248);
-        BackColor = Color.Transparent;
-    }
-
-    protected override void OnPaint(PaintEventArgs e)
-    {
-        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        e.Graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
-        var bounds = new Rectangle(1, 1, Math.Max(1, Width - 3), Math.Max(1, Height - 3));
-        using var path = new GraphicsPath();
-        var radius = Math.Min(13, bounds.Height / 2);
-        var diameter = radius * 2;
-        path.AddArc(bounds.Left, bounds.Top, diameter, diameter, 180, 90);
-        path.AddArc(bounds.Right - diameter, bounds.Top, diameter, diameter, 270, 90);
-        path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
-        path.AddArc(bounds.Left, bounds.Bottom - diameter, diameter, diameter, 90, 90);
-        path.CloseFigure();
-        using var fill = new SolidBrush(Color.FromArgb(35, 126, 246));
-        e.Graphics.FillPath(fill, path);
-        TextRenderer.DrawText(e.Graphics, Text, Font, bounds, ForeColor,
-            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
-    }
-}
-
-internal sealed class ToggleSwitch : Control
+internal sealed class ToggleSwitch : UiClickable
 {
     private bool isChecked;
     public event EventHandler? CheckedChanged;
@@ -731,10 +648,9 @@ internal sealed class ToggleSwitch : Control
     // §11 frame smoothness. Default state has no timer running (zero cost).
     private float _pos;          // 0 = off, 1 = on (animated)
     private System.Windows.Forms.Timer? _anim;
-    private bool hover;
 
-    private static readonly Color OffTrack = Color.FromArgb(96, 110, 119);
-    private static readonly Color OnTrack = Color.FromArgb(36, 132, 246);
+    private static readonly Color OffTrack = DesignTokens.Border;
+    private static readonly Color OnTrack = DesignTokens.Accent;
 
     public bool Checked
     {
@@ -792,14 +708,31 @@ internal sealed class ToggleSwitch : Control
         Invalidate();
     }
 
-    protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
-    protected override void OnMouseLeave(EventArgs e) { hover = false; Invalidate(); base.OnMouseLeave(e); }
+
 
     protected override void OnClick(EventArgs e)
     {
         if (Enabled) Checked = !Checked;
         base.OnClick(e);
     }
+
+    // §49: Space/Enter activate the switch when it has focus; TabStop is the
+    // Control default and the visual focus ring is painted below.
+    protected override bool IsInputKey(Keys keyData)
+        => keyData is Keys.Space or Keys.Enter || base.IsInputKey(keyData);
+
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        if (Enabled && (e.KeyCode == Keys.Space || e.KeyCode == Keys.Enter))
+        {
+            Checked = !Checked;
+            e.Handled = true;
+        }
+        base.OnKeyDown(e);
+    }
+
+    protected override void OnGotFocus(EventArgs e) { Invalidate(); base.OnGotFocus(e); }
+    protected override void OnLostFocus(EventArgs e) { Invalidate(); base.OnLostFocus(e); }
 
     private static Color Lerp(Color a, Color b, float t) => Color.FromArgb(
         (int)(a.R + (b.R - a.R) * t),
@@ -817,7 +750,7 @@ internal sealed class ToggleSwitch : Control
         // State is luminance + hue + thumb position, never hue alone
         // (colour-vision safe, skill §16). Hover brightens the OFF track a
         // touch — feedback belongs on hover, per §1.
-        var off = hover && !isChecked ? ControlPaint.Light(OffTrack, 0.15F) : OffTrack;
+        var off = Hovered && !isChecked ? ControlPaint.Light(OffTrack, 0.15F) : OffTrack;
         using var trackBrush = new SolidBrush(Lerp(off, OnTrack, _pos));
         e.Graphics.FillPath(trackBrush, trackPath);
         var diameter = Height - 10;
@@ -828,6 +761,12 @@ internal sealed class ToggleSwitch : Control
         e.Graphics.FillEllipse(shadow, x, 6, diameter, diameter);
         using var thumb = new SolidBrush(Color.White);
         e.Graphics.FillEllipse(thumb, x, 5, diameter, diameter);
+
+        if (Focused && Enabled)
+        {
+            using var focus = new Pen(DesignTokens.Accent, 2F);
+            e.Graphics.DrawRectangle(focus, 0, 1, Width - 1, Height - 2);
+        }
     }
 
     private static GraphicsPath Capsule(Rectangle rectangle)

@@ -8,7 +8,15 @@ internal readonly record struct EngineStatus(
     BridgeState State,
     string SlotSummary,
     string LastKeySent,
-    string RawSample);
+    string RawSample,
+    string Decision);
+
+/// <summary>
+/// Immutable, secret-safe snapshot of one action (or the current plan head)
+/// for the UI: name, reason, provider and a human-readable "why" list.
+/// Frozen v2.7 contract — the UI codes against these exact members.
+/// </summary>
+public sealed record LiveActionSnapshot(string Action, string Reason, string Provider, IReadOnlyList<string> Why);
 
 /// <summary>
 /// Reads the addon's pixel block on a background thread and replays the encoded
@@ -20,14 +28,15 @@ internal readonly record struct EngineStatus(
 /// </summary>
 internal sealed class RotationEngine : IDisposable
 {
-    // Send order: the MAIN rotation is the core functionality and goes
-    // FIRST — a live main suggestion must never wait behind a situational
-    // cooldown while the GCD sits idle (Sep-2026: main starved behind
-    // offensive/defensive because interrupt/defensive outranked it and the
-    // main cell was usually EMPTY — see Reader.GetMainSpellID note).
-    // Interrupt still preempts via the round-robin rotation once live.
-    private static readonly Slot[] Priority =
-        [Slot.Main, Slot.Offensive, Slot.Interrupt, Slot.Defensive, Slot.Consumable, Slot.Trinket];
+    // Send order lives in the deterministic decision layer. With
+    // IntelligenceEnabled OFF the order is DecisionEngine.FallbackOrder —
+    // the exact legacy priority array: MAIN first, because a live main
+    // suggestion must never wait behind a situational cooldown while the GCD
+    // sits idle (Sep-2026: main starved behind offensive/defensive because
+    // interrupt/defensive outranked it and the main cell was usually EMPTY —
+    // see Reader.GetMainSpellID note). When ON the evaluator reorders
+    // deterministically (interrupt urgency, defensive urgency, stale and
+    // duplicate handling) but the per-slot gates below stay authoritative.
 
     /// <summary>
     /// How long to keep missing the block before sweeping the screen again.
@@ -38,6 +47,15 @@ internal sealed class RotationEngine : IDisposable
     /// self-heal while cutting the worst-case load by 60%.
     /// </summary>
     private const long RelocateIntervalMs = 5000;
+
+    /// <summary>
+    /// How long the strip may stay missing before the engine assumes the
+    /// capture chain itself has gone stale (game window recreated on relog /
+    /// character switch / display-mode change, or a frozen GDI screen DC) and
+    /// forces a full re-attach. Without this, a stale-but-still-valid window
+    /// handle kept sampling the wrong pixels until the app was restarted.
+    /// </summary>
+    private const long RecoveryIntervalMs = 2000;
 
     private readonly AppSettings _settings;
     private readonly WowWindow _window = new();
@@ -54,11 +72,63 @@ internal sealed class RotationEngine : IDisposable
     // for diagnostics only (LastKey/readout), never gating.
     private readonly long[] _lastSlotPress = new long[PixelProtocol.SlotCount];
 
+    // Deterministic decision layer (v1.4.0): per-slot suggestion history +
+    // the last evaluator result (diagnostics only). With IntelligenceEnabled
+    // off the tracker still runs (cheap) but the evaluator is bypassed and
+    // the legacy priority array drives the send loop.
+    private readonly CandidateTracker _candidateTracker = new();
+    private DecisionResult _lastDecision = DecisionResult.Fallback();
+
+    // v1.6.0 deterministic action scheduler (default on; see Scheduler/).
+    // Owns the send order and pacing: link loss (frozen heartbeat), interrupt
+    // and defensive urgency, GCD + minimum key interval, stale demotion and
+    // repeat suppression. [Scheduler] Enabled=0 falls back to the exact legacy
+    // path (with [Intelligence] able to reorder it) — byte-identical.
+    private readonly ActionScheduler _scheduler = new();
+    private SchedulePlan _lastPlan = SchedulePlan.Hold(ScheduleReason.NoCandidate);
+
+    // v2.0 ability knowledge + situational policy. The catalog is immutable;
+    // options are rebuilt per tick from settings (cheap record).
+    private readonly AbilityCatalog _catalog = AbilityCatalog.Default;
+
+    // v1.5.0 local rotation telemetry (opt-in, default off; see Telemetry/).
+    // Null = the zero-cost disabled path. MainForm attaches a recorder when
+    // '[Telemetry] Enabled=1'; all capture happens on this engine thread.
+    private volatile TelemetryRecorder? _telemetry;
+    private BridgeFrame? _telemetryFrame;
+    private DecodeFault _telemetryFault;
+    private DecisionContext? _telemetryContext;
+    private DecisionResult? _telemetryDecision;
+    private CombatContext? _lastCombatContext;
+    private bool _planFreshThisTick;
+
+    // v2.7 UI snapshots (frozen names). Lock-guarded reference swaps; the
+    // snapshot is an immutable record holding only plain strings.
+    private readonly object _snapshotLock = new();
+    private LiveActionSnapshot? _lastAction;
+    private LiveActionSnapshot? _currentPlanHead;
+
+    /// <summary>Last successful sent spell action (v2.7; null until the first send).</summary>
+    public LiveActionSnapshot? LastAction
+    {
+        get { lock (_snapshotLock) return _lastAction; }
+    }
+
+    /// <summary>The current plan's top scheduled action (v2.7; null when the plan is empty).</summary>
+    public LiveActionSnapshot? CurrentPlanHead
+    {
+        get { lock (_snapshotLock) return _currentPlanHead; }
+    }
+
     private Thread? _thread;
     private volatile bool _running;
     private long _lastAnyPress;
     private long _lastLocateAttempt = long.MinValue;
     private long _lastActiveMs = long.MinValue;
+    // Last tick that decoded a real frame; drives the stale-capture recovery
+    // (see RecoveryIntervalMs). Set in Start() so a fresh Start always gets a
+    // full re-attach first.
+    private long _lastFrameMs;
     private string _lastKeySent = "-";
     private string? _holdNote;
     private volatile bool _idle = true;
@@ -69,6 +139,33 @@ internal sealed class RotationEngine : IDisposable
 
     /// <summary>Suspends input sending without tearing down the reader, for the pause hotkey.</summary>
     public volatile bool Paused;
+
+    /// <summary>
+    /// The class/spec last decoded from the wire (v5 cell 33). UI-only: the
+    /// Class skills screen preselects what the game reports. Null until a
+    /// context-valid frame decodes; a reference read is safe from the UI thread.
+    /// </summary>
+    public bool TryGetLiveClass(out string? className)
+    {
+        className = _lastCombatContext?.Class;
+        return className is not null;
+    }
+
+    public bool TryGetLiveSpec(out string? specName)
+    {
+        specName = _lastCombatContext?.Spec;
+        return specName is not null;
+    }
+
+    /// <summary>Optional local telemetry sink. Null disables capture entirely.</summary>
+    public TelemetryRecorder? Telemetry
+    {
+        get => _telemetry;
+        set => _telemetry = value;
+    }
+
+    /// <summary>Monotonic engine clock; used for telemetry session events.</summary>
+    public long ElapsedMs => _clock.ElapsedMilliseconds;
 
     public event Action<EngineStatus>? StatusChanged;
 
@@ -82,6 +179,32 @@ internal sealed class RotationEngine : IDisposable
         if (_running) return;
         _running = true;
         _lastLocateAttempt = long.MinValue;
+        // Every Start re-attaches from scratch (window handle + GDI surface),
+        // so toggling the companion off/on now heals a stale attachment —
+        // previously only a full app restart re-resolved it (the user's
+        // relog/character-change "stops detecting until restart" report).
+        _lastFrameMs = _clock.ElapsedMilliseconds;
+        // Fresh session: never inherit suggestion timestamps from a previous
+        // Start (they would instantly read as stale).
+        _candidateTracker.Reset();
+        _lastDecision = DecisionResult.Fallback();
+        _scheduler.Reset();
+        _legacyPolicyMemory.Reset();
+        _lastPlan = SchedulePlan.Hold(ScheduleReason.NoCandidate);
+        _telemetryFrame = null;
+        _telemetryFault = DecodeFault.None;
+        _telemetryContext = null;
+        _telemetryDecision = null;
+        _lastCombatContext = null;
+        _planFreshThisTick = false;
+        lock (_snapshotLock) { _lastAction = null; _currentPlanHead = null; }
+        if (_telemetry is { } telemetry)
+        {
+            telemetry.ResetLink();
+            telemetry.Append(TelemetryEvent.Session(0, Native.AppVersion, PixelProtocol.SupportedVersion, telemetry.Capacity,
+                recording: true, catalogVersion: AbilityCatalog.CatalogVersion));
+        }
+        RecoverAttachment();
         _thread = new Thread(Loop)
         {
             IsBackground = true,
@@ -97,6 +220,11 @@ internal sealed class RotationEngine : IDisposable
         _running = false;
         _thread?.Join(1000);
         _thread = null;
+        // After the join: the engine thread is the only Append writer, so the
+        // session footer cannot race it.
+        if (_telemetry is { } telemetry)
+            telemetry.Append(TelemetryEvent.Session(_clock.ElapsedMilliseconds, Native.AppVersion, PixelProtocol.SupportedVersion, telemetry.Capacity,
+                recording: false, catalogVersion: AbilityCatalog.CatalogVersion));
     }
 
     /// <summary>
@@ -199,6 +327,15 @@ internal sealed class RotationEngine : IDisposable
 
     private void Tick()
     {
+        // Per-tick telemetry state: a fresh frame/context replaces these; a
+        // hold or decode error leaves them null/None.
+        _telemetryFrame = null;
+        _telemetryFault = DecodeFault.None;
+        _telemetryContext = null;
+        _telemetryDecision = null;
+        _lastCombatContext = null;
+        _planFreshThisTick = false;
+
         if (!_window.Refresh(_settings.ProcessName))
         {
             Report($"waiting for '{_settings.ProcessName}'", false, BridgeState.Idle, "-", "-");
@@ -212,14 +349,24 @@ internal sealed class RotationEngine : IDisposable
         }
 
         var block = new Point(origin.X + _settings.OffsetX, origin.Y + _settings.OffsetY);
-        // v2 width first; a stale v1 addon renders 8 cells, so the 9th
-        // captured cell is background and v2 Decode rejects by checksum.
+        // v5 width first; a stale addon renders fewer cells (9 = v4, 8 = v1),
+        // so the extra captured cells are background and v5 Decode rejects by
+        // the version nibble. PERF: the fallback windows are trimmed out of
+        // the SAME capture — no second BitBlt.
         var cells = _sampler.Sample(block, _settings.CellSize);
         var frame = PixelProtocol.Decode(cells, _settings.Color);
         if (frame is null)
         {
-            // PERF (v1.3.9): trim the v1 window out of the SAME capture —
-            // the old second BitBlt cost a measured ~4.2 ms on this machine.
+            var v4 = PixelProtocol.TrimToV4(cells);
+            frame = PixelProtocol.Decode(v4, _settings.Color);
+            if (frame is not null)
+            {
+                Report("addon is v4 - run install-addon.ps1 + /reload", true, frame.State, WantDiagnostics ? Summarise(frame) : "-", WantDiagnostics ? Describe(v4) : "-");
+                cells = v4;
+            }
+        }
+        if (frame is null)
+        {
             var old = PixelProtocol.TrimToV1(cells);
             frame = PixelProtocol.Decode(old, _settings.Color);
             if (frame is not null)
@@ -231,17 +378,38 @@ internal sealed class RotationEngine : IDisposable
 
         if (frame is null)
         {
+            // v1.5.0 telemetry: classify the failure (magic / checksum /
+            // commit / version / state) without recording any screen content.
+            _telemetryFault = PixelProtocol.Diagnose(cells, _settings.Color);
             // A visible calibrate pattern is not a failure: say so plainly so
             // a stuck `/mdb calibrate on` reads as what it is instead of a
-            // capture problem. Check the pattern first — it needs no profile.
-            // Probe both widths: a stale v1 pattern classifies only in the
-            // 8-cell window (see CalibrateWorker.SampleBoth).
+            // capture problem. Check the pattern FIRST — the ramp is a
+            // healthy capture, so it must not trigger the stale-capture
+            // recovery below. Probe both widths: a stale v1 pattern
+            // classifies only in the 8-cell window (see CalibrateWorker.SampleBoth).
             if (ColorLearner.Classify(cells, _settings.Color) >= 0
+                || ColorLearner.Classify(PixelProtocol.TrimToV4(cells), _settings.Color) >= 0
                 || ColorLearner.Classify(PixelProtocol.TrimToV1(cells), _settings.Color) >= 0)
             {
                 Report("calibrate pattern visible (/mdb calibrate off to resume)", true, BridgeState.Paused, "-", WantDiagnostics ? Describe(cells) : "-");
                 return;
             }
+
+            // Self-heal the capture chain after a sustained miss. Relocating
+            // alone cannot fix a stale-but-still-valid game-window handle or
+            // a frozen screen DC — both survive relog / character switches
+            // and were only cleared on an app restart (the user's bug). Force
+            // a full window + GDI re-attach, then re-evaluate on the next
+            // tick with a clean origin.
+            if (_clock.ElapsedMilliseconds - _lastFrameMs > RecoveryIntervalMs)
+            {
+                RecoverAttachment();
+                _lastFrameMs = _clock.ElapsedMilliseconds;
+                Report("re-attaching to the game window", false, BridgeState.Idle, "-", "-");
+                _idle = true;
+                return;
+            }
+
             var message = Relocate(origin, clientSize)
                 ? "block found, re-aligned"
                 : "no pixel block - client must be windowed or borderless";
@@ -250,8 +418,34 @@ internal sealed class RotationEngine : IDisposable
             return;
         }
 
+        // A real frame decoded: the capture chain is healthy, so the stale-
+        // capture recovery clock is reset.
+        _lastFrameMs = _clock.ElapsedMilliseconds;
+        _telemetryFrame = frame;
+
+        // Decision layer observation: record the decoded candidates once per
+        // real frame (stroke, first-seen, last-changed, pressed-since-change).
+        _candidateTracker.Update(frame, _lastFrameMs);
+
         // PERF (v1.3.9): summary/raw strings only when the UI wants them.
         var summary = WantDiagnostics ? Summarise(frame) : "-";
+
+        // v1.6.0 LINK GATE (scheduler on): a frozen-but-decodable strip (the
+        // addon stopped rendering; commit==heartbeat still passes checksum)
+        // must never keep a rotation firing. Observe every frame so a later
+        // heartbeat change heals the link; hold everything while lost.
+        if (_settings.SchedulerEnabled)
+        {
+            _scheduler.Observe(frame, _lastFrameMs);
+            if (_scheduler.IsLinkLost(_lastFrameMs, _settings.SchedulerHeartbeatTimeoutMs))
+            {
+                _lastPlan = SchedulePlan.Hold(ScheduleReason.LinkLost);
+                Report("link lost (addon heartbeat frozen)", true, frame.State, summary, "-");
+                _idle = true;
+                return;
+            }
+        }
+
         // Adaptive cadence: idle unless there is a target-bearing frame.
         _idle = frame.State == BridgeState.Idle && !frame.HasTarget;
 
@@ -442,6 +636,17 @@ internal sealed class RotationEngine : IDisposable
         return false;
     }
 
+    /// <summary>
+    /// Drops the cached game-window handle and the captured GDI surface so
+    /// the next tick re-resolves both from scratch. Cheap and idempotent;
+    /// used on every Start and on a sustained decode miss (recovery).
+    /// </summary>
+    private void RecoverAttachment()
+    {
+        _window.Reset();
+        _sampler.Reset();
+    }
+
     /// <summary>Sweeps the client area for the block, at most once every RelocateIntervalMs.</summary>
     private bool Relocate(Point origin, Size clientSize)
     {
@@ -458,9 +663,173 @@ internal sealed class RotationEngine : IDisposable
         return true;
     }
 
+    /// <summary>
+    /// Builds the decision context from the decoded frame, the tracker
+    /// snapshot and settings. All inputs are plain values already exposed by
+    /// the pixel protocol or produced by this process — no new state is
+    /// invented (no health, cooldowns or cast data exists here by design).
+    /// </summary>
+    private DecisionContext BuildContext(BridgeFrame frame, long nowMs) => new()
+    {
+        InCombat = frame.InCombat,
+        OnGcd = frame.OnGcd,
+        HasTarget = frame.HasTarget,
+        State = frame.State,
+        NowMs = nowMs,
+        StaleAfterMs = Math.Max(250, _settings.IntelligenceStaleAfterMs),
+        Candidates = _candidateTracker.Snapshot(_settings.SlotEnabled),
+    };
+
+    /// <summary>Ability display name when the identity is known, else the stroke/slot.</summary>
+    private string ActionNameOf(int spellId, KeyStroke stroke) =>
+        spellId > 0 && _catalog.TryGet(spellId) is { } ability ? ability.Name : stroke.Describe();
+
+    private void SetPlanHead(ScheduledAction[] actions)
+    {
+        if (actions.Length == 0)
+        {
+            lock (_snapshotLock) _currentPlanHead = null;
+            return;
+        }
+        var head = actions[0];
+        var snapshot = new LiveActionSnapshot(
+            ActionNameOf(head.SpellId, head.Stroke), head.Reason.ToString(), head.Provider, head.Evidence);
+        lock (_snapshotLock) _currentPlanHead = snapshot;
+    }
+
+    private void SetLastAction(string action, string reason, string provider, IReadOnlyList<string> why)
+    {
+        var snapshot = new LiveActionSnapshot(action, reason, provider, why);
+        lock (_snapshotLock) _lastAction = snapshot;
+    }
+
     private bool TrySendOne(BridgeFrame frame, IntPtr gameHandle, uint gamePid)
     {
         var now = _clock.ElapsedMilliseconds;
+        return _settings.SchedulerEnabled
+            ? TrySendScheduled(frame, gameHandle, gamePid, now)
+            : TrySendLegacy(frame, gameHandle, gamePid, now);
+    }
+
+    /// <summary>
+    /// v1.6.0 scheduler path: the deterministic plan owns the order and the
+    /// pacing gates; the per-slot OS gates below stay authoritative (movement
+    /// bind, physically-held key, focus, background policy, window liveness).
+    /// A rejected action is recorded via NoteAttempt so the scheduler retries
+    /// the slot only after a short window, and lower ranks get their turn in
+    /// the same tick.
+    /// </summary>
+    private bool TrySendScheduled(BridgeFrame frame, IntPtr gameHandle, uint gamePid, long now)
+    {
+        // Build the combat context once: the scheduler consumes it (hard
+        // execution-safety gate even with intelligence off), the policy
+        // consumes it, and the telemetry tick records it (explainability).
+        var combat = CombatContext.FromFrame(frame);
+        _lastCombatContext = combat;
+        var plan = _scheduler.Advance(new ScheduleInput
+        {
+            Frame = frame,
+            Candidates = _candidateTracker.Snapshot(_settings.SlotEnabled),
+            NowMs = now,
+            MinKeyIntervalMs = _settings.MinKeyIntervalMs,
+            StaleAfterMs = Math.Max(250, _settings.IntelligenceStaleAfterMs),
+            HeartbeatTimeoutMs = _settings.SchedulerHeartbeatTimeoutMs,
+            RepeatSuppressMs = _settings.SchedulerRepeatSuppressMs,
+            Context = combat,
+            Options = _settings.IntelligenceEnabled ? PolicyOptions.FromSettings(_settings) : null,
+            Catalog = _catalog,
+            CollectPolicyVerdicts = _telemetry is not null,
+        });
+        _lastPlan = plan;
+        _planFreshThisTick = true;
+        SetPlanHead(plan.Actions);
+        // The scheduler path's explainability record is the plan (`pol`); the
+        // legacy decision fields must not carry over from an earlier legacy
+        // tick, or a mid-session scheduler toggle would record a stale
+        // decision against fresh candidates (and replay as a mismatch).
+        _telemetryDecision = null;
+        _telemetryContext = null;
+
+        KeyStroke? held = null;
+        foreach (var action in plan.Actions)
+        {
+            var index = (int)action.Slot;
+            var stroke = action.Stroke;
+
+            // Binding audit: a spell on true movement keys (WASD/Space/
+            // arrows) is never sent — replaying it would drive movement
+            // every tick (same rule as the legacy path).
+            if (MovementGuard.IsMovementStroke(stroke))
+            {
+                _holdNote = $"slot {SlotName(action.Slot)} is bound to {stroke.Describe()}";
+                _scheduler.NoteAttempt(now, action.Slot, stroke, AttemptOutcome.MovementBound);
+                continue;
+            }
+
+            // Collision skip: a synthetic KEYUP for a physically-held key
+            // reads as a real release in WoW. Exact-VK match only.
+            if (MovementGuard.IsPhysicallyDown(stroke.VirtualKey))
+            {
+                held = stroke;
+                _scheduler.NoteAttempt(now, action.Slot, stroke, AttemptOutcome.PhysicalHold);
+                continue;
+            }
+
+            if (KeySender.IsMouse(stroke.VirtualKey))
+            {
+                // Mouse input has no per-window route: always needs focus.
+                if (!_window.IsForeground || !_window.IsGameWindow(gameHandle))
+                {
+                    _holdNote = $"slot {SlotName(action.Slot)} needs focus (mouse input)";
+                    _scheduler.NoteAttempt(now, action.Slot, stroke, AttemptOutcome.FocusRequired);
+                    continue;
+                }
+                KeySender.Send(stroke, _settings.KeyPressMs);
+            }
+            else
+            {
+                // Keyboard slots: background-safe when allowed; otherwise the
+                // foreground gate applies to keys too.
+                if (!_settings.AllowBackgroundKeys && !_window.IsForeground)
+                {
+                    _holdNote = "game not focused";
+                    _scheduler.NoteAttempt(now, action.Slot, stroke, AttemptOutcome.FocusRequired);
+                    return false;
+                }
+                if (!KeySender.SendToWindow(gameHandle, gamePid, stroke, _settings.KeyPressMs))
+                {
+                    _holdNote = "game window lost";
+                    _scheduler.NoteAttempt(now, action.Slot, stroke, AttemptOutcome.WindowLost);
+                    return false;
+                }
+            }
+
+            _lastSlotPress[index] = now; // diagnostics only (see field note)
+            _candidateTracker.NotePressed(action.Slot, now);
+            _scheduler.NoteSent(now, action.Slot, stroke, action.SpellId);
+            var sendInterval = _lastAnyPress <= 0 ? 0 : now - _lastAnyPress; // v1.5.0 telemetry
+            _lastAnyPress = now;
+            _telemetry?.Append(TelemetryEvent.Sent(now, "spell", action.Slot, stroke, sendInterval, action.SpellId));
+            _lastKeySent = $"{SlotName(action.Slot)}: {stroke.Describe()}";
+            SetLastAction(ActionNameOf(action.SpellId, stroke), action.Reason.ToString(), action.Provider, action.Evidence);
+            return true;
+        }
+
+        if (held is { } heldStroke)
+            _holdNote = $"holding {heldStroke.Describe()} (you are holding it)";
+
+        return false;
+    }
+
+    /// <summary>
+    /// Legacy path ([Scheduler] Enabled=0): [Intelligence] order or the exact
+    /// pre-v1.4.0 priority array, global min-gap on _lastAnyPress. Behaviour
+    /// is pinned byte-identical by DecisionEngineTests when intelligence is off.
+    /// </summary>
+    private readonly PolicyMemory _legacyPolicyMemory = new();
+
+    private bool TrySendLegacy(BridgeFrame frame, IntPtr gameHandle, uint gamePid, long now)
+    {
         var gap = Math.Max(1, _settings.MinKeyIntervalMs);
 
         // Global min-gap (cheap, one compare): never two presses faster
@@ -468,15 +837,93 @@ internal sealed class RotationEngine : IDisposable
         if (now - _lastAnyPress < gap) return false;
 
         KeyStroke? held = null;
-        // v1.3.3: scan Priority in order EVERY tick (Main first). The frame
-        // IS the order — no start-offset rotation (see send-site note).
-        for (var offset = 0; offset < Priority.Length; offset++)
+        // v1.4.0 DECISION LAYER: the evaluator produces the send order from
+        // normalized candidates + observable context (deterministic, no game
+        // state beyond the protocol). Disabled = the legacy priority array,
+        // so this loop is byte-identical to the pre-intelligence engine.
+        // v1.5.0: while telemetry records, the context is always built (even
+        // with intelligence off) so a legacy session can be replayed through
+        // the evaluator as "would-select"; the SEND decision is unchanged.
+        DecisionContext? context = null;
+        DecisionResult decision;
+        if (_settings.IntelligenceEnabled || _telemetry is not null)
         {
-            var slot = Priority[offset];
+            context = BuildContext(frame, now);
+            decision = _settings.IntelligenceEnabled ? DecisionEngine.Evaluate(context) : DecisionResult.Fallback();
+        }
+        else
+        {
+            decision = DecisionResult.Fallback();
+        }
+        _telemetryContext = context;
+        _telemetryDecision = decision;
+        _lastDecision = decision;
+        // v2.1: the context is always built — the hard execution-safety gate
+        // below runs even on the double-off legacy path (it is not knowledge
+        // filtering). A v4/v1 frame yields an all-UNKNOWN context, so a stale
+        // in-game addon keeps the byte-identical legacy behaviour.
+        var combat = CombatContext.FromFrame(frame);
+        _lastCombatContext = combat;
+
+        // v1.3.3: scan the order EVERY tick (Main first by default). The
+        // frame IS the order — no start-offset rotation (see send-site note).
+        foreach (var slot in decision.Order)
+        {
             var index = (int)slot;
 
             if (!_settings.SlotEnabled[index]) continue;
             if (frame[slot] is not { } stroke) continue;
+
+            // Companion-only slots (Mobility / SelfHeal) exist solely because
+            // the knowledge base curated them; without intelligence they are
+            // never allowed to fire.
+            if (!_settings.IntelligenceEnabled && slot is Slot.Mobility or Slot.SelfHeal) continue;
+
+            // v2.1 EXECUTION SAFETY on the legacy path: even with scheduler and
+            // intelligence both off, no GCD-riding key is sent into a live
+            // cast/channel (interrupts/items and verified non-movement off-GCD
+            // abilities stay allowed). An all-UNKNOWN v4/v1 context changes
+            // nothing, so a stale addon keeps the legacy behaviour.
+            var playerCast = combat.Cast;
+            if (ExecutionSafety.CastHoldReason(slot, frame.SpellId(slot), playerCast, _catalog) is { } execHold)
+            {
+                _holdNote ??= execHold;
+                continue;
+            }
+
+            // v2.0 SITUATIONAL POLICY on the legacy path: same evaluator and
+            // knowledge as the scheduler path, so disabling the scheduler does
+            // not silently disable intelligence. No intelligence = no filter.
+            PolicyDecision? policy = null;
+            var spellId = 0;
+            if (_settings.IntelligenceEnabled)
+            {
+                if (context is not null)
+                {
+                    foreach (var candidate in context.Candidates)
+                    {
+                        if (candidate.Slot != slot) continue;
+                        spellId = candidate.SpellId;
+                        break;
+                    }
+                }
+                policy = PolicyEvaluator.Evaluate(new PolicyInput
+                {
+                    Slot = slot,
+                    SpellId = spellId,
+                    Context = combat,
+                    Options = PolicyOptions.FromSettings(_settings),
+                    Memory = _legacyPolicyMemory,
+                    NowMs = now,
+                    InCombat = frame.InCombat,
+                    HasTarget = frame.HasTarget,
+                }, _catalog);
+                if (policy.Value.Verdict != PolicyVerdict.Use)
+                {
+                    _holdNote ??= $"{SlotName(slot)}: {policy.Value.Reason}";
+                    continue;
+                }
+            }
 
             // v1.3.5 #2 GCD GATE: while the bridge reports an active GCD
             // (C_Spell isOnGCD, NeverSecret), nothing that rides the GCD
@@ -540,7 +987,17 @@ internal sealed class RotationEngine : IDisposable
             }
 
             _lastSlotPress[index] = now; // diagnostics only (see field note)
+            _candidateTracker.NotePressed(slot, now); // decision-layer history
+            if (_settings.IntelligenceEnabled && spellId > 0 && _catalog.TryGet(spellId) is { } used)
+                _legacyPolicyMemory.NoteUse(used, now);
+            var sendInterval = _lastAnyPress <= 0 ? 0 : now - _lastAnyPress; // v1.5.0 telemetry
             _lastAnyPress = now;
+            _telemetry?.Append(TelemetryEvent.Sent(now, "spell", slot, stroke, sendInterval, spellId));
+            SetLastAction(
+                ActionNameOf(spellId, stroke),
+                policy?.Reason ?? $"{slot} candidate; legacy order",
+                policy?.Provider ?? "",
+                policy?.Evidence ?? []);
             // v1.3.3: NO round-robin advance on send. The bridge re-encodes
             // the CURRENT suggestion every 50 ms; rotating the start offset
             // after each press made the engine SKIP the fresh suggestion and
@@ -586,8 +1043,11 @@ internal sealed class RotationEngine : IDisposable
             if (!KeySender.SendToWindow(gameHandle, gamePid, stroke, _settings.KeyPressMs))
                 return false;
         }
+        var sendInterval = _lastAnyPress <= 0 ? 0 : now - _lastAnyPress; // v1.5.0 telemetry
         _lastAnyPress = now;
+        if (_settings.SchedulerEnabled) _scheduler.NoteExternalSend(now); // keep pacing aware
         _lastKeySent = $"Target: {KeySender.DescribeStroke(stroke)}";
+        _telemetry?.Append(TelemetryEvent.Sent(now, "target", null, stroke, sendInterval));
         return true;
     }
 
@@ -663,8 +1123,11 @@ internal sealed class RotationEngine : IDisposable
             if (!KeySender.SendToWindow(gameHandle, gamePid, stroke, _settings.KeyPressMs))
                 return false;
         }
+        var sendInterval = _lastAnyPress <= 0 ? 0 : now - _lastAnyPress; // v1.5.0 telemetry
         _lastAnyPress = now;
+        if (_settings.SchedulerEnabled) _scheduler.NoteExternalSend(now); // keep pacing aware
         _lastKeySent = $"Interact: {KeySender.DescribeStroke(stroke)}";
+        _telemetry?.Append(TelemetryEvent.Sent(now, "interact", null, stroke, sendInterval));
         return true;
     }
 
@@ -702,6 +1165,8 @@ internal sealed class RotationEngine : IDisposable
         Slot.Consumable => "Cons",
         Slot.Trinket => "Trin",
         Slot.Interrupt => "Int",
+        Slot.Mobility => "Mob",
+        Slot.SelfHeal => "Heal",
         _ => slot.ToString(),
     };
 
@@ -714,8 +1179,68 @@ internal sealed class RotationEngine : IDisposable
     /// </summary>
     public volatile bool WantDiagnostics;
 
-    private void Report(string message, bool visible, BridgeState state, string summary = "-", string raw = "-") =>
-        StatusChanged?.Invoke(new EngineStatus(message, visible, state, summary, _lastKeySent, raw));
+    /// <summary>Advanced-only: the last decision head + reason + confidence.</summary>
+    private string DecisionSummary()
+    {
+        if (!WantDiagnostics) return "-";
+        if (_settings.SchedulerEnabled)
+        {
+            var held = _lastPlan.PolicyHeld > 0 ? $" · {_lastPlan.PolicyHeld} policy-held" : "";
+            var skipped = _lastPlan.PolicySkipped > 0 ? $" · {_lastPlan.PolicySkipped} policy-skipped" : "";
+            if (_lastPlan.Selected is { } scheduled)
+            {
+                var demoted = _lastPlan.StaleDemoted ? " · stale demoted" : "";
+                var suppressed = _lastPlan.Suppressed > 0 ? $" · {_lastPlan.Suppressed} blocked" : "";
+                var detail = _lastPlan.PolicyDetail is { Length: > 0 } d ? $" · {d}" : "";
+                // v2.7 explainability: provider + a compact evidence line.
+                var head = _lastPlan.Actions.Length > 0 ? _lastPlan.Actions[0] : default;
+                var provider = head.Provider is { Length: > 0 } pv ? $" · {pv}" : "";
+                var evidence = head.Evidence.Count > 0 ? $" [{string.Join("; ", head.Evidence)}]" : "";
+                return $"{SlotName(scheduled)}: {_lastPlan.Reason} ({_lastPlan.Confidence}%){provider}{evidence}{demoted}{suppressed}{detail}{held}{skipped}";
+            }
+            var holdDetail = _lastPlan.PolicyDetail is { Length: > 0 } hd ? $" · {hd}" : "";
+            return $"scheduler: {_lastPlan.Reason}{holdDetail}{held}{skipped}";
+        }
+        if (!_settings.IntelligenceEnabled) return "off (legacy priority)";
+        if (_lastDecision.Selected is not { } slot)
+            return _lastDecision.Reason.ToString();
+        var demotedInt = _lastDecision.DemotedStale ? " · stale demoted" : "";
+        return $"{SlotName(slot)}: {_lastDecision.Reason} ({_lastDecision.Confidence}%){demotedInt}";
+    }
+
+    private void Report(string message, bool visible, BridgeState state, string summary = "-", string raw = "-")
+    {
+        // v1.5.0 telemetry: one tick event per Report (the engine's single
+        // outcome funnel) + a link event only when visibility changes. No
+        // frame = no candidate context, so a link-loss tick can never replay
+        // as a decision.
+        if (_telemetry is { } telemetry)
+        {
+            var now = _clock.ElapsedMilliseconds;
+            var candidates = _telemetryContext?.Candidates
+                ?? (_telemetryFrame is null ? [] : _candidateTracker.Snapshot(_settings.SlotEnabled));
+            // The policy record only exists for ticks where the scheduler
+            // actually ran; on the legacy path a stale plan must never be
+            // recorded as if it explained this tick.
+            var policyRecord = _planFreshThisTick
+                ? TelemetryEvent.BuildPolicy(_lastPlan, true, _lastCombatContext,
+                    _settings.IntelligenceEnabled ? PolicyOptions.FromSettings(_settings) : null)
+                : null;
+            telemetry.Append(TelemetryEvent.Tick(
+                now,
+                _telemetryFrame,
+                _telemetryFault,
+                _telemetryContext,
+                _telemetryDecision,
+                _settings.IntelligenceEnabled,
+                candidates,
+                message,
+                visible,
+                policyRecord));
+            telemetry.RecordLink(now, visible, message, _telemetryFault);
+        }
+        StatusChanged?.Invoke(new EngineStatus(message, visible, state, summary, _lastKeySent, raw, DecisionSummary()));
+    }
 
     public void Dispose()
     {

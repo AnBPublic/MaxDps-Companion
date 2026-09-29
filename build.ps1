@@ -45,10 +45,16 @@ internal static partial class ThisAssemblyGen
 Set-Content -LiteralPath $genPath -Value $genContent -Encoding UTF8
 
 # 3. Clean dist so stale files can never masquerade as a fresh publish.
-# Preserve .gitkeep so the folder stays tracked.
+# Preserve .gitkeep, the per-machine settings.ini, the assets folder (which
+# holds the user's downloaded icon cache) and the ui-snapshots review folder
+# (regenerable, but wiping it on every republish would silently lose the
+# design-review artifacts) — wiping settings.ini here silently reset every
+# user preference on each publish.
 $keep = Join-Path $output '.gitkeep'
 if (-not (Test-Path $output)) { New-Item -ItemType Directory -Path $output | Out-Null }
-Get-ChildItem -LiteralPath $output -Force | Where-Object { $_.Name -ne '.gitkeep' } | Remove-Item -Recurse -Force
+Get-ChildItem -LiteralPath $output -Force |
+    Where-Object { $_.Name -notin @('.gitkeep', 'settings.ini', 'assets', 'ui-snapshots') } |
+    Remove-Item -Recurse -Force
 
 $arguments = @(
     'publish', $project,

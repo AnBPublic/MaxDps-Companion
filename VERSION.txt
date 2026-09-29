@@ -1,8 +1,399 @@
-1.3.9
-Date: 2026-09-24
-Upstream: kaminaris MaxDps v11.3.43
+2.8.1
+Date: 2026-09-28
+Companion 2.8.1 / bridge 2.7.0 (unchanged). Protocol v5 unchanged.
+
+v2.8.1 MOUSE-ACTIVATION + SPACING FIX (reported: "the menu buttons on the
+left don't do anything; can no longer access other menus")
+
+- ROOT CAUSE: rail items only wired Enter/Space to `Activate`; a real mouse
+  click raised `Click` but nothing subscribed it — the rail was mouse-dead
+  (Ctrl+digit and keyboard still worked). Fixed with an explicit `OnClick`
+  override; pinned by a real Win32 mouse-message regression test.
+- HARDENED: base-Control Click proved unreliable (the validation-cancelled
+  path suppressed it on the toggle: down+up with no Click). New `UiClickable`
+  base owns the press/release gesture explicitly and disables StandardClick;
+  ToggleSwitch, FilterChip, MetricTile, NavRailItem and TitleBarButton now
+  derive from it. Real-mouse tests cover the rail and the toggle.
+- SPACING: KvRow rows are 56px with a 24px value offset and cards use a
+  12px body gap (was 42/20/8) — the vertical text segments breathe.
+- DEFENSIVE: `StackPage.NormalizeScroll` runs on the live status refresh and
+  resets a negative auto-scroll offset (the "content pushed down with a big
+  empty band" class) so the first card can never render off-origin.
+
+VALIDATED: build 0/0; dotnet test 446/446 (was 443; +rail mouse click,
++toggle mouse click, +live-update first-card position); ui-smoke PASS;
+snapshots regenerated (5 pages x 6 widths) in dist/ui-snapshots. Published
+to dist via a redirected build output (a running instance is never touched).
+
+2.8.0
+Date: 2026-09-28
+Upstream: kaminaris MaxDps v11.3.49 (class modules v11.2.11)
 Interface: 120100 (Retail Midnight 12.1)
-Protocol: v4 (9 cells: magic + Main/Offensive/Defensive/Consumable/Trinket/Interrupt + status+flags + version)
-Flags: status B bit0 in-combat, bit1 on-GCD, bit2 has-target
-Performance: DIB-section zero-copy capture (no per-pixel GetPixel), one BitBlt per tick (v1 window trimmed, not re-captured), duty-cycle guard caps capture CPU at ~10%, below-normal engine thread, high-resolution waitable timer (no timeBeginPeriod), adaptive cadence, per-tick Lua memoisation in the bridge (1 scrub instead of ~10), cached Duration curve, no per-slot closures, strip refresh 50 -> 33 ms
-Bridge: 1.3.9 (Reader/Bridge perf pass, protocol unchanged)
+Companion 2.8.0 / bridge 2.7.0 (unchanged). Protocol v5 unchanged. Bundled
+Geist typeface (SIL OFL, vendored under app assets; system variable font
+fallback). UI 2.0 finish: Ethereal Glass x brass, measured layout, no
+Dock-in-flow anywhere in the shell.
+
+v2.8.0 UI PASS — TRUE LAYOUT, GLASS SYSTEM, HONEST SMOKE
+
+- FIXED (the screenshot defects): Home cards were empty because content used
+  Dock inside FlowLayoutPanel containers (unsupported; collapses to zero
+  width/height) and pills never auto-sized. Rebuilt on a measured layout core
+  (Ui/Layout.cs: VertStack/WrapFlow/GridPanel/BentoSplit + UiMeasure) with
+  owner-drawn KvRow rows; StatusPill/MetricTile/FilterChip auto-size; the
+  Abilities virtual list is docked correctly (it never rendered in 2.7 either).
+- HONEST SMOKE: Control.Visible is false for the whole tree in the headless
+  smoke (the form is never shown), which made every v2.7 check vacuous. The
+  walk no longer gates on Visible; new invariants: owner-drawn primitive
+  text-fit (IUiTextFit), card content rendered inside its body (IUiContentHost),
+  wrapped-label height coverage, collapsed-content detection. Each new check
+  FAILED on the real defects before the fix and now guards them.
+- GLASS SYSTEM: DesignTokens v2 (OLED ink #07090B, layered surfaces, hairline
+  borders, brass accent, radii/elevation/type scale), cached ambient backdrop
+  (two radial glows + 3% grain, painted by the shell — not a child control, so
+  DrawToBitmap cannot cover the page tree), double-bezel GlassCard (outer shell
+  + concentric inner core + top highlight), pill buttons with a nested
+  trailing-icon circle and press physics, brass toggle, hand-drawn 1.4px nav
+  icons (no font glyphs), collapsing rail under 880px, wrapping chip strips.
+- HOME BENTO: status hero + live action/why + identity + intelligence health,
+  single-column under 980px; coverage built at startup; KvRow values update
+  in place. Explorer: virtualized rows, reserved badge/label/toggle cluster
+  (no overlap), inline expansion, master-detail inspector.
+- Geist vendored (Regular/Medium/Bold + OFL) via tools/Fetch-Geist.ps1 with
+  pinned SHA256; loaded from embedded resources (PrivateFontCollection) with a
+  graceful system-font fallback.
+
+VALIDATED (this machine, this session): build 0 warnings / 0 errors;
+dotnet test 443/443 (incl. the meaningful smoke and two new layout
+regressions); lua tests/secret_harness.lua 94/94; --ui-smoke-test PASS with
+the hardened checks (exit 1 on findings); --bench-scheduler unchanged
+sends=1620 sha256=b71a999d5e46570e; replays 9/16/7 verdicts 0 mismatches;
+tools/ability_audit.ps1 exit 0 (violations 0 / warnings 0 / missing 0 /
+stale 0); 30 page snapshots (5 pages x 6 widths) rendered non-blank into
+dist/ui-snapshots.
+
+LIVE OWED (retail 12.1): close the running 2.7 instance, start the 2.8 exe,
+then docs/TESTING.md 3d (DPI 100/150/200% and narrow-window spot checks,
+which snapshots cannot honestly simulate). NOT validated on a live client.
+
+v2.7.0 INTELLIGENCE COVERAGE + CANDIDATE PROVIDERS + UI 2.0
+
+- Registry: every entry gains independent Ownership (Companion/MaxDps/Shared/
+  Manual/Unavailable) and Completeness (Complete/Partial/Delegated/
+  ManualByDesign/Unobservable/ResearchPending/LiveUnverified) axes; every
+  MaxDps-owned entry carries a delegation reason (no bare MaxDpsOnly), every
+  manual entry a manual reason; per-entry patch metadata (introducedPatch/
+  sourcePatch/lastValidatedPatch/sourceType/sourceUrl/sourceConfidence/
+  liveVerified); relationships expanded (Replaces/ReplacedBy/Alias/
+  HistoricalId/PairsWith/...); stale AND newer-than-supported intelligence both
+  fail the audit; Spell Lock 19647/119910 and Avenging Wrath 31884/231895 are
+  documented id-keyed (never merged by name).
+- Coverage manifest: --ability-audit + --ability-coverage emit DISCOVERED/
+  REGISTERED/AUTOMATABLE/COMPANION-GENERATED/MAXDPS-DELEGATED/SHARED-GATED/
+  MANUAL/UNOBSERVABLE/RESEARCH-PENDING/STALE/MISSING/FILTERED classes;
+  tools/ability_audit.ps1 now ENFORCES violations 0 / warnings 0 / missing 0 /
+  stale 0 (exit 3 on a non-clean audit) and keeps the addon Catalog.lua drift
+  check (exit 2).
+- Candidate providers: explicit named providers own the per-category policy
+  logic (MaxDpsRotation / Offensive / Defensive / Interrupt / Mobility /
+  SelfSustain / Utility) with candidate-source identity (MaxDpsWire /
+  BridgeExtra / CompanionGapFill / None) and structured evidence; Utility is
+  structurally incapable of Use. Every verdict and reason string is unchanged
+  (pinned by the existing suite).
+- Explainability: the plan head and last action carry provider + human-readable
+  "why" evidence (RotationEngine.LastAction / CurrentPlanHead); telemetry
+  records provider/evidence (recordings without them still replay 0
+  mismatches).
+- Secret safety: the self-buff block is now tri-state — bridge 2.7.0 sets the
+  additive cell 33 B bit1 only when every aura probe ran clean; without it the
+  companion reads UNKNOWN (documented fail-open) instead of a silent "not
+  active". Target melee/cast zero-bit semantics documented in PROTOCOL.md.
+- UI 2.0: navigation shell (Home / Abilities / Intelligence / Configuration /
+  Diagnostics), ability explorer (debounced search, filter chips, virtualized
+  rows, inspector panel, per-ability toggle), registry health dashboard,
+  grouped settings, diagnostics page, live action "why" panel, design tokens,
+  keyboard navigation, accessible names, visible focus; --ui-smoke-test now
+  asserts zero-size / overlap / label-fit / tab-reachability; page snapshots
+  at multiple widths.
+- CLI: --ability-search= / --ability-class= / --ability-spec=.
+
+VALIDATED (this machine, this session): build 0 warnings / 0 errors;
+dotnet test 440/440 (was 375 registry+providers, then 440 with UI tests);
+lua tests/secret_harness.lua 94/94; --ui-smoke-test PASS (structural checks);
+--bench-scheduler unchanged sends=1620 (1.82/s) sha256=b71a999d5e46570e;
+replays 9/16/7 verdicts 0 mismatches; tools/ability_audit.ps1 exit 0, audit
+clean (violations 0 / warnings 0 / missing 0 / stale 0), addon Catalog.lua
+matches the generated output.
+
+LIVE OWED (retail 12.1): reinstall the addon + /reload; then the v2.7
+checklist in docs/TESTING.md 3d (protocol/bridge, class/spec detection, Home
+status, Ability Explorer search/inspector, Normal + Solo self-heal, defensive
+urgency, one interrupt per class, one offensive, one mobility ability, manual
+utility never fires, OFF never fires, Modes persistence, patch warning,
+telemetry + replay 0 mismatches). NOT validated on a live client here.
+
+v2.6.0 ABILITY INTELLIGENCE REGISTRY + CONTEXT ENGINE
+
+- Every registry entry now carries an explicit intelligence view: AbilityKind,
+  IntelligenceStatus (Verified/ResearchBacked/MaxDpsBacked/CompanionRule/
+  ConservativeSafety/Heuristic/ManualByDesign/UnsafeToAutomate/Incomplete/
+  Unknown), AutomationContext (Autonomous/MaxDpsOnly/Manual), MaxDpsRelationship,
+  OpportunityCost, capability flags, Requires, and per-capability intelligence
+  (InterruptKind / OffensiveUsage / MobilityKind), talent/hero-talent notes,
+  curated Relations, and patch metadata (gamePatch 12.1 / interface 120100).
+- Policy is now five-state: USE / HOLD / SKIP / UNAVAILABLE / UNKNOWN.
+- Registry drives the runtime: an Incomplete/Unknown/Unsafe entry can never be
+  generated by the companion's own candidate sources; on a MaxDps slot it keeps
+  exactly the pre-registry generic behaviour. Manual-by-design is structural.
+- Self-sustain priority: an emergency self-heal (<= EmergencyHpPct) is now a
+  survival action in BOTH Normal and Solo mode and outranks the main rotation;
+  the wider sustain layer remains Solo-only.
+- 12.1 research: 14 interrupts typed (Dedicated/Silence), 51 offensive
+  cooldowns classified, 22 mobility kinds, 32 manual utilities (CC/purge/
+  threat/dispel), corrections (Gust of Wind ms bug, Blink 20s, AMS 45s, live
+  Spell Lock 119910 vs vendor 19647).
+- New machine-checkable audit: `MaxDpsCompanion.exe --ability-audit=<path>`
+  and `tools/ability_audit.ps1` -> docs/research/ABILITY_REGISTRY_AUDIT.md
+  (Violations 0, Warnings 0). Inspector: `--ability-info=<id>` + the
+  Class skills screen now shows status/tier/cooldown and a why-tooltip.
+- [Abilities] Modes=id:Mode (SoloOnly/NormalOnly/Manual/Never/Always/
+  Automatic) is stored/evaluated; the UI keeps writing ON/OFF.
+
+VALIDATED (this machine): build 0/0; dotnet test 361/361 (was 308); lua
+harness 88/88; ui-smoke 0; bench-scheduler unchanged (sends=1620,
+sha256=b71a999d5e46570e); all 4 replay fixtures 0 mismatches (new
+offensive-interrupt fixture); audit tool exit 0 with addon catalog match.
+
+LIVE OWED: reinstall the addon + /reload, then the v2.6 checklist in
+docs/TESTING.md (interrupt kinds, offensive hold/use, normal-mode emergency
+self-heal, ON/OFF persistence, inspector spot-checks).
+
+v2.5.0 OFFICIAL SKILL VERIFICATION + UI POLISH
+
+GOAL (user): omit class-skill rows that cannot be verified as actual 12.1
+abilities; fix missing icons from official/local sources; verify names; a
+dynamically resizable window that remembers its size; Class skills with the
+same fullscreen layout as Advanced; taller main-menu bubbles with fitting
+descriptions, longer hover text, two toggles per row; a run-state window
+border; new version.
+
+VERIFICATION + ICONS:
+- Wowhead endpoints are blocked from this machine. Official working sources:
+  wago.tools DB2 CSV exports (SpellName / SpellMisc / ManifestInterfaceData)
+  and Blizzard's render CDN. New tools/Verify-ClassSpells.ps1 streams them and
+  writes Knowledge/spell-verification.json: 3566 entries, 3515 verified,
+  51 absent from the live client (removed), 3510 official icon slugs.
+  Deterministic (4 byte-identical runs).
+- ClassSpellBook uses the official name and slug when verified and marks
+  Verified; AbilityCatalog.MergeClassSpells drops unverified ids, so removed
+  abilities never appear. (SpellMisc gotcha: the spell id is the trailing
+  SpellID column, not ID; CDN slugs are space-stripped.)
+- All 3510 icons pre-downloaded to dist/assets/icons (0 failures; render CDN
+  first, zamimg fallback); the runtime cache prefers the official slug (one
+  request) with tooltip discovery only as fallback.
+
+UI:
+- Window size remembered ([Window] Width/Height; saved on resize-end/close,
+  restored clamped); default height 960.
+- Frame ring: red stopped / green running (form padding ring + OnPaint).
+- Hero card: two bubbles per row, 84px, three-line descriptions + longer hover
+  tooltips (SettingRow.Hint); card = 754px.
+- Class skills header identical to Advanced (icon + thick title + Back right;
+  pickers on a toolbar row); fullscreen preserved.
+- build.ps1 no longer wipes dist/settings.ini (and preserves assets/), so
+  publishes keep user settings and the icon cache.
+
+VALIDATED (this machine): build 0/0; dotnet test 308/308 (was 304); lua
+harness 88/88; luac clean; UI smoke 0; snapshots reviewed; bench-scheduler
+unchanged; replays 0 mismatches; verification tool deterministic.
+
+LIVE OWED: in-game toggle spot-check, window size across restarts, border
+green/red on Start/Stop.
+
+v2.4.0 CLASS SKILLS — PER-ABILITY TOGGLES FOR EVERY CLASS/SPEC (previous)
+
+GOAL (user): one deterministic system around MaxDps's existing brain - consume
+MaxDps's own defensive intelligence instead of recreating it, expose defensive
+urgency, fill genuine gaps, add per-class/spec/ability ON/OFF control, keep one
+policy/scheduler/send pipeline, and do not regress the v2.2 self-sustain path.
+
+VENDOR DISCOVERY (traced): MaxDps:GlowDefensiveHPMidnight
+(vendor/MaxDps/Buttons.lua:1056-1110) has no discrete colour enum. It flags
+every usable defensive while alive and renders UnitHealthPercent through
+GlowDcurve (0.3 red alpha 1, 0.5 yellow alpha 0.5, 1.0 green alpha 0), with the
+cooldown's remaining duration as alpha. Purifying Brew (119582) is the one
+per-spell special case (UnitStagger/UnitHealthMax through a reversed curve,
+HP-curve fallback when stagger is secret). "Recommended" is the flag set;
+"urgency" is the rendered colour.
+
+PROTOCOL ADDITIVE URGENCY BLOCK: cell 31 G = HP-curve urgency (0 unknown/
+1 white/2 yellow/3 orange/4 red; HP <=30/50/100 control points), cell 31 B
+bit0 = Defensive slot is a catalog gap-fill, cell 32 B = stagger urgency
+(>=100/50/30). These nibbles were reserved and always 0 before bridge 2.3 and
+the extension checksum already covered cells 11-33, so the version nibble
+STAYS 5: the updated addon still decodes with a pre-2.3 companion exe, and a
+v2.3 companion reads the block whenever it is non-zero. Zero = UNKNOWN; the
+companion accepts an explicit version-6 nibble too (forward compatibility).
+
+GAP-FILL: MaxDps's flagged + ready + bound defensive wins; only at Red HP
+urgency and only when MaxDps names none, the generated Catalog.lua per-spec
+`defensive` list (survival, not never-automatic, immunities excluded, Major
+first) supplies the first ready+bound entry (source bit set). Bounded by
+MaxDps's own enableDefensives switch.
+
+USER ABILITY POLICY: [Abilities] On=/Off= (comma spell ids) + a generated
+"Defensive automation" UI section (class -> spec -> ability). OFF is an
+absolute automatic-use prohibition ("user policy disabled"); ON is eligibility,
+never spam (White holds; the curated NeverAutomatic flag is the default, and a
+user may explicitly enable a manual-by-design ability, which keeps the
+emergency-only rule).
+
+POLICY: White holds all; majors need Red unless the exact ability is the
+MaxDps-recommended Defensive slot candidate (one-stage discount, never below
+Yellow, never for curated MinimumUrgency or Escape/Movement/External); minors
+need Yellow; Unknown holds majors, keeps minors; emergency HP (35) overrides.
+Curated MinimumUrgency: Ignore Pain = Orange. Purifying Brew uses the stagger
+curve. Escape/Movement are emergency-only even when enabled; Dispel holds.
+
+REAL DEFECTS FIXED (found by tracing, pinned by tests):
+1. The recommendation discount would have undone a curated MinimumUrgency
+   (Ignore Pain Orange -> Yellow whenever MaxDps offered it): added
+   MinimumUrgencyCurated and restricted the discount to tier defaults.
+2. User-enabled Escape/Movement fell through to the fail-open Use fallback with
+   no urgency gate: emergency-only routing added (no MaxDps discount).
+3. Pre-v2.3 policy recordings would false-mismatch on defensive verdicts:
+   records without the "du" field are now classified legacy and skipped
+   (counted + reported); the v2.2 fixture was regenerated through the pipeline.
+4. Live-worktree outage ("companion executes nothing"): the in-game addon was
+   still bridge 1.3.9 / protocol v4 and the Windows shortcut launched the old
+   1.3.12 exe from a stale checkout; the version bump also meant new addon +
+   old exe decoded nothing. FIXED: additive urgency block on the v5 wire
+   (version stays 5), v4/v1 fallback windows retained, the v1 target flag now
+   fails open instead of hard-blocking (LegacyAddonCompatTests), bridge 2.3.0
+   installed into the game, shortcut repointed at the current dist exe, old
+   per-machine settings carried over, and --probe now mirrors the engine's
+   decode chain. Live probe after the fix (game running, pre-reload v4 addon):
+   locate=0,0 cell 15; decode=proto=4 state=Active slots=E,Q,Shift+Q.
+
+VALIDATED (this machine, this session):
+- dotnet build -c Release: 0 warnings / 0 errors (app + tests).
+- dotnet test: 261/261 (was 244; DefensiveIntelligenceTests 22,
+  DefensiveReplayTests 4, LegacyAddonCompatTests 2, AppSettings 4,
+  Telemetry 5).
+- lua tests/secret_harness.lua: 88/88 (was 63; +25 additive-block checks incl. secret HP,
+  secret stagger, gap-fill source, checksum coverage).
+- luac -p: clean on all 6 bridge files.
+- --ui-smoke-test exit 0; --ui-snapshot-advanced reviewed.
+- --bench-scheduler: sends=1620 (1.82/s), plan sha256=b71a999d5e46570e
+  (unchanged from v2.2 - policy-off order untouched).
+- --bench-telemetry: end-to-end 3.39 us/tick.
+- --replay: solo fixture 9 verdicts / 0 mismatches; new defensive fixture
+  16 verdicts / 0 mismatches.
+
+LIVE OWED (retail; cannot be claimed from this machine): docs/TESTING.md 3b -
+protocol=5 (additive urgency) in /mdb status, White/Yellow/Orange/Red behaviour on a bound
+defensive, Vanish unchecked never fires at Red, per-ability OFF skip reason,
+[Abilities] persistence, recorded+replayed live session with 0 mismatches.
+
+v2.2.0 SELF-SUSTAIN / SOLO MODE END-TO-END COMPLETION PASS
+(continuation of the uncommitted v2.0/v2.1 work; no commits, no PR)
+
+GOAL (user): stop trusting the previous report; prove - not assert - that a
+Warrior at low HP with Solo ON and Impending Victory ready produces a
+candidate, a policy USE, a scheduler selection and a send; fix every real
+disconnect; keep the architecture generic across all 40 specs.
+
+WHAT WAS ACTUALLY BROKEN (found by tracing the pipeline, not by re-reading
+claims):
+
+1. LEGACY-PATH DISCONNECT (the #1 architecture bug class: "policy exists but
+   the candidate never reaches the scheduler"): with [Scheduler] Enabled=0
+   and Intelligence ON, TrySendLegacy iterated DecisionEngine.EnabledOrder,
+   which did NOT contain the companion-only slots. Solo mode silently lost
+   every self-sustain press on that path, even though the loop contained an
+   explicit "companion-only slots are never allowed to fire WITHOUT
+   intelligence" check whose intent was the opposite. FIX: EnabledOrder now
+   inserts SelfHeal (before Main) and Mobility (after Defensive) without
+   reordering the six MaxDps slots; the fallback array (intelligence OFF)
+   stays byte-identical.
+2. ABILITY-SPECIFIC SELF-HEAL GATES WERE INCOMPLETE: the SelfHeal branch
+   ignored the ability's own `neverAutomatic` veto, its curated
+   `useBelowHpPct` ceiling, and its target/range preconditions. FIX:
+   never-automatic holds (raid/channel heals stay manual even in Solo),
+   `useBelowHpPct` conserves above the ability's own threshold (e.g. Death
+   Pact below 50%, Lay on Hands below 40%), `RequiresTarget` holds without a
+   target, and a confirmed out-of-range melee heal SKIPs instead of burning
+   a press + retry window.
+3. SLOT-8 RANGE WAS NOT PROBED: the bridge's RANGE_SLOTS skipped the
+   SelfHeal slot, so a melee heal (Impending Victory, Death Strike) could be
+   scheduled while the target was out of melee. FIX: slot 8 joins the range
+   tri-state probe (R31 high bits), and the policy consumes it.
+4. UNBOUND TALENT COULD BLANK THE SLOT: ExtraSpellID returned the first
+   READY entry, then WriteSlot dropped it if no keybind resolved - so a
+   ready-but-unbound talent shadowed a bound alternative and left the slot
+   empty. FIX: the getter now requires a resolvable keybind too.
+5. TELEMETRY CROSS-CONTAMINATION: TrySendScheduled left `_telemetryDecision`
+   / `_telemetryContext` from an earlier legacy tick; a mid-session
+   scheduler toggle would record a stale decision against fresh candidates
+   and replay as a mismatch. FIX: the scheduler path clears them (its
+   explainability record is the plan).
+
+WHAT WAS VERIFIED AS GENUINELY ALREADY WIRED (and is now pinned by tests):
+
+- The bridge independently produces the SelfHeal slot from the generated
+  per-spec extras list (`ExtraSpellID`) whenever the ability is ready and
+  bound - MaxDps itself never suggests Impending Victory, so this IS the
+  independent candidate source the requirement demands. From the tracker
+  onward it is one candidate in the SAME policy/scheduler/send pipeline; no
+  second rotation engine, no second key sender.
+- The full Warrior chain now has a deterministic offline proof:
+  real 35-cell v5 wire frame -> PixelProtocol.Decode -> CandidateTracker ->
+  ActionScheduler -> plan { sel: SelfHeal, reason: SelfSustain, spell 202168,
+  verdict Use "solo: HP 50% below sustain 65%" } -> (engine send loop) ->
+  NoteSent -> GCD confirmation -> back to MainRotation.
+- Negative cases pinned: 100/95/70% -> Hold (conserved) + Main; 50% -> Use;
+  20% -> EmergencySurvival (rank above main); solo OFF -> Hold + Main;
+  intelligence OFF -> companion slot excluded entirely; cooldown -> no
+  candidate; out of range -> Skip + Main; no target / casting / GCD ->
+  Holds; a failed heal is bounded (rejection + escalating suppression) and
+  the main rotation continues in the same tick.
+- Canonical replay fixture
+  `tests/MaxDpsCompanion.Tests/fixtures/solo-warrior-selfheal.jsonl`
+  (generated by the real pipeline): `--replay` reports 9 policy verdicts
+  recomputed, 0 mismatch(es), including the SelfSustain/EmergencySurvival
+  selections, the GCD hold, the resume-to-Main tick and the Solo-OFF hold.
+
+LIVE MECHANICS (target: live 12.1, not PTR; access 2026-09-28):
+- Impending Victory (202168): 10 Rage, melee 5 yd, instant, 25 s cooldown,
+  Normal GCD, heals 30% max HP; talent replacing Victory Rush. The 12.1.5
+  PTR page (spell=1235382) was deliberately not used. Heal effect spell
+  202166 (self, GCD 0) explains the GCD rides the cast. Source:
+  wowhead.com/spell=202168 (live page).
+- Exhilaration, Desperate Prayer, Crimson Vial, Death Pact read from
+  warcraft.wiki.gg on 2026-09-28; Desperate Prayer heal corrected 30 -> 25,
+  Death Pact gained useBelowHpPct 50 (30% healing-absorb drawback).
+- Coverage decision (documented in docs/research/ABILITY_RESEARCH.md §5):
+  extras carry only abilities MaxDps never surfaces. Vendor-surfaced sustains
+  (Exhilaration, Crimson Vial, Desperate Prayer, Expel Harm, Death Pact,
+  Renewal, Frenzied Regeneration, Enraged Regeneration, Lay on Hands, Fel
+  Devastation) stay on MaxDps's Defensive gate + the same policy.
+
+VALIDATED (this machine, this session):
+- `dotnet build -c Release` 0 warnings / 0 errors.
+- `dotnet test` 216/216 (was 194: +SelfSustainEndToEndTests 11,
+  +SelfSustainReplayTests 2, +PolicyEvaluatorTests 5, +DecisionEngine 2,
+  +1 rewritten enabled-order contract test).
+- `lua tests/secret_harness.lua` 63/63 (was 58: +5 self-sustain extras checks).
+- `luac -p` all 6 bridge files.
+- `--ui-smoke-test` exit 0.
+- `--bench-scheduler` unchanged: sends=1620 (1.82/s), CastHold=450,
+  ChannelHold=450, Unavailable=4980, RetryBackoff=180,
+  sha256=b71a999d5e46570e.
+- `--bench-telemetry`: end-to-end 7.12 us/tick.
+- `--replay` on the solo fixture: verdicts 9, mismatches 0, verdicts 0.
+
+LIVE OWED (retail; cannot be claimed from this machine): the explicit
+14-step Warrior Solo checklist + low-HP variants in docs/TESTING.md §3a
+(bind Impending Victory, take controlled damage, watch the verdict reach
+Send, confirm the heal and the GCD, confirm no spam, Solo OFF removes the
+independent press, normal rotation resumes).

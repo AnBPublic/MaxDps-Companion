@@ -1,5 +1,8 @@
 bin/
 obj/
+backups/
+*.exe
+*.pdb
 dist/*
 !dist/.gitkeep
 .vs/

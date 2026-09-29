@@ -17,7 +17,7 @@
     <AssemblyTitle>MaxDPS Companion</AssemblyTitle>
     <Product>MaxDPS Companion</Product>
     <RootNamespace>MaxDpsCompanion</RootNamespace>
-    <Version>1.3.9</Version>
+    <Version>2.8.1</Version>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Pixel coordinates must be physical, not DPI-virtualised. -->
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
@@ -31,6 +31,32 @@
   <ItemGroup>
     <None Include="assets\icon-256.png" CopyToOutputDirectory="PreserveNewest" />
     <None Include="assets\companion.ico" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- Bundled Geist faces (SIL OFL, vendored next to their license). Loaded
+       from embedded resources by Ui/UiFonts.cs; absent files fall back to the
+       system variable font chain without failing the build. -->
+  <ItemGroup>
+    <EmbeddedResource Include="assets\fonts\Geist-Regular.ttf"
+                      LogicalName="MaxDpsCompanion.assets.fonts.Geist-Regular.ttf" />
+    <EmbeddedResource Include="assets\fonts\Geist-Medium.ttf"
+                      LogicalName="MaxDpsCompanion.assets.fonts.Geist-Medium.ttf" />
+    <EmbeddedResource Include="assets\fonts\Geist-Bold.ttf"
+                      LogicalName="MaxDpsCompanion.assets.fonts.Geist-Bold.ttf" />
+    <None Include="assets\fonts\OFL.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- Ability knowledge base (see Knowledge/AbilityCatalog.cs). -->
+  <ItemGroup>
+    <EmbeddedResource Include="Knowledge\vendor-abilities.json" />
+    <EmbeddedResource Include="Knowledge\abilities.json" />
+    <EmbeddedResource Include="Knowledge\class-spells.json" />
+    <EmbeddedResource Include="Knowledge\spell-verification.json" />
+    <!-- v2.7: the 12.1 research staging file is embedded so the coverage audit
+         can fail when researched abilities are missing or stale (single source
+         of truth stays in docs/research). -->
+    <EmbeddedResource Include="..\..\docs\research\registry-research.json"
+                      LogicalName="MaxDpsCompanion.Knowledge.registry-research.json" />
   </ItemGroup>
 
 </Project>
