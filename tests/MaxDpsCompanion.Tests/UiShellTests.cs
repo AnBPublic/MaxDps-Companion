@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Runtime.InteropServices;
 using Xunit;
 
@@ -124,6 +125,47 @@ public class UiShellTests
         Assert.True(result.automatic <= result.all);
         Assert.True(result.searched > 0);
         Assert.True(result.numeric > 0);
+    }
+
+    [Fact]
+    public void Intelligence_Tile_Click_Drills_To_Abilities_Explorer()
+    {
+        var (result, error) = RunOnSta(() =>
+        {
+            var settings = new AppSettings();
+            using var form = new MainForm(settings);
+            form.CreateControl();
+            ShowOffscreen(form);
+            form.IntelligenceForTest.EnsureBuilt();
+
+            // The Intelligence tab lives in the Advanced popup; lay it out so
+            // the tile has a real, non-empty client rect before the click.
+            form.OpenAdvancedForTest();
+            form.AdvancedTabsForTest.SelectedIndex = 2;
+            System.Windows.Forms.Application.DoEvents();
+
+            var tile = form.IntelligenceForTest.TilesForTest["Companion"];
+            ClickControl(tile);
+            System.Windows.Forms.Application.DoEvents();
+
+            return (form.AbilitiesVisibleForTest,
+                form.AbilitiesTabsForTest.SelectedIndex,
+                ReadExplorerStatus(form.ExplorerForTest));
+        });
+
+        Assert.Null(error);
+        Assert.True(result.Item1, "drilling from the Intelligence tile did not open the Abilities popup");
+        Assert.Equal(1, result.Item2);
+        Assert.Equal("Companion", result.Item3);
+    }
+
+    /// <summary>Reads the explorer's active status filter (private field, test-only).</summary>
+    private static string ReadExplorerStatus(AbilityExplorer explorer)
+    {
+        var filter = typeof(AbilityExplorer)
+            .GetField("_filter", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .GetValue(explorer)!;
+        return (string)filter.GetType().GetProperty("Status")!.GetValue(filter)!;
     }
 
     [Fact]

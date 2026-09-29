@@ -728,15 +728,16 @@ check("v6 candidate enableDefensives=false is nil, false even at Red",
 MaxDps.db.global.enableDefensives = true
 
 -- ================= 13. extras diagnostics =================
--- Warror/Arms catalog: mobility {100,6544} = 2, selfHeal {202168} = 1,
--- defensive {871,97462,118038,23920,202168} = 5.
+-- Warrior/Arms catalog (v3 regenerated): mobility {100,6544} = 2,
+-- selfHeal {202168,34428} = 2,
+-- defensive {871,97462,118038,23920,34428,202168} = 6.
 MDB.BeginTick()
 local extrasDiag = MDB.GetExtrasDiag()
-check("v6 extras diag prints def count (Arms def=5)", extrasDiag:match("def=5") ~= nil)
+check("v6 extras diag prints def count (Arms def=6)", extrasDiag:match("def=6") ~= nil)
 check("v6 extras diag prints cls/spec and mob/heal counts",
   extrasDiag:match("cls=13 spec=1") ~= nil
   and extrasDiag:match("mob=2") ~= nil
-  and extrasDiag:match("heal=1") ~= nil)
+  and extrasDiag:match("heal=2") ~= nil)
 
 -- ================= 14. protocol v6 frame encode =================
 -- Drive a real Bridge.Update with a flagged+ready+bound defensive and stub

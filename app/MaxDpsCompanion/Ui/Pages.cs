@@ -1,21 +1,5 @@
 namespace MaxDpsCompanion;
 
-/// <summary>Live data the Home page renders (v2.7 §29).</summary>
-internal sealed record HomeSnapshot(
-    StatusTone ConnectionTone, string ConnectionText,
-    StatusTone MaxDpsTone, string MaxDpsText,
-    StatusTone CompanionTone, string CompanionText,
-    string ClassSpecText,
-    string ModeText,
-    string AutomationText,
-    string CurrentActionText,
-    string LastActionText,
-    string WhyText,
-    string CoverageText,
-    string PatchText,
-    string MessageText,
-    StatusTone MessageTone);
-
 /// <summary>
 /// Base for settings-style pages: a page header plus a scrollable measured
 /// stack of glass cards. Layout is fully measured (v2.8): the stack sizes to
@@ -81,108 +65,6 @@ internal abstract class StackPage : Panel
     }
 }
 
-/// <summary>
-/// Home page (v2.7 §29, v2.8 bento): an asymmetric two-column composition that
-/// collapses to one column on narrow windows. One glance answers: is it
-/// working, why is it acting, what will it do automatically.
-/// </summary>
-internal sealed class HomePage : StackPage
-{
-    private readonly StatusPill _connection = new("Checking", StatusTone.Muted);
-    private readonly StatusPill _maxdps = new("Unknown", StatusTone.Muted);
-    private readonly StatusPill _companion = new("Stopped", StatusTone.Muted);
-    private readonly KvRow _classSpec = new("Class / spec");
-    private readonly KvRow _mode = new("Mode");
-    private readonly KvRow _automation = new("Automation");
-    private readonly KvRow _currentAction = new("Current action");
-    private readonly KvRow _lastAction = new("Last action");
-    private readonly KvRow _why = new("Why");
-    private readonly KvRow _coverage = new("Coverage");
-    private readonly KvRow _patch = new("Patch / catalog");
-    private readonly Label _message;
-    private readonly BentoSplit _bento = new();
-
-    /// <summary>Host for the window's Start/Stop buttons (owned by MainForm).</summary>
-    public WrapFlow ControlHost { get; } = new() { Gap = DesignTokens.SpaceS };
-
-    protected override string HeaderTitle => "Home";
-    protected override string HeaderSubtitle => "Connection, live action and intelligence health at a glance";
-
-    public HomePage()
-    {
-        var statusRow = new WrapFlow { Gap = DesignTokens.SpaceS };
-        foreach (var pill in new[] { _connection, _maxdps, _companion }) statusRow.Controls.Add(pill);
-
-        _message = new Label
-        {
-            Text = "-",
-            AutoSize = true,
-            MaximumSize = new Size(760, 0),
-            Font = DesignTokens.Type(DesignTokens.BodySize),
-            ForeColor = DesignTokens.TextSecondary,
-            BackColor = Color.Transparent,
-        };
-
-        var status = new GlassCard("Status", "Connection");
-        status.Add(statusRow);
-        status.Add(_message);
-
-        var identity = new GlassCard("Identity", "Character");
-        identity.Add(_classSpec);
-        identity.Add(_mode);
-        identity.Add(_automation);
-
-        var live = new GlassCard("Live action", "Decision");
-        _currentAction.Emphasize = true;
-        live.Add(_currentAction);
-        live.Add(_lastAction);
-        live.Add(_why);
-
-        var intelligence = new GlassCard("Intelligence health", "Registry");
-        intelligence.Add(_coverage);
-        intelligence.Add(_patch);
-
-        var controls = new GlassCard("Controls", "Engine");
-        controls.Add(ControlHost);
-
-        _bento.Left.Controls.Add(status);
-        _bento.Left.Controls.Add(live);
-        _bento.Right.Controls.Add(identity);
-        _bento.Right.Controls.Add(intelligence);
-        _bento.Full.Controls.Add(controls);
-        AddContent(_bento);
-    }
-
-    public void Update(HomeSnapshot snapshot)
-    {
-        Set(_connection, snapshot.ConnectionText, snapshot.ConnectionTone);
-        Set(_maxdps, snapshot.MaxDpsText, snapshot.MaxDpsTone);
-        Set(_companion, snapshot.CompanionText, snapshot.CompanionTone);
-        _classSpec.Value = snapshot.ClassSpecText;
-        _mode.Value = snapshot.ModeText;
-        _automation.Value = snapshot.AutomationText;
-        _currentAction.Value = snapshot.CurrentActionText;
-        _lastAction.Value = snapshot.LastActionText;
-        _why.Value = snapshot.WhyText;
-        _coverage.Value = snapshot.CoverageText;
-        _patch.Value = snapshot.PatchText;
-        if (_message.Text != snapshot.MessageText) _message.Text = snapshot.MessageText;
-        _message.ForeColor = DesignTokens.StatusColor(snapshot.MessageTone);
-        _message.AccessibleName = snapshot.MessageText;
-        PerformLayout();
-    }
-
-    private static void Set(StatusPill pill, string text, StatusTone tone)
-    {
-        if (pill.Text == text && pill.Tone == tone) return;
-        pill.Text = text;
-        pill.Tone = tone;
-        pill.AccessibleName = text;
-        pill.PerformLayout();
-        pill.Invalidate();
-    }
-}
-
 /// <summary>Single stacked proportion bar (no decorative charts).</summary>
 internal sealed class ProportionBar : Control, IUiMeasured
 {
@@ -232,6 +114,9 @@ internal sealed class IntelligencePage : StackPage
 
     /// <summary>The built coverage report (null until <see cref="EnsureBuilt"/>).</summary>
     public CoverageReport? Report { get; private set; }
+
+    /// <summary>Test hook: the clickable metric tiles, keyed by coverage bucket.</summary>
+    internal IReadOnlyDictionary<string, MetricTile> TilesForTest => _tiles;
 
     public event Action<string>? DrillRequested;
 

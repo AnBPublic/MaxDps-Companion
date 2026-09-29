@@ -168,6 +168,10 @@ internal sealed class MainForm : Form
                 SaveSettings();
             });
 
+        // WS-C drill-through: a clickable Intelligence metric tile opens the
+        // Abilities overlay on the Explorer tab with the matching preset.
+        _intelligencePage.DrillRequested += tag => ShowAbilitiesWithPreset(tag);
+
         BuildLayout();
         LoadFromSettings();
         StyleInputs(this);
@@ -813,6 +817,19 @@ internal sealed class MainForm : Form
         if (_abilitiesOverlay is null) return;
         _abilitiesOverlay.Visible = false;
         if (_mainBody is not null) _mainBody.Visible = true;
+    }
+
+    /// <summary>
+    /// Opens the Abilities overlay on the Explorer tab and applies the preset
+    /// requested by an Intelligence dashboard tile (WS-C drill-through).
+    /// </summary>
+    private void ShowAbilitiesWithPreset(string tag)
+    {
+        ShowAbilities();
+        _abilitiesTabs.SelectedIndex = 1;
+        _explorer.ApplyPreset(tag);
+        _explorer.PerformLayout();
+        _abilitiesOverlay.PerformLayout();
     }
 
     private bool AnyPopupVisible => (_advancedOverlay?.Visible ?? false) || (_abilitiesOverlay?.Visible ?? false);
@@ -1962,6 +1979,7 @@ internal sealed class MainForm : Form
     internal TabControl AdvancedTabsForTest => _advancedTabs;
     internal TabControl AbilitiesTabsForTest => _abilitiesTabs;
     internal bool AnyPopupVisibleForTest => AnyPopupVisible;
+    internal bool AbilitiesVisibleForTest => _abilitiesOverlay?.Visible ?? false;
     internal Size MinimumSizeForTest => MinimumSize;
     internal Size DefaultClientSizeForTest => new(ClassicWantWidth, ClassicWantHeight);
     internal ToggleSwitch SoloToggleForTest => _solo2;
