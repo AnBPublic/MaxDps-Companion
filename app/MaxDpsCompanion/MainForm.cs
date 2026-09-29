@@ -120,6 +120,7 @@ internal sealed class MainForm : Form
     private readonly StripView _stripView = new();
     private ChamferButton? _advancedEntry;
     private ChamferButton? _abilitiesEntry;
+    private bool _advancedContentBuilt;
     private readonly AbilityExplorer _explorer;
     private readonly IntelligencePage _intelligencePage = new();
     private readonly ConfigurationPage _config = new();
@@ -167,8 +168,6 @@ internal sealed class MainForm : Form
                 _settings.Save();
             });
 
-        BuildConfigurationContent(_config);
-        BuildDiagnosticsContent(_diagnostics);
         BuildLayout();
         LoadFromSettings();
         StyleInputs(this);
@@ -760,6 +759,15 @@ internal sealed class MainForm : Form
     private void ShowAdvanced()
     {
         _engine.WantDiagnostics = true;
+        // A4: each tab is built lazily once (never by a timer), so the window
+        // opens fast and the configuration/diagnostics tree is only created
+        // when the popup is first opened.
+        if (!_advancedContentBuilt)
+        {
+            _advancedContentBuilt = true;
+            BuildConfigurationContent(_config);
+            BuildDiagnosticsContent(_diagnostics);
+        }
         _intelligencePage.EnsureBuilt();
         if (_mainBody is not null) _mainBody.Visible = false;
         _advancedTabs.SelectedIndex = 0;

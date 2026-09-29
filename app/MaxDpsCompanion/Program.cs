@@ -484,6 +484,46 @@ internal static class Program
                 return;
             }
 
+            // UI hot-path benchmark (A7): timings for the live status refresh
+            // (the 250 ms timer body) plus construct-to-shown startup. Writes
+            // bench-ui.txt. Targets: mean < 300 us, p95 < 1 ms, startup < 500 ms.
+            if (args.Contains("--bench-ui", StringComparer.OrdinalIgnoreCase))
+            {
+                const int iterations = 2000;
+                var startup = System.Diagnostics.Stopwatch.StartNew();
+                using var benchWindow = new MainForm(settings);
+                benchWindow.PrepareOffscreenSnapshot(660, 920);
+                benchWindow.Show();
+                Application.DoEvents();
+                startup.Stop();
+
+                for (var i = 0; i < 200; i++) benchWindow.RefreshStatusForTest();
+                var samples = new double[iterations];
+                for (var i = 0; i < iterations; i++)
+                {
+                    var tick = System.Diagnostics.Stopwatch.StartNew();
+                    benchWindow.RefreshStatusForTest();
+                    tick.Stop();
+                    samples[i] = tick.Elapsed.TotalMicroseconds;
+                }
+                Array.Sort(samples);
+                var mean = samples.Average();
+                var p95 = samples[(int)(iterations * 0.95)];
+                var max = samples[^1];
+                var startupMs = startup.Elapsed.TotalMilliseconds;
+                var pass = mean < 300 && p95 < 1000 && startupMs < 500;
+                var benchLines = new List<string>
+                {
+                    $"RefreshStatus: mean {mean:F2} us, p95 {p95:F2} us, max {max:F2} us (n={iterations})",
+                    $"startup (construct + show + first layout): {startupMs:F1} ms",
+                    $"targets: mean < 300 us, p95 < 1000 us, startup < 500 ms -> {(pass ? "PASS" : "FAIL")}",
+                };
+                File.WriteAllLines(Path.Combine(AppDir, "bench-ui.txt"), benchLines);
+                foreach (var line in benchLines) Console.WriteLine(line);
+                if (!pass) Environment.ExitCode = 1;
+                return;
+            }
+
             if (args.Contains("--ui-smoke-test", StringComparer.OrdinalIgnoreCase))
             {
                 using var window = new MainForm(settings);
