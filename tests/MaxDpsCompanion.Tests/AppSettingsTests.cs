@@ -147,6 +147,28 @@ public class AppSettingsTests : IDisposable
         Assert.False(reloaded.HpCurve);
     }
 
+    // ----- [TimeToKill] Enabled (v3.2.0) -----------------------------------
+
+    [Fact]
+    public void TimeToKill_Defaults_To_True()
+    {
+        var settings = AppSettings.Load(_path);
+
+        Assert.True(settings.TimeToKillEnabled);
+    }
+
+    [Fact]
+    public void Save_Round_Trips_TimeToKill_Disabled()
+    {
+        var settings = AppSettings.Load(_path);
+        settings.TimeToKillEnabled = false;
+        settings.Save();
+
+        var reloaded = AppSettings.Load(_path);
+
+        Assert.False(reloaded.TimeToKillEnabled);
+    }
+
     // ----- [Telemetry] (v1.5.0): OFF by default is the safety contract -----
 
     [Fact]

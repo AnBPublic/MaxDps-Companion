@@ -1,0 +1,109 @@
+MaxDps Companion rotation replay
+file       : tests/MaxDpsCompanion.Tests/fixtures/ttk-warrior-burst.jsonl
+format     : 1
+events     : 13 (tick 12, send 0, link 0, session 1, bad 0)
+span       : 0.000s .. 8.000s (8.000s)
+decisions  : 0 recorded
+verdicts   : 18 policy verdicts recomputed, 0 mismatch(es)
+catalog    : recorded v3, current v3
+decode errs: 0
+mismatches : 0
+
+t=0.000s  session  app=3.2.0 proto=5 capacity=10000 start
+t=0.000s  tick #0  Active  hb=1  target=yes  gcd=no  link=yes  note="trash t=0"
+  slots   : Main=-  Off=R  Def=F  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=-
+  cand    : Offensive  R      enabled actionable  age=0.000s unchanged=0.000s pressed=no
+  cand    : Defensive  F      enabled actionable  age=0.000s unchanged=0.000s pressed=no
+  decision: Defensive -> DefensiveUrgency (80%)
+  policy  : OffensiveCooldown -> Offensive  held=1 skipped=0 suppressed=0  "defensive urgency unknown; no automatic major defensive"
+  verdict : Offensive  spell=107574   Use  offensive candidate; no conflict observed  [Offensive]  why: no conflict observed
+  verdict : Defensive  spell=871      Unknown defensive urgency unknown; no automatic major defensive  [Defensive]  why: urgency Unknown (MaxDps HP curve); no automatic major defensive on unknown urgency
+  rejected: Offensive (lower rank #2)
+t=0.500s  tick #0  Active  hb=2  target=yes  gcd=no  link=yes  note="trash t=500"
+  slots   : Main=-  Off=R  Def=F  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=-
+  cand    : Offensive  R      enabled actionable  age=0.500s unchanged=0.500s pressed=no
+  cand    : Defensive  F      enabled actionable  age=0.500s unchanged=0.500s pressed=no
+  decision: Defensive -> DefensiveUrgency (80%)
+  policy  : OffensiveCooldown -> Offensive  held=1 skipped=0 suppressed=0  "defensive urgency unknown; no automatic major defensive"
+  verdict : Offensive  spell=107574   Use  offensive candidate; no conflict observed  [Offensive]  why: no conflict observed
+  verdict : Defensive  spell=871      Unknown defensive urgency unknown; no automatic major defensive  [Defensive]  why: urgency Unknown (MaxDps HP curve); no automatic major defensive on unknown urgency
+  rejected: Offensive (lower rank #2)
+t=1.000s  tick #0  Active  hb=3  target=yes  gcd=no  link=yes  note="trash t=1000"
+  slots   : Main=-  Off=R  Def=F  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=-
+  cand    : Offensive  R      enabled actionable  age=1.000s unchanged=1.000s pressed=no
+  cand    : Defensive  F      enabled actionable  age=1.000s unchanged=1.000s pressed=no
+  decision: Defensive -> DefensiveUrgency (80%)
+  policy  : OffensiveCooldown -> Offensive  held=1 skipped=0 suppressed=0  "defensive urgency unknown; no automatic major defensive"
+  verdict : Offensive  spell=107574   Use  offensive candidate; no conflict observed  [Offensive]  why: no conflict observed
+  verdict : Defensive  spell=871      Unknown defensive urgency unknown; no automatic major defensive  [Defensive]  why: urgency Unknown (MaxDps HP curve); no automatic major defensive on unknown urgency
+  rejected: Offensive (lower rank #2)
+t=1.500s  tick #0  Active  hb=4  target=yes  gcd=no  link=yes  note="trash t=1500"
+  slots   : Main=-  Off=R  Def=F  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=-
+  cand    : Offensive  R      enabled actionable  age=1.500s unchanged=1.500s pressed=no
+  cand    : Defensive  F      enabled actionable  age=1.500s unchanged=1.500s pressed=no
+  decision: Defensive -> DefensiveUrgency (80%)
+  policy  : OffensiveCooldown -> Offensive  held=1 skipped=0 suppressed=0  "defensive urgency unknown; no automatic major defensive"
+  verdict : Offensive  spell=107574   Use  offensive candidate; no conflict observed  [Offensive]  why: no conflict observed
+  verdict : Defensive  spell=871      Unknown defensive urgency unknown; no automatic major defensive  [Defensive]  why: urgency Unknown (MaxDps HP curve); no automatic major defensive on unknown urgency
+  rejected: Offensive (lower rank #2)
+t=2.000s  tick #0  Active  hb=5  target=yes  gcd=no  link=yes  note="trash t=2000"
+  slots   : Main=-  Off=R  Def=F  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=-
+  cand    : Offensive  R      enabled actionable  age=2.000s unchanged=2.000s pressed=no
+  cand    : Defensive  F      enabled actionable  age=2.000s unchanged=2.000s pressed=no
+  decision: Defensive -> DefensiveUrgency (80%)
+  policy  : OffensiveCooldown -> Offensive  held=1 skipped=0 suppressed=0  "defensive urgency unknown; no automatic major defensive"
+  verdict : Offensive  spell=107574   Use  offensive candidate; no conflict observed  [Offensive]  why: no conflict observed
+  verdict : Defensive  spell=871      Unknown defensive urgency unknown; no automatic major defensive  [Defensive]  why: urgency Unknown (MaxDps HP curve); no automatic major defensive on unknown urgency
+  rejected: Offensive (lower rank #2)
+t=2.500s  tick #0  Active  hb=6  target=yes  gcd=no  link=yes  note="trash t=2500 - hold expected"
+  slots   : Main=-  Off=R  Def=F  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=-
+  cand    : Offensive  R      enabled actionable  age=2.500s unchanged=2.500s pressed=no
+  cand    : Defensive  F      enabled actionable  age=2.500s unchanged=2.500s pressed=no
+  decision: Defensive -> DefensiveUrgency (80%)
+  policy  : PolicyHold  held=2 skipped=0 suppressed=0  "target ~1.8s to die; saving Avatar (needs 12s)"
+  verdict : Offensive  spell=107574   Hold target ~1.8s to die; saving Avatar (needs 12s)  [Offensive]  why: TTK 1.8s below minimum 12s
+  verdict : Defensive  spell=871      Hold target dies in ~1.8s; saving major mitigation  [Defensive]  why: TTK 1.8s (solo dying target)
+  rejected: Offensive (lower rank #2)
+t=3.000s  tick #0  Active  hb=7  target=yes  gcd=no  link=yes  note="boss t=3000 (reset)"
+  slots   : Main=-  Off=R  Def=-  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=-
+  cand    : Offensive  R      enabled actionable  age=3.000s unchanged=3.000s pressed=no
+  decision: Offensive -> OffensiveCooldown (60%)
+  policy  : OffensiveCooldown -> Offensive  held=0 skipped=0 suppressed=0
+  verdict : Offensive  spell=107574   Use  offensive candidate; no conflict observed  [Offensive]  why: no conflict observed
+t=4.000s  tick #0  Active  hb=8  target=yes  gcd=no  link=yes  note="boss t=4000"
+  slots   : Main=-  Off=R  Def=-  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=-
+  cand    : Offensive  R      enabled actionable  age=4.000s unchanged=4.000s pressed=no
+  decision: Offensive -> OffensiveCooldown (60%)
+  policy  : OffensiveCooldown -> Offensive  held=0 skipped=0 suppressed=0
+  verdict : Offensive  spell=107574   Use  offensive candidate; no conflict observed  [Offensive]  why: no conflict observed
+t=5.000s  tick #0  Active  hb=9  target=yes  gcd=no  link=yes  note="boss t=5000"
+  slots   : Main=-  Off=R  Def=-  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=-
+  cand    : Offensive  R      enabled actionable  age=5.000s unchanged=5.000s pressed=no
+  decision: Offensive -> OffensiveCooldown (60%)
+  policy  : OffensiveCooldown -> Offensive  held=0 skipped=0 suppressed=0
+  verdict : Offensive  spell=107574   Use  offensive candidate; no conflict observed  [Offensive]  why: no conflict observed
+t=6.000s  tick #0  Active  hb=10  target=yes  gcd=no  link=yes  note="boss t=6000"
+  slots   : Main=-  Off=R  Def=-  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=-
+  cand    : Offensive  R      enabled actionable  age=6.000s unchanged=6.000s pressed=no
+  decision: Offensive -> OffensiveCooldown (60%)
+  policy  : OffensiveCooldown -> Offensive  held=0 skipped=0 suppressed=0
+  verdict : Offensive  spell=107574   Use  offensive candidate; no conflict observed  [Offensive]  why: no conflict observed
+t=7.000s  tick #0  Active  hb=11  target=yes  gcd=no  link=yes  note="boss t=7000"
+  slots   : Main=-  Off=R  Def=-  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=-
+  cand    : Offensive  R      enabled actionable  age=7.000s unchanged=7.000s pressed=no
+  decision: Offensive -> OffensiveCooldown (60%)
+  policy  : OffensiveCooldown -> Offensive  held=0 skipped=0 suppressed=0
+  verdict : Offensive  spell=107574   Use  offensive candidate; no conflict observed  [Offensive]  why: no conflict observed
+t=8.000s  tick #0  Active  hb=12  target=yes  gcd=no  link=yes  note="boss t=8000 - fire expected"
+  slots   : Main=-  Off=R  Def=-  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=-
+  cand    : Offensive  R      enabled actionable  age=8.000s unchanged=8.000s pressed=no
+  decision: Offensive -> OffensiveCooldown (60%)
+  policy  : OffensiveCooldown -> Offensive  held=0 skipped=0 suppressed=0
+  verdict : Offensive  spell=107574   Use  offensive candidate; no conflict observed  [Offensive]  why: no conflict observed
+
+summary
+  reasons : -
+  policy  : OffensiveCooldown 11, PolicyHold 1
+  sends   : -
+  faults  : -
+  notes   : boss t=3000 (reset) 1, boss t=4000 1, boss t=5000 1, boss t=6000 1, boss t=7000 1, boss t=8000 - fire expected 1, trash t=0 1, trash t=1000 1, trash t=1500 1, trash t=2000 1, trash t=2500 - hold expected 1, trash t=500 1

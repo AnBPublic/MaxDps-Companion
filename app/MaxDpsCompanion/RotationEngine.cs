@@ -91,6 +91,14 @@ internal sealed class RotationEngine : IDisposable
     // options are rebuilt per tick from settings (cheap record).
     private readonly AbilityCatalog _catalog = AbilityCatalog.Default;
 
+    // v3.2.0 per-target time-to-kill estimator. One instance per engine; fed
+    // once per decoded frame (before the policy), exposed to the policy via
+    // CombatContext.WithTtk. [TimeToKill] Enabled=0 leaves it invalid so every
+    // TTK gate is skipped.
+    private readonly TtkEstimator _ttk = new();
+    private TtkEstimate _ttkEstimate = TtkEstimate.Invalid;
+    private long? _ttkFeedMs;
+
     // v1.5.0 local rotation telemetry (opt-in, default off; see Telemetry/).
     // Null = the zero-cost disabled path. MainForm attaches a recorder when
     // '[Telemetry] Enabled=1'; all capture happens on this engine thread.
@@ -197,6 +205,9 @@ internal sealed class RotationEngine : IDisposable
         _telemetryDecision = null;
         _lastCombatContext = null;
         _planFreshThisTick = false;
+        _ttk.Reset();
+        _ttkEstimate = TtkEstimate.Invalid;
+        _ttkFeedMs = null;
         lock (_snapshotLock) { _lastAction = null; _currentPlanHead = null; }
         if (_telemetry is { } telemetry)
         {
@@ -335,6 +346,7 @@ internal sealed class RotationEngine : IDisposable
         _telemetryDecision = null;
         _lastCombatContext = null;
         _planFreshThisTick = false;
+        _ttkFeedMs = null;
 
         if (!_window.Refresh(_settings.ProcessName))
         {
@@ -426,6 +438,12 @@ internal sealed class RotationEngine : IDisposable
         // Decision layer observation: record the decoded candidates once per
         // real frame (stroke, first-seen, last-changed, pressed-since-change).
         _candidateTracker.Update(frame, _lastFrameMs);
+
+        // v3.2.0: feed the per-target TTK estimator once per real frame, before
+        // any policy runs. The estimate is attached to the combat context later
+        // this tick (WithTtk) and recorded with the exact feed timestamp so a
+        // replay reconstructs it identically.
+        UpdateTtk(frame);
 
         // PERF (v1.3.9): summary/raw strings only when the UI wants them.
         var summary = WantDiagnostics ? Summarise(frame) : "-";
@@ -684,6 +702,26 @@ internal sealed class RotationEngine : IDisposable
     private string ActionNameOf(int spellId, KeyStroke stroke) =>
         spellId > 0 && _catalog.TryGet(spellId) is { } ability ? ability.Name : stroke.Describe();
 
+    /// <summary>
+    /// Feeds the per-target TTK estimator from the decoded frame (once per real
+    /// frame). The frame exposes only the rounded target HP percent, so the band
+    /// is reconstructed exactly (all 0..14 bands round-trip). With
+    /// [TimeToKill] Enabled=0 the estimator is left invalid, which skips every
+    /// TTK gate and records no feed timestamp (so replay does not feed either).
+    /// </summary>
+    private void UpdateTtk(BridgeFrame frame)
+    {
+        if (!_settings.TimeToKillEnabled)
+        {
+            _ttkEstimate = TtkEstimate.Invalid;
+            _ttkFeedMs = null;
+            return;
+        }
+        var band = TtkEstimator.BandFromPercent(frame.TargetHpPct);
+        _ttkEstimate = _ttk.Update(_lastFrameMs, frame.HasTarget, band >= 0, band);
+        _ttkFeedMs = _lastFrameMs;
+    }
+
     private void SetPlanHead(ScheduledAction[] actions)
     {
         if (actions.Length == 0)
@@ -724,7 +762,7 @@ internal sealed class RotationEngine : IDisposable
         // Build the combat context once: the scheduler consumes it (hard
         // execution-safety gate even with intelligence off), the policy
         // consumes it, and the telemetry tick records it (explainability).
-        var combat = CombatContext.FromFrame(frame, _settings.HpCurve);
+        var combat = CombatContext.FromFrame(frame, _settings.HpCurve).WithTtk(_ttkEstimate);
         _lastCombatContext = combat;
         var plan = _scheduler.Advance(new ScheduleInput
         {
@@ -862,7 +900,7 @@ internal sealed class RotationEngine : IDisposable
         // below runs even on the double-off legacy path (it is not knowledge
         // filtering). A v4/v1 frame yields an all-UNKNOWN context, so a stale
         // in-game addon keeps the byte-identical legacy behaviour.
-        var combat = CombatContext.FromFrame(frame, _settings.HpCurve);
+        var combat = CombatContext.FromFrame(frame, _settings.HpCurve).WithTtk(_ttkEstimate);
         _lastCombatContext = combat;
 
         // v1.3.3: scan the order EVERY tick (Main first by default). The
@@ -1236,7 +1274,8 @@ internal sealed class RotationEngine : IDisposable
                 candidates,
                 message,
                 visible,
-                policyRecord));
+                policyRecord,
+                _ttkFeedMs));
             telemetry.RecordLink(now, visible, message, _telemetryFault);
         }
         StatusChanged?.Invoke(new EngineStatus(message, visible, state, summary, _lastKeySent, raw, DecisionSummary()));

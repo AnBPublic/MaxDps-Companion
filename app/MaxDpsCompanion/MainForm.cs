@@ -46,6 +46,8 @@ internal sealed class MainForm : Form
     private readonly ToggleSwitch _outOfCombat = new();
     private readonly ToggleSwitch _autoTarget = new();
     private readonly ToggleSwitch _autoInteract = new();
+    // v3.2.0: per-target time-to-kill kill-switch (Modes card).
+    private readonly ToggleSwitch _timeToKill = new() { Checked = true };
     private readonly ToggleSwitch _interrupt = new() { Checked = true };
     private readonly ToggleSwitch _mobility = new() { Checked = true };
     private readonly ToggleSwitch _selfHeal = new() { Checked = true };
@@ -275,6 +277,7 @@ internal sealed class MainForm : Form
         _outOfCombat.CheckedChanged += (_, _) => SyncCombatFromCard();
         _autoTarget.CheckedChanged += (_, _) => SaveNow();
         _autoInteract.CheckedChanged += (_, _) => SaveNow();
+        _timeToKill.CheckedChanged += (_, _) => SaveNow();
 
         // Hero "Solo" toggle mirrors the Advanced checkbox (one setting).
         _solo2.CheckedChanged += (_, _) =>
@@ -599,14 +602,14 @@ internal sealed class MainForm : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 11,
+            RowCount = 12,
             BackColor = Color.Transparent,
             Margin = Padding.Empty,
             Padding = Padding.Empty,
         };
         _heroLayout = layout;
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-        for (var i = 0; i < 11; i++) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24F));
+        for (var i = 0; i < 12; i++) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24F));
 
         // Status row: lamp + state + class badge.
         _stateLabel.AutoSize = false;
@@ -664,13 +667,15 @@ internal sealed class MainForm : Form
         layout.Controls.Add(modesHeader, 0, 8);
         layout.Controls.Add(TwoToggleRow("Solo", "Self-sustain mode", _solo2, "Out of combat", "Run outside combat", _outOfCombat, alt: false), 0, 9);
         layout.Controls.Add(TwoToggleRow("Auto-target", "Target when needed", _autoTarget, "Auto-interact", "Interact when needed", _autoInteract, alt: true), 0, 10);
+        // v3.2.0 TTK: a full-width single Modes row (add-only).
+        layout.Controls.Add(SingleToggleRow("Time-to-kill", "Estimate target kill time", _timeToKill), 0, 11);
 
         // Row order must match the RowStyles declared above.
         _heroRows.Add(_statusRow);
         _heroRows.Add(_liveValue);
         _heroRows.Add(_stripRow);
         _heroRows.Add(spellsHeader);
-        for (var r = 4; r <= 10; r++) _heroRows.Add(layout.GetControlFromPosition(0, r)!);
+        for (var r = 4; r <= 11; r++) _heroRows.Add(layout.GetControlFromPosition(0, r)!);
 
         _heroCard.Controls.Add(layout);
         return _heroCard;
@@ -701,6 +706,24 @@ internal sealed class MainForm : Form
         _heroSettingRows.Add(left);
         _heroSettingRows.Add(right);
         return new ToggleRowPanel(left, right) { Dock = DockStyle.Fill, Margin = Padding.Empty };
+    }
+
+    /// <summary>
+    /// One full-width single-toggle Modes row (v3.2.0 Time-to-kill). Measured by
+    /// <see cref="HeroRowHeight"/>'s <see cref="SettingRow"/> case.
+    /// </summary>
+    private SettingRow SingleToggleRow(string title, string hint, ToggleSwitch toggle)
+    {
+        toggle.AccessibleName = title;
+        toggle.AccessibleDescription = hint;
+        var row = new SettingRow(title, hint, toggle)
+        {
+            Dock = DockStyle.Fill,
+            Margin = new Padding(4, 2, 4, 2),
+            AlternateFill = false,
+        };
+        _heroSettingRows.Add(row);
+        return row;
     }
 
     private Control BuildButtonRow1()
@@ -791,6 +814,7 @@ internal sealed class MainForm : Form
     private int HeroRowHeight(Control row) => row switch
     {
         ToggleRowPanel toggle => Math.Max(_scale.RowHeight, toggle.MeasuredHeight(HeroInnerWidth)),
+        SettingRow setting => Math.Max(_scale.RowHeight, setting.MeasuredHeight(HeroInnerWidth)),
         _ when row == _statusRow => _scale.StatusHeight,
         _ when row == _liveRow => _scale.LiveHeight,
         _ when row == _stripRow => _scale.StripHeight,
@@ -1780,6 +1804,7 @@ internal sealed class MainForm : Form
 
         _autoTarget.Checked = _settings.AutoTargetEnabled;
         _autoInteract.Checked = _settings.InteractEnabled;
+        _timeToKill.Checked = _settings.TimeToKillEnabled;
         _scheduler.Checked = _settings.SchedulerEnabled;
         _intelligence.Checked = _settings.IntelligenceEnabled;
         _solo.Checked = _settings.SoloEnabled;
@@ -1813,6 +1838,7 @@ internal sealed class MainForm : Form
         _settings.CombatOnly = !_outOfCombat.Checked;
         _settings.AutoTargetEnabled = _autoTarget.Checked;
         _settings.InteractEnabled = _autoInteract.Checked;
+        _settings.TimeToKillEnabled = _timeToKill.Checked;
         _settings.SchedulerEnabled = _scheduler.Checked;
         _settings.IntelligenceEnabled = _intelligence.Checked;
         _settings.SoloEnabled = _solo.Checked;

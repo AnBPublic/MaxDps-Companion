@@ -791,6 +791,7 @@ internal sealed class AbilityCatalog
             status = IntelligenceStatus.ManualByDesign;
         var ownership = DeriveOwnership(def, o, status, automation);
         var sourceType = DeriveSourceType(def, rows, o);
+        var ttk = ParseTtkCuration(o);
         return def with
         {
             Kind = o?.Kind is { Length: > 0 } k ? ParseEnum(k, AbilityKind.ActiveCombatAbility) : AbilityKind.ActiveCombatAbility,
@@ -819,6 +820,9 @@ internal sealed class AbilityCatalog
             CapabilityTags = o?.Capabilities ?? [],
             EnemyCountMin = o?.EnemyCountMin,
             HoldForBurst = o?.HoldForBurst ?? false,
+            MinTtkSec = ttk.MinTtkSec,
+            ExecuteBelowPct = ttk.ExecuteBelowPct,
+            ExecuteFavored = ttk.ExecuteFavored,
             // v2.7 coverage registry (§4-§7): ownership + completeness are
             // independent axes; every MaxDps-owned entry carries a derived or
             // curated delegation reason; every manual entry carries a manual
@@ -840,6 +844,17 @@ internal sealed class AbilityCatalog
             LiveVerified = o?.LiveVerified ?? false,
         };
     }
+
+    /// <summary>The optional v3.2.0 TTK curation fields, parsed from one override.</summary>
+    internal readonly record struct TtkCuration(double? MinTtkSec, int? ExecuteBelowPct, bool ExecuteFavored);
+
+    /// <summary>
+    /// Parses the optional TTK curation fields. Split out from the materializer
+    /// so the present/absent/default behaviour is directly testable without a
+    /// curated-file edit (abilities.json is owned by workstream T-B).
+    /// </summary>
+    internal static TtkCuration ParseTtkCuration(AbilityOverride? o) =>
+        new(o?.MinTtkSec, o?.ExecuteBelowPct, o?.ExecuteFavored ?? false);
 
     /// <summary>
     /// Who owns the when-to-use decision (v2.7 §4). Deterministic:
@@ -1326,6 +1341,11 @@ internal sealed class AbilityCatalog
         public string[]? Capabilities { get; set; }
         public int? EnemyCountMin { get; set; }
         public bool? HoldForBurst { get; set; }
+
+        // v3.2.0 TTK fields (optional; absent = tier default / execute off).
+        public double? MinTtkSec { get; set; }
+        public int? ExecuteBelowPct { get; set; }
+        public bool? ExecuteFavored { get; set; }
 
         // v2.7 coverage registry fields (all optional; derivations are documented
         // in AbilityCatalog.DeriveOwnership / DeriveCompleteness / ...).

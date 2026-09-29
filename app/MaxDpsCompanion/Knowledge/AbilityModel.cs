@@ -669,6 +669,27 @@ internal sealed record AbilityDefinition(
     /// <summary>Offensives: the ability is planned around a burst/buff window, not used on sight.</summary>
     public bool HoldForBurst { get; init; }
 
+    // ---- v3.2.0 TTK intelligence (all optional; tier defaults in TtkPolicy) ----
+
+    /// <summary>
+    /// Offensives: do not fire this ability while a valid time-to-kill is below
+    /// this many seconds (the cooldown would not pay for itself). Null = the
+    /// per-<see cref="OffensiveUsage"/> default in <see cref="TtkPolicy"/>.
+    /// </summary>
+    public double? MinTtkSec { get; init; }
+
+    /// <summary>
+    /// Offensives: target-HP% at or below which this burst is favored
+    /// (execute range). Inert unless <see cref="ExecuteFavored"/> is true.
+    /// </summary>
+    public int? ExecuteBelowPct { get; init; }
+
+    /// <summary>
+    /// Offensives: this burst is confirmed to benefit from execute range;
+    /// enables the execute bypass of the pairing hold.
+    /// </summary>
+    public bool ExecuteFavored { get; init; }
+
     /// <summary>
     /// Minimum MaxDps defensive urgency at which this ability may fire
     /// automatically (tier default: Major/Immunity = Red, Minor/None = Yellow;

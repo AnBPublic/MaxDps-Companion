@@ -218,6 +218,16 @@ internal sealed record TelemetryPolicy
     public string? Spec { get; init; }
 
     /// <summary>
+    /// v3.2.0 additive: the estimator's time-to-kill for this tick (seconds, one
+    /// decimal). Omitted when [TimeToKill] is off or the estimate is invalid;
+    /// informational only (replay reconstructs the estimator from the raw
+    /// target-HP series and does not compare this field).
+    /// </summary>
+    [JsonPropertyName("ttk")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? Ttk { get; init; }
+
+    /// <summary>
     /// R2 (sustain-cd): HP is in the sustain window and no ready self-heal
     /// candidate exists (omitted on legacy records / when false).
     /// </summary>
@@ -276,6 +286,24 @@ internal sealed record TelemetryEvent
     [JsonPropertyName("send")] public TelemetrySend? Send { get; init; }
     [JsonPropertyName("staleAfterMs")] public int? StaleAfterMs { get; init; }
 
+    /// <summary>
+    /// v3.2.0 additive: decoded target HP percent for this tick (-1/absent when
+    /// unknown). Recorded so replay can reconstruct the TTK estimator from the
+    /// same series; no raw cells are stored.
+    /// </summary>
+    [JsonPropertyName("thp")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? TargetHpPct { get; init; }
+
+    /// <summary>
+    /// v3.2.0 additive: the exact engine timestamp the estimator was fed with for
+    /// this tick (ms). Present only on real frames with [TimeToKill] on; replay
+    /// feeds the same value so the reconstruction is exact.
+    /// </summary>
+    [JsonPropertyName("ttkMs")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? TtkFeedMs { get; init; }
+
     // ----- session metadata -----
     [JsonPropertyName("app")] public string? App { get; init; }
     [JsonPropertyName("events")] public int? Capacity { get; init; }
@@ -305,7 +333,8 @@ internal sealed record TelemetryEvent
         ActionCandidate[] candidates,
         string note,
         bool visible,
-        TelemetryPolicy? policy = null) => new()
+        TelemetryPolicy? policy = null,
+        long? ttkFeedMs = null) => new()
     {
         Kind = TelemetryKind.Tick,
         TMs = tMs,
@@ -323,6 +352,8 @@ internal sealed record TelemetryEvent
         Decision = decision is { } d ? ToTelemetry(d, intelligenceEnabled) : null,
         Policy = policy,
         StaleAfterMs = (int?)context?.StaleAfterMs,
+        TargetHpPct = frame is { TargetHpPct: >= 0 } thp ? thp.TargetHpPct : null,
+        TtkFeedMs = ttkFeedMs,
     };
 
     /// <summary>Builds the explainability record from the scheduler plan + context.</summary>
@@ -383,6 +414,7 @@ internal sealed record TelemetryEvent
             DefensiveCatalogSource = combat is { DefensiveCatalogSource: true } ? true : null,
             Class = combat?.Class,
             Spec = combat?.Spec,
+            Ttk = combat is { TtkValid: true } ttkCombat ? Math.Round(ttkCombat.TtkSec, 1) : null,
             CdWait = plan.SelfHealCoolingDown,
             LastTriedMs = plan.SelfHealLastTriedMs > 0 ? plan.SelfHealLastTriedMs : null,
             Options = options is null ? null : new TelemetryOptions

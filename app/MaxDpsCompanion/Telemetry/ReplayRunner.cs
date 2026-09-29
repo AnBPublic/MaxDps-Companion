@@ -70,6 +70,13 @@ internal static class ReplayRunner
         // tick they precede — never before.
         var policyMemory = new PolicyMemory();
         AbilityCatalog? replayCatalog = null;
+
+        // v3.2.0: the TTK estimator is stateful, so replay reconstructs it by
+        // feeding the RECORDED (ttkMs, hasTarget, targetHpPct) series in order.
+        // The feed timestamp is the exact engine value, so the rebuilt estimate
+        // is identical to the live one and every TTK-gated verdict recomputes
+        // with zero mismatches by construction.
+        var ttkEstimator = new TtkEstimator();
         var pendingSends = new List<(Slot? Slot, int SpellId, long TMs)>();
         int? recordedCatalog = null;
         var catalogSkew = false;
@@ -173,6 +180,12 @@ internal static class ReplayRunner
                     // (du) predates urgency gating: its verdicts cannot be
                     // recomputed by the current evaluator, so they are reported
                     // as legacy and skipped instead of false-mismatching.
+                    if (evt.TtkFeedMs is { } ttkFeedMs)
+                    {
+                        var thp = evt.TargetHpPct ?? -1;
+                        ttkEstimator.Update(ttkFeedMs, evt.HasTarget ?? false, thp >= 0,
+                            TtkEstimator.BandFromPercent(thp));
+                    }
                     if (evt.Policy is { Verdicts: { Length: > 0 } pendingVerdicts, Options: { } pendingOptions })
                     {
                         if (evt.Policy.DefensiveUrgency is null)
@@ -184,7 +197,7 @@ internal static class ReplayRunner
                         }
                         else
                         {
-                            var pendingCombat = ToCombat(evt.Policy!);
+                            var pendingCombat = ToCombat(evt.Policy!).WithTtk(ttkEstimator.Estimate);
                             var pendingPolicyOptions = new PolicyOptions
                             {
                                 SoloEnabled = pendingOptions.Solo,
