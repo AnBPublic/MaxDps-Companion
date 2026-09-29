@@ -4,9 +4,8 @@ using Xunit;
 namespace MaxDpsCompanion.Tests;
 
 /// <summary>
-/// UI 2.0 shell tests (v2.7 §47): the meaningful smoke pass in-process plus
-/// navigation, explorer filtering and accessibility assertions. Everything
-/// runs on a dedicated STA thread — the same contract as --ui-smoke-test.
+/// Classic-UI shell tests (v3.0.0 workstream A). Everything runs on a
+/// dedicated STA thread — the same contract as --ui-smoke-test.
 /// </summary>
 public class UiShellTests
 {
@@ -18,7 +17,6 @@ public class UiShellTests
     private const int WmLButtonUp = 0x0202;
     private const int MkLButton = 0x0001;
 
-    /// <summary>Sends a real left-click (down+up) at the centre of a control.</summary>
     private static void ClickControl(Control control)
     {
         var handle = control.Handle;
@@ -27,6 +25,7 @@ public class UiShellTests
         SendMessage(handle, WmLButtonDown, (IntPtr)MkLButton, lParam);
         SendMessage(handle, WmLButtonUp, IntPtr.Zero, lParam);
     }
+
     private static (T? Result, Exception? Error) RunOnSta<T>(Func<T> action)
     {
         T? result = default;
@@ -60,35 +59,42 @@ public class UiShellTests
     }
 
     [Fact]
-    public void Navigation_Changes_Active_Page_And_Rail_State()
+    public void Popups_Open_Close_And_Esc_Closes_Topmost()
     {
         var (result, error) = RunOnSta(() =>
         {
             var settings = new AppSettings();
             using var form = new MainForm(settings);
             form.CreateControl();
-            var shell = form.ShellForTest;
-            shell.Navigate(PageId.Diagnostics);
-            var diagnosticsActive = shell.ActivePage == PageId.Diagnostics;
-            shell.Navigate(PageId.Abilities);
-            var abilitiesActive = shell.ActivePage == PageId.Abilities;
-            var railItems = shell.Rail.Items.Count;
-            var activeItems = 0;
-            foreach (var item in shell.Rail.Items)
-                if (item.Active) activeItems++;
-            var accessible = true;
-            foreach (var item in shell.Rail.Items)
-                if (string.IsNullOrWhiteSpace(item.AccessibleName) || string.IsNullOrWhiteSpace(item.AccessibleDescription))
-                    accessible = false;
-            return (diagnosticsActive, abilitiesActive, railItems, activeItems, accessible);
+            ShowOffscreen(form);
+
+            var closedAtStart = !form.AnyPopupVisibleForTest;
+            form.OpenAdvancedForTest();
+            var advancedOpen = form.AnyPopupVisibleForTest;
+            var advancedTabs = form.AdvancedTabsForTest.TabPages.Count;
+            var escClosedAdvanced = form.HandleEscapeForTest();
+            var advancedAfterEsc = form.AnyPopupVisibleForTest;
+
+            form.OpenAbilitiesForTest();
+            var abilitiesOpen = form.AnyPopupVisibleForTest;
+            var abilitiesTabs = form.AbilitiesTabsForTest.TabPages.Count;
+            var escHandled = form.HandleEscapeForTest();
+            var abilitiesAfterEsc = form.AnyPopupVisibleForTest;
+
+            return (closedAtStart, advancedOpen, advancedTabs, escClosedAdvanced, advancedAfterEsc,
+                abilitiesOpen, abilitiesTabs, escHandled, abilitiesAfterEsc);
         });
 
         Assert.Null(error);
-        Assert.True(result.diagnosticsActive);
-        Assert.True(result.abilitiesActive);
-        Assert.Equal(5, result.railItems);
-        Assert.Equal(1, result.activeItems);
-        Assert.True(result.accessible);
+        Assert.True(result.closedAtStart);
+        Assert.True(result.advancedOpen);
+        Assert.Equal(3, result.advancedTabs);
+        Assert.True(result.escClosedAdvanced);
+        Assert.False(result.advancedAfterEsc);
+        Assert.True(result.abilitiesOpen);
+        Assert.Equal(2, result.abilitiesTabs);
+        Assert.True(result.escHandled);
+        Assert.False(result.abilitiesAfterEsc);
     }
 
     [Fact]
@@ -121,7 +127,7 @@ public class UiShellTests
     }
 
     [Fact]
-    public void Intelligence_Report_Matches_Catalog_And_Drills_To_Abilities()
+    public void Intelligence_Report_Matches_Catalog()
     {
         var (result, error) = RunOnSta(() =>
         {
@@ -139,33 +145,6 @@ public class UiShellTests
         Assert.True(result.Item2 <= result.Item1);
     }
 
-    [Fact]
-    public void Home_Update_Renders_Long_Values_Without_Clipping_Or_Findings()
-    {
-        var (findings, error) = RunOnSta(() =>
-        {
-            var settings = new AppSettings();
-            using var form = new MainForm(settings);
-            form.CreateControl();
-            var page = form.HomeForTest;
-            page.Update(new HomeSnapshot(
-                StatusTone.Success, "Wow window found",
-                StatusTone.Success, "MaxDps linked (rotation active)",
-                StatusTone.Success, "Running",
-                "WARRIOR / Fury", "Normal mode", "Scheduler + intelligence on",
-                "Impending Victory", "Pummel",
-                "HP 22% at/below 35%; emergency self-sustain",
-                "3279 registered \u00B7 47 companion \u00B7 3077 delegated",
-                "patch 12.1 \u00B7 catalog v3",
-                "Holding (out of combat)", StatusTone.Muted));
-            page.PerformLayout();
-            return UiShellValidation.Validate(page, "Home");
-        });
-
-        Assert.Null(error);
-        Assert.True(findings!.Count == 0, string.Join("\n", findings));
-    }
-
     /// <summary>Shows the form offscreen so real mouse messages take the shown-window path.</summary>
     private static void ShowOffscreen(Form form)
     {
@@ -174,38 +153,6 @@ public class UiShellTests
         form.ShowInTaskbar = false;
         form.Show();
         System.Windows.Forms.Application.DoEvents();
-    }
-
-    [Fact]
-    public void Rail_Item_Mouse_Click_Navigates()
-    {
-        var (result, error) = RunOnSta(() =>
-        {
-            var settings = new AppSettings();
-            using var form = new MainForm(settings);
-            ShowOffscreen(form);
-            var shell = form.ShellForTest;
-            var abilities = shell.Rail.Items.First(i => i.Page == PageId.Abilities);
-            var events = new List<string>();
-            abilities.MouseDown += (_, _) => events.Add("down");
-            abilities.MouseUp += (_, _) => events.Add("up");
-            abilities.Click += (_, _) => events.Add("click");
-            ClickControl(abilities);
-            System.Windows.Forms.Application.DoEvents();
-            var afterMessage = shell.ActivePage;
-            var railSet = abilities.Rail is not null;
-            // Wiring probe: invoke the protected OnClick exactly as the base
-            // Control would after a real click.
-            typeof(Control).GetMethod("OnClick", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
-                .Invoke(abilities, [EventArgs.Empty]);
-            System.Windows.Forms.Application.DoEvents();
-            var afterOnClick = shell.ActivePage;
-            return (afterMessage, afterOnClick, railSet, string.Join("+", events));
-        });
-
-        Assert.True(result.afterMessage == PageId.Abilities,
-            $"mouse message path failed (rail={result.railSet} events={result.Item4})");
-        Assert.Equal(PageId.Abilities, result.afterOnClick);
     }
 
     [Fact]
@@ -232,59 +179,6 @@ public class UiShellTests
         });
 
         Assert.True(result.Checked, $"toggle did not check (events={result.Item2})");
-    }
-
-    [Fact]
-    public void Home_Live_Update_Keeps_The_First_Card_At_The_Top()
-    {
-        var (firstCardTop, error) = RunOnSta(() =>
-        {
-            var settings = new AppSettings();
-            using var form = new MainForm(settings);
-            form.CreateControl();
-            var page = form.HomeForTest;
-            for (var i = 0; i < 3; i++)
-            {
-                page.Update(new HomeSnapshot(
-                    StatusTone.Success, "WoW window found \u00B7 strip decoded",
-                    StatusTone.Success, "MaxDps link active",
-                    StatusTone.Success, "Running",
-                    "WARRIOR / Fury", "Normal", "Scheduler + intelligence on",
-                    "Impending Victory", "Pummel",
-                    "HP 22% at/below 35%; emergency self-sustain",
-                    "3200 automatable \u00B7 3279 registered \u00B7 79 manual",
-                    "patch 12.1 \u00B7 catalog v3",
-                    "Holding (out of combat)", StatusTone.Muted));
-                page.PerformLayout();
-                System.Windows.Forms.Application.DoEvents();
-            }
-            var card = first (page, typeof(GlassCard));
-            return card?.Top ?? -1;
-        });
-
-        Assert.Null(error);
-        Assert.True(firstCardTop >= 0 && firstCardTop < 160,
-            $"first card top after live updates is {firstCardTop} (expected < 160)");
-    }
-
-    private static Control? first(Control root, Type type)
-    {
-        foreach (Control child in root.Controls)
-        {
-            if (type.IsInstanceOfType(child)) return child;
-            var found = first(child, type);
-            if (found is not null) return found;
-        }
-        return null;
-    }
-
-    [Fact]
-    public void Bundled_Geist_Font_Loads_From_Embedded_Resources()
-    {
-        UiFonts.Ensure();
-        Assert.True(UiFonts.FamilyAvailable, "embedded Geist faces did not load (fallback chain in use)");
-        Assert.Contains("Geist", UiFonts.FamilyName, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Geist", DesignTokens.FamilyName, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

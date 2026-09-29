@@ -18,6 +18,7 @@ internal sealed class InspectorPanel : Panel
         Font = DesignTokens.Type(DesignTokens.BodySize),
         ForeColor = DesignTokens.TextMuted,
         BackColor = Color.Transparent,
+        AutoEllipsis = true,
     };
 
     public InspectorPanel()

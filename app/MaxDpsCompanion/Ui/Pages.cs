@@ -51,18 +51,6 @@ internal abstract class StackPage : Panel
     protected abstract string HeaderTitle { get; }
     protected abstract string HeaderSubtitle { get; }
 
-    /// <summary>
-    /// Defensive scroll normalization (v2.8.1): the scroll offset must never
-    /// sit above the content origin (negative Y), which renders as a large
-    /// empty band above the first card. Focus-driven ScrollControlIntoView can
-    /// produce it at startup; the live status refresh calls this cheaply.
-    /// </summary>
-    public void NormalizeScroll()
-    {
-        if (ScrollArea.AutoScrollPosition.Y < 0)
-            ScrollArea.AutoScrollPosition = Point.Empty;
-    }
-
     /// <summary>Adds a glass card to the page stack and returns it for content.</summary>
     public GlassCard AddCard(string title, string eyebrow = "")
     {

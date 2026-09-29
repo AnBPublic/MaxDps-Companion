@@ -195,7 +195,7 @@ internal static class UiShellValidation
 
     private static bool IsInteractive(Control control)
         => control is IButtonControl or ToggleSwitch or TextBox or NumericUpDown or ComboBox or ListBox
-           || control is NavRailItem or FilterChip
+           || control is FilterChip
            || control is MetricTile { Clickable: true };
 
     private static void CheckOverlap(List<Control> siblings, string page, List<string> findings)
@@ -207,6 +207,12 @@ internal static class UiShellValidation
                 var a = siblings[i];
                 var b = siblings[j];
                 if (a is VScrollBar or HScrollBar || b is VScrollBar or HScrollBar) continue;
+                // Tab pages are all sized to the display rect and overlap by
+                // design; only the selected one is visible.
+                if (a is TabPage || b is TabPage) continue;
+                // Explicitly hidden controls (empty-state placeholders, panels
+                // swapped by visibility) are not laid out and cannot overlap.
+                if (!a.Visible || !b.Visible) continue;
                 if (a.Width == 0 || a.Height == 0 || b.Width == 0 || b.Height == 0) continue;
                 if (a.Dock == DockStyle.Fill && b.Dock == DockStyle.Fill) continue;
                 if (a is ToastHost || b is ToastHost) continue;
