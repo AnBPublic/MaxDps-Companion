@@ -128,6 +128,26 @@ internal sealed class MainForm : Form
     private ClassSkillsView? _classSkills;
     private ChamferButton? _classSkillsEntry;
 
+    // Advanced-popup mirrors (v3.0.0 D1/D2). A WinForms control has exactly one
+    // parent, so the popup's lazy build must never reuse a hero control: doing
+    // so silently re-parents it off the main window (the confirmed screenshot
+    // defect — spell cards lost their toggles and three bottom buttons
+    // vanished). The popup owns its own controls; these mirror the hero state.
+    private readonly ToggleSwitch _mainAdv = new() { Checked = true };
+    private readonly ToggleSwitch _offensiveAdv = new() { Checked = true };
+    private readonly ToggleSwitch _defensivesAdv = new() { Checked = true };
+    private readonly ToggleSwitch _consumableAdv = new();
+    private readonly ToggleSwitch _trinketAdv = new();
+    private readonly ToggleSwitch _interruptAdv = new() { Checked = true };
+    private readonly ToggleSwitch _mobilityAdv = new() { Checked = true };
+    private readonly ToggleSwitch _selfHealAdv = new() { Checked = true };
+    private readonly ToggleSwitch _autoTargetAdv = new();
+    private readonly ToggleSwitch _autoInteractAdv = new();
+    private readonly ChamferButton _launchGameAdv = new() { Text = "Launch Game", Role = ButtonRole.Ghost };
+    private readonly ChamferButton _recalibrateAdv = new() { Text = "Recalibrate", Role = ButtonRole.Ghost, AccentColor = ConsolePalette.Brass };
+    private readonly ChamferButton _openFolderAdvConfig = new() { Text = "Open Folder", Role = ButtonRole.Ghost };
+    private readonly ChamferButton _openFolderAdvDiag = new() { Text = "Open Folder", Role = ButtonRole.Ghost };
+
     private static Image? _appIcon;
     private bool _uiInitialised;
 
@@ -179,22 +199,28 @@ internal sealed class MainForm : Form
         SyncTelemetryRecorder();
         BuildTray();
 
-        OnToggle(_main, 0);
-        OnToggle(_offensive, 1);
-        OnToggle(_defensives, 2);
-        OnToggle(_consumable, 3);
-        OnToggle(_trinket, 4);
-        OnToggle(_interrupt, 5);
-        OnToggle(_mobility, 6);
-        OnToggle(_selfHeal, 7);
+        WireSlotMirror(_main, _mainAdv, 0);
+        WireSlotMirror(_offensive, _offensiveAdv, 1);
+        WireSlotMirror(_defensives, _defensivesAdv, 2);
+        WireSlotMirror(_consumable, _consumableAdv, 3);
+        WireSlotMirror(_trinket, _trinketAdv, 4);
+        WireSlotMirror(_interrupt, _interruptAdv, 5);
+        WireSlotMirror(_mobility, _mobilityAdv, 6);
+        WireSlotMirror(_selfHeal, _selfHealAdv, 7);
+        WireModeMirror(_autoTarget, _autoTargetAdv);
+        WireModeMirror(_autoInteract, _autoInteractAdv);
 
         _start.Click += (_, _) => StartEngine();
         _stop.Click += (_, _) => StopEngine();
         _recalibrate.Click += (_, _) => RecalibrateFull();
         _telemetryExport.Click += (_, _) => ExportTelemetry();
         _telemetryReplay.Click += (_, _) => ReplayTelemetry();
-        _openFolder.Click += (_, _) => System.Diagnostics.Process.Start("explorer.exe", Program.AppDir);
+        _openFolder.Click += (_, _) => OpenAppFolder();
+        _openFolderAdvConfig.Click += (_, _) => OpenAppFolder();
+        _openFolderAdvDiag.Click += (_, _) => OpenAppFolder();
         _launchGame.Click += (_, _) => LaunchGame();
+        _launchGameAdv.Click += (_, _) => LaunchGame();
+        _recalibrateAdv.Click += (_, _) => RecalibrateFull();
         _learnColors.Click += (_, _) => LearnColors();
         _resetColors.Click += (_, _) => ResetColors();
         _bnetBrowse.Click += (_, _) => BrowseBNet();
@@ -340,17 +366,58 @@ internal sealed class MainForm : Form
     private bool SlotFlag(int slot, bool fallback) =>
         (slot >= 0 && slot < _settings.SlotEnabled.Length) ? _settings.SlotEnabled[slot] : fallback;
 
-    private void OnToggle(ToggleSwitch toggle, int slot)
+    /// <summary>Two-way mirror for a slot toggle (hero ↔ Advanced popup).</summary>
+    private void WireSlotMirror(ToggleSwitch hero, ToggleSwitch popup, int slot)
     {
-        toggle.CheckedChanged += (_, _) =>
+        popup.Checked = hero.Checked;
+        WireMirror(hero, popup, source =>
         {
             if (slot >= 0 && slot < _settings.SlotEnabled.Length)
+                _settings.SlotEnabled[slot] = source.Checked;
+        });
+    }
+
+    /// <summary>Two-way mirror for a mode toggle; persistence rides the hero's existing SaveNow.</summary>
+    private void WireModeMirror(ToggleSwitch hero, ToggleSwitch popup)
+    {
+        popup.Checked = hero.Checked;
+        WireMirror(hero, popup, _ => { });
+    }
+
+    /// <summary>
+    /// One shared setting, two controls. Either side changes the other and runs
+    /// <paramref name="apply"/>; the guard stops the mirror write-back from
+    /// looping.
+    /// </summary>
+    private static void WireMirror(ToggleSwitch hero, ToggleSwitch popup, Action<ToggleSwitch> apply)
+    {
+        var syncing = false;
+        hero.CheckedChanged += (_, _) =>
+        {
+            if (syncing) return;
+            syncing = true;
+            try
             {
-                _settings.SlotEnabled[slot] = toggle.Checked;
-                SaveSettings();
+                if (popup.Checked != hero.Checked) popup.Checked = hero.Checked;
+                apply(hero);
             }
+            finally { syncing = false; }
+        };
+        popup.CheckedChanged += (_, _) =>
+        {
+            if (syncing) return;
+            syncing = true;
+            try
+            {
+                if (hero.Checked != popup.Checked) hero.Checked = popup.Checked;
+                apply(popup);
+            }
+            finally { syncing = false; }
         };
     }
+
+    private static void OpenAppFolder() =>
+        System.Diagnostics.Process.Start("explorer.exe", Program.AppDir);
 
     // ----- chrome: custom title bar + classic fixed body + popups (v3 A3-A5) -----
 
@@ -854,14 +921,14 @@ internal sealed class MainForm : Form
             (Hint("Evaluates every situational suggestion USE / HOLD / SKIP against the ability knowledge base and live combat context. The main rotation is never gated."), 0)));
 
         page.AddCard("Combat", "Slots").Add(TwoCol(64,
-            RowFor("Main rotation", "Your damage rotation - MaxDps decides", _main),
-            RowFor("Offensive", "Burst and damage cooldowns", _offensive),
-            RowFor("Defensive", "Mitigation, absorbs, immunities", _defensives),
-            RowFor("Consumable", "Potions (health and mana)", _consumable),
-            RowFor("Trinket", "On-use trinket effects", _trinket),
-            RowFor("Mobility", "Charge in when out of range", _mobility),
-            RowFor("Self-heal", "Solo mode self-sustain", _selfHeal),
-            RowFor("Interrupt", "Kick interruptible casts", _interrupt)));
+            RowFor("Main rotation", "Your damage rotation - MaxDps decides", _mainAdv),
+            RowFor("Offensive", "Burst and damage cooldowns", _offensiveAdv),
+            RowFor("Defensive", "Mitigation, absorbs, immunities", _defensivesAdv),
+            RowFor("Consumable", "Potions (health and mana)", _consumableAdv),
+            RowFor("Trinket", "On-use trinket effects", _trinketAdv),
+            RowFor("Mobility", "Charge in when out of range", _mobilityAdv),
+            RowFor("Self-heal", "Solo mode self-sustain", _selfHealAdv),
+            RowFor("Interrupt", "Kick interruptible casts", _interruptAdv)));
 
         page.AddCard("Safety", "Modes").Add(Stack(
             (CheckRow(_solo), 30),
@@ -870,8 +937,8 @@ internal sealed class MainForm : Form
             (Hint("When on, the companion only acts while you are in combat."), 0)));
 
         page.AddCard("Targeting", "Assist").Add(Stack(
-            (ToggleField("Auto-target (press Target key)", _autoTarget), 38),
-            (ToggleField("Auto-interact (press Interact key)", _autoInteract), 38),
+            (ToggleField("Auto-target (press Target key)", _autoTargetAdv), 38),
+            (ToggleField("Auto-interact (press Interact key)", _autoInteractAdv), 38),
             (Ui.FieldRow("Target key", _targetKey), 38),
             (Ui.FieldRow("Interact key", _interactKey), 38)));
 
@@ -884,7 +951,7 @@ internal sealed class MainForm : Form
             (Ui.FieldRow("Game process", _processName), 38),
             (Hint("Which game window to attach to (without .exe). Recalibrate locates the strip; the engine re-aligns automatically if it moves."), 0)));
 
-        page.AddCard("Advanced", "Tools").Add(ButtonsRow(44, _classSkillsEntryBtn(), _openFolder));
+        page.AddCard("Advanced", "Tools").Add(ButtonsRow(44, _classSkillsEntryBtn(), _openFolderAdvConfig));
     }
 
     private ChamferButton _classSkillsEntryBtn()
@@ -935,7 +1002,7 @@ internal sealed class MainForm : Form
         findStrip.Click += (_, _) => RecalibratePositionOnly();
         page.AddCard("Calibration", "Strip").Add(Stack(
             (ButtonsRow(40, _learnColors, _resetColors), 40),
-            (ButtonsRow(40, findStrip, _recalibrate), 40),
+            (ButtonsRow(40, findStrip, _recalibrateAdv), 40),
             (Ui.FieldRow("Tolerance", _tolerance), 38),
             (StatusLabel(_colorStatus), 24)));
 
@@ -955,7 +1022,7 @@ internal sealed class MainForm : Form
 
         page.AddCard("Battle.net / tools", "Launch").Add(Stack(
             (Ui.FieldRow("BNet path", _bnetPath), 38),
-            (ButtonsRow(40, _bnetBrowse, _launchGame, _openFolder), 40),
+            (ButtonsRow(40, _bnetBrowse, _launchGameAdv, _openFolderAdvDiag), 40),
             (Hint("Launch Game opens Battle.net for WoW. No credentials are stored - the launcher's remembered account is used."), 0)));
     }
 
@@ -1176,9 +1243,11 @@ internal sealed class MainForm : Form
         if (InvokeRequired) { BeginInvoke(new Action<bool>(SetCalibrating), running); return; }
         _calibrating = running;
         _recalibrate.Text = running ? "Cancel" : "Recalibrate";
+        _recalibrateAdv.Text = running ? "Cancel" : "Recalibrate";
         _learnColors.Text = running ? "Cancel calibration" : "Calibrate colors";
         _learnColors.Enabled = true;
         _recalibrate.Enabled = true;
+        _recalibrateAdv.Enabled = true;
         _start.Enabled = !running && !_engine.IsRunning;
     }
 
@@ -1973,6 +2042,7 @@ internal sealed class MainForm : Form
 
     internal string ClassSkillsDebugState => _classSkills?.DebugState ?? "null";
 
+    internal Control MainBodyForTest => _mainBody;
     internal AbilityExplorer ExplorerForTest => _explorer;
     internal IntelligencePage IntelligenceForTest => _intelligencePage;
     internal ConfigurationPage ConfigurationForTest => _config;

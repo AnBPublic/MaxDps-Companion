@@ -165,6 +165,59 @@ public class ClassicUiTests
         Assert.Equal(0, layouts);
     }
 
+    /// <summary>
+    /// v3.0.0 defect D1/D2: the hero slot/mode toggles and the Launch Game /
+    /// Recalibrate / Open Folder buttons were ALSO added to the lazily-built
+    /// Advanced popup. WinForms gives a control exactly one parent, so building
+    /// the popup re-parented them off the main window — the "cards show no
+    /// toggles" / "bottom buttons missing" screenshot. Opening every popup must
+    /// leave the main body's own controls in place.
+    /// </summary>
+    [Fact]
+    public void ClassicUi_Popups_Do_Not_Steal_Main_Controls()
+    {
+        var (result, error) = RunOnSta(() =>
+        {
+            var settings = new AppSettings();
+            using var form = new MainForm(settings);
+            form.StartPosition = FormStartPosition.Manual;
+            form.Location = new Point(-32000, -32000);
+            form.ShowInTaskbar = false;
+            form.Show();
+            System.Windows.Forms.Application.DoEvents();
+
+            // Build every lazy popup tab exactly once, as a user would.
+            form.OpenAdvancedForTest();
+            form.AdvancedTabsForTest.SelectedIndex = 1;
+            System.Windows.Forms.Application.DoEvents();
+            form.AdvancedTabsForTest.SelectedIndex = 2;
+            System.Windows.Forms.Application.DoEvents();
+            form.OpenAbilitiesForTest();
+            form.AbilitiesTabsForTest.SelectedIndex = 1;
+            System.Windows.Forms.Application.DoEvents();
+            form.HideAbilitiesForTest();
+            form.HideAdvancedForTest();
+            System.Windows.Forms.Application.DoEvents();
+
+            var body = form.MainBodyForTest;
+            var toggles = Descendants(body).OfType<ToggleSwitch>()
+                .Select(t => t.AccessibleName ?? "?")
+                .OrderBy(x => x, StringComparer.Ordinal).ToArray();
+            var buttons = Descendants(body).OfType<ChamferButton>()
+                .Select(b => b.Text)
+                .OrderBy(x => x, StringComparer.Ordinal).ToArray();
+            return (toggles, buttons);
+        });
+
+        Assert.Null(error);
+        Assert.Equal(
+            new[] { "Auto-interact", "Auto-target", "Consumable", "Defensive", "Interrupt", "Main", "Mobility", "Offensive", "Out of combat", "Self-heal", "Solo", "Trinket" },
+            result.toggles);
+        Assert.Equal(
+            new[] { "Abilities\u2026", "Advanced\u2026", "Launch Game", "Open Folder", "Recalibrate", "Start", "Stop" },
+            result.buttons);
+    }
+
     private static IEnumerable<Control> Descendants(Control root)
     {
         var stack = new Stack<Control>();
