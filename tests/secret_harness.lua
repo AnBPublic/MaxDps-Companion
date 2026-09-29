@@ -806,6 +806,53 @@ check("v6 encode catalog gap-fill source bit + Red + checksum commits all 3",
 -- =====================================================================
 local function RunExt2Tests ()
 
+-- ================= 12b. offensive gap-fill + defensive Orange (r1) =====
+-- MaxDps names no bound offensive -> the curated per-spec catalog list
+-- supplies the first ready+bound entry; no wire source bit, so the bridge's
+-- isGapFill return is diagnostic and the companion derives it by membership.
+-- The whole path stays inside MaxDps's own enableCooldowns switch.
+MaxDps.classCooldowns.WARRIOR.Arms.offensive = { 262161 }
+MaxDps.Spells[107574] = { { HotKey = { GetText = function() return "V" end } } }
+MaxDps.Spells[262161] = { { HotKey = { GetText = function() return "B" end } } }
+MaxDps.db.global.enableCooldowns = true
+MaxDps.Flags = {}
+MDB._BindCache = {}
+MDB.BeginTick()
+local offCand, offGap = MDB.GetOffensiveCandidate()
+check("r1 offensive candidate no-flag + catalog list -> id, source true",
+  offCand == 107574 and offGap == true)
+
+-- MaxDps's own flagged offensive wins, even though the id is also listed.
+MaxDps.Flags = { [262161] = true }
+MDB.BeginTick()
+local offFlagged, offFlaggedGap = MDB.GetOffensiveCandidate()
+check("r1 offensive flagged MaxDps candidate wins, source false",
+  offFlagged == 262161 and offFlaggedGap == false)
+
+-- enableCooldowns off mutes the whole offensive path.
+MaxDps.Flags = {}
+MaxDps.db.global.enableCooldowns = false
+MDB.BeginTick()
+local offMuted, offMutedGap = MDB.GetOffensiveCandidate()
+check("r1 offensive gap-fill muted when enableCooldowns off",
+  offMuted == nil and offMutedGap == false)
+MaxDps.db.global.enableCooldowns = true
+
+-- Defensive Orange: the short-CD list (defensiveMinor) fires at Orange while
+-- the major list is only consulted at Red (majors still need Red in policy).
+MaxDps.Spells[23920] = { { HotKey = { GetText = function() return "X" end } } }
+MaxDps.Flags = {}
+MDB._BindCache = {}
+SetHp(45)   -- Orange
+MDB.BeginTick()
+local defOrange, defOrangeGap = MDB.GetDefensiveCandidate()
+check("r1 defensive Orange short-CD gap-fill -> id, source true",
+  defOrange == 23920 and defOrangeGap == true)
+SetHp(80)   -- Yellow: never a gap-fill (only Red/Orange offer one)
+MDB.BeginTick()
+local defYellow = MDB.GetDefensiveCandidate()
+check("r1 defensive Yellow still no gap-fill", defYellow == nil)
+
 -- ================= 15. spell variants (B1) =================
 FindBaseSpellByID = function(id) if id == 34428 then return 202168 end return id end
 FindSpellOverrideByID = function(id) if id == 202168 then return 34428 end return nil end

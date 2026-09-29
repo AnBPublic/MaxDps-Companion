@@ -40,14 +40,21 @@ MaxDpsBridge addon — 40-cell pixel strip (bridge 3.0.0)
            Crimson Vial, ...), so without this path Solo mode would have no
            candidate to act on. Bridge 3.0.0 encodes the first entry into slot
            8 and the NEXT DISTINCT entry into Ext2 cells 36-38 (SelfHeal2),
-           each as the variant the player actually knows. The Defensive slot
-           keeps MaxDps's
-           flagged+ready+bound candidate first; only when MaxDps names none
-           AND the observed HP urgency is Red does the generated
-           Catalog.lua defensive list supply a gap-fill candidate (Major
-           before Minor, immunities excluded) and set the source bit.
-           The whole path stays inside MaxDps's own `enableDefensives`
-           switch, so muting defensives upstream also mutes the gap-fill.
+            each as the variant the player actually knows. The Defensive slot
+            keeps MaxDps's
+            flagged+ready+bound candidate first; only when MaxDps names none
+            AND the observed HP urgency is Red (major list) or Orange
+            (short-CD list, v3.0.0) does the generated Catalog.lua defensive
+            list supply a gap-fill candidate (Major before Minor, immunities
+            excluded) and set the source bit.
+            The Offensive slot (v3.0.0) mirrors it: MaxDps's flagged+ready
+            offensive first, else the curated per-spec `offensive` list
+            (shared burst first, spec-specific second, 1-4 entries) supplies
+            the first ready+bound entry. No wire source bit exists, so the
+            companion derives the source by id membership in the same list.
+            The whole path stays inside MaxDps's own `enableDefensives` /
+            `enableCooldowns` switches, so muting them upstream also mutes
+            the gap-fill.
        │  (flat colours, top-left corner overlay; every probe degrades to
        │   UNKNOWN — never throws, never compares a secret value)
        ▼
@@ -126,8 +133,10 @@ Situational policy (Knowledge/PolicyEvaluator) — [Intelligence] Enabled=1
         ▼
 Candidate providers (Knowledge/CandidateProviders.cs) — v2.7
   explicit per-category owners instead of inline branches: MaxDpsRotation
-  (Main/Consumable/Trinket + fail-open tail), Offensive, Defensive (source =
-  MaxDps recommendation or catalog gap-fill), Interrupt, Mobility
+  (Main/Consumable/Trinket + fail-open tail), Offensive (source = MaxDps wire
+  or, v3.0.0, curated catalog gap-fill detected by id membership, combat/Solo
+  gated), Defensive (source = MaxDps recommendation or catalog gap-fill,
+  Red majors / Orange short-CDs), Interrupt, Mobility
   (BridgeExtra), SelfSustain (BridgeExtra), Utility (structurally incapable
   of Use). Every decision carries Provider + CandidateSourceKind
   (MaxDpsWire/BridgeExtra/CompanionGapFill/None) + structured evidence;
@@ -251,8 +260,9 @@ MainForm (borderless; 660-wide fixed frame; 2px ring red stopped / green
 MaxDps-Companion/
   addon/MaxDpsBridge/        bridge addon 3.0.0 (v5 + Ext2 encoder, /mdb commands)
     Catalog.lua              GENERATED class/spec ids + extras (--gen-catalog,
-                             incl. per-spec defensive gap-fill lists and the
-                             aliases block emitted as MDB.SpellAliases)
+                             incl. per-spec offensive (curated), defensive
+                             (Red) and defensiveMinor (Orange) gap-fill lists,
+                             and the aliases block emitted as MDB.SpellAliases)
     Keymap.lua               binding string -> virtual key
     Reader.lua               MaxDps readout, secret guards, v5 sensors,
                              defensive urgency + gap-fill, spell variants
