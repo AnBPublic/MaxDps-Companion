@@ -144,6 +144,15 @@ The canonical hidden-HP fixture is
 `tests/MaxDpsCompanion.Tests/fixtures/solo-hidden-hp-warrior.jsonl`
 (`6 policy verdicts recomputed, 0 mismatch(es)`).
 
+**Cooldown / reset replay (r2).** `cdWait` (policy-level, omitted when false)
+and `lastTriedMs` (last SelfHeal attempt/send, ms; omitted when never) are
+additive and informational; `verdicts[]` SelfHeal entries may carry `cdWait`,
+`lastTriedMs` and `resetHint`. Replay does not compare them, so all four
+legacy fixtures stay at 0 mismatches. The cooldown/reset fixture
+`tests/MaxDpsCompanion.Tests/fixtures/solo-cooldown-reset-warrior.jsonl`
+covers Use → cooldown wait (no verdict) → reset Use → GCD → unchanged-slot Use
+and replays with `8 policy verdicts recomputed, 0 mismatch(es)`.
+
 **Defensive urgency proof.** The companion fixture
 `tests/MaxDpsCompanion.Tests/fixtures/defensive-warrior-urgency.jsonl` is the
 offline acceptance for the v2.3 defensive layer: it records the urgency

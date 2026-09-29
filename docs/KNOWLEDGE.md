@@ -215,6 +215,23 @@ Catalog.lua drift check.
    19647 ↔ 119910) is stored symmetrically and emitted as
    `MDB.SpellAliases`; the bridge resolves a bar/macro variant id through it.
    Extras ids are checked against `spell-verification.json` names.
+   **cooldown / reset awareness (r2):** the bridge encodes a self-heal only
+   while it is off cooldown and re-reads readiness EVERY tick — readiness is
+   never cached across ticks (only keybind resolution is memoised, and that
+   cache is dropped on bar/binding/talent/spec events including
+   `SPELL_UPDATE_COOLDOWN`). A dynamic reset that makes the same spell ready
+   again is therefore offered within the next tick. Companion side: a ready
+   SelfHeal is never stale-demoted (unchanged slot content after a cooldown is
+   a new opportunity, not a stuck suggestion) and a transient failed press is
+   suppressed for at most 1.5 s with no escalating backoff; a permanent
+   exclusion (policy OFF / unbound / unknown) keeps its existing behaviour.
+   When HP is in the sustain window and no heal is ready, the scheduler holds
+   with the distinct reason `SelfHealCoolingDown` (`waiting for self-heal
+   cooldown`) instead of a generic no-candidate, so the UI/telemetry explains
+   the wait.
+   **resetHint (optional):** a curated free-form string such as
+   `"resets on kill"` may be added per ability; it is informational only
+   (surfaced in telemetry), never read by any decision rule.
 6. **The defensive extras are DERIVED, not hand-listed.** Unlike
    Mobility/SelfHeal, `Catalog.lua`'s per-spec `defensive` list is computed
    by `AbilityCatalog.DefensiveGapFill`: every vendor-listed defensive for

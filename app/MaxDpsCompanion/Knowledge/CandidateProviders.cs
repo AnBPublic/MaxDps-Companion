@@ -404,6 +404,33 @@ internal sealed class SelfSustainCandidateProvider : ICandidateProvider
     public string Name => "SelfSustain";
     public CandidateSourceKind Source => CandidateSourceKind.BridgeExtra;
 
+    /// <summary>
+    /// R2 (sustain-cd): the distinct hold reason shown while the player is
+    /// inside the sustain window but no self-heal candidate is ready (the
+    /// bridge encodes a heal only when it is off cooldown, so an absent slot
+    /// while the spec owns a curated self-heal means "on cooldown / not yet
+    /// usable"). Owned by the provider so the wording lives with the rule.
+    /// </summary>
+    public const string CooldownWaitReason = "waiting for self-heal cooldown";
+
+    /// <summary>
+    /// R2: true when the tick should be explained as "waiting for self-heal
+    /// cooldown": policy on, Solo on, a known HP reading inside the sustain
+    /// window, the spec owns at least one curated self-heal, and the wire has
+    /// not offered a ready self-heal this tick. Informational only — it never
+    /// changes a verdict or an order, and it fires no send.
+    /// </summary>
+    public static bool CoolingDown(
+        CombatContext context, PolicyOptions options, AbilityCatalog? catalog, bool hasReadyCandidate)
+    {
+        if (hasReadyCandidate) return false;
+        if (!options.SoloEnabled) return false;
+        if (catalog is null) return false;
+        if (!context.HpValid) return false;
+        if (context.HpPct > options.SelfSustainHpPct) return false;
+        return catalog.Extras(context.Class, context.Spec, AbilityCategory.SelfHeal).Length > 0;
+    }
+
     public PolicyDecision Evaluate(ProviderInput p)
     {
         var input = p.Input;

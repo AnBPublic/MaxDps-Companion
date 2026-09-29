@@ -766,6 +766,7 @@ internal sealed class AbilityCatalog
             Unknown = o.UnknownPolicy is null ? def.Unknown : ParseEnum(o.UnknownPolicy, def.Unknown),
             Note = o.Note ?? def.Note,
             Source = o.Source ?? def.Source,
+            ResetHint = o.ResetHint ?? def.ResetHint,
             Provenance = AbilityProvenance.Curated,
         };
 
@@ -1303,6 +1304,9 @@ internal sealed class AbilityCatalog
         public string? UnknownPolicy { get; set; }
         public string? Note { get; set; }
         public string? Source { get; set; }
+
+        /// <summary>Optional curated "resets on kill"-style hint; informational only.</summary>
+        public string? ResetHint { get; set; }
 
         // v2.6 ability intelligence registry fields (all optional).
         public string? Kind { get; set; }

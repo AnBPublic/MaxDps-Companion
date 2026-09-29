@@ -35,6 +35,11 @@ internal enum ScheduleReason
     OffensiveCooldown,
     Consumable,
     Trinket,
+
+    // Hold reasons added after the selection block: APPEND ONLY so the numeric
+    // value of every existing reason (and the --bench-scheduler plan hash,
+    // which hashes (int)Reason) never moves.
+    SelfHealCoolingDown, // HP in the sustain window, no self-heal is ready yet
 }
 
 /// <summary>Why an attempt could not be turned into a send (engine OS gates).</summary>
@@ -97,6 +102,22 @@ internal readonly record struct PolicyVerdictEntry(Slot Slot, int SpellId, Polic
 
     /// <summary>Ext2: the SelfHeal2 range tri-state this alternate verdict was evaluated with.</summary>
     public TriState Range { get; init; } = TriState.Unknown;
+
+    /// <summary>
+    /// R2 (sustain-cd): this SelfHeal verdict is waiting for the ability's
+    /// cooldown (HP in the sustain window, no ready self-heal candidate).
+    /// Telemetry-only; never changes the verdict.
+    /// </summary>
+    public bool CdWait { get; init; }
+
+    /// <summary>R2: when this SelfHeal stroke was last tried (attempt/send); 0 = never.</summary>
+    public long LastTriedMs { get; init; }
+
+    /// <summary>
+    /// R2: optional curated "resets on kill"-style hint for the ability, or
+    /// null. Informational only — it is never read by any decision rule.
+    /// </summary>
+    public string? ResetHint { get; init; }
 }
 
 /// <summary>One pressable action in scheduler rank order.</summary>
@@ -133,6 +154,16 @@ internal readonly record struct SchedulePlan(
 {
     /// <summary>Per-candidate policy verdicts; empty unless collection was requested.</summary>
     public PolicyVerdictEntry[] Verdicts { get; init; } = [];
+
+    /// <summary>
+    /// R2 (sustain-cd): true when the tick was in the SelfHeal cooldown wait —
+    /// HP is inside the sustain window and no self-heal candidate is ready.
+    /// Additive diagnostic; the action list is unchanged.
+    /// </summary>
+    public bool SelfHealCoolingDown { get; init; }
+
+    /// <summary>R2: last time a SelfHeal stroke was attempted/sent (0 = never).</summary>
+    public long SelfHealLastTriedMs { get; init; }
 
     public static SchedulePlan Hold(ScheduleReason reason, int suppressed = 0, int policyHeld = 0, int policySkipped = 0, string? detail = null) =>
         new([], null, reason, 0, false, suppressed, policyHeld, policySkipped, detail);

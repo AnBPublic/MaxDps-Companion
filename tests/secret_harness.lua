@@ -959,6 +959,49 @@ local candsUnknown = MDB.ExtraCandidates("selfHeal", 2)
 check("B3 no known variant falls back to the listed id", candsUnknown[1] == 202168)
 C_SpellBook = { IsSpellKnown = function(id) return id == 34428 or id == 184364 end }
 
+-- ================= 17b. R2 cooldown freshness across ticks =================
+-- The bridge must re-read readiness EVERY tick: a cooldown that becomes ready
+-- (including via a reset the bridge cannot see directly) is picked up on the
+-- very next ExtraCandidates call, and a ready heal is dropped on the very next
+-- tick after it goes on cooldown. No cross-tick caching of not-ready.
+do
+  local savedSpells = MaxDps.Spells
+  local savedKnown = C_SpellBook
+  local savedHeal = realExtras.selfHeal
+  realExtras.selfHeal = { 202168 }
+  MaxDps.Spells = { [34428] = { { HotKey = { GetText = function() return "H" end } } } }
+  C_SpellBook = { IsSpellKnown = function(id) return id == 34428 end }
+
+  local function HealTick (Remaining)
+    if Remaining == nil then
+      C_Spell.GetSpellCooldown = function()
+        return { startTime = 0, duration = 0, isEnabled = true, isActive = false, isOnGCD = false }
+      end
+      RemainingBySpell[34428] = 0
+    else
+      C_Spell.GetSpellCooldown = function()
+        return { isEnabled = true, isActive = true, isOnGCD = false }
+      end
+      RemainingBySpell[34428] = Remaining
+    end
+    MDB.BeginTick()
+    local Candidates = MDB.ExtraCandidates("selfHeal", 1)
+    return Candidates[1]
+  end
+
+  MDB._BindCache = {}
+  check("R2 tick1 ready: heal encoded", HealTick(0) == 34428)
+  check("R2 tick2 on-CD: heal absent within 1 tick", HealTick(30) == nil)
+  check("R2 tick3 ready again: heal re-encoded within 1 tick", HealTick(0) == 34428)
+  -- A second on-CD -> ready transition must behave identically (no sticky CD).
+  check("R2 tick4 on-CD again: heal absent", HealTick(12) == nil)
+  check("R2 tick5 reset: heal re-encoded", HealTick(0) == 34428)
+
+  MaxDps.Spells = savedSpells
+  C_SpellBook = savedKnown
+  realExtras.selfHeal = savedHeal
+end
+
 -- ================= 18. Ext2 encode (B4/B5) =================
 MaxDps.Flags = { [34428] = true }
 MaxDps.Spell = 34428
