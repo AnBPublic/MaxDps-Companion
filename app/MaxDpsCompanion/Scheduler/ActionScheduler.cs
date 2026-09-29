@@ -115,6 +115,10 @@ internal sealed class ActionScheduler
     private readonly PolicyMemory _policyMemory = new();
     private AbilityCatalog? _catalogForNotes;
 
+    // R2 (sustain-cd): the last time the SelfHeal slot was attempted/sent.
+    // Diagnostics only — it explains the cooldown wait and never gates a send.
+    private long _lastSelfHealTriedMs;
+
     // Previous-frame edge tracking (state transitions clear local suppression).
     private bool _hasFrame;
     private BridgeState _lastState;
@@ -171,6 +175,7 @@ internal sealed class ActionScheduler
             _attempts[key] = (1, nowMs);
 
         _pendingConfirm = (slot, stroke, spellId, nowMs, SawGcd: false, RidesGcd: RidesGcdHeuristic(slot, spellId));
+        if (slot == Slot.SelfHeal) _lastSelfHealTriedMs = nowMs;
 
         if (spellId > 0 && _catalogForNotes?.TryGet(spellId) is { } ability)
             _policyMemory.NoteUse(ability, nowMs);
@@ -199,6 +204,7 @@ internal sealed class ActionScheduler
         _lastAttemptStroke = stroke;
         _lastAttemptAt = nowMs;
         _lastAttemptOutcome = outcome;
+        if (slot == Slot.SelfHeal) _lastSelfHealTriedMs = nowMs;
         if (outcome != AttemptOutcome.Sent)
             _blockedUntil[(slot, stroke)] = nowMs + UnavailableSuppressMs;
     }
@@ -225,6 +231,7 @@ internal sealed class ActionScheduler
         _pendingConfirm = null;
         _policyMemory.Reset();
         _catalogForNotes = null;
+        _lastSelfHealTriedMs = 0;
         RejectionsDetected = 0;
         _hasFrame = false;
         _lastState = default;
@@ -309,6 +316,23 @@ internal sealed class ActionScheduler
         string? policyDetail = null;
         List<PolicyVerdictEntry>? verdicts = input.CollectPolicyVerdicts ? [] : null;
 
+        // R2 (sustain-cd): explain the wait when the player is inside the
+        // sustain window but the bridge has no ready self-heal to encode (a
+        // heal is only encoded when off cooldown). Owned by the SelfSustain
+        // provider; purely diagnostic — it never changes an action or order.
+        var hasReadySelfHeal = bySlot[(int)Slot.SelfHeal] is { Enabled: true };
+        var selfHealCoolingDown = policyOn
+            && SelfSustainCandidateProvider.CoolingDown(context, input.Options!, catalog, hasReadySelfHeal);
+
+        // R2: stamp the SelfHeal diagnostics onto its verdict entries (additive
+        // telemetry fields; the replay never compares them).
+        PolicyVerdictEntry StampSelfHeal(PolicyVerdictEntry entry)
+        {
+            if (entry.Slot != Slot.SelfHeal) return entry;
+            var hint = entry.SpellId > 0 ? catalog.TryGet(entry.SpellId)?.ResetHint : null;
+            return entry with { LastTriedMs = _lastSelfHealTriedMs, ResetHint = hint };
+        }
+
         var ranked = new List<(ActionCandidate Candidate, PolicyDecision? Policy)>(PixelProtocol.SlotCount);
         for (var i = 0; i < PixelProtocol.SlotCount; i++)
         {
@@ -366,14 +390,14 @@ internal sealed class ActionScheduler
                             input.NowMs, input.NowMs, 0, false, sh2.SpellId);
                         decision = alt;
                         alternateRecorded = true;
-                        verdicts?.Add(new PolicyVerdictEntry(Slot.SelfHeal, sh2.SpellId, alt.Verdict, alt.Reason)
+                        verdicts?.Add(StampSelfHeal(new PolicyVerdictEntry(Slot.SelfHeal, sh2.SpellId, alt.Verdict, alt.Reason)
                         {
                             Provider = alt.Provider,
                             Source = alt.Source,
                             Evidence = alt.Evidence,
                             Alternate = true,
                             Range = sh2.Range,
-                        });
+                        }));
                     }
                 }
 
@@ -396,21 +420,21 @@ internal sealed class ActionScheduler
                         policySkipped++;
                         NoteFirst(ref policyDetail, decision.Value.Reason);
                     }
-                    verdicts?.Add(new PolicyVerdictEntry(slot, candidate.SpellId, decision.Value.Verdict, decision.Value.Reason)
+                    verdicts?.Add(StampSelfHeal(new PolicyVerdictEntry(slot, candidate.SpellId, decision.Value.Verdict, decision.Value.Reason)
                     {
                         Provider = decision.Value.Provider,
                         Source = decision.Value.Source,
                         Evidence = decision.Value.Evidence,
-                    });
+                    }));
                     continue;
                 }
                 if (!alternateRecorded)
-                    verdicts?.Add(new PolicyVerdictEntry(slot, candidate.SpellId, PolicyVerdict.Use, decision.Value.Reason)
+                    verdicts?.Add(StampSelfHeal(new PolicyVerdictEntry(slot, candidate.SpellId, PolicyVerdict.Use, decision.Value.Reason)
                     {
                         Provider = decision.Value.Provider,
                         Source = decision.Value.Source,
                         Evidence = decision.Value.Evidence,
-                    });
+                    }));
             }
             else
             {
@@ -433,6 +457,21 @@ internal sealed class ActionScheduler
 
         if (ranked.Count == 0)
         {
+            // R2 (sustain-cd): HP is in the sustain window, the spec owns a
+            // curated self-heal, but none is ready this tick. Say so instead of
+            // a generic "no candidate" so the "Now:" line and telemetry explain
+            // the wait. The next tick that carries a ready heal fires normally
+            // with no extra delay (the otherwise-empty plan holds).
+            if (selfHealCoolingDown)
+            {
+                return SchedulePlan.Hold(ScheduleReason.SelfHealCoolingDown, 0, policyHeld, policySkipped,
+                    SelfSustainCandidateProvider.CooldownWaitReason) with
+                {
+                    Verdicts = verdicts?.ToArray() ?? [],
+                    SelfHealCoolingDown = true,
+                    SelfHealLastTriedMs = _lastSelfHealTriedMs,
+                };
+            }
             if (policyHeld > 0 || policySkipped > 0 || castHeld > 0 || channelHeld > 0)
             {
                 // Cast/channel holds keep their own reason codes so telemetry
@@ -477,7 +516,14 @@ internal sealed class ActionScheduler
         var stale = new List<(ActionCandidate Candidate, PolicyDecision? Policy)>(unique.Count);
         foreach (var entry in unique)
         {
-            if (entry.Candidate.IsStale(input.NowMs, Math.Max(250, input.StaleAfterMs))) stale.Add(entry);
+            // R2 (sustain-cd): a SelfHeal is NEVER stale-demoted. After a
+            // cooldown (or a reset proc) the SAME spell is re-suggested while
+            // the wire slot content never changed, so the pressed-since-change
+            // bookkeeping would otherwise swallow the new opportunity and demote
+            // the heal behind Main. A heal that is ready again is a fresh action.
+            if (entry.Candidate.Slot != Slot.SelfHeal
+                && entry.Candidate.IsStale(input.NowMs, Math.Max(250, input.StaleAfterMs)))
+                stale.Add(entry);
             else fresh.Add(entry);
         }
         var demoted = stale.Count > 0 && fresh.Count > 0;
@@ -494,8 +540,13 @@ internal sealed class ActionScheduler
         //     demoted: re-pressing a main key is the player's own spell-queue
         //     behaviour, and a possibly-successful main means the GCD is
         //     starting — the GCD gate (next) already covers that case.
+        //     R2 (sustain-cd): SelfHeal is never demoted at all — a heal that
+        //     is ready must fire this tick, not be pushed behind Main while an
+        //     unconfirmed press is pending. Its transient failure is still
+        //     detected and capped at 1.5 s by ResolvePendingConfirm.
         if (_pendingConfirm is { } pending
             && pending.Slot != Slot.Main
+            && pending.Slot != Slot.SelfHeal
             && input.NowMs - pending.SentAt < RejectDetectMs)
         {
             var ahead = new List<(ActionCandidate Candidate, PolicyDecision? Policy)>(final.Count);
@@ -604,6 +655,8 @@ internal sealed class ActionScheduler
             return SchedulePlan.Hold(hasHold ? firstHold : ScheduleReason.NoCandidate, suppressed, policyHeld, policySkipped, policyDetail) with
             {
                 Verdicts = verdicts?.ToArray() ?? [],
+                SelfHealCoolingDown = selfHealCoolingDown,
+                SelfHealLastTriedMs = _lastSelfHealTriedMs,
             };
 
         // 10. Head metadata (diagnostics/tests only; the action list is the order).
@@ -616,6 +669,8 @@ internal sealed class ActionScheduler
             Math.Clamp(confidence, 0, 100), demoted, suppressed, policyHeld, policySkipped, policyDetail)
         {
             Verdicts = verdicts?.ToArray() ?? [],
+            SelfHealCoolingDown = selfHealCoolingDown,
+            SelfHealLastTriedMs = _lastSelfHealTriedMs,
         };
     }
 
@@ -705,6 +760,20 @@ internal sealed class ActionScheduler
     private void NoteFailure(Slot slot, KeyStroke stroke, long nowMs)
     {
         var key = (slot, stroke);
+        // R2 (sustain-cd): a SelfHeal press that failed for a TRANSIENT reason
+        // (out of range, no resource yet, GCD timing) is re-polled every tick
+        // and must fire as soon as the heal is ready again. Its suppression is
+        // capped at the base reject window (1.5 s) with NO escalation and no
+        // streak accumulation, so a reset/proc that makes the heal ready cannot
+        // be held behind a long decaying backoff. Permanent reasons (policy
+        // OFF, unbound, unknown spell) never reach here — they are policy
+        // skips. All other slots keep the escalating 1.5/3/6/10 s backoff.
+        if (slot == Slot.SelfHeal)
+        {
+            _failedUntil[key] = nowMs + RejectedSuppressMs;
+            _failureStreak.Remove(key);
+            return;
+        }
         var streak = _failureStreak.GetValueOrDefault(key) + 1;
         _failureStreak[key] = streak;
         var shift = Math.Min(Math.Max(0, streak - 1), 3);

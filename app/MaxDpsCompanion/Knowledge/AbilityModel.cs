@@ -725,6 +725,14 @@ internal sealed record AbilityDefinition(
     public SourceConfidence SourceConfidence { get; init; } = SourceConfidence.Unknown;
 
     /// <summary>
+    /// Optional curated free-form hint about how the ability's cooldown can
+    /// reset early (e.g. "resets on kill"). INFORMATIONAL ONLY: it is never
+    /// read by any decision/policy rule and never changes a verdict; it is
+    /// surfaced in telemetry/inspector so an operator can understand a reset.
+    /// </summary>
+    public string? ResetHint { get; init; }
+
+    /// <summary>
     /// True only when a live-client behavior pass recorded this ability. Derived
     /// and researched rules are otherwise honestly reported as live-unverified
     /// (§53: offline evidence is never live proof).

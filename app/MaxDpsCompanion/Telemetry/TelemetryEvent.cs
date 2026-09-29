@@ -100,6 +100,21 @@ internal sealed record TelemetryVerdict
     [JsonPropertyName("arng")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? AlternateRange { get; init; }
+
+    /// <summary>R2 (sustain-cd): SelfHeal verdict was in the cooldown wait (omitted when false).</summary>
+    [JsonPropertyName("cdWait")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool CdWait { get; init; }
+
+    /// <summary>R2: when the SelfHeal stroke was last tried (ms); omitted when never.</summary>
+    [JsonPropertyName("lastTriedMs")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? LastTriedMs { get; init; }
+
+    /// <summary>R2: optional curated reset hint for the ability (informational; omitted when null).</summary>
+    [JsonPropertyName("resetHint")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ResetHint { get; init; }
 }
 
 /// <summary>
@@ -186,6 +201,19 @@ internal sealed record TelemetryPolicy
 
     /// <summary>True when the Defensive slot came from the catalog gap-fill, omitted otherwise.</summary>
     [JsonPropertyName("dsrc")] public bool? DefensiveCatalogSource { get; init; }
+
+    /// <summary>
+    /// R2 (sustain-cd): HP is in the sustain window and no ready self-heal
+    /// candidate exists (omitted on legacy records / when false).
+    /// </summary>
+    [JsonPropertyName("cdWait")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool CdWait { get; init; }
+
+    /// <summary>R2: last time the SelfHeal slot was attempted/sent (ms); omitted when never.</summary>
+    [JsonPropertyName("lastTriedMs")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? LastTriedMs { get; init; }
 
     [JsonPropertyName("opts")] public TelemetryOptions? Options { get; init; }
     [JsonPropertyName("verdicts")] public TelemetryVerdict[]? Verdicts { get; init; }
@@ -303,6 +331,9 @@ internal sealed record TelemetryEvent
                     Evidence = entry.Evidence.Count > 0 ? entry.Evidence.ToArray() : null,
                     Alternate = entry.Alternate,
                     AlternateRange = entry.Alternate ? EncodeTriState(entry.Range) : null,
+                    CdWait = entry.CdWait,
+                    LastTriedMs = entry.LastTriedMs > 0 ? entry.LastTriedMs : null,
+                    ResetHint = string.IsNullOrEmpty(entry.ResetHint) ? null : entry.ResetHint,
                 };
             }
         }
@@ -335,6 +366,8 @@ internal sealed record TelemetryEvent
             DefensiveUrgency = combat?.DefensiveUrgency.ToString(),
             StaggerUrgency = combat?.StaggerUrgency.ToString(),
             DefensiveCatalogSource = combat is { DefensiveCatalogSource: true } ? true : null,
+            CdWait = plan.SelfHealCoolingDown,
+            LastTriedMs = plan.SelfHealLastTriedMs > 0 ? plan.SelfHealLastTriedMs : null,
             Options = options is null ? null : new TelemetryOptions
             {
                 Solo = options.SoloEnabled,

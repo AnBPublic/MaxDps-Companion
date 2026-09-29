@@ -350,26 +350,31 @@ public class ActionSchedulerPolicyTests
     [Fact]
     public void Failed_Situational_Press_Is_Demoted_Behind_A_Fresh_Main()
     {
+        // R2 (sustain-cd): SelfHeal is now the documented exception (a ready
+        // heal must never be demoted — see SelfSustainCooldownTests). This
+        // contract still holds for every other situational slot; an emergency
+        // Defensive (Shield Block, OnGcd) stands in for the generic case (an
+        // emergency bypasses the active-tier sequencing block, so the pending
+        // demotion is what moves it behind Main).
         var scheduler = new ActionScheduler();
-        var slots = new (Slot Slot, KeyStroke? Stroke)[] { (Slot.Main, KeyE), (Slot.SelfHeal, KeyR) };
-        var solo = new PolicyOptions { SoloEnabled = true };
+        var slots = new (Slot Slot, KeyStroke? Stroke)[] { (Slot.Main, KeyE), (Slot.Defensive, KeyR) };
 
         var first = scheduler.Advance(Input(1000, Frame(slots, heartbeat: 1),
-            Context(hpValid: true, hp: 50), solo,
-            Candidate(Slot.SelfHeal, KeyR, spellId: 202168)));
-        Assert.Equal(Slot.SelfHeal, first.Selected);
-        scheduler.NoteSent(1000, Slot.SelfHeal, KeyR, 202168);
+            Context(hpValid: true, hp: 20), PolicyOptions.Standard,
+            Candidate(Slot.Defensive, KeyR, spellId: 2565)));
+        Assert.Equal(Slot.Defensive, first.Selected);
+        scheduler.NoteSent(1000, Slot.Defensive, KeyR, 2565);
 
-        // The heal press never started a GCD and is still suggested: it must
-        // not shadow the fresh main while the failure is being confirmed.
+        // The defensive press never started a GCD and is still suggested: it
+        // must not shadow the fresh main while the failure is being confirmed.
         var plan = scheduler.Advance(Input(1200, Frame(slots, heartbeat: 2),
-            Context(hpValid: true, hp: 50), solo,
-            Candidate(Slot.SelfHeal, KeyR, spellId: 202168),
+            Context(hpValid: true, hp: 20), PolicyOptions.Standard,
+            Candidate(Slot.Defensive, KeyR, spellId: 2565),
             Candidate(Slot.Main, KeyE)));
 
         Assert.Equal(Slot.Main, plan.Selected);
         Assert.Equal(Slot.Main, plan.Actions[0].Slot);
-        Assert.Contains(plan.Actions, a => a.Slot == Slot.SelfHeal);   // never removed
+        Assert.Contains(plan.Actions, a => a.Slot == Slot.Defensive);   // never removed
     }
 
     [Fact]
