@@ -381,7 +381,9 @@ internal static class PolicyEvaluator
             or IntelligenceStatus.UnsafeToAutomate)
         {
             var companionOnly = input.Slot is Slot.Mobility or Slot.SelfHeal
-                || (input.Slot == Slot.Defensive && ctx.DefensiveCatalogSource);
+                || (input.Slot == Slot.Defensive && ctx.DefensiveCatalogSource)
+                || (input.Slot == Slot.Offensive
+                    && catalog.IsOffensiveGapFill(ctx.Class, ctx.Spec, ability.SpellId));
             if (companionOnly || ability.Automation == AutomationContext.Manual)
                 return ProviderStamp.Stamp(provider, PolicyDecision.Skip("ability intelligence incomplete; companion never generates it"),
                     "registry: intelligence incomplete, companion never generates it");

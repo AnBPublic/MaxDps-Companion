@@ -406,6 +406,8 @@ internal static class ReplayRunner
         StaggerUrgency = ParseEnum(policy.StaggerUrgency, DefensiveUrgency.Unknown),
         DefensiveCatalogSource = policy.DefensiveCatalogSource ?? false,
         ContextValid = policy.ContextValid,
+        Class = policy.Class,
+        Spec = policy.Spec,
         };
     }
 

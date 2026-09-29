@@ -549,12 +549,13 @@ end
 -- Offensive = classCooldowns offensive bucket (Spell Frame "Show offensive
 -- spells"): flagged, on the bars, and classified "offensive" by the class
 -- tables (v1.3.5 — exact category, no item/exclusion guesswork).
+-- v3.0.0: when MaxDps names no bound offensive, the curated per-spec
+-- `offensive` gap-fill list supplies the first ready+bound entry (see
+-- MDB.GetOffensiveCandidate, defined next to the defensive candidate below
+-- because it reuses the scoped ExtraSpellID helper). The whole path stays
+-- inside MaxDps's own `enableCooldowns` switch.
 function MDB.GetOffensiveSpellID ()
-  local MaxDps = MaxDpsEngine();
-  if not (MaxDps and MaxDps.db and MaxDps.db.global and MaxDps.db.global.enableCooldowns) then
-    return nil;
-  end
-  return FirstFlagged("offensive");
+  return MDB.GetOffensiveCandidate();
 end
 
 -- Back-compat alias: C# mirrors and old chat macros may still call the old
@@ -1629,10 +1630,40 @@ function MDB.GetDefensiveCandidate ()
   if not Enabled then return nil, false; end
   local Flagged = FirstFlagged("defensive", false, true);
   if Flagged then return Flagged, false; end
-  if MDB.GetDefensiveUrgency(nil) == URGENCY_RED then
+  local Urgency = MDB.GetDefensiveUrgency(nil);
+  if Urgency == URGENCY_RED then
     local Gap = ExtraSpellID("defensive");
     if Gap then return Gap, true; end
+  elseif Urgency == URGENCY_ORANGE then
+    -- v3.0.0 Orange tier: short-cooldown (Minor/None) gap-fill. The user's
+    -- complaint was that toggled-on short CDs never fire because the old
+    -- gap-fill only offered a candidate at Red. Majors are excluded from the
+    -- defensiveMinor list, so a held major can never shadow a ready short CD,
+    -- and MaxDps-silent is already required (no flagged candidate above).
+    local Gap = ExtraSpellID("defensiveMinor");
+    if Gap then return Gap, true; end
   end
+  return nil, false;
+end
+
+-- The Offensive slot candidate, plus whether it is a companion gap-fill.
+-- 1. MaxDps's own flagged + ready offensive wins (unchanged).
+-- 2. When MaxDps names none, the curated per-spec `offensive` list (shared
+--    burst first, spec-specific second) supplies the first ready+bound entry.
+-- The whole path stays inside MaxDps's own `enableCooldowns` switch.
+-- There is NO wire source bit for this (PixelProtocol decode is frozen and no
+-- slot-flag bit is free), so the companion derives the source by id
+-- membership in the same generated Catalog.lua list (see
+-- AbilityCatalog.IsOffensiveGapFill). Documented in docs/PROTOCOL.md.
+function MDB.GetOffensiveCandidate ()
+  local MaxDps = MaxDpsEngine();
+  if not (MaxDps and MaxDps.db and MaxDps.db.global and MaxDps.db.global.enableCooldowns) then
+    return nil, false;
+  end
+  local Flagged = FirstFlagged("offensive");
+  if Flagged then return Flagged, false; end
+  local Gap = ExtraSpellID("offensive");
+  if Gap then return Gap, true; end
   return nil, false;
 end
 
