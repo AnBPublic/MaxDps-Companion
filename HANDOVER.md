@@ -1,8 +1,155 @@
 # Handover — MaxDps-Companion
 
-## Status: v3.2.0 — TTK intelligence: per-target time-to-kill estimator + T1–T4 cooldown gates (571 xunit tests + 153 Lua harness checks, 7 replays 0 mismatches, live validation owed)
+## Status: v3.4.0 — CC appendix (opt-in, DR-safe, all 13 classes) + surroundings awareness gates (melee/cast/range catalog-driven, LoS fails open) + wired UI publish (solo sliders, bridge-health banner, cast-audit grid) (650 xunit tests + 186 Lua harness checks, live validation owed)
 
-## v3.2.0 TTK INTELLIGENCE (T-A + T-B, this change)
+## v3.3.0 STREAM 4 — guardrails + cross-stream merge (this change)
+
+FROZEN-CONTRACT AUDIT (no code edit, evidence only):
+- `docs/PROTOCOL.md` diff is **documentation-additive only** (v3.3.0 Solo
+  ladder + 13-toggle semantics). `PixelProtocol.cs` and `KeySender.cs` are
+  **unmodified** (`git diff` empty) — nibble 5 and the 40-cell Ext2 layout are
+  untouched. No non-additive protocol change.
+- `Knowledge/CandidateProviders.cs` is the one double-owned file: Stream 1's
+  Solo latch hunk (`SoloBandLatch.Latched`, ~line 350, Defensive provider) and
+  Stream 3's preset/offensive hunks (~142, ~188) **coexist without conflict**;
+  both are retained. No conflict markers anywhere in tracked files.
+- Stream ownership check: every modified/added path falls inside the declared
+  Stream 1/2/3 file sets. `settings.ini` (+ Escalation/Minor/Major/Immunity)
+  is the only shared config surface and is additive.
+
+OWED CROSS-STREAM WIRING (documented only — the target files are owned by other
+streams / MainForm + RotationEngine are outside this task's edit scope):
+1. Wire `Scheduler/BridgeHealth` advisor into `RotationEngine`/`MainForm`
+   (stale-addon / skew guidance); class + advisor exist, not yet consumed.
+2. Host `Ui/CastAuditView`, `Ui/SettingsPages` SoloBandEditor and
+   `Ui/SemanticBanner` in `MainForm` (all three are built + tested, not
+   mounted on any page yet).
+3. Call `Intelligence/SpellIconCache.Invalidate()` from catalog regen so
+   regenerated `Catalog.lua` slugs drop stale cached icons.
+4. `AppSettings.PollIntervalMs` default: set to **33** (Stream 3-owned;
+   `settings.ini` already ships `PollIntervalMs=33`). Recommended, not yet
+   asserted as the code default.
+
+FULL OFFLINE BAR (this machine, Stream 4 pass): `dotnet build -c Release` 0
+warnings / 0 errors; `dotnet test -c Release` **613/613** (one earlier 612/613
+run flaked the load-sensitive `ClassicUi_PopupOpen_Fast_SingleBoundedFade`
+timing test; it passes standalone and on a quiet re-run — pre-existing, not
+stream-caused); `lua tests/secret_harness.lua` **186/186**; `luac -p` 8/8 bridge
+files clean; `pwsh tools/ability_audit.ps1` exit 0 — Violations 0 / Warnings 0
+/ Missing 0 / Stale 0, committed Catalog.lua matches the generated output. Not
+committed.
+
+## v3.3.0 IN-GAME 13-TOGGLE UI (this change)
+
+GOAL: expose the companion hero's 13 toggles (8 Spells + Solo / Out-of-combat /
+Auto-target / Auto-interact / TTK) in-game through `/mdb` and the Options panel,
+so the player can restrict what the bridge encodes without touching the
+companion. The addon only RESTRICTS: `effective = companion AND addon`; an
+addon OFF always wins. A missing DB key reads as ON. No wire change (version
+nibble stays 5); `PixelProtocol.cs` untouched.
+
+WHAT WAS BUILT:
+- New `addon/MaxDpsBridge/Toggles.lua` — pure logic (harness-loadable, no
+  frames): Get/Set/Flip/Keys/Label/Snapshot over `MaxDpsBridgeDB.Toggles`
+  (13 booleans, default true) and `SlotAllowed(slot, ctx)` as the single gate
+  `Bridge.Update` consults before `WriteSlot`. Rules: per-slot OFF; OOC OFF
+  blanks slots 1-8 on a strict known out-of-combat; Solo OFF blanks
+  Defensive(3)/SelfHeal(8) while known ungrouped except emergency HP <= 35
+  (unknown HP/group fails open); TTK OFF forces target band 15;
+  AutoTarget/AutoInteract silence states 3/4 -> 0. Every game API is
+  pcall-contained and the whole gate fails open. Denials recorded in
+  `MDB._LastBlank` for `/mdb why heal`.
+- New `addon/MaxDpsBridge/Panel.lua` — plain-frame settings panel
+  (`Settings.RegisterCanvasLayoutCategory`, `InterfaceOptions_AddCategory`
+  fallback) with the 13 checkboxes + All on/off + overlay controls; draggable
+  overlay (`/mdb overlay`) with right-click reset and a pixel-strip overlap
+  guard; optional minimap launcher. Nothing here runs on the pixel path.
+- `Bridge.lua` v3.3.0: per-tick toggle context from pcall'd game APIs; deep
+  `MergeDefaults` (old SavedVariables stay valid; nested Toggles/Ui tables are
+  copied, never aliased); `reset` deep-restores; `/mdb toggles|overlay|
+  <key> on|off|all on|off|why heal`; `status` gains
+  `toggles=N/13 ON; OFF: ...`; TTK OFF forces `WriteTarget` band 15.
+- `Options.lua`: thin "Toggles..." entry in both the StdUi and fallback paths.
+- `MaxDpsBridge.toc` + root and addon `VERSION.txt` -> 3.3.0; load order
+  Catalog, Keymap, Bars, Reader, Toggles, Bridge, Options, Panel.
+- `tests/secret_harness.lua`: T21 in-game toggle suite (33 checks) — nil ctx,
+  secret HP, each OFF effect, emergency exception, TTK band forcing.
+- Docs: `docs/PROTOCOL.md` (v3.3.0 toggle semantics, no wire change),
+  `ARCHITECTURE.md` (file map + bridge gate stage + invariant) — this pass.
+
+VALIDATED (this machine, v3.3.0 toggles + Solo ladder): `dotnet build -c
+Release` 0 warnings / 0 errors; `dotnet test -c Release` 613/613 (Stream 4
+re-run on the merged tree; 585 at the stream snapshots);
+`lua tests/secret_harness.lua` 186/186; `luac -p` clean (8 bridge files);
+`pwsh tools/ability_audit.ps1` exit 0 — Violations 0 / Warnings 0 / Missing 0
+/ Stale 0, committed addon Catalog.lua matches the generated output.
+LIVE OWED (retail 12.1): `/reload`; open Esc > Options > MaxDps Bridge (or
+`/mdb toggles`) and flip each toggle; confirm an OFF slot blanks in-game and
+returns when ON; `/mdb overlay on` drag + strip-overlap guard; `/mdb why heal`
+reason; AutoTarget/AutoInteract state; TTK OFF forces the unknown band; all
+persist across `/reload`.
+
+## v3.3.0 SOLO SURVIVAL LADDER (same release)
+
+GOAL: the Solo rotation survives on heals AND mitigation/shields/absorbs, and
+escalates bigger CDs as HP drops so health never reaches 0%. Catalog =
+core+talent superset for all 13 classes; unchosen talents are ignored at
+runtime (bridge offers only a ready+bound spell the player knows; the policy
+never invents a candidate). No wire change.
+
+BANDS (Solo only, valid HP required):
+- <=75% Minor absorb/shield (SoloMinorHpPct, new; defensiveMinor list)
+- <=65% heal (existing SelfSustainHpPct; SelfHeal slot, unchanged)
+- <=50% Major (SoloMajorHpPct, new; defensiveMajor list, new)
+- <=30% immunity/emergency (SoloImmunityHpPct, new; immunity list, new;
+  EmergencyHpPct 35 stays for heals/majors/generic path)
+Solo HP-substitution: an in-band gap-fill defensive bypasses the White-urgency
+hold; out-of-band holds with "solo: HP x% above <band> band N%"; immunity
+additionally requires no active immunity; MaxDps-flagged candidates and every
+group verdict keep the classic urgency path byte-identical. Kept: T4
+dying-target hold, overheal guard ceil(healPct*0.6), immunity-active hold,
+DefensiveEscalateHpPct sequencing, per-ability ON/OFF veto, cast/channel hold.
+
+DATA (verified catalogued/vendor ids only; no invented ids):
+- MAGE Arcane/Fire/Frost selfHeal NEW: 235450 Prismatic / 235313 Blazing /
+  11426 Ice Barrier (spec barriers as sustain); 55342 Mirror Image defensive
+  membership widened Arcane-only -> all 3 mage specs.
+- PRIEST selfHeal += 373481 Power Word: Life (all 3) + 15286 Vampiric Embrace
+  (Shadow; vendor Defensive bucket, curated SelfHeal purpose).
+- SHAMAN selfHeal += 5394 Healing Stream Totem (all 3).
+- EVOKER Preservation selfHeal += 363534 Rewind.
+- DH Havoc/Devourer selfHeal still NONE (no verified solo self-heal id; owed).
+- Immunity ladder: 45438 Ice Block (mage all), 642 Divine Shield (paladin
+  all), 31224 Cloak of Shadows (rogue all), 196555 Netherwalk (DH Havoc AND
+  Devourer via vendor membership) flow through the new ImmunityGapFill.
+- Warlock Dark Pact 108416 / Healthstone 6262 / Unending Resolve 104773,
+  Shaman Astral Shift 108271, Evoker Obsidian 363916 / Renewing Blaze 374348
+  were already covered (no change).
+- OWED (do NOT add until verified against live 12.1 DB2): 1244090 Temporal
+  Realignment, Shadow Mend id, Soul Immolation id, 186265 Aspect of the Turtle.
+
+CONTRACTS (additive): PolicyOptions SoloEscalation=true + SoloMinorHpPct=75 +
+SoloMajorHpPct=50 + SoloImmunityHpPct=30 with ValidateSoloBands
+(immunity<major<minor else defaults); AppSettings [Solo] EscalationEnabled=1,
+MinorHpPct 75 (40-99), MajorHpPct 50 (20-90), ImmunityHpPct 30 (5-60);
+settings.ini same keys; telemetry sesc/smin/smaj/simm (omitted when default;
+old replays unaffected); AbilityCatalog DefensiveGapFillMajor +
+ImmunityGapFill + CatalogVersion 3->4; CatalogLuaGenerator emits
+defensiveMajor + immunity; Catalog.lua + fixtures/Catalog.lua regenerated;
+Reader.lua GetDefensiveCandidate Solo ladder block (bands armed by Bridge.lua
+per-tick Solo-ON + known-ungrouped; group frames disarm -> pre-3.3.0
+Red/Orange path); Toggles/Panel Solo semantics unchanged.
+Docs: HANDOVER (this section) + ARCHITECTURE (ladder/provider lines) +
+docs/PROTOCOL.md (v3.3.0 ladder note, no wire change) in the same pass.
+
+VALIDATED (this machine, v3.3.0): dotnet build -c Release 0 warnings / 0
+errors; dotnet test 613/613 (merged tree, Stream 4); secret_harness 186/186; luac -p clean;
+tools/ability_audit.ps1 exit 0 — Violations 0 / Warnings 0 / Missing 0 /
+Stale 0, committed addon Catalog.lua matches the generated output.
+LIVE OWED (retail 12.1): each band fires at the right HP in Solo; nothing new
+fires grouped; talent-unchosen spells ignored; owed ids verified live.
+
+## v3.2.0 TTK INTELLIGENCE (T-A + T-B, previous)
 
 GOAL: stop wasting cooldowns. A pure per-target time-to-kill (TTK) estimate now
 gates offensive cooldowns and Solo defensive cooldowns: hold a major fired into

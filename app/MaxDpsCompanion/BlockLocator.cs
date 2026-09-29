@@ -17,6 +17,23 @@ internal static class BlockLocator
     private const int MaxCellSize = 32;
 
     /// <summary>
+    /// Hard cap on the swept rectangle. A per-monitor-DPI change or a stale
+    /// client rect can hand us an absurd area; refusing it prevents a giant
+    /// CopyFromScreen allocation instead of thrashing the box.
+    /// </summary>
+    private const int MaxCaptureEdge = 8192;
+
+    /// <summary>
+    /// At least this fraction of the requested rectangle must lie on the
+    /// virtual screen. A DPI/scale change can leave the cached client origin
+    /// mostly off-screen; a mostly-offscreen sweep is a coordinate-scale
+    /// artifact, not a hidden strip, so it fails fast (the engine then falls
+    /// back to Relocate on the next tick). Clamping alone would silently sweep
+    /// the wrong pixels.
+    /// </summary>
+    private const double MinOnScreenFraction = 0.25;
+
+    /// <summary>
     /// Scans <paramref name="area"/> (screen coordinates) and returns the block's
     /// position relative to <paramref name="origin"/>, or null if it is not there.
     /// </summary>
@@ -30,13 +47,22 @@ internal static class BlockLocator
     public static BlockLocation? Locate(Point origin, Size area, ColorProfile? profile)
     {
         if (area.Width <= 0 || area.Height <= 0) return null;
+        if (area.Width > MaxCaptureEdge || area.Height > MaxCaptureEdge) return null;
 
-        using var bitmap = new Bitmap(area.Width, area.Height, PixelFormat.Format32bppRgb);
+        // DPI / scale guard: the capture rect must lie (mostly) on the virtual
+        // screen at the origin we were handed. A monitor/DPI change can shift
+        // the client origin; sweeping the resulting strip of desktop would
+        // either find a false magenta or wipe a huge allocation.
+        if (!TryClampCapture(origin, area, SystemInformation.VirtualScreen,
+                out var captureOrigin, out var captureArea))
+            return null;
+
+        using var bitmap = new Bitmap(captureArea.Width, captureArea.Height, PixelFormat.Format32bppRgb);
         using (var graphics = Graphics.FromImage(bitmap))
         {
             try
             {
-                graphics.CopyFromScreen(origin, Point.Empty, area, CopyPixelOperation.SourceCopy);
+                graphics.CopyFromScreen(captureOrigin, Point.Empty, captureArea, CopyPixelOperation.SourceCopy);
             }
             catch (Exception)
             {
@@ -44,16 +70,55 @@ internal static class BlockLocator
             }
         }
 
-        var data = bitmap.LockBits(new Rectangle(Point.Empty, area), ImageLockMode.ReadOnly,
+        var data = bitmap.LockBits(new Rectangle(Point.Empty, captureArea), ImageLockMode.ReadOnly,
             PixelFormat.Format32bppRgb);
         try
         {
-            return Scan(data, area, profile);
+            // Scan offset is relative to the capture rect, which is the same
+            // origin when the guard clamped nothing (the common case).
+            var offsetX = captureOrigin.X - origin.X;
+            var offsetY = captureOrigin.Y - origin.Y;
+            var found = Scan(data, captureArea, profile);
+            return found is { } location && location.OffsetX >= 0 && location.OffsetY >= 0
+                ? location with { OffsetX = location.OffsetX + offsetX, OffsetY = location.OffsetY + offsetY }
+                : found;
         }
         finally
         {
             bitmap.UnlockBits(data);
         }
+    }
+
+    /// <summary>
+    /// Clamps a requested capture rectangle to <paramref name="bounds"/> and
+    /// rejects a mostly-offscreen request (see <see cref="MinOnScreenFraction"/>).
+    /// Pure and testable: no GDI, no screen.
+    /// </summary>
+    internal static bool TryClampCapture(Point origin, Size area, Rectangle bounds,
+        out Point captureOrigin, out Size captureArea)
+    {
+        captureOrigin = origin;
+        captureArea = area;
+        if (area.Width <= 0 || area.Height <= 0
+            || area.Width > MaxCaptureEdge || area.Height > MaxCaptureEdge)
+            return false;
+        if (bounds.Width <= 0 || bounds.Height <= 0) return false;
+
+        var left = Math.Max(origin.X, bounds.Left);
+        var top = Math.Max(origin.Y, bounds.Top);
+        var right = Math.Min(origin.X + area.Width, bounds.Right);
+        var bottom = Math.Min(origin.Y + area.Height, bounds.Bottom);
+        var visibleW = right - left;
+        var visibleH = bottom - top;
+        if (visibleW <= 0 || visibleH <= 0) return false;
+
+        var requested = (double)area.Width * area.Height;
+        var visible = (double)visibleW * visibleH;
+        if (requested > 0 && visible / requested < MinOnScreenFraction) return false;
+
+        captureOrigin = new Point(left, top);
+        captureArea = new Size(visibleW, visibleH);
+        return true;
     }
 
     private static unsafe BlockLocation? Scan(BitmapData data, Size area, ColorProfile? profile)

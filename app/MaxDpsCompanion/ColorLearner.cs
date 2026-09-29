@@ -47,7 +47,7 @@ internal static class ColorLearner
         Point block,
         int cellSize,
         ColorProfile? profile = null,
-        int tolerance = 64,
+        int tolerance = ColorProfile.DefaultTolerance,
         Func<bool>? cancel = null,
         Action<string>? progress = null)
     {
@@ -231,14 +231,14 @@ internal static class ColorLearner
     /// brightest flat as white, so mid-cycle captures learn without waiting
     /// for the exact endpoints.
     /// </summary>
-    public static LearnResult? Build(List<Color[]> frames, int tolerance = 64) =>
+    public static LearnResult? Build(List<Color[]> frames, int tolerance = ColorProfile.DefaultTolerance) =>
         Build(frames, matcher: null, tolerance);
 
     /// <summary>
     /// Profile-aware build: an existing (stale) profile may recognise the
     /// magic cell when the legacy band no longer can.
     /// </summary>
-    public static LearnResult? Build(List<Color[]> frames, ColorProfile? matcher, int tolerance = 64)
+    public static LearnResult? Build(List<Color[]> frames, ColorProfile? matcher, int tolerance = ColorProfile.DefaultTolerance)
     {
         Color? black = null;
         Color? white = null;

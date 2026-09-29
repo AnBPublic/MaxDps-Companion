@@ -69,6 +69,10 @@ internal static class CatalogLuaGenerator
         sb.AppendLine("--   immunities excluded); used only when MaxDps names no bound defensive.");
         sb.AppendLine("-- defensiveMinor: short-cooldown (Minor/None) gap-fill candidates for");
         sb.AppendLine("--   the Defensive slot's Orange tier (v3.0.0); majors still need Red.");
+        sb.AppendLine("-- defensiveMajor: Major-tier gap-fill candidates for the v3.3.0 Solo");
+        sb.AppendLine("--   escalation ladder (Solo at/below the major HP band only).");
+        sb.AppendLine("-- immunity: full-immunity candidates for the v3.3.0 Solo ladder bottom");
+        sb.AppendLine("--   band (Solo at/below the immunity HP band only; never in groups).");
         sb.AppendLine("-- offensive: curated major offensive gap-fill candidates (shared burst");
         sb.AppendLine("--   first, spec-specific second); used only when MaxDps names no bound");
         sb.AppendLine("--   offensive. The companion detects this source by id membership.");
@@ -86,8 +90,11 @@ internal static class CatalogLuaGenerator
                 var offensive = catalog.OffensiveGapFill(className, specs[i]);
                 var defensive = catalog.DefensiveGapFill(className, specs[i]);
                 var defensiveMinor = catalog.DefensiveGapFillMinor(className, specs[i]);
+                var defensiveMajor = catalog.DefensiveGapFillMajor(className, specs[i]);
+                var immunity = catalog.ImmunityGapFill(className, specs[i]);
                 if (mobility.Length == 0 && selfHeal.Length == 0 && offensive.Length == 0
-                    && defensive.Length == 0 && defensiveMinor.Length == 0) continue;
+                    && defensive.Length == 0 && defensiveMinor.Length == 0
+                    && defensiveMajor.Length == 0 && immunity.Length == 0) continue;
                 any = true;
                 sb.Append($" [\"{Escape(specs[i])}\"] = {{");
                 if (mobility.Length > 0) sb.Append($" mobility = {{ {string.Join(", ", mobility)} }},");
@@ -95,6 +102,8 @@ internal static class CatalogLuaGenerator
                 if (offensive.Length > 0) sb.Append($" offensive = {{ {string.Join(", ", offensive)} }},");
                 if (defensive.Length > 0) sb.Append($" defensive = {{ {string.Join(", ", defensive)} }},");
                 if (defensiveMinor.Length > 0) sb.Append($" defensiveMinor = {{ {string.Join(", ", defensiveMinor)} }},");
+                if (defensiveMajor.Length > 0) sb.Append($" defensiveMajor = {{ {string.Join(", ", defensiveMajor)} }},");
+                if (immunity.Length > 0) sb.Append($" immunity = {{ {string.Join(", ", immunity)} }},");
                 sb.Append(" },");
             }
             if (any) sb.AppendLine();

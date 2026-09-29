@@ -130,6 +130,13 @@ internal sealed class MainForm : Form
     private ClassSkillsView? _classSkills;
     private ChamferButton? _classSkillsEntry;
 
+    // Stream 3 wiring: solo survival-band editor (Safety card) and the
+    // bridge-health banner + suggested-vs-cast audit (Diagnostics page).
+    private readonly SoloBandEditor _soloBands = new();
+    private readonly SemanticBanner _bridgeBanner = new("Bridge health: unknown", StatusTone.Info);
+    private readonly CastAuditView _castAuditView = new();
+    private readonly ChamferButton _castAuditLoad = new() { Text = "Load audit from export...", Role = ButtonRole.Ghost };
+
     // Advanced-popup mirrors (v3.0.0 D1/D2). A WinForms control has exactly one
     // parent, so the popup's lazy build must never reuse a hero control: doing
     // so silently re-parents it off the main window (the confirmed screenshot
@@ -1225,6 +1232,7 @@ internal sealed class MainForm : Form
         page.AddCard("Safety", "Modes").Add(Stack(
             (CheckRow(_solo), 30),
             (Hint("Requires Combat intelligence. Below 65% HP efficient self-heals become eligible; below 35% HP survival actions outrank damage. Emergency cooldowns are preserved while HP is safe."), 0),
+            (_soloBands, 0),
             (CheckRow(_combatOnly), 30),
             (Hint("When on, the companion only acts while you are in combat."), 0)));
 
@@ -1277,6 +1285,7 @@ internal sealed class MainForm : Form
         }
 
         page.AddCard("Protocol / bridge", "Live").Add(Stack(
+            (_bridgeBanner, 0),
             (Ui.FieldRow("Protocol", _protocolValue), 26),
             (Ui.FieldRow("Bridge state", _bridgeStateValue), 26),
             (Ui.FieldRow("Slots", _slotsValue), 26),
@@ -1284,11 +1293,13 @@ internal sealed class MainForm : Form
             (Ui.FieldRow("Decision", _decisionValue), 26),
             (Ui.FieldRow("Raw sample", _rawValue), 26)));
 
+        _castAuditLoad.Click += (_, _) => LoadCastAudit();
         page.AddCard("Telemetry", "Recording").Add(Stack(
             (CheckRow(_telemetry), 30),
             (Hint("Bounded in-memory JSONL ring: decoded keybinds, state flags and timing only. No network, no Blizzard values."), 0),
-            (ButtonsRow(40, _telemetryExport, _telemetryReplay), 40),
-            (StatusLabel(_telemetryStatus), 24)));
+            (ButtonsRow(40, _telemetryExport, _telemetryReplay, _castAuditLoad), 40),
+            (StatusLabel(_telemetryStatus), 24),
+            (_castAuditView, 0)));
 
         var findStrip = new ChamferButton { Text = "Find strip", Role = ButtonRole.Ghost, TrailingGlyph = null };
         findStrip.Click += (_, _) => RecalibratePositionOnly();
@@ -1809,6 +1820,7 @@ internal sealed class MainForm : Form
         _intelligence.Checked = _settings.IntelligenceEnabled;
         _solo.Checked = _settings.SoloEnabled;
         _solo2.Checked = _settings.SoloEnabled;
+        _soloBands.LoadFrom(_settings);
         _telemetry.Checked = _settings.TelemetryEnabled;
         _targetKey.Text = _settings.TargetKey;
         _interactKey.Text = _settings.InteractKey;
@@ -1842,6 +1854,7 @@ internal sealed class MainForm : Form
         _settings.SchedulerEnabled = _scheduler.Checked;
         _settings.IntelligenceEnabled = _intelligence.Checked;
         _settings.SoloEnabled = _solo.Checked;
+        _soloBands.ApplyTo(_settings);   // validate the ladder before SaveSettings
         _settings.TelemetryEnabled = _telemetry.Checked;
         var targetKey = _targetKey.Text.Trim();
         _settings.TargetKey = string.IsNullOrWhiteSpace(targetKey) ? "Tab" : targetKey;
@@ -1978,6 +1991,33 @@ internal sealed class MainForm : Form
         }
     }
 
+    /// <summary>
+    /// Loads an exported JSONL session into the read-only suggested-vs-cast
+    /// grid. Pure review surface: it never touches the live engine or the
+    /// buffer, and a malformed/empty file leaves the empty-state hint in place.
+    /// </summary>
+    private void LoadCastAudit()
+    {
+        using var dialog = new OpenFileDialog
+        {
+            Title = "Load suggested-vs-cast audit",
+            Filter = "JSONL telemetry (*.jsonl)|*.jsonl|All files (*.*)|*.*",
+            InitialDirectory = Program.AppDir,
+            CheckFileExists = true,
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        try
+        {
+            var report = CastAudit.FromFile(dialog.FileName);
+            _castAuditView.Load(report);
+            SetTelemetryStatus($"audit: {report.Casts}/{report.Suggestions} plan-head suggestions cast from {Path.GetFileName(dialog.FileName)}");
+        }
+        catch (Exception ex)
+        {
+            SetTelemetryStatus($"audit load failed: {ex.Message}");
+        }
+    }
+
     private void RecalibrateFull()
     {
         if (_calThread is { IsAlive: true })
@@ -2074,7 +2114,92 @@ internal sealed class MainForm : Form
         if (_bridgeStateValue.Text != bridge) _bridgeStateValue.Text = bridge;
         if (_protocolValue.Text == "-") _protocolValue.Text = $"v{PixelProtocol.SupportedVersion} (supported)";
 
+        UpdateBridgeBanner(status);
+
         UpdateHero();
+    }
+
+    /// <summary>
+    /// Stream 3 bridge-health banner. Warn-only copy from the frozen
+    /// <see cref="EngineStatus"/>: the record carries no decode counters, so the
+    /// notice is driven by the sampled addon version (parsed from the status
+    /// message / raw sample) and the live visibility, never by invented numbers.
+    /// Wrapped fail-open — a copy bug must never stall the UI timer.
+    /// </summary>
+    private void UpdateBridgeBanner(EngineStatus status)
+    {
+        try
+        {
+            string title, detail;
+            StatusTone tone;
+
+            if (!_engine.IsRunning)
+            {
+                (title, tone, detail) = ("Bridge health: unknown", StatusTone.Info, "");
+            }
+            else
+            {
+                var sampled = ParseSampledVersion(status.Message) ?? ParseSampledVersion(status.RawSample) ?? 0;
+                var counters = MismatchCountersFrom(status);
+                var notice = BridgeHealth.VersionSkewNotice(sampled, PixelProtocol.SupportedVersion)
+                    ?? BridgeHealth.MismatchNotice(counters.Faults, counters.Samples);
+
+                if (notice is not null)
+                {
+                    (title, tone, detail) = ("Bridge needs attention", StatusTone.Warning, notice);
+                }
+                else if (!status.BridgeVisible)
+                {
+                    (title, tone, detail) = ("Bridge not visible", StatusTone.Warning,
+                        "No strip sample is decoding. " + BridgeHealth.RepairHint + " " + BridgeHealth.CalibrateHint);
+                }
+                else
+                {
+                    (title, tone, detail) = ("Bridge health: good", StatusTone.Success, "");
+                }
+            }
+
+            if (_bridgeBanner.Text != title) _bridgeBanner.Text = title;
+            _bridgeBanner.Tone = tone;
+            if (!string.Equals(_bridgeBanner.Detail, detail, StringComparison.Ordinal))
+                _bridgeBanner.Detail = detail;
+        }
+        catch
+        {
+            // Fail-open: reset to the neutral placeholder, never rethrow.
+            if (_bridgeBanner.Text != "Bridge health: unknown")
+            {
+                _bridgeBanner.Text = "Bridge health: unknown";
+                _bridgeBanner.Tone = StatusTone.Info;
+                _bridgeBanner.Detail = "";
+            }
+        }
+    }
+
+    /// <summary>
+    /// EngineStatus has no decode counters, so <see cref="BridgeHealth.MismatchNotice"/>
+    /// cannot be fed a real rate. The visible state is the only witness: report
+    /// 0/0 so the notice stays silent rather than fabricating a fault count.
+    /// </summary>
+    private static (int Faults, int Samples) MismatchCountersFrom(EngineStatus status) =>
+        status.BridgeVisible
+            ? (0, BridgeHealth.MismatchMinSamples)
+            : (0, 0);
+
+    /// <summary>First bare "v&lt;digits&gt;" token in the text, or null. Never throws.</summary>
+    private static int? ParseSampledVersion(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return null;
+        for (var i = 0; i + 1 < text.Length; i++)
+        {
+            if (text[i] != 'v' && text[i] != 'V') continue;
+            var start = i + 1;
+            var end = start;
+            while (end < text.Length && char.IsDigit(text[end])) end++;
+            if (end > start && int.TryParse(text.AsSpan(start, end - start), out var version) && version > 0)
+                return version;
+        }
+        return null;
     }
 
     private void UpdateHero()

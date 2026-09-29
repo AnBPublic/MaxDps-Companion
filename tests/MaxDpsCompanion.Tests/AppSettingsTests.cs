@@ -28,6 +28,10 @@ public class AppSettingsTests : IDisposable
         Assert.Equal(35, settings.SoloEmergencyHpPct);
         Assert.Equal(65, settings.SoloSelfSustainHpPct);
         Assert.Equal(60, settings.SoloDefensiveEscalateHpPct);
+        Assert.True(settings.SoloEscalationEnabled);
+        Assert.Equal(75, settings.SoloMinorHpPct);
+        Assert.Equal(50, settings.SoloMajorHpPct);
+        Assert.Equal(30, settings.SoloImmunityHpPct);
         Assert.Equal(8, settings.SlotEnabled.Length);
     }
 
@@ -75,6 +79,10 @@ public class AppSettingsTests : IDisposable
         settings.SoloEmergencyHpPct = 30;
         settings.SoloSelfSustainHpPct = 70;
         settings.SoloDefensiveEscalateHpPct = 55;
+        settings.SoloEscalationEnabled = false;
+        settings.SoloMinorHpPct = 80;
+        settings.SoloMajorHpPct = 45;
+        settings.SoloImmunityHpPct = 25;
         settings.SlotEnabled[6] = false;   // Mobility
         settings.SlotEnabled[7] = false;   // SelfHeal
         settings.Save();
@@ -85,6 +93,10 @@ public class AppSettingsTests : IDisposable
         Assert.Equal(30, reloaded.SoloEmergencyHpPct);
         Assert.Equal(70, reloaded.SoloSelfSustainHpPct);
         Assert.Equal(55, reloaded.SoloDefensiveEscalateHpPct);
+        Assert.False(reloaded.SoloEscalationEnabled);
+        Assert.Equal(80, reloaded.SoloMinorHpPct);
+        Assert.Equal(45, reloaded.SoloMajorHpPct);
+        Assert.Equal(25, reloaded.SoloImmunityHpPct);
         Assert.False(reloaded.SlotEnabled[6]);
         Assert.False(reloaded.SlotEnabled[7]);
         Assert.True(reloaded.SlotEnabled[0]);
@@ -93,7 +105,7 @@ public class AppSettingsTests : IDisposable
     [Fact]
     public void Solo_Thresholds_Are_Clamped()
     {
-        File.WriteAllText(_path, "[Solo]\nEnabled=1\nEmergencyHpPct=1\nSelfSustainHpPct=200\nDefensiveEscalateHpPct=0\n");
+        File.WriteAllText(_path, "[Solo]\nEnabled=1\nEmergencyHpPct=1\nSelfSustainHpPct=200\nDefensiveEscalateHpPct=0\nMinorHpPct=5\nMajorHpPct=200\nImmunityHpPct=200\n");
 
         var settings = AppSettings.Load(_path);
 
@@ -101,6 +113,20 @@ public class AppSettingsTests : IDisposable
         Assert.Equal(5, settings.SoloEmergencyHpPct);
         Assert.Equal(99, settings.SoloSelfSustainHpPct);
         Assert.Equal(5, settings.SoloDefensiveEscalateHpPct);
+        Assert.Equal(40, settings.SoloMinorHpPct);
+        Assert.Equal(90, settings.SoloMajorHpPct);
+        Assert.Equal(60, settings.SoloImmunityHpPct);
+    }
+
+    [Fact]
+    public void Solo_Band_Ordering_Validator_Falls_Back()
+    {
+        // Inverted bands can never reach the policy: the validator restores
+        // the ladder order (immunity < major < minor).
+        var (minor, major, imm) = PolicyOptions.ValidateSoloBands(50, 75, 60);
+        Assert.True(imm < major && major < minor);
+        var (minor2, major2, imm2) = PolicyOptions.ValidateSoloBands(75, 50, 30);
+        Assert.Equal((75, 50, 30), (minor2, major2, imm2));
     }
 
     // ----- [Window] Layout (v3 classic shell) ------------------------------

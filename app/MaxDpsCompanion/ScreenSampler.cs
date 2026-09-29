@@ -27,6 +27,24 @@ internal sealed class ScreenSampler : IDisposable
     /// <summary>Samples taken per cell at 2px+; the median wins. Must stay odd.</summary>
     public const int TapsPerCell = 5;
 
+    /// <summary>
+    /// Cell size at/above which the 5-tap centre+4-neighbourhood median is
+    /// used. Below this the taps would bleed into the neighbouring cell, so the
+    /// exact centre pixel is read instead. Tuned for the bridge's default 8px
+    /// cells (Aethys-proven: ±1px misalignment tolerance by construction) and
+    /// still safe at 2-7px. Must stay 2.
+    /// </summary>
+    public const int MedianMinCellSize = 2;
+
+    /// <summary>
+    /// Recommended sampler cadence in ms. The bridge repaints its strip every
+    /// 33 ms (Bridge.lua UPDATE_INTERVAL = 0.033); polling faster only re-reads
+    /// identical frames, slower adds input latency. AppSettings.PollIntervalMs
+    /// defaults to this and the engine stretches it further under CPU pressure
+    /// (duty-cycle guard), so this is the floor, not a hard rate.
+    /// </summary>
+    public const int RecommendedPollIntervalMs = 33;
+
     // Reused tap buffer (single-threaded sampler): zero per-tick garbage.
     private readonly byte[] _tapR = new byte[TapsPerCell];
     private readonly byte[] _tapG = new byte[TapsPerCell];
@@ -116,10 +134,10 @@ internal sealed class ScreenSampler : IDisposable
     }
 
     private Color SampleCellInstance(Func<int, int, Color> read, int cell, int cellSize) =>
-        cellSize < 2 ? CentrePixel(read, cell, cellSize) : MedianSample(read, cell, cellSize);
+        cellSize < MedianMinCellSize ? CentrePixel(read, cell, cellSize) : MedianSample(read, cell, cellSize);
 
     private static Color SampleCell(Func<int, int, Color> read, int cell, int cellSize) =>
-        cellSize < 2 ? CentrePixel(read, cell, cellSize) : MedianSampleStatic(read, cell, cellSize);
+        cellSize < MedianMinCellSize ? CentrePixel(read, cell, cellSize) : MedianSampleStatic(read, cell, cellSize);
 
     /// <summary>Allocating variant for the static region paths (learner).</summary>
     private static Color MedianSampleStatic(Func<int, int, Color> read, int cell, int cellSize)

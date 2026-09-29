@@ -315,7 +315,7 @@ end
 BuildPanel = function ()
   if Panel then return Panel; end
   local P = CreateFrame("Frame", "MaxDpsBridgeTogglesPanel", UIParent, "BackdropTemplate");
-  P:SetSize(360, 770);
+  P:SetSize(360, 806);
   P:SetBackdrop(PANEL_BACKDROP);
   P:SetBackdropColor(BG_R, BG_G, BG_B, 0.96);
   P:SetBackdropBorderColor(0.25, 0.25, 0.30, 1);
@@ -367,6 +367,25 @@ BuildPanel = function ()
     Y = Y - 26;
   end
   Y = Y - 8;
+
+  -- Crowd control (v3.4.0 CC appendix). A 14th restrict-only toggle that is
+  -- NOT part of the 13 canonical Keys(); missing = ON, addon OFF wins. Off the
+  -- pixel path: it only writes MaxDpsBridgeDB.Toggles.CC.
+  SectionHeader(P, "Crowd control (opt-in, restrict-only)", Y);
+  Y = Y - 26;
+  local CCCheck = MakeUiCheckbox(P, "Allow crowd control (addon side)",
+    Y,
+    function ()
+      local T = MDB.Toggles;
+      if T and T.IsCC then return T.IsCC(); end
+      return true;
+    end,
+    function (On)
+      local T = MDB.Toggles;
+      if T and T.SetCC then T.SetCC(On); end
+    end);
+  UiCheckboxes[#UiCheckboxes + 1] = CCCheck;
+  Y = Y - 34;
 
   -- Overlay section.
   SectionHeader(P, "Overlay", Y);

@@ -1620,6 +1620,15 @@ end
 --    catalog's derived gap-fill list (Catalog.lua, Major first, immunities
 --    excluded) supplies the first ready+bound defensive. Below Red the
 --    companion never substitutes its own defensive for MaxDps's silence.
+-- 3. v3.3.0 Solo ladder (ADDITIVE, group behaviour unchanged): Bridge.lua
+--    arms MDB.SoloLadderBands = { minor, major, immunity } (HP pct thresholds;
+--    nil/0 band = disabled) from the in-game Solo toggle + group state, and
+--    the companion app gates the verdict by the same bands. When Solo bands
+--    are armed, a MaxDps-silent slot ALSO offers: defensiveMinor at/below the
+--    minor band, defensiveMajor at/below the major band, and immunity
+--    at/below the immunity band. Group frames (no bands armed) keep the exact
+--    pre-3.3.0 Red/Orange behaviour below. Unchosen talents are naturally
+--    ignored: ExtraSpellID only offers a ready+bound spell the player knows.
 -- The whole path (including the gap-fill) stays inside MaxDps's own
 -- `enableDefensives` switch: muting defensive intelligence in MaxDps mutes
 -- the companion's defensive automation too. The companion's own per-ability
@@ -1630,6 +1639,28 @@ function MDB.GetDefensiveCandidate ()
   if not Enabled then return nil, false; end
   local Flagged = FirstFlagged("defensive", false, true);
   if Flagged then return Flagged, false; end
+  -- v3.3.0 Solo ladder: HP-banded offers below the classic tiers.
+  local Bands = MDB.SoloLadderBands;
+  if type(Bands) == "table" then
+    local Hp = MDB.GetPlayerHpPct();
+    if type(Hp) == "number" then
+      local MinorBand = tonumber(Bands.minor) or 0;
+      local MajorBand = tonumber(Bands.major) or 0;
+      local ImmBand = tonumber(Bands.immunity) or 0;
+      if ImmBand > 0 and Hp <= ImmBand then
+        local Imm = ExtraSpellID("immunity");
+        if Imm then return Imm, true; end
+      end
+      if MajorBand > 0 and Hp <= MajorBand then
+        local Maj = ExtraSpellID("defensiveMajor");
+        if Maj then return Maj, true; end
+      end
+      if MinorBand > 0 and Hp <= MinorBand then
+        local Min = ExtraSpellID("defensiveMinor");
+        if Min then return Min, true; end
+      end
+    end
+  end
   local Urgency = MDB.GetDefensiveUrgency(nil);
   if Urgency == URGENCY_RED then
     local Gap = ExtraSpellID("defensive");
@@ -1756,4 +1787,138 @@ function MDB.GetExtrasDiag ()
     Parts[#Parts + 1] = "no-extras";
   end
   return table.concat(Parts, " ");
+end
+
+--- ======= PERFORMANCE: SLOT-INTENT CHANGE KEY (Stream 2, bridge 3.4.0) =======
+-- Bridge.Update caches the encoded slot candidates and recomputes that scan
+-- only when this key changes (see Bridge.lua PERF block). The key is built
+-- from cheap, pcall-contained reads ONLY:
+--   * scalar suggestion values (MaxDps.Spell),
+--   * order-independent numeric hashes / counts of the flagged sets,
+--   * table + function identities and list shapes (binding / readiness /
+--     variant resolvers, per-spec curated lists),
+--   * the binding revision and the toggle table.
+-- It NEVER copies or scrubs an upstream table, never runs a secret compare
+-- outside pcall, and never allocates more than the returned string. Sensor
+-- cells (vitals, cast, target, range, aura, class/spec, urgency, HP curve)
+-- are recomputed every tick regardless, so only the candidate scan is skipped.
+-- Returns nil when the key cannot be computed safely; Bridge then falls back
+-- to a full recompute (fail-open, identical behaviour).
+function MDB.FrameKey ()
+  local function KeyIdent (V)
+    if type(issecretvalue) == "function" then
+      local OkSecret, Secret = pcall(issecretvalue, V);
+      if OkSecret and Secret then return "secret"; end
+    end
+    local Ok, S = pcall(tostring, V);
+    if Ok then return S; end
+    return type(V);
+  end
+  local function KeyCount (T)
+    if type(T) ~= "table" then return -1; end
+    local N = 0;
+    local Ok = pcall(function () for _ in pairs(T) do N = N + 1; end end);
+    if not Ok then return -1; end
+    return N;
+  end
+  -- Sum of numeric keys whose value is boolean true. A secret value is not a
+  -- boolean and the compare is `==` against a boolean, which never invokes a
+  -- number/table metamethod; the whole loop is pcall-contained anyway.
+  local function KeyHash (T)
+    if type(T) ~= "table" then return -1; end
+    local Sum = 0;
+    local Ok = pcall(function ()
+      for K, V in pairs(T) do
+        if type(K) == "number" and type(V) == "boolean" and V == true then Sum = Sum + K; end
+      end
+    end);
+    if not Ok then return -1; end
+    return Sum;
+  end
+  local function KeyList (List)
+    if type(List) ~= "table" then return "nil"; end
+    local Ok, N = pcall(function () return #List; end);
+    return KeyIdent(List) .. "#" .. (Ok and N or -1);
+  end
+
+  local MaxDps = MaxDpsEngine();
+  if not MaxDps then return nil; end;
+  local _, classFile, specName = ClassSpec();
+  local Parts = {};
+  local function P (Label, Value) Parts[#Parts + 1] = Label .. "=" .. Value; end
+
+  P("spell", KeyIdent(MaxDps.Spell));
+  P("glow", KeyIdent(MaxDps.SpellsGlowing) .. "#" .. KeyCount(MaxDps.SpellsGlowing));
+  P("spells", KeyIdent(MaxDps.Spells) .. "#" .. KeyCount(MaxDps.Spells));
+  P("flags", KeyCount(MaxDps.Flags) .. "@" .. KeyHash(MaxDps.Flags));
+  P("items", KeyIdent(MaxDps.ItemSpells) .. "#" .. KeyCount(MaxDps.ItemSpells));
+  P("cls", KeyIdent(classFile));
+  P("spec", KeyIdent(specName));
+
+  local CDs = MaxDps.classCooldowns and classFile and MaxDps.classCooldowns[classFile]
+    and MaxDps.classCooldowns[classFile][specName];
+  P("def", KeyList(CDs and CDs.defensive));
+  P("off", KeyList(CDs and CDs.offensive));
+  local Ints = MaxDps.classInterrupts and classFile and MaxDps.classInterrupts[classFile]
+    and MaxDps.classInterrupts[classFile][specName];
+  P("int", KeyList(Ints));
+  local Global = MaxDps.db and MaxDps.db.global;
+  P("cdOn", KeyIdent(Global and Global.enableCooldowns));
+  P("defOn", KeyIdent(Global and Global.enableDefensives));
+
+  local Extra = MDB.Extras and classFile and MDB.Extras[classFile]
+    and MDB.Extras[classFile][specName];
+  P("x", Extra and (KeyList(Extra.mobility) .. KeyList(Extra.selfHeal)
+    .. KeyList(Extra.offensive) .. KeyList(Extra.defensive)
+    .. KeyList(Extra.defensiveMajor) .. KeyList(Extra.defensiveMinor)
+    .. KeyList(Extra.immunity)) or "nil");
+
+  P("bind", KeyIdent(MDB._BindCache) .. "#" .. KeyCount(MDB._BindCache)
+    .. "@" .. KeyIdent(MDB._BindRevision));
+  do
+    local OkHp, Hp = pcall(MDB.GetPlayerHpPct);
+    P("hp", OkHp and KeyIdent(Hp) or "?");
+  end
+  local Bands = MDB.SoloLadderBands;
+  if type(Bands) == "table" then
+    P("solo", KeyIdent(Bands.minor) .. "," .. KeyIdent(Bands.major)
+      .. "," .. KeyIdent(Bands.immunity));
+  else
+    P("solo", "nil");
+  end
+  local TG = MaxDpsBridgeDB and MaxDpsBridgeDB.Toggles;
+  if type(TG) == "table" then
+    P("tg", KeyIdent(TG.Main) .. KeyIdent(TG.Offensive) .. KeyIdent(TG.Defensive)
+      .. KeyIdent(TG.Consumable) .. KeyIdent(TG.Trinket) .. KeyIdent(TG.Interrupt)
+      .. KeyIdent(TG.Mobility) .. KeyIdent(TG.SelfHeal) .. KeyIdent(TG.Solo)
+      .. KeyIdent(TG.OOC) .. KeyIdent(TG.AutoTarget) .. KeyIdent(TG.AutoInteract)
+      .. KeyIdent(TG.TTK));
+  else
+    P("tg", "nil");
+  end
+  P("f", table.concat({
+    KeyIdent(_G.C_Spell and _G.C_Spell.GetSpellCooldown),
+    KeyIdent(_G.C_Spell and _G.C_Spell.GetSpellCooldownDuration),
+    KeyIdent(_G.C_Spell and _G.C_Spell.GetSpellCharges),
+    KeyIdent(_G.C_Spell and _G.C_Spell.IsSpellUsable),
+    KeyIdent(_G.C_SpellBook),
+    KeyIdent(_G.IsPlayerSpell),
+    KeyIdent(_G.FindBaseSpellByID),
+    KeyIdent(_G.FindSpellOverrideByID),
+    KeyIdent(_G.GetOverrideSpell),
+    KeyIdent(_G.GetMacroSpell),
+    KeyIdent(_G.GetActionInfo),
+    KeyIdent(_G.GetBindingKey),
+    KeyIdent(_G.GetSpellTexture),
+    KeyIdent(MDB.BindingForTexture),
+    KeyIdent(MaxDps.IsSpellInRange),
+    KeyIdent(MDB.GetMainSpellID),
+    KeyIdent(MDB.GetOffensiveCandidate),
+    KeyIdent(MDB.GetDefensiveCandidate),
+    KeyIdent(MDB.ExtraCandidates),
+    KeyIdent(MDB.ResolveBinding),
+    KeyIdent(MDB.IsSpellReady),
+    KeyIdent(MDB.IsInterruptReady),
+  }, ","));
+  return table.concat(Parts, "|");
 end

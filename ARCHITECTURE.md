@@ -14,8 +14,8 @@ Vendor discovery (read-only): MaxDps:GlowDefensiveHPMidnight (Buttons.lua:1056)
   curve's own control points — see docs/research/ABILITY_RESEARCH.md §6.
        │
        ▼
-MaxDpsBridge addon — 40-cell pixel strip (bridge 3.2.0; version-only bump
-  from 3.0.0 — the Ext2 layout is unchanged)
+MaxDpsBridge addon — 40-cell pixel strip (bridge 3.3.0; v5 + Ext2 layout
+  unchanged from 3.0.0)
   v5 core (35 cells, version nibble stays 5): magic · 8 slots (Main/Off/Def/
         Cons/Trin/Int/Mobility/SelfHeal) · status · version+checksum · 8 × 24-bit
         spell id · vitals · cast · target · range tri-states · self-buff bits
@@ -56,6 +56,17 @@ MaxDpsBridge addon — 40-cell pixel strip (bridge 3.2.0; version-only bump
             The whole path stays inside MaxDps's own `enableDefensives` /
             `enableCooldowns` switches, so muting them upstream also mutes
             the gap-fill.
+  gates (bridge 3.3.0): Toggles.lua is the single addon-side restriction
+        point. `SlotAllowed(slot, ctx)` is consulted before every WriteSlot —
+        a denied slot is written empty with the valid flag clear, i.e. the
+        ordinary no-candidate state (no wire bit). It owns the per-slot rules
+        plus OOC (blanks 1-8 out of combat) and Solo (blanks 3/8 while known
+        ungrouped, emergency HP excepted); TTK OFF forces target band 15 and
+        AutoTarget/AutoInteract silence states 3/4. The addon can only
+        RESTRICT: `effective = companion AND addon`, an addon OFF wins; a
+        missing DB key = ON and every gate fails open. Panel.lua is the
+        plain-frame settings panel + draggable overlay (`/mdb toggles`,
+        `/mdb overlay`) and never runs on the pixel-update path.
        │  (flat colours, top-left corner overlay; every probe degrades to
        │   UNKNOWN — never throws, never compares a secret value)
        ▼
@@ -134,21 +145,28 @@ Situational policy (Knowledge/PolicyEvaluator) — [Intelligence] Enabled=1
       (usage default or curated); T2 bypasses the pairing hold when valid TTK
       ≥ 2·cd+dur (absent cd skips); T3 bypasses it when executeFavored and target
       HP ≤ executeBelowPct. Invalid TTK skips all three (fail open)
-  · mobility: gap closers need a confirmed out-of-melee target + in-range
-    ability; escapes/movement are never automatic
-   · self-heals: emergency self-heal (HP <= EmergencyHpPct, default 35) is a
-     survival Use in BOTH Normal and Solo and outranks main; the wider Solo
-     sustain layer stays Solo-only (sustain HP gate, overheal guard, ability
-     ceiling useBelowHpPct, immunity / conservation guards, target/range
-     preconditions, never-automatic veto); above emergency in Normal it holds
-   · defensives T4 (v3.2.0): in Solo only and not emergency, a valid TTK < 6 s
-     holds the defensive ("target dies in ~Xs; saving <mitigation>"); emergency
-     HP always overrides, and Normal mode is unaffected
-   · audit/inspector: `--ability-audit=<path>` + `tools/ability_audit.ps1`
-     (Violations 0 / Warnings 0 / Missing 0 / Stale 0 enforced; exit 3 when
-     non-clean, 2 on addon Catalog.lua drift); `--ability-info=<spellId>` app
-     inspector; `--ability-coverage=<path>` machine-readable manifest;
-     `--ability-search/class/spec` registry filters
+    · mobility: gap closers need a confirmed out-of-melee target + in-range
+      ability; escapes/movement are never automatic
+    · self-heals: emergency self-heal (HP <= EmergencyHpPct, default 35) is a
+      survival Use in BOTH Normal and Solo and outranks main; the wider Solo
+      sustain layer stays Solo-only (sustain HP gate, overheal guard, ability
+      ceiling useBelowHpPct, immunity / conservation guards, target/range
+      preconditions, never-automatic veto); above emergency in Normal it holds
+    · solo ladder (v3.3.0): Solo-only HP bands widen survival beyond heals —
+      Minor absorb/shield at/below SoloMinorHpPct (75), heal at/below
+      SelfSustainHpPct (65), Major at/below SoloMajorHpPct (50), immunity
+      at/below SoloImmunityHpPct (30). In-band gap-fill bypasses the
+      White-urgency hold (HP-substitution); out-of-band holds; immunity needs
+      no active immunity; MaxDps-flagged + all group verdicts unchanged;
+      T4 dying-target hold + overheal guard + escalate rule still apply
+    · defensives T4 (v3.2.0): in Solo only and not emergency, a valid TTK < 6 s
+      holds the defensive ("target dies in ~Xs; saving <mitigation>"); emergency
+      HP always overrides, and Normal mode is unaffected
+    · audit/inspector: `--ability-audit=<path>` + `tools/ability_audit.ps1`
+      (Violations 0 / Warnings 0 / Missing 0 / Stale 0 enforced; exit 3 when
+      non-clean, 2 on addon Catalog.lua drift); `--ability-info=<spellId>` app
+      inspector; `--ability-coverage=<path>` machine-readable manifest;
+      `--ability-search/class/spec` registry filters
         │
         ▼
 Candidate providers (Knowledge/CandidateProviders.cs) — v2.7
@@ -156,7 +174,8 @@ Candidate providers (Knowledge/CandidateProviders.cs) — v2.7
   (Main/Consumable/Trinket + fail-open tail), Offensive (source = MaxDps wire
   or, v3.0.0, curated catalog gap-fill detected by id membership, combat/Solo
   gated), Defensive (source = MaxDps recommendation or catalog gap-fill,
-  Red majors / Orange short-CDs), Interrupt, Mobility
+  Red majors / Orange short-CDs; v3.3.0 Solo ladder adds HP-banded
+  Minor/Major/Immunity gap-fill with urgency substitution), Interrupt, Mobility
   (BridgeExtra), SelfSustain (BridgeExtra), Utility (structurally incapable
   of Use). Every decision carries Provider + CandidateSourceKind
   (MaxDpsWire/BridgeExtra/CompanionGapFill/None) + structured evidence;
@@ -290,8 +309,8 @@ MainForm (borderless; 660-wide fixed frame; 2px ring red stopped / green
 
 ```
 MaxDps-Companion/
-  addon/MaxDpsBridge/        bridge addon 3.2.0 (version-only bump; v5 + Ext2
-                             encoder, /mdb commands)
+  addon/MaxDpsBridge/        bridge addon 3.3.0 (v5 + Ext2 encoder, in-game
+                             13-toggle UI, /mdb commands)
     Catalog.lua              GENERATED class/spec ids + extras (--gen-catalog,
                              incl. per-spec offensive (curated), defensive
                              (Red) and defensiveMinor (Orange) gap-fill lists,
@@ -302,7 +321,19 @@ MaxDps-Companion/
                              (base/override/alias resolution), SelfHeal2,
                              Ext2 HP-curve source
     Bridge.lua               strip rendering + 40-cell v5 + Ext2 encode
-                             (urgency + HP curve + SelfHeal2 + Ext2 checksum)
+                             (urgency + HP curve + SelfHeal2 + Ext2 checksum);
+                             per-tick toggle context + /mdb toggles|overlay|
+                             <key>|all|why, deep Defaults merge
+    Toggles.lua              in-game 13-toggle policy (pure logic, no frames):
+                             Get/Set/Flip/Keys/Label/Snapshot over
+                             MaxDpsBridgeDB.Toggles + SlotAllowed(slot, ctx),
+                             the single gate before WriteSlot (missing = ON,
+                             fails open; addon can only restrict)
+    Panel.lua                in-game settings panel + draggable overlay
+                             (plain frames; Settings.RegisterCanvasLayoutCategory
+                             with InterfaceOptions_AddCategory fallback);
+                             `/mdb toggles` opens it, `/mdb overlay on|off`
+                             shows/hides the overlay, optional minimap button
   app/MaxDpsCompanion/       WinForms companion (sampler → PostMessage)
     Knowledge/               ability knowledge base (v2.0; defensive v2.3; registry v2.6)
       AbilityModel.cs        enums + AbilityDefinition + slot mapping,
@@ -317,7 +348,7 @@ MaxDps-Companion/
                              extras, wire ids, stable lookups, defensive
                              gap-fill derivation (DefensiveGapFill),
                              registry derivation rules, patch guard
-                             (12.1 / 120100 / 11.3.49, CatalogVersion 3)
+                             (12.1 / 120100 / 11.3.49, CatalogVersion 4)
       AbilityIntelligence.cs derived per-capability intelligence +
                              registry enforcement gate, the machine audit and
                              the inspector text
@@ -326,12 +357,16 @@ MaxDps-Companion/
                              + live-verified classes) and stale/newer detection
       CandidateProviders.cs  v2.7 explicit candidate providers + candidate
                              source identity + structured decision evidence;
-                             v3.2.0 T1-T4 TTK gates
+                             v3.2.0 T1-T4 TTK gates; v3.3.0 Burst/AoE preset
+                             holds + Solo HP-banded escalation (SoloBandLatch)
       TtkEstimator.cs        v3.2.0 pure/fake-clock per-target TTK estimator
                              (band -> frac, reset/feed-from-anchor/EWMA seed,
                              clamp 300 s; invalid fails open)
       TtkPolicy.cs           v3.2.0 MinTtkSec usage defaults + TTK field
                              forwarding for the T1-T4 gates
+      SoloBandLatch.cs       v3.3.0 Solo HP-band hysteresis latch (enter band,
+                             then stay eligible to enter+5 once engaged; with no
+                             prior engagement it is the plain enter threshold)
       AbilityPolicy.cs       user per-spell ON/OFF overrides ([Abilities],
                              incl. Modes SoloOnly/NormalOnly/Manual/Never/
                              Always/Automatic)
@@ -358,7 +393,9 @@ MaxDps-Companion/
                              KvRow, pills/tiles/chips, UiClickable),
                              AbilityExplorer / AbilityInspector,
                              Pages (StackPage hosts for the popup tabs),
-                             SettingsPages (Configuration/Diagnostics),
+                             SettingsPages (Configuration/Diagnostics +
+                             v3.3.0 SoloBandEditor Minor/Major/Immunity rows;
+                             v3.3.0 Mode/Target preset rows),
                              UiShellValidation (honest structural smoke)
     UiControls.cs            restored classic primitives: RoundedCard (hero),
                              RuleSection, GradientCanvas, LinkLamp, StripView,
@@ -378,11 +415,18 @@ MaxDps-Companion/
       SchedulerModel.cs      input/plan/reason/verdict models
       ActionScheduler.cs     pure state machine: link, policy, rank, pacing,
                              failure recovery (rejection + retry backoff)
-      SchedulerBench.cs      --bench-scheduler deterministic measurement
+      SchedulerBench.cs      --bench-scheduler deterministic measurement;
+                             v3.3.0 p95 frame-cost regression baseline
+      BridgeHealth.cs        v3.3.0 stale-addon / protocol-skew advisor
+                             (OWED: not yet consumed by RotationEngine/MainForm)
     Decision/                legacy decision layer (v1.4.0, opt-in)
     Telemetry/               local rotation telemetry + replay (opt-in)
+      CastAudit.cs           v3.3.0 suggested-vs-cast audit over recorded
+                             events (pure; read-only report)
+    Ui/CastAuditView.cs      v3.3.0 read-only audit grid (OWED: not mounted)
+    Ui/SemanticBanner.cs     v3.3.0 status-tone banner control (OWED: not mounted)
     ThisAssembly.Gen.cs      build stamp (git HEAD + date, title bar)
-  tests/MaxDpsCompanion.Tests/ xunit suite (571 tests)
+  tests/MaxDpsCompanion.Tests/ xunit suite (613 tests)
     ClassicUiTests.cs        classic shell: scroll survives refreshes, no Layout
                              events on value-only refreshes, default/min sizes,
                              7 button labels, real mouse-message clicks, launcher
@@ -447,8 +491,12 @@ MaxDps-Companion/
                              + the checked-in ttk fixture, 0 mismatches)
     fixtures/ttk-warrior-burst.jsonl  canonical v3.2.0 TTK recording (18 policy
                              verdicts, 0 mismatches; trash hold / boss fire)
+    SoloEscalationTests.cs   v3.3.0 Solo HP-band escalation: ValidateSoloBands
+                             ordering, Minor/Major/Immunity ladder verdicts,
+                             group behaviour unchanged
   tests/secret_harness.lua   offline bridge secret-safety + v5/Ext2 encode
-                             harness (153 checks)
+                             harness (186 checks, incl. the 33 in-game toggle
+                             T21 cases: nil ctx, secret HP, OFF effects, TTK)
   tools/Extract-VendorAbilities.ps1  vendor Cooldowns.lua -> JSON
   tools/ability_audit.ps1  registry audit + addon Catalog.lua drift check
                            (exit 0 clean, 1 run failure, 2 drift)
@@ -618,6 +666,25 @@ MaxDps-Companion/
   the process's current main window; engine forces a re-attach after ~2 s
   without a frame and on every Start; sampler rebuilds its DC on a failed
   BitBlt.
+- **In-game toggles can only restrict (v3.3.0).** The addon's 13 toggles
+  (`Toggles.lua`) gate the bridge before it encodes: an OFF slot is written
+  empty with the valid flag clear, and the wire has no "user muted" bit, so a
+  user-blanked slot and a genuinely-empty slot are the same decoded state and
+  the companion's ordinary no-candidate policy runs. `effective = companion
+  AND addon`; an addon OFF wins. A missing SavedVariables key = ON, and every
+  gate fails open on unknown/secret context. OOC OFF blanks slots 1-8; Solo
+  OFF blanks only Defensive/SelfHeal while known ungrouped (emergency HP
+  excepted); AutoTarget/AutoInteract silence states 3/4 without touching the
+  status flags; TTK OFF forces target band 15. No layout/version change.
+- **Cross-stream wiring owed (v3.3.0 Stream 4).** The three streams ship
+  complete units but four connections are intentionally deferred (their target
+  files are outside this merge pass): `Scheduler/BridgeHealth` consumed by
+  `RotationEngine`/`MainForm`; `Ui/CastAuditView` + `Ui/SettingsPages`
+  SoloBandEditor + `Ui/SemanticBanner` hosted in `MainForm`;
+  `SpellIconCache.Invalidate()` called from catalog regeneration;
+  `AppSettings.PollIntervalMs` code default set to 33 (`settings.ini` already
+  ships it). Documented in `HANDOVER.md` "Stream 4"; do not treat any of these
+  as shipped behaviour until wired.
 - **Legacy contract.** `[Intelligence] Enabled=0` = pre-intelligence
   behaviour (scheduler still paces, no knowledge filtering, companion-only
   slots off), except the hard execution-safety cast/channel gate which is

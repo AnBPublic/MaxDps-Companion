@@ -127,6 +127,25 @@ internal sealed class CombatContext
     /// <summary>True when the Defensive slot's ability was recommended by MaxDps itself.</summary>
     public bool MaxDpsDefensiveRecommendation => !DefensiveCatalogSource;
 
+    /// <summary>
+    /// Additive (Stream 3, v3.3.0): true when the Offensive slot's candidate is
+    /// a companion-derived gap-fill (id membership in the per-spec generated
+    /// offensive list) rather than a MaxDps wire suggestion. The wire carries no
+    /// offensive source bit, so this is derived at projection time from the
+    /// decoded class/spec + the Offensive slot's spell id. Diagnostic/parity
+    /// only — the policy verdict is unchanged, and the Defensive path keeps its
+    /// explicit wire bit (<see cref="DefensiveCatalogSource"/>) byte-identical.
+    /// </summary>
+    public bool OffensiveDerivedGapFill { get; init; }
+
+    /// <summary>
+    /// Resolves the Offensive source explicitly: the projected derived bit OR
+    /// the id-membership fallback for manually-built contexts (tests/replay).
+    /// Diagnostic/parity only; it never changes a verdict by itself.
+    /// </summary>
+    public bool IsOffensiveGapFill(int spellId, AbilityCatalog catalog) =>
+        OffensiveDerivedGapFill || catalog.IsOffensiveGapFill(Class, Spec, spellId);
+
     public string? Class { get; init; }
     public string? Spec { get; init; }
 
@@ -207,6 +226,8 @@ internal sealed class CombatContext
             DefensiveUrgency = urgency,
             StaggerUrgency = frame.StaggerUrgency,
             DefensiveCatalogSource = frame.DefensiveCatalogSource,
+            OffensiveDerivedGapFill = AbilityCatalog.Default.IsOffensiveGapFill(
+                frame.ClassName, frame.SpecName, frame.SpellId(Slot.Offensive)),
             ContextValid = true,
         };
     }
@@ -244,6 +265,7 @@ internal sealed class CombatContext
             DefensiveUrgency = DefensiveUrgency,
             StaggerUrgency = StaggerUrgency,
             DefensiveCatalogSource = DefensiveCatalogSource,
+            OffensiveDerivedGapFill = OffensiveDerivedGapFill,
             Class = Class,
             Spec = Spec,
             ContextValid = ContextValid,
@@ -281,6 +303,7 @@ internal sealed class CombatContext
             DefensiveUrgency = DefensiveUrgency,
             StaggerUrgency = StaggerUrgency,
             DefensiveCatalogSource = DefensiveCatalogSource,
+            OffensiveDerivedGapFill = OffensiveDerivedGapFill,
             Class = Class,
             Spec = Spec,
             ContextValid = ContextValid,

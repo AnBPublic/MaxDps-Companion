@@ -1,3 +1,30 @@
+3.3.0
+date: 2026-09-29
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: v5 core 35 cells + ADDITIVE Ext2 40-cell block (bridge 3.3.0). No
+          wire change in 3.3.0: the version nibble stays 5 and cells/counts are
+          the same. The addon only RESTRICTS what the companion already
+          decided (`effective = companion AND addon`, an addon OFF wins);
+          a missing DB key reads as ON; a blanked slot is the same all-zero,
+          valid-flag-clear cell the bridge already emits for "no candidate".
+v3.3.0:   In-game 13-toggle UI. New Toggles.lua (pure policy: Get/Set/Flip/
+          Keys/Label/Snapshot + SlotAllowed(slot, ctx) gate consulted before
+          every WriteSlot) and Panel.lua (plain-frame settings panel via
+          Settings.RegisterCanvasLayoutCategory / InterfaceOptions_AddCategory
+          fallback + draggable overlay + optional minimap button). Bridge.lua
+          gains a per-tick toggle context, deep Defaults merge (old
+          SavedVariables stay valid), `/mdb toggles|overlay|<key> on|off|
+          all on|off|why heal`, and a `toggles=N/13 ON; OFF: ...` status
+          field. Gates: per-slot OFF; OOC OFF blanks slots 1-8 on a strict
+          known out-of-combat; Solo OFF blanks Defensive(3)/SelfHeal(8) while
+          known ungrouped except emergency HP <= 35; AutoTarget/AutoInteract
+          silence states 3/4 -> 0; TTK OFF forces target band 15. Every API
+          pcall-contained and every gate fails open. Options.lua adds a
+          "Toggles..." entry. Same release also arms the companion Solo
+          HP-banded ladder ([Solo] bands) from the in-game Solo toggle.
+v3.3.0:   harness T21 suite (33 checks): nil ctx, secret HP, each OFF effect,
+          emergency exception, TTK band forcing.
 3.2.0
 date: 2026-09-29
 git: <commit placeholder - fill at release>

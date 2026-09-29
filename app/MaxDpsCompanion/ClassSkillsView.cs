@@ -454,8 +454,13 @@ internal sealed class ClassSkillsView : Panel
             }
 
             var build = ClassSkillTree.Build(_catalog, _book, className, specName);
+            // Stream 1 §1.1: no speculative self-heal ids. When the curated
+            // catalog has no verified solo self-heal for the spec (DH today),
+            // say so instead of inventing an owed spell id.
+            var noSelfHeal = _catalog.Extras(className, specName, AbilityCategory.SelfHeal).Length == 0;
             var rowCount = 1 + build.Shared.Count
-                + build.Groups.Sum(g => g.Value.Count + 1);
+                + build.Groups.Sum(g => g.Value.Count + 1)
+                + (noSelfHeal ? 1 : 0);
             _stack.RowCount = rowCount;
 
             var row = 0;
@@ -467,6 +472,7 @@ internal sealed class ClassSkillsView : Panel
                 AddSectionHeader(ClassSkillTree.SectionTitle(group), ref row);
                 foreach (var ability in list) AddAbilityRow(ability, ref row);
             }
+            if (noSelfHeal) AddSelfHealNoteRow(className, specName, ref row);
 
             _empty.Visible = rowCount <= 1;
             if (_empty.Visible)
@@ -489,6 +495,31 @@ internal sealed class ClassSkillsView : Panel
         var header = new SectionHeader(title) { Dock = DockStyle.Fill, Margin = new Padding(0, 16, 0, 4) };
         _stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
         _stack.Controls.Add(header, 0, row);
+        row++;
+    }
+
+    /// <summary>
+    /// Honest empty-state for a spec with no verified solo self-heal (DH
+    /// Havoc/Devourer today): the companion will not invent an owed spell id,
+    /// so the screen states the gap instead of fabricating a row.
+    /// </summary>
+    private void AddSelfHealNoteRow(string className, string specName, ref int row)
+    {
+        var note = new Label
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = false,
+            Text = $"No verified solo self-heal for {ClassDisplay(className)} / {specName} — "
+                + "the companion will not invent one; MaxDps and your own kit decide heals.",
+            TextAlign = ContentAlignment.MiddleLeft,
+            ForeColor = ConsolePalette.Tidewash,
+            BackColor = Color.Transparent,
+            Font = new Font(MainForm.UiFontPublic, 9F, FontStyle.Italic),
+            Padding = new Padding(4, 0, 4, 0),
+            Margin = new Padding(0, 2, 0, 2),
+        };
+        _stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+        _stack.Controls.Add(note, 0, row);
         row++;
     }
 
@@ -671,7 +702,8 @@ internal sealed class AbilityToggleRow : Panel
             UpdateSubtitle();
         };
 
-        var tooltipText = DescribeTooltip(ability);
+        var tooltipText = DescribeTooltip(ability)
+            + "\nVeto: OFF prohibits automatic use (companion AND addon; an addon veto wins).";
         tip.SetToolTip(_name, tooltipText);
         tip.SetToolTip(_subtitle, tooltipText);
         tip.SetToolTip(_status, tooltipText);
@@ -700,7 +732,9 @@ internal sealed class AbilityToggleRow : Panel
     };
 
     private void UpdateSubtitle() =>
-        _subtitle.Text = _toggle.Checked ? "Recommendation: On" : "Recommendation: Off";
+        _subtitle.Text = _toggle.Checked
+            ? "Veto: off · automatic use allowed"
+            : "Veto: on · never automatic";
 
     protected override void OnLayout(LayoutEventArgs levent)
     {

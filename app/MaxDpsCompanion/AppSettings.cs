@@ -4,6 +4,32 @@ using System.Text;
 namespace MaxDpsCompanion;
 
 /// <summary>
+/// Companion-side rotation preset (Stream 3, restrict-only). FULL is the
+/// historical behaviour (every gate unchanged). BURST conserves major
+/// offensives, consumables and on-use trinkets until the per-target TTK is
+/// measurable (a TTK-valid boss), so burst windows are not spent on dying
+/// trash. A preset only ever HOLDS candidates — it never adds a press — and
+/// the addon can further restrict via its own toggles.
+/// </summary>
+internal enum RotationPreset
+{
+    Full = 0,
+    Burst = 1,
+}
+
+/// <summary>
+/// Companion-side target preset (Stream 3, restrict-only). SINGLE_TARGET is the
+/// historical behaviour. AOE conserves catalogued single-target-only offensive
+/// cooldowns so the curated AoE-ranked candidates already present in the list
+/// get priority. Default = current behaviour.
+/// </summary>
+internal enum TargetPreset
+{
+    SingleTarget = 0,
+    Aoe = 1,
+}
+
+/// <summary>
 /// INI-backed settings, kept hand-editable in the same shape as settings.ini.
 /// </summary>
 internal sealed class AppSettings
@@ -101,6 +127,22 @@ internal sealed class AppSettings
     // either case.
     public bool TimeToKillEnabled { get; set; } = true;
 
+    // [CrowdControl] — companion-side CC appendix opt-in (v3.4.0). OFF by
+    // default (CC is an explicit opt-in; Solo-like safety). ON makes curated,
+    // auto-eligible crowd-control rows eligible while a target is confirmed and
+    // the companion's own DR memory is clear; OFF keeps them manual-by-design.
+    // The in-game addon toggle can only further restrict (addon OFF wins,
+    // missing key = ON); that cross-surface wiring is OWED live.
+    public bool CrowdControlEnabled { get; set; } = false;
+
+    // [Rotation] — companion-side restrict-only presets (Stream 3). Defaults are
+    // the historical behaviour. Burst holds major offensives/consumable/trinket
+    // until the TTK estimate is valid (a boss-like target); AoE conserves
+    // catalogued single-target-only offensive cooldowns. Neither ever adds a
+    // press; the in-game addon can further restrict via its own toggles.
+    public RotationPreset ModePreset { get; set; } = RotationPreset.Full;
+    public TargetPreset TargetMode { get; set; } = TargetPreset.SingleTarget;
+
     // [Solo] — SOLO / SELF-SUSTAIN mode (v2.0). OFF by default. ON adds the
     // survival-first layer on top of the standard policy: self-heals become
     // eligible below the sustain threshold, defensives may be used for
@@ -116,6 +158,18 @@ internal sealed class AppSettings
 
     /// <summary>A major defensive waits while a minor runs and HP is above this.</summary>
     public int SoloDefensiveEscalateHpPct { get; set; } = 60;
+
+    /// <summary>Solo HP-banded escalation master switch (default on).</summary>
+    public bool SoloEscalationEnabled { get; set; } = true;
+
+    /// <summary>At/below this HP% Solo offers Minor absorbs (default 75, clamp 40-99).</summary>
+    public int SoloMinorHpPct { get; set; } = 75;
+
+    /// <summary>At/below this HP% Solo offers Major defensives (default 50, clamp 20-90).</summary>
+    public int SoloMajorHpPct { get; set; } = 50;
+
+    /// <summary>At/below this HP% Solo offers immunities (default 30, clamp 5-60).</summary>
+    public int SoloImmunityHpPct { get; set; } = 30;
 
     // [Abilities] — per-ability automatic-use overrides (v2.3.0 defensive
     // intelligence; v2.6 richer modes). The curated catalog default is ON for
@@ -150,7 +204,11 @@ internal sealed class AppSettings
     public static AppSettings Load(string path)
     {
         var settings = new AppSettings { Path = path };
-        if (!File.Exists(path)) return settings;
+        if (!File.Exists(path))
+        {
+            CrowdControlGate.Configure(settings.CrowdControlEnabled);
+            return settings;
+        }
 
         var section = "";
         foreach (var raw in File.ReadAllLines(path))
@@ -172,6 +230,11 @@ internal sealed class AppSettings
             settings.Apply(section, key, value);
         }
 
+        // Publish the companion CC opt-in to the policy gate (the settings class
+        // is the single load point; the evaluator's one-line CC call-site has no
+        // options plumbing by contract). Default OFF, so an absent section keeps
+        // CC manual-by-design.
+        CrowdControlGate.Configure(settings.CrowdControlEnabled);
         return settings;
     }
 
@@ -211,10 +274,17 @@ internal sealed class AppSettings
             case ("intelligence", "staleafterms"): IntelligenceStaleAfterMs = ParseInt(value, IntelligenceStaleAfterMs); break;
             case ("intelligence", "hpcurve"): HpCurve = ParseBool(value, HpCurve); break;
             case ("timetokill", "enabled"): TimeToKillEnabled = ParseBool(value, TimeToKillEnabled); break;
+            case ("crowdcontrol", "enabled"): CrowdControlEnabled = ParseBool(value, CrowdControlEnabled); break;
+            case ("rotation", "mode"): ModePreset = ParseRotationPreset(value); break;
+            case ("rotation", "targets"): TargetMode = ParseTargetPreset(value); break;
             case ("solo", "enabled"): SoloEnabled = ParseBool(value, SoloEnabled); break;
             case ("solo", "emergencyhppct"): SoloEmergencyHpPct = Math.Clamp(ParseInt(value, SoloEmergencyHpPct), 5, 90); break;
             case ("solo", "selfsustainhppct"): SoloSelfSustainHpPct = Math.Clamp(ParseInt(value, SoloSelfSustainHpPct), 10, 99); break;
             case ("solo", "defensiveescalatehppct"): SoloDefensiveEscalateHpPct = Math.Clamp(ParseInt(value, SoloDefensiveEscalateHpPct), 5, 99); break;
+            case ("solo", "escalationenabled"): SoloEscalationEnabled = ParseBool(value, SoloEscalationEnabled); break;
+            case ("solo", "minorhppct"): SoloMinorHpPct = Math.Clamp(ParseInt(value, SoloMinorHpPct), 40, 99); break;
+            case ("solo", "majorhppct"): SoloMajorHpPct = Math.Clamp(ParseInt(value, SoloMajorHpPct), 20, 90); break;
+            case ("solo", "immunityhppct"): SoloImmunityHpPct = Math.Clamp(ParseInt(value, SoloImmunityHpPct), 5, 60); break;
             case ("abilities", "on"): Abilities = AbilityPolicy.FromParts(value, Abilities.EncodeOff(), Abilities.EncodeModes()); break;
             case ("abilities", "off"): Abilities = AbilityPolicy.FromParts(Abilities.EncodeOn(), value, Abilities.EncodeModes()); break;
             case ("abilities", "modes"): Abilities = AbilityPolicy.FromParts(Abilities.EncodeOn(), Abilities.EncodeOff(), value); break;
@@ -303,15 +373,35 @@ internal sealed class AppSettings
             .AppendLine("[TimeToKill]")
             .AppendLine($"Enabled={(TimeToKillEnabled ? 1 : 0)}")
             .AppendLine()
+            .AppendLine("; Crowd-control appendix (opt-in, default off). ON makes curated")
+            .AppendLine("; auto-eligible CC rows fire only on a confirmed target and never")
+            .AppendLine("; chains the same DR category; the addon toggle can only restrict.")
+            .AppendLine("[CrowdControl]")
+            .AppendLine($"Enabled={(CrowdControlEnabled ? 1 : 0)}")
+            .AppendLine()
+            .AppendLine("; Companion-side restrict-only presets. Full/SingleTarget = historical")
+            .AppendLine("; behaviour. Burst holds majors/consumable/trinket until a boss TTK is")
+            .AppendLine("; measurable; Aoe conserves catalogued single-target-only cooldowns.")
+            .AppendLine("; A preset only ever holds; the addon can further restrict.")
+            .AppendLine("[Rotation]")
+            .AppendLine($"Mode={(ModePreset == RotationPreset.Burst ? "Burst" : "Full")}")
+            .AppendLine($"Targets={(TargetMode == TargetPreset.Aoe ? "Aoe" : "SingleTarget")}")
+            .AppendLine()
             .AppendLine("; Solo / self-sustain mode (default off; requires [Intelligence] Enabled=1).")
             .AppendLine("; EmergencyHpPct: below this, survival actions outrank the rotation.")
             .AppendLine("; SelfSustainHpPct: below this, efficient self-heals become eligible.")
             .AppendLine("; DefensiveEscalateHpPct: a major defensive waits while a minor runs above this.")
+            .AppendLine("; EscalationEnabled: Solo HP-banded survival ladder (minor<=MinorHpPct,")
+            .AppendLine(";   major<=MajorHpPct, immunity<=ImmunityHpPct) in addition to self-heals.")
             .AppendLine("[Solo]")
             .AppendLine($"Enabled={(SoloEnabled ? 1 : 0)}")
             .AppendLine($"EmergencyHpPct={SoloEmergencyHpPct}")
             .AppendLine($"SelfSustainHpPct={SoloSelfSustainHpPct}")
             .AppendLine($"DefensiveEscalateHpPct={SoloDefensiveEscalateHpPct}")
+            .AppendLine($"EscalationEnabled={(SoloEscalationEnabled ? 1 : 0)}")
+            .AppendLine($"MinorHpPct={SoloMinorHpPct}")
+            .AppendLine($"MajorHpPct={SoloMajorHpPct}")
+            .AppendLine($"ImmunityHpPct={SoloImmunityHpPct}")
             .AppendLine()
             .AppendLine("; Per-ability automatic-use overrides, comma-separated spell ids.")
             .AppendLine("; On = explicitly enabled (default-off ability turned ON).")
@@ -359,8 +449,19 @@ internal sealed class AppSettings
         if (int.TryParse(parts[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out var pb)) b = Math.Clamp(pb, 0, 255);
     }
 
-    private static int ParseInt(string value, int fallback) =>
-        int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+    private static RotationPreset ParseRotationPreset(string value) => value.Trim().ToLowerInvariant() switch
+    {
+        "burst" => RotationPreset.Burst,
+        _ => RotationPreset.Full,
+    };
+
+    private static TargetPreset ParseTargetPreset(string value) => value.Trim().ToLowerInvariant() switch
+    {
+        "aoe" or "ae" or "multi" => TargetPreset.Aoe,
+        _ => TargetPreset.SingleTarget,
+    };
+
+    private static int ParseInt(string value, int fallback) =>        int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
             ? parsed
             : fallback;
 

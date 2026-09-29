@@ -117,7 +117,7 @@
     {"id":51514,"name":"Hex","category":"Utility","purpose":"CrowdControl","cdMs":30000,"neverAutomatic":true,"note":"30yd frog, humanoid/beast, 1.7s cast.","source":"spell-verification.json; https://warcraft.wiki.gg/wiki/Hex (2026-09-28)","status":"ManualByDesign","classes":["SHAMAN"],"specs":["Elemental","Enhancement","Restoration"]},
     {"id":53600,"name":"Shield of the Righteous","purpose":"DefensiveMinor","tier":"Minor","gcd":"OnGcd","range":"SelfOnly","durMs":4500,"group":"DR.Minor"},
     {"id":55233,"name":"Vampiric Blood","purpose":"DefensiveMajor","tier":"Major","gcd":"OffGcd","range":"SelfOnly","cdMs":90000,"durMs":10000,"group":"DR.Major"},
-    {"id":55342,"name":"Mirror Image","purpose":"DefensiveMinor","tier":"Minor","gcd":"OffGcd","range":"SelfOnly","cdMs":120000,"durMs":40000,"group":"DR.Minor"},
+    {"id":55342,"name":"Mirror Image","purpose":"DefensiveMinor","tier":"Minor","gcd":"OffGcd","range":"SelfOnly","cdMs":120000,"durMs":40000,"group":"DR.Minor","classes":["MAGE"],"specs":["Arcane","Fire","Frost"],"note":"Mirror Image threat-drop + damage split; Fire/Frost membership curated (vendor pin lists Arcane only, live talent is all mage specs)"},
     {"id":57994,"name":"Wind Shear","category":"Interrupt","purpose":"Interrupt","range":"Ranged","cdMs":12000,"note":"Shortest CD interrupt, 30yd ranged. PvE lockout 4s.","source":"vendor classInterrupts; https://liquipedia.net/worldofwarcraft/Interrupt (2026-09-28)","status":"ResearchBacked","interruptKind":"Dedicated"},
     {"id":58875,"name":"Spirit Walk","category":"Mobility","purpose":"Movement","gcd":"OffGcd","cdMs":60000,"neverAutomatic":true,"note":"60s. Enhancement defensive-adjacent.","source":"spell-verification.json (Spirit Walk verified) (2026-09-28)","mobilityKind":"SpeedBurst"},
     {"id":61336,"name":"Survival Instincts","purpose":"DefensiveMajor","tier":"Major","gcd":"OffGcd","range":"SelfOnly","cdMs":180000,"durMs":6000,"group":"DR.Major"},
@@ -292,7 +292,7 @@
     "EVOKER": {
       "Augmentation": { "mobility": [358267], "selfHeal": [361469, 360995], "offensive": [403631, 370553] },
       "Devastation": { "mobility": [358267], "selfHeal": [361469, 360995], "offensive": [375087, 357210, 404977] },
-      "Preservation": { "mobility": [358267], "selfHeal": [361469, 360995], "offensive": [357210, 370553] }
+      "Preservation": { "mobility": [358267], "selfHeal": [361469, 360995, 363534], "offensive": [357210, 370553] }
     },
     "HUNTER": {
       "Beast Mastery": { "mobility": [781], "selfHeal": [109304], "offensive": [321530, 359844] },
@@ -300,9 +300,9 @@
       "Survival": { "mobility": [781, 190925], "selfHeal": [109304], "offensive": [360952] }
     },
     "MAGE": {
-      "Arcane": { "mobility": [1953], "offensive": [365350] },
-      "Fire": { "mobility": [1953], "offensive": [190319] },
-      "Frost": { "mobility": [1953], "offensive": [12472] }
+      "Arcane": { "mobility": [1953], "selfHeal": [235450], "offensive": [365350] },
+      "Fire": { "mobility": [1953], "selfHeal": [235313], "offensive": [190319] },
+      "Frost": { "mobility": [1953], "selfHeal": [11426], "offensive": [12472] }
     },
     "MONK": {
       "Brewmaster": { "mobility": [109132, 115008, 101643], "selfHeal": [322101, 116670], "offensive": [387184] },
@@ -315,9 +315,9 @@
       "Retribution": { "mobility": [190784], "selfHeal": [85673, 19750, 633], "offensive": [31884] }
     },
     "PRIEST": {
-      "Discipline": { "mobility": [121536], "selfHeal": [19236, 2061], "offensive": [34433, 123040] },
-      "Holy": { "mobility": [121536], "selfHeal": [19236, 2061], "offensive": [34433, 372760, 88625] },
-      "Shadow": { "mobility": [121536], "selfHeal": [19236, 2061], "offensive": [34433, 200174, 391109] }
+      "Discipline": { "mobility": [121536], "selfHeal": [19236, 2061, 373481], "offensive": [34433, 123040] },
+      "Holy": { "mobility": [121536], "selfHeal": [19236, 2061, 373481], "offensive": [34433, 372760, 88625] },
+      "Shadow": { "mobility": [121536], "selfHeal": [19236, 2061, 373481, 15286], "offensive": [34433, 200174, 391109] }
     },
     "ROGUE": {
       "Assassination": { "mobility": [36554, 1856, 2983], "selfHeal": [185311], "offensive": [360194, 381623] },
@@ -325,9 +325,9 @@
       "Subtlety": { "mobility": [36554, 1856, 2983], "selfHeal": [185311], "offensive": [121471, 381623] }
     },
     "SHAMAN": {
-      "Elemental": { "mobility": [192063], "selfHeal": [8004], "offensive": [114050] },
-      "Enhancement": { "mobility": [58875, 192063], "selfHeal": [8004], "offensive": [384352, 114051] },
-      "Restoration": { "mobility": [192063], "selfHeal": [8004, 77472], "offensive": [375982, 114052] }
+      "Elemental": { "mobility": [192063], "selfHeal": [8004, 5394], "offensive": [114050] },
+      "Enhancement": { "mobility": [58875, 192063], "selfHeal": [8004, 5394], "offensive": [384352, 114051] },
+      "Restoration": { "mobility": [192063], "selfHeal": [8004, 77472, 5394], "offensive": [375982, 114052] }
     },
     "WARLOCK": {
       "Affliction": { "mobility": [48020], "selfHeal": [234153, 6789], "offensive": [205180] },

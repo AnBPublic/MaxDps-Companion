@@ -144,6 +144,11 @@ end
 
 function MDB.InvalidateBindings ()
   Dirty = true;
+  -- PERF (Stream 2, 3.4.0): bump the binding/readiness revision so
+  -- Bridge.FrameKey invalidates the cached slot scan. Bars repaint a frame
+  -- late, cooldown resets fire SPELL_UPDATE_COOLDOWN, and both change which
+  -- candidate is ready/bound without any upstream table identity changing.
+  MDB._BindRevision = (MDB._BindRevision or 0) + 1;
   -- The comment above MDB.ResolveBinding already promises that the per-spell
   -- VK cache is wiped by bar updates via this function; Rebuild() also wiped it
   -- but only when the texture map was next rebuilt. Wipe it here so a bar /

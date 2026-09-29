@@ -128,11 +128,47 @@ internal sealed record TelemetryOptions
     [JsonPropertyName("sus")] public int SelfSustainHpPct { get; init; }
     [JsonPropertyName("esc")] public int DefensiveEscalateHpPct { get; init; }
 
+    /// <summary>v3.3.0 additive: Solo HP-banded escalation switch (omitted when on = default).</summary>
+    [JsonPropertyName("sesc")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? SoloEscalation { get; init; }
+
+    /// <summary>v3.3.0 additive: Solo minor/major/immunity HP bands (omitted when default).</summary>
+    [JsonPropertyName("smin")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? SoloMinorHpPct { get; init; }
+
+    /// <summary>v3.3.0 additive: Solo major HP band.</summary>
+    [JsonPropertyName("smaj")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? SoloMajorHpPct { get; init; }
+
+    /// <summary>v3.3.0 additive: Solo immunity HP band.</summary>
+    [JsonPropertyName("simm")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? SoloImmunityHpPct { get; init; }
+
     /// <summary>Explicit per-ability ON overrides (sorted comma list; null = none).</summary>
     [JsonPropertyName("on")] public string? AbilitiesOn { get; init; }
 
     /// <summary>Explicit per-ability OFF overrides (sorted comma list; null = none).</summary>
     [JsonPropertyName("off")] public string? AbilitiesOff { get; init; }
+
+    /// <summary>
+    /// Stream 3 (v3.3.0) additive: companion rotation preset that ran for the
+    /// tick ("Burst"); omitted when Full (default/current behaviour).
+    /// </summary>
+    [JsonPropertyName("preset")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Preset { get; init; }
+
+    /// <summary>
+    /// Stream 3 additive: companion target preset that ran for the tick
+    /// ("Aoe"); omitted when SingleTarget (default/current behaviour).
+    /// </summary>
+    [JsonPropertyName("tpreset")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TargetPreset { get; init; }
 }
 
 /// <summary>
@@ -201,6 +237,16 @@ internal sealed record TelemetryPolicy
 
     /// <summary>True when the Defensive slot came from the catalog gap-fill, omitted otherwise.</summary>
     [JsonPropertyName("dsrc")] public bool? DefensiveCatalogSource { get; init; }
+
+    /// <summary>
+    /// Stream 3 (v3.3.0) additive: the Offensive slot's candidate is a
+    /// companion-derived gap-fill (id membership). There is no wire bit, so the
+    /// flag is recorded explicitly for parity with the Defensive source bit.
+    /// Omitted when false.
+    /// </summary>
+    [JsonPropertyName("osrc")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool OffensiveDerivedGapFill { get; init; }
 
     /// <summary>
     /// v3.0.0 additive: the decoded class/spec the tick ran under. The
@@ -412,6 +458,7 @@ internal sealed record TelemetryEvent
             DefensiveUrgency = combat?.DefensiveUrgency.ToString(),
             StaggerUrgency = combat?.StaggerUrgency.ToString(),
             DefensiveCatalogSource = combat is { DefensiveCatalogSource: true } ? true : null,
+            OffensiveDerivedGapFill = combat is { OffensiveDerivedGapFill: true },
             Class = combat?.Class,
             Spec = combat?.Spec,
             Ttk = combat is { TtkValid: true } ttkCombat ? Math.Round(ttkCombat.TtkSec, 1) : null,
@@ -423,8 +470,14 @@ internal sealed record TelemetryEvent
                 EmergencyHpPct = options.EmergencyHpPct,
                 SelfSustainHpPct = options.SelfSustainHpPct,
                 DefensiveEscalateHpPct = options.DefensiveEscalateHpPct,
+                SoloEscalation = options.SoloEscalation ? null : false,
+                SoloMinorHpPct = options.SoloMinorHpPct == 75 ? null : options.SoloMinorHpPct,
+                SoloMajorHpPct = options.SoloMajorHpPct == 50 ? null : options.SoloMajorHpPct,
+                SoloImmunityHpPct = options.SoloImmunityHpPct == 30 ? null : options.SoloImmunityHpPct,
                 AbilitiesOn = EncodeOverrides(options.Abilities?.EncodeOn()),
                 AbilitiesOff = EncodeOverrides(options.Abilities?.EncodeOff()),
+                Preset = options.Preset == RotationPreset.Full ? null : options.Preset.ToString(),
+                TargetPreset = options.TargetPreset == TargetPreset.SingleTarget ? null : options.TargetPreset.ToString(),
             },
             Verdicts = verdicts,
         };

@@ -127,7 +127,7 @@ usable, enabled defensive is "recommended" while the colour is its urgency.
 | 3 | Orange | 30% < HP < 50% (red→yellow blend) | 50% ≤ stagger < 100% |
 | 4 | Red | HP ≤ 30% (red anchor) | stagger ≥ 100% |
 
-### Companion gap-fill sources (v3.0.0, no wire change)
+### Companion gap-fill sources (v3.0.0, no wire change, v3.3.0 Solo ladder additive)
 
 Two slots carry companion-generated gap-fill candidates. The **Defensive**
 slot has the cell 31 B bit0 source flag (Red majors / Orange short-CDs). The
@@ -151,6 +151,59 @@ read is secret the vendor falls back to the HP curve
 (`if not color then color = UnitHealthPercent(...)`), and the bridge mirrors
 that fallback exactly. Out-of-range nibbles (5-15) decode as UNKNOWN, so a
 corrupt or reserved value can never read as White/Red.
+
+#### v3.3.0 Solo survival ladder (no wire change)
+
+The ladder is companion+bridge policy over the SAME cells: the bridge arms
+`MDB.SoloLadderBands = { minor = 75, major = 50, immunity = 30 }` only while
+the in-game Solo toggle is ON and the player is known ungrouped
+(`Bridge.lua` per-tick context; Solo OFF / grouped / unknown group disarms
+all bands). When armed and MaxDps names no defensive, the Defensive slot
+offers `defensiveMinor` at/below the minor band, `defensiveMajor` at/below
+the major band, and `immunity` at/below the immunity band
+(`Reader.lua GetDefensiveCandidate`; `Catalog.lua` carries the two new lists
+alongside the unchanged `defensive`/`defensiveMinor` lists). The companion
+policy gates the same bands Solo-only (`CandidateProviders` Solo escalation:
+in-band gap-fill bypasses the White-urgency hold; out-of-band holds;
+immunity additionally needs no active immunity; MaxDps-flagged candidates and
+all group verdicts keep the classic urgency path). Unchosen talents are
+ignored at both ends: the bridge only offers a ready+bound spell the player
+knows (`ExtraCandidates`), and catalog membership is a core+talent superset.
+No cell, count, or version nibble changed.
+
+#### v3.3.0 in-game 13 toggles (no wire change)
+
+Bridge 3.3.0 adds the companion hero's 13 toggles to the addon
+(`addon/MaxDpsBridge/Toggles.lua` + `Panel.lua`): 8 per-slot toggles (slots
+1-8) plus Solo / Out-of-combat / Auto-target / Auto-interact / TTK. The addon
+only ever **restricts** what the companion already decided —
+`effective = companion AND addon`, an addon OFF always wins. The wire version
+nibble stays `5`: no cell, nibble lane or checksum changed, and a companion
+that does not know about toggles decodes the frame exactly as before.
+
+- **A user-blanked slot is indistinguishable from "no candidate".** An OFF
+  slot is written as an all-zero cell with the slot-valid flag (bit 3) clear —
+  exactly the encoding the bridge already emits when MaxDps names nothing. The
+  companion decodes both as empty and runs its ordinary no-candidate policy;
+  the wire carries no "user muted this" bit and there is no new semantics to
+  decode.
+- **Out-of-combat OFF** blanks slots 1-8 whenever the bridge reads
+  `UnitAffectingCombat("player") == false`. The check is a strict boolean:
+  nil/secret combat state is not a false and fails open (no blank).
+- **Solo OFF** blanks only the survival slots (Defensive 3, SelfHeal 8), only
+  while the player is known ungrouped, and only when HP is known above the
+  emergency floor (35). Unknown group or HP fails open.
+- **Auto-target / Auto-interact OFF** force cell 9 R to state `0` (idle)
+  instead of `3`/`4`. The status-flag nibble is untouched, so the real target
+  and combat facts are still reported.
+- **TTK OFF** forces the target HP band (cell 29 G) to `15` = UNKNOWN; the
+  melee flag and cast/interrupt flags are unchanged. Collateral: the
+  companion's execute and other target-band consumers (including the v3.2.0
+  TTK gates) go blind exactly as they do for a hidden band.
+
+`/mdb toggles`, `/mdb <key> on|off`, `/mdb all on|off`, `/mdb overlay on|off`
+and `/mdb why heal` are command-surface only; `/mdb status` gains a trailing
+`toggles=N/13 ON; OFF: ...` field.
 
 ### Flags (slot cells 1-8)
 
@@ -305,6 +358,11 @@ arithmetic on them:
 | `/mdb cellsize <px>` | 1-64, default 8 (recommended 8) |
 | `/mdb calibrate on\|off` | 54-step pattern show/hide |
 | `/mdb heal` | per curated self-heal entry: known / ready / usable / key / why (explains the slot-8 + SelfHeal2 selection) |
+| `/mdb toggles` | list the 13 in-game toggles (`N/13 ON; OFF: ...`, bridge 3.3.0) |
+| `/mdb <key> [on\|off]` | main / offensive / defensive / consumable / trinket / interrupt / mobility / selfheal / solo / ooc / autotarget / autointeract / ttk |
+| `/mdb all on\|off` | set all 13 in-game toggles |
+| `/mdb overlay on\|off` | show/hide the compact in-game toggle overlay (`Ui.Overlay`) |
+| `/mdb why heal` | explain a blank slot 8 / 3 from `MDB._LastBlank` (gate reason) |
 | `/mdb hpcurve on\|off` | Ext2 HP-curve cell 35 on/off (SavedVariables, default on); off paints black and clears bit3 |
 | `/mdb diag` | scrubbed MaxDps internals snapshot |
 | `/mdb reset` | defaults + pattern cleared |

@@ -234,6 +234,9 @@ MDB.SpellAliases = { [202168] = { 34428 } }
 assert(loadfile("addon/MaxDpsBridge/Keymap.lua"))("MaxDpsBridge", MDB)
 assert(loadfile("addon/MaxDpsBridge/Bars.lua"))("MaxDpsBridge", MDB)
 assert(loadfile("addon/MaxDpsBridge/Reader.lua"))("MaxDpsBridge", MDB)
+-- 3.3.0 toggle policy loads before Bridge (Bridge builds its slash key map at
+-- load time from MDB.Toggles.Keys); pure logic, no frames.
+assert(loadfile("addon/MaxDpsBridge/Toggles.lua"))("MaxDpsBridge", MDB)
 assert(loadfile("addon/MaxDpsBridge/Bridge.lua"))("MaxDpsBridge", MDB)
 assert(type(MDB.IsSpellReady) == "function")
 assert(type(MDB.IsInterruptReady) == "function")
@@ -711,7 +714,9 @@ cand, isCatalog = MDB.GetDefensiveCandidate()
 check("v6 candidate no-flag + Red + catalog returns catalog id, source true",
   cand == 871 and isCatalog == true)
 
--- 3) Below Red the companion never substitutes its own defensive.
+-- 3) Below Red the companion never substitutes its own defensive
+-- (group frames: Solo ladder bands NOT armed).
+MDB.SoloLadderBands = nil
 SetHp(80)   -- Yellow
 MDB.BeginTick()
 cand, isCatalog = MDB.GetDefensiveCandidate()
@@ -726,6 +731,21 @@ cand, isCatalog = MDB.GetDefensiveCandidate()
 check("v6 candidate enableDefensives=false is nil, false even at Red",
   cand == nil and isCatalog == false)
 MaxDps.db.global.enableDefensives = true
+
+-- 5) v3.3.0 Solo ladder: bands armed -> HP-banded offers below Red.
+-- Above the minor band the ladder stays silent; arming/disarming never throws.
+MDB.SoloLadderBands = { minor = 75, major = 50, immunity = 30 }
+MDB.BeginTick()
+local ladderOk = pcall(function()
+  MaxDps.Flags = {}
+  SetHp(80)   -- Yellow, above the 75 minor band
+  MDB.BeginTick()
+  local above = MDB.GetDefensiveCandidate()
+  assert(above == nil, "solo ladder above minor band must stay silent")
+end)
+check("v3.3.0 solo ladder bands arm/disarm without throw", ladderOk)
+MDB.SoloLadderBands = nil
+MaxDps.Flags = {}
 
 -- ================= 13. extras diagnostics =================
 -- Warrior/Arms catalog (v3 regenerated): mobility {100,6544} = 2,
@@ -1127,6 +1147,195 @@ realExtras.selfHeal = { 202168 }
 
 end
 RunExt2Tests()
+
+-- =====================================================================
+-- Workstream: in-game 13-toggle gates (bridge 3.3.0, Toggles.lua).
+-- Scoped in a function so its locals do not push the main chunk over
+-- Lua's 200-local limit. Addon-only restriction: OFF always wins.
+-- =====================================================================
+local function RunToggleTests ()
+  local TG = MDB.Toggles
+  local DB = MaxDpsBridgeDB
+  local ORDER = {
+    "Main", "Offensive", "Defensive", "Consumable", "Trinket", "Interrupt",
+    "Mobility", "SelfHeal", "Solo", "OOC", "AutoTarget", "AutoInteract", "TTK",
+  }
+  local SLOT_KEYS = {
+    "Main", "Offensive", "Defensive", "Consumable",
+    "Trinket", "Interrupt", "Mobility", "SelfHeal",
+  }
+  local Ctx = { InCombat = true, HpPct = 80, Grouped = true }
+
+  local function SetAll (On)
+    for i = 1, #ORDER do DB.Toggles[ORDER[i]] = On end
+  end
+
+  -- --- API surface + defaults all ON (missing key = ON) ---
+  local Keys = TG.Keys()
+  check("T21 Keys() returns 13 canonical keys", #Keys == 13 and Keys[13] == "TTK")
+  local Snap = TG.Snapshot()
+  local SnapOn = true
+  for i = 1, #ORDER do if Snap[ORDER[i]] ~= true then SnapOn = false end end
+  check("T21 Snapshot() all 13 ON by default", SnapOn)
+
+  SetAll(true)
+  local AllAllow = true
+  for Slot = 1, 8 do
+    MDB._LastBlank[Slot] = nil
+    if TG.SlotAllowed(Slot, Ctx) ~= true or MDB._LastBlank[Slot] ~= nil then
+      AllAllow = false
+    end
+  end
+  check("T21 defaults ON: all 8 slots allowed, no blank reason", AllAllow)
+
+  -- --- all 13 keys OFF: every slot denies and records its reason ---
+  SetAll(false)
+  local OffRead = true
+  for i = 1, #ORDER do if TG.Get(ORDER[i]) ~= false then OffRead = false end end
+  check("T21 all 13 keys OFF read back false", OffRead)
+  local AllDeny = true
+  for Slot = 1, 8 do
+    MDB._LastBlank[Slot] = nil
+    local Allowed = TG.SlotAllowed(Slot, Ctx)
+    if Allowed ~= false or MDB._LastBlank[Slot] ~= (SLOT_KEYS[Slot] .. " off") then
+      AllDeny = false
+    end
+  end
+  check("T21 all 13 OFF: slots 1-8 denied with _LastBlank reason", AllDeny)
+  check("T21 policy getters reflect OFF",
+    TG.IsAutoTarget() == false and TG.IsAutoInteract() == false
+    and TG.IsTTK() == false and TG.IsOOC() == false)
+
+  -- --- each slot key OFF denies only its own slot ---
+  local PerSlot = true
+  for Slot = 1, 8 do
+    SetAll(true)
+    DB.Toggles[SLOT_KEYS[Slot]] = false
+    if TG.SlotAllowed(Slot, Ctx) ~= false
+      or MDB._LastBlank[Slot] ~= (SLOT_KEYS[Slot] .. " off") then
+      PerSlot = false
+    end
+    for Other = 1, 8 do
+      if Other ~= Slot and TG.SlotAllowed(Other, Ctx) ~= true then PerSlot = false end
+    end
+  end
+  check("T21 each slot key OFF denies that slot only", PerSlot)
+
+  -- --- missing DB / missing Toggles / missing key = allow ---
+  local SavedDB = _G.MaxDpsBridgeDB
+  _G.MaxDpsBridgeDB = nil
+  check("T21 missing MaxDpsBridgeDB: Get ON, slot allowed",
+    TG.Get("Main") == true and TG.SlotAllowed(1, nil) == true)
+  _G.MaxDpsBridgeDB = {}
+  check("T21 DB without Toggles table: all allowed",
+    TG.Get("Solo") == true and TG.SlotAllowed(3, Ctx) == true)
+  _G.MaxDpsBridgeDB = { Toggles = {} }
+  check("T21 Toggles table without keys: missing = ON",
+    TG.Get("Defensive") == true and TG.SlotAllowed(8, Ctx) == true)
+  _G.MaxDpsBridgeDB = SavedDB
+
+  -- --- nil / malformed ctx = allow ---
+  SetAll(true)
+  check("T21 nil ctx allows", TG.SlotAllowed(4, nil) == true)
+  check("T21 empty ctx allows", TG.SlotAllowed(4, {}) == true)
+  check("T21 non-table ctx allows", TG.SlotAllowed(4, "nope") == true)
+  check("T21 unknown/nil slot allows",
+    TG.SlotAllowed(99, Ctx) == true and TG.SlotAllowed(nil, Ctx) == true)
+
+  -- --- secret HpPct / secret ctx fields: no throw + fail open ---
+  DB.Toggles.Solo = false
+  local SecretHp = S(20)
+  local okSec, allowSec = pcall(TG.SlotAllowed, 3,
+    { InCombat = true, HpPct = SecretHp, Grouped = false })
+  check("T21 secret HpPct: no throw + allow (fail open)", okSec and allowSec == true)
+  local okSecCtx, allowSecCtx = pcall(TG.SlotAllowed, 3,
+    { InCombat = S(false), HpPct = 20, Grouped = false })
+  check("T21 secret ctx fields: no throw + allow", okSecCtx and allowSecCtx == true)
+  DB.Toggles.Solo = true
+
+  -- --- OOC OFF: strict InCombat==false blanks 1-8; nil/true allow ---
+  DB.Toggles.OOC = false
+  local OocDeny = true
+  for Slot = 1, 8 do
+    if TG.SlotAllowed(Slot, { InCombat = false, HpPct = 80, Grouped = true }) ~= false then
+      OocDeny = false
+    end
+  end
+  check("T21 OOC OFF + InCombat=false blanks slots 1-8", OocDeny)
+  local OocNil = true
+  for Slot = 1, 8 do
+    if TG.SlotAllowed(Slot, { InCombat = nil, HpPct = 80, Grouped = true }) ~= true then
+      OocNil = false
+    end
+  end
+  check("T21 OOC OFF + unknown InCombat allows 1-8", OocNil)
+  local OocTrue = true
+  for Slot = 1, 8 do
+    if TG.SlotAllowed(Slot, { InCombat = true, HpPct = 80, Grouped = true }) ~= true then
+      OocTrue = false
+    end
+  end
+  check("T21 OOC OFF + InCombat=true allows 1-8", OocTrue)
+  DB.Toggles.OOC = true
+
+  -- --- Solo OFF + ungrouped blanks 3/8; emergency/unknown HP allows ---
+  DB.Toggles.Solo = false
+  local function SoloCtx (Hp) return { InCombat = true, HpPct = Hp, Grouped = false } end
+  MDB._LastBlank[3], MDB._LastBlank[8] = nil, nil
+  local d3 = TG.SlotAllowed(3, SoloCtx(80))
+  check("T21 Solo OFF ungrouped: slot3 blank + reason",
+    d3 == false and MDB._LastBlank[3] == "solo not grouped")
+  local d8 = TG.SlotAllowed(8, SoloCtx(80))
+  check("T21 Solo OFF ungrouped: slot8 blank + reason",
+    d8 == false and MDB._LastBlank[8] == "solo not grouped")
+  check("T21 Solo OFF: emergency HpPct 35 allows 3/8",
+    TG.SlotAllowed(3, SoloCtx(35)) == true and TG.SlotAllowed(8, SoloCtx(35)) == true)
+  check("T21 Solo OFF: HpPct 36 blanks 3/8",
+    TG.SlotAllowed(3, SoloCtx(36)) == false and TG.SlotAllowed(8, SoloCtx(36)) == false)
+  check("T21 Solo OFF: unknown HP allows 3/8",
+    TG.SlotAllowed(3, SoloCtx(nil)) == true and TG.SlotAllowed(8, SoloCtx(nil)) == true)
+  check("T21 Solo OFF: non-survival slot 1 allowed", TG.SlotAllowed(1, SoloCtx(80)) == true)
+  check("T21 Solo OFF: grouped allows 3/8",
+    TG.SlotAllowed(3, Ctx) == true and TG.SlotAllowed(8, Ctx) == true)
+  check("T21 Solo OFF: unknown Grouped allows 3/8",
+    TG.SlotAllowed(3, { InCombat = true, HpPct = 80, Grouped = nil }) == true
+    and TG.SlotAllowed(8, { InCombat = true, HpPct = 80, Grouped = nil }) == true)
+  DB.Toggles.Solo = true
+
+  -- --- Set / Flip / Label persistence ---
+  local SavedTgl = DB.Toggles
+  DB.Toggles = {}
+  check("T21 Label canonical + fallback",
+    TG.Label("selfheal") == "Self-heal" and TG.Label("Bogus") == "Bogus")
+  TG.Set("selfheal", false)
+  check("T21 Set stores canonical key false",
+    DB.Toggles.SelfHeal == false and TG.Get("SelfHeal") == false)
+  check("T21 Flip toggles back ON", TG.Flip("SelfHeal") == true and TG.Get("SelfHeal") == true)
+  DB.Toggles = SavedTgl
+  SetAll(true)
+
+  -- --- TTK gate in a real frame (WriteTarget): ON keeps the computed band,
+  -- OFF forces UNKNOWN (15) while MeleeFlag/CastFlags survive. ---
+  MaxDps.Spells = { [185358] = { { HotKey = { GetText = function() return "1" end } } } }
+  MaxDps.Flags = { [185358] = true }
+  MaxDps.Spell = 185358
+  MDB._BindCache = {}
+  C_Spell.GetSpellCooldown = function()
+    return { startTime = 0, duration = 0, isEnabled = true, isActive = false, isOnGCD = false }
+  end
+  C_Spell.GetSpellCharges = function() return nil end
+  UnitHealth = function() return 80 end
+  UnitHealthMax = function() return 100 end
+  pcall(Update, Strip, 0.06)
+  local _, bandOn = Nib(29)
+  check("T21 TTK ON keeps target hp band (80% -> 12)", bandOn == 12)
+  DB.Toggles.TTK = false
+  pcall(Update, Strip, 0.06)
+  local _, bandOff = Nib(29)
+  check("T21 TTK OFF forces target hp band UNKNOWN (15)", bandOff == 15)
+  DB.Toggles.TTK = true
+end
+RunToggleTests()
 
 print(string.format("RESULT: %d passed, %d failed", PASS, FAIL))
 if FAIL > 0 then os.exit(1) end

@@ -27,8 +27,12 @@ internal sealed class AbilityCatalog
     public const string CuratedResourceName = "MaxDpsCompanion.Knowledge.abilities.json";
     public const string ClassSpellsResourceName = "MaxDpsCompanion.Knowledge.class-spells.json";
 
-    /// <summary>Protocol/generator revision — bumped when the index scheme changes.</summary>
-    public const int CatalogVersion = 3;
+    /// <summary>
+    /// Protocol/generator revision — bumped when the index scheme changes.
+    /// v4 adds the v3.3.0 Solo ladder lists (defensiveMajor + immunity) to the
+    /// generated Catalog.lua; wire cell layout is unchanged.
+    /// </summary>
+    public const int CatalogVersion = 4;
 
     /// <summary>
     /// The live game patch this registry is built for (registry §38/§62). A
@@ -466,7 +470,63 @@ internal sealed class AbilityCatalog
     }
 
     /// <summary>
-    /// Curated offensive gap-fill list for a class+spec, in the authored
+    /// Major-only defensive gap-fill for the Solo escalation ladder (v3.3.0):
+    /// the same derivation as <see cref="DefensiveGapFill"/> restricted to
+    /// Major-tier mitigation. The bridge offers these only in Solo at/below
+    /// the major HP band; group Red-tier behavior keeps using
+    /// <see cref="DefensiveGapFill"/>. Deterministic (Priority, then id).
+    /// </summary>
+    public int[] DefensiveGapFillMajor(string? className, string? specName)
+    {
+        if (className is null || specName is null) return [];
+        var candidates = new List<AbilityDefinition>();
+        foreach (var ability in _byId.Values)
+        {
+            if (!ability.IsSurvival || ability.NeverAutomatic) continue;
+            if (ability.Provenance == AbilityProvenance.ClassSpell) continue;
+            if (ability.Tier != DefensiveTier.Major) continue;
+            if (ability.Purpose == AbilityPurpose.Immunity) continue;
+            if (!MembersContain(ability.Classes, className) || !MembersContain(ability.Specs, specName)) continue;
+            candidates.Add(ability);
+        }
+        candidates.Sort((a, b) =>
+        {
+            var priority = b.Priority.CompareTo(a.Priority);
+            if (priority != 0) return priority;
+            return a.SpellId.CompareTo(b.SpellId);
+        });
+        return candidates.Select(a => a.SpellId).ToArray();
+    }
+
+    /// <summary>
+    /// Immunity gap-fill for the bottom Solo escalation band (v3.3.0): full
+    /// immunities the bridge may offer ONLY in Solo at/below the immunity HP
+    /// band, when MaxDps names no defensive. Never offered in groups; the
+    /// companion policy additionally requires no active immunity and honors
+    /// the per-ability ON/OFF switch. Deterministic (Priority, then id).
+    /// </summary>
+    public int[] ImmunityGapFill(string? className, string? specName)
+    {
+        if (className is null || specName is null) return [];
+        var candidates = new List<AbilityDefinition>();
+        foreach (var ability in _byId.Values)
+        {
+            if (ability.NeverAutomatic) continue;
+            if (ability.Provenance == AbilityProvenance.ClassSpell) continue;
+            if (ability.Tier != DefensiveTier.Immunity && ability.Purpose != AbilityPurpose.Immunity) continue;
+            if (!MembersContain(ability.Classes, className) || !MembersContain(ability.Specs, specName)) continue;
+            candidates.Add(ability);
+        }
+        candidates.Sort((a, b) =>
+        {
+            var priority = b.Priority.CompareTo(a.Priority);
+            if (priority != 0) return priority;
+            return a.SpellId.CompareTo(b.SpellId);
+        });
+        return candidates.Select(a => a.SpellId).ToArray();
+    }
+
+    /// <summary>
     /// preference order (shared burst first, spec-specific second). Unlike the
     /// defensive list this is HAND-CURATED in <c>abilities.json</c> because the
     /// vendor's offensive bucket mixes true burst windows with rotational /
@@ -486,6 +546,19 @@ internal sealed class AbilityCatalog
             if (id == spellId) return true;
         return false;
     }
+
+    /// <summary>
+    /// v3.4.0 CC appendix read path: the curated crowd-control entry for a
+    /// class+spec+spell id, or null when the spell is not a curated CC row.
+    /// Verified ids only (see <see cref="CrowdControlCatalog"/>). Read-only —
+    /// it does not alter any existing catalog behaviour.
+    /// </summary>
+    public CrowdControlEntry? CrowdControlFor(string? className, string? specName, int spellId) =>
+        CrowdControlCatalog.Find(className, specName, spellId);
+
+    /// <summary>All curated crowd-control entries for a class+spec (verified ids only).</summary>
+    public IReadOnlyList<CrowdControlEntry> CrowdControlFor(string? className, string? specName) =>
+        CrowdControlCatalog.For(className, specName);
 
     private static int TierRank(DefensiveTier tier) => tier switch
     {

@@ -88,6 +88,14 @@ internal static class CandidateProviders
     public static readonly ICandidateProvider MaxDpsRotation = new MaxDpsRotationProvider();
     public static readonly ICandidateProvider Mobility = new MobilityCandidateProvider();
 
+    /// <summary>
+    /// v3.4.0 CC appendix. Not returned by <see cref="For"/> (purpose routing is
+    /// unchanged): the evaluator reaches it only through the one-line
+    /// <see cref="CrowdControlVetoes.Evaluate"/> call-site, and only for curated
+    /// auto-eligible CC rows while the companion CC toggle is ON.
+    /// </summary>
+    public static readonly ICandidateProvider CrowdControl = new CrowdControlCandidateProvider();
+
     /// <summary>The provider for an uncatalogued / generic candidate.</summary>
     public static readonly ICandidateProvider Generic = new GenericCandidateProvider();
 
@@ -142,6 +150,12 @@ internal sealed class MaxDpsRotationProvider : ICandidateProvider
 
         if (ability.Purpose is AbilityPurpose.Consumable or AbilityPurpose.Trinket)
         {
+            // Stream 3 preset (restrict-only, default Full = no-op): Burst holds
+            // consumables and on-use trinkets until the target's TTK is
+            // measurable, so a burst window is not spent on dying trash.
+            if (p.Options.Preset == RotationPreset.Burst && !ctx.TtkValid)
+                return D(PolicyDecision.Hold($"burst preset: holding {ability.Name} until a boss TTK is measurable"),
+                    "burst preset (no valid boss TTK)");
             if (ability.HoldWhenBuffActive && ctx.SlotBuffActive[slot] == TriState.Yes)
                 return D(PolicyDecision.Skip("ability's own buff already active"), "own buff already active");
             if (ability.Purpose == AbilityPurpose.Trinket
@@ -182,15 +196,33 @@ internal sealed class OffensiveCandidateProvider : ICandidateProvider
         // v3.0.0: there is no offensive gap-fill source bit on the wire, so the
         // companion detects it by membership in the same generated per-spec
         // offensive list the bridge walked (AbilityCatalog.IsOffensiveGapFill).
-        // A MaxDps-named candidate keeps MaxDpsWire; a curated list candidate
-        // is CompanionGapFill. Diagnostic/evidence only — the gates below are
-        // unchanged for MaxDps-sourced candidates.
-        var gapFill = p.Slot == Slot.Offensive
-            && p.Catalog.IsOffensiveGapFill(ctx.Class, ctx.Spec, p.SpellId);
+        // Stream 3 makes the derived source explicit: the engine projects the
+        // bit into CombatContext (OffensiveDerivedGapFill) at frame decode, and
+        // telemetry records it; the id-membership fallback keeps manually-built
+        // contexts (tests / older replays) identical.
+        var gapFill = p.Slot == Slot.Offensive && ctx.IsOffensiveGapFill(p.SpellId, p.Catalog);
         var src = gapFill ? CandidateSourceKind.CompanionGapFill : CandidateSourceKind.MaxDpsWire;
 
         if (ability.HoldWhenBuffActive && ctx.SlotBuffActive[slot] == TriState.Yes)
             return D(PolicyDecision.Skip("ability's own buff already active"), src, "own buff already active");
+
+        // Stream 3 preset (restrict-only, default Full = no-op): Burst conserves
+        // major offensive cooldowns until the target's TTK is measurable. The
+        // preset only ever HOLDs; an invalid TTK (including TimeToKill off) is
+        // exactly the "not a boss" case it protects against.
+        if (p.Options.Preset == RotationPreset.Burst
+            && ability.Purpose == AbilityPurpose.MajorOffensive
+            && !ctx.TtkValid)
+            return D(PolicyDecision.Hold($"burst preset: holding {ability.Name} until a boss TTK is measurable"),
+                src, "burst preset (no valid boss TTK)");
+
+        // Stream 3 preset (restrict-only, default SingleTarget = no-op): AoE
+        // conserves catalogued single-target-only cooldowns so the curated
+        // AoE-ranked candidates in the list get priority.
+        if (p.Options.TargetPreset == TargetPreset.Aoe
+            && ability.OffensiveUsage == OffensiveUsage.SingleTargetOnly)
+            return D(PolicyDecision.Hold($"AoE preset: conserving single-target {ability.Name}"),
+                src, "AoE preset (single-target conserved)");
 
         // T1 (v3.2.0) waste guard: a valid TTK shorter than the ability's
         // minimum means the cooldown cannot pay for itself on this target. Holds
@@ -298,6 +330,44 @@ internal sealed class DefensiveCandidateProvider : ICandidateProvider
                     $"target dies in ~{ctx.TtkSec:0.#}s; saving {MitigationName(ability)}"),
                 src, $"TTK {ctx.TtkSec:0.#}s (solo dying target)");
 
+        // ---- Solo HP-banded escalation (v3.3.0, additive) --------------------
+        // In Solo with escalation on and a valid HP reading, the ladder bands
+        // substitute for MaxDps urgency: a gap-fill defensive inside its band
+        // no longer needs the wire urgency stage. MaxDps-flagged candidates
+        // (src == MaxDpsWire) keep the classic urgency path; group behaviour
+        // is byte-identical to before. RequiresEnemyCast / buff / HP-threshold
+        // / T4 gates above still apply; overlap / escalate / range below still
+        // apply. Immunities additionally require no active immunity (checked
+        // below with the overlap rule).
+        var (minorBand, majorBand, immBand) = PolicyOptions.ValidateSoloBands(
+            opts.SoloMinorHpPct, opts.SoloMajorHpPct, opts.SoloImmunityHpPct);
+        var soloEsc = opts.SoloEnabled && opts.SoloEscalation
+            && hp is { } && src == CandidateSourceKind.CompanionGapFill;
+        var activeTierAtBand = input.Memory.ActiveDefensiveTier(input.NowMs);
+        if (soloEsc)
+        {
+            var soloHp = hp!.Value;
+            var isImmunity = ability.Tier == DefensiveTier.Immunity || ability.Purpose == AbilityPurpose.Immunity;
+            var bandNeed = isImmunity ? immBand : ability.Tier == DefensiveTier.Major ? majorBand : minorBand;
+            // Enter/exit hysteresis (v3.3.0 Stream 1 §1.2): once the ladder is
+            // engaged (any mitigation is running) a tier stays eligible up to
+            // enter+5, so an HP reading oscillating on the band edge cannot flap
+            // the decision. With no prior engagement the latch is the plain
+            // enter threshold — stateless-safe (fresh session, tests, unknown).
+            var wasEngaged = activeTierAtBand != DefensiveTier.None;
+            if (!SoloBandLatch.Latched(bandNeed, soloHp, wasEngaged))
+            {
+                var bandName = isImmunity ? "immunity" : ability.Tier == DefensiveTier.Major ? "major" : "minor";
+                return D(PolicyDecision.Hold($"solo: HP {soloHp}% above {bandName} band {bandNeed}%; conserving"),
+                    src, $"solo {bandName} band {bandNeed}%");
+            }
+            // Inside the band: urgency substitution — treat the wire urgency as
+            // satisfied. An active immunity still blocks a second immunity via
+            // the overlap rule below; everything else falls through to Use.
+            if (isImmunity && activeTierAtBand == DefensiveTier.Immunity)
+                return D(PolicyDecision.Hold("immunity already active; immunity conserved"), src, "immunity already active");
+        }
+
         // ---- MaxDps defensive urgency (additive v2.3 block) ------------------
         var urgency = ability.UrgencySource == DefensiveUrgencySource.Stagger
             && ctx.StaggerUrgency != DefensiveUrgency.Unknown
@@ -306,7 +376,7 @@ internal sealed class DefensiveCandidateProvider : ICandidateProvider
         var urgencyFact = ability.UrgencySource == DefensiveUrgencySource.Stagger && ctx.StaggerUrgency != DefensiveUrgency.Unknown
             ? $"urgency {urgency} (stagger curve)"
             : $"urgency {urgency} (MaxDps HP curve)";
-        if (!emergency)
+        if (!emergency && !soloEsc)
         {
             if (urgency == DefensiveUrgency.White)
                 return D(PolicyDecision.Hold("white defensive urgency (MaxDps renders no glow); holding"), src, "urgency White (MaxDps renders no glow)");
@@ -332,7 +402,7 @@ internal sealed class DefensiveCandidateProvider : ICandidateProvider
             }
         }
 
-        var activeTier = input.Memory.ActiveDefensiveTier(input.NowMs);
+        var activeTier = activeTierAtBand;
         if (!emergency && ability.Tier != DefensiveTier.None && activeTier >= ability.Tier)
             return D(PolicyDecision.Hold($"stronger/equal defensive already active ({activeTier})"), src, $"active defensive tier {activeTier}");
         if (!emergency && ability.Tier == DefensiveTier.Major && activeTier == DefensiveTier.Minor
@@ -348,7 +418,11 @@ internal sealed class DefensiveCandidateProvider : ICandidateProvider
         return emergency
             ? D(PolicyDecision.Use($"HP {hp}% at/below emergency {opts.EmergencyHpPct}%; emergency mitigation", emergency: true),
                 src, $"HP {hp}% at/below emergency {opts.EmergencyHpPct}%")
-            : D(PolicyDecision.Use($"{DefensiveSource(input, ctx)} + {urgency} urgency; {MitigationName(ability)} eligible"),
+            : soloEsc
+                ? D(PolicyDecision.Use($"solo ladder HP {hp}% in band; {MitigationName(ability)} eligible",
+                        emergency: hp is { } shp2 && shp2 <= opts.EmergencyHpPct),
+                    src, $"solo ladder band", $"MaxDps recommendation: {(ctx.MaxDpsDefensiveRecommendation ? "yes" : "no")}")
+                : D(PolicyDecision.Use($"{DefensiveSource(input, ctx)} + {urgency} urgency; {MitigationName(ability)} eligible"),
                 src, urgencyFact, $"MaxDps recommendation: {(ctx.MaxDpsDefensiveRecommendation ? "yes" : "no")}");
     }
 
@@ -538,4 +612,76 @@ internal sealed class UtilityCandidateProvider : ICandidateProvider
             PolicyDecision.Hold("manual utility has no observable trigger; never automatic"),
             Source,
             "manual utility: no observable trigger");
+}
+
+/// <summary>
+/// Crowd-control appendix provider (v3.4.0). It is reached ONLY via
+/// <see cref="CrowdControlVetoes.Evaluate"/> and only while the companion CC
+/// gate is ON. It can return <see cref="PolicyVerdict.Use"/> for a curated
+/// auto-eligible CC row when the target state is observable; every other path
+/// holds (the toggle-OFF path never reaches here and keeps the Utility
+/// manual-by-design behaviour byte-identical).
+///
+/// Safety rules (architect guardrails):
+///  * Never an opener: AoE CC requires InCombat + HasTarget; single-target CC
+///    requires the current target (HasTarget).
+///  * Target confirmed attackable/in-range via the existing SlotRange /
+///    TargetInMelee observations, and the shared cast hold.
+///  * No DR-state inference: the companion only blocks re-chaining the same
+///    <see cref="CcDrCategory"/> it recently applied itself, and fails open
+///    when that memory is unknown.
+/// </summary>
+internal sealed class CrowdControlCandidateProvider : ICandidateProvider
+{
+    public AbilityCategory Category => AbilityCategory.Utility;
+    public string Name => "CrowdControl";
+    public CandidateSourceKind Source => CandidateSourceKind.CompanionGapFill;
+
+    public PolicyDecision Evaluate(ProviderInput p)
+    {
+        var ability = p.Ability;
+        var ctx = p.Context;
+        var input = p.Input;
+
+        var entry = p.Catalog.CrowdControlFor(ctx.Class, ctx.Spec, ability.SpellId);
+        if (entry is null || !entry.AutoEligible)
+            return D(PolicyDecision.Hold("not a curated automatic crowd-control row"), "not curated CC");
+
+        // Hard execution-safety gate: same rule as every other candidate.
+        if (ExecutionSafety.CastHoldReason(p.Slot, p.SpellId, ctx.Cast, p.Catalog) is { } exec)
+            return D(PolicyDecision.Hold(exec), exec);
+
+        // Target observability. CC is never an opener on an untargeted pull.
+        if (!input.HasTarget)
+            return D(PolicyDecision.Hold("no current target; crowd control held"), "no target");
+        if (entry.IsAoe && !input.InCombat)
+            return D(PolicyDecision.Hold("AoE crowd control is never used as an opener (pull risk)"),
+                "AoE CC out of combat");
+
+        if (p.Range == TriState.No)
+            return D(PolicyDecision.Unavailable("target out of ability range"), "target out of range");
+        if (p.Range == TriState.Unknown && ability.Unknown != UnknownPolicy.Use)
+            return D(PolicyDecision.Uncertain("ability range unknown"), "ability range unknown");
+        if (ability.TargetRange == RangeRequirement.InMelee && ctx.TargetInMelee == TriState.No)
+            return D(PolicyDecision.Unavailable("target outside melee range"), "target outside melee range");
+
+        // Conservative same-category anti-chain memory (self-only, fail open).
+        if (entry.Dr != CcDrCategory.Unknown
+            && CrowdControlVetoes.Memory is { } memory
+            && memory.IsDiminished(entry.Dr, input.NowMs))
+            return D(PolicyDecision.Hold(
+                    $"same DR category ({entry.Dr}) used recently; not auto-chaining"),
+                $"DR memory: {entry.Dr} within window");
+
+        CrowdControlVetoes.NoteUsed(entry.Dr, input.NowMs);
+        return D(PolicyDecision.Use(
+                $"{Describe(entry)} ({entry.Kind}/{entry.Dr}); target confirmed"),
+            $"{entry.Kind} ({entry.Dr})", entry.IsAoe ? "AoE CC in combat" : "single-target CC");
+    }
+
+    private static string Describe(CrowdControlEntry entry) =>
+        entry.IsAoe ? $"AoE crowd control {entry.Name}" : $"crowd control {entry.Name}";
+
+    private PolicyDecision D(PolicyDecision d, params string[] ev) =>
+        ProviderStamp.Stamp(this, d, Source, ev);
 }

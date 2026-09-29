@@ -198,14 +198,20 @@ internal static class ReplayRunner
                         else
                         {
                             var pendingCombat = ToCombat(evt.Policy!).WithTtk(ttkEstimator.Estimate);
-                            var pendingPolicyOptions = new PolicyOptions
-                            {
-                                SoloEnabled = pendingOptions.Solo,
-                                EmergencyHpPct = pendingOptions.EmergencyHpPct,
-                                SelfSustainHpPct = pendingOptions.SelfSustainHpPct,
-                                DefensiveEscalateHpPct = pendingOptions.DefensiveEscalateHpPct,
-                                Abilities = AbilityPolicy.FromIds(pendingOptions.AbilitiesOn, pendingOptions.AbilitiesOff),
-                            };
+                                var pendingPolicyOptions = new PolicyOptions
+                                {
+                                    SoloEnabled = pendingOptions.Solo,
+                                    EmergencyHpPct = pendingOptions.EmergencyHpPct,
+                                    SelfSustainHpPct = pendingOptions.SelfSustainHpPct,
+                                    DefensiveEscalateHpPct = pendingOptions.DefensiveEscalateHpPct,
+                                    SoloEscalation = pendingOptions.SoloEscalation ?? true,
+                                    SoloMinorHpPct = pendingOptions.SoloMinorHpPct ?? 75,
+                                    SoloMajorHpPct = pendingOptions.SoloMajorHpPct ?? 50,
+                                    SoloImmunityHpPct = pendingOptions.SoloImmunityHpPct ?? 30,
+                                    Abilities = AbilityPolicy.FromIds(pendingOptions.AbilitiesOn, pendingOptions.AbilitiesOff),
+                                    Preset = ParseEnum(pendingOptions.Preset, RotationPreset.Full),
+                                    TargetPreset = ParseEnum(pendingOptions.TargetPreset, TargetPreset.SingleTarget),
+                                };
                             var pendingCatalog = replayCatalog ??= AbilityCatalog.Default;
                             foreach (var recordedVerdict in pendingVerdicts)
                             {
@@ -418,6 +424,7 @@ internal static class ReplayRunner
         DefensiveUrgency = ParseEnum(policy.DefensiveUrgency, DefensiveUrgency.Unknown),
         StaggerUrgency = ParseEnum(policy.StaggerUrgency, DefensiveUrgency.Unknown),
         DefensiveCatalogSource = policy.DefensiveCatalogSource ?? false,
+        OffensiveDerivedGapFill = policy.OffensiveDerivedGapFill,
         ContextValid = policy.ContextValid,
         Class = policy.Class,
         Spec = policy.Spec,

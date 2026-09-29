@@ -47,12 +47,21 @@ local function BuildControlsStdUi (Panel, StdUi)
     if MDB.Layout then MDB.Layout(); end
   end
 
+  -- Thin entry: the 13 switches live in Panel.lua (plain frames, no StdUi).
+  local Toggles = CreateFrame("Button", nil, Panel, "UIPanelButtonTemplate");
+  Toggles:SetSize(140, 24);
+  Toggles:SetText("Toggles...");
+  Toggles:SetScript("OnClick", function ()
+    if MDB.OpenToggles then MDB.OpenToggles(); end
+  end);
+
   local Status = StdUi:Label(Panel, "", 12);
   Panel.StatusText = Status;
 
   Panel:AddRow():AddElement(Header);
   Panel:AddRow():AddElement(Enabled);
   Panel:AddRow():AddElement(CellSize);
+  Panel:AddRow():AddElement(Toggles);
   Panel:AddRow():AddElement(Status);
 
   Panel:SetScript("OnShow", function (self)
@@ -86,8 +95,17 @@ local function BuildControlsFallback (Panel)
   CellSize.High:SetText("64");
   CellSize.Text:SetText("Cell size (px)");
 
+  -- Thin entry: opens the plain-frame 13-toggle panel from Panel.lua.
+  local Toggles = CreateFrame("Button", nil, Panel, "UIPanelButtonTemplate");
+  Toggles:SetPoint("TOPLEFT", CellSize, "BOTTOMLEFT", 0, -28);
+  Toggles:SetSize(140, 24);
+  Toggles:SetText("Toggles...");
+  Toggles:SetScript("OnClick", function ()
+    if MDB.OpenToggles then MDB.OpenToggles(); end
+  end);
+
   local Status = Panel:CreateFontString(nil, "OVERLAY", "GameFontNormal");
-  Status:SetPoint("TOPLEFT", CellSize, "BOTTOMLEFT", 0, -32);
+  Status:SetPoint("TOPLEFT", Toggles, "BOTTOMLEFT", 0, -24);
   Status:SetJustifyH("LEFT");
   Panel.StatusText = Status;
 end

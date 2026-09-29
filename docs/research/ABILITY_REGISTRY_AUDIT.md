@@ -1,6 +1,6 @@
 # Ability Registry Audit
 
-Generated (UTC): 2026-09-29 06:08:44  
+Generated (UTC): 2026-09-29 20:02:44  
 Game patch: 12.1 (interface 120100)  
 MaxDps version: 11.3.49  
 Registry verified: 2026-09-28  
@@ -17,12 +17,12 @@ registry. Do not hand-edit; regenerate after any curated change.
 | Manual / never automatic | 79 |
 | Defensive capability | 195 |
 | Interrupt capability | 15 |
-| Offensive capability | 213 |
+| Offensive capability | 214 |
 | Self-sustain capability | 31 |
 | Mobility capability | 42 |
 | Utility (CC/purge/threat/dispel) | 33 |
-| Companion-generated eligible (Autonomous) | 230 |
-| MaxDps-only (delegated) | 2970 |
+| Companion-generated eligible (Autonomous) | 231 |
+| MaxDps-only (delegated) | 2969 |
 
 ## Intelligence ownership (v2.7)
 
@@ -50,7 +50,7 @@ Live verified: 0; live unverified (automatic, companion/shared): 124.
 | SHARED-GATED | 76 |
 | MANUAL | 79 |
 | UNOBSERVABLE | 0 |
-| RESEARCH-PENDING | 2970 |
+| RESEARCH-PENDING | 2969 |
 | STALE | 0 |
 | MISSING | 0 |
 | FILTERED (documented exclusions) | 325 |
@@ -85,11 +85,11 @@ Duplicate-name findings (102 total; link them with relations instead of merging 
 | Status | Count |
 |---|---|
 | Verified | 0 |
-| ResearchBacked | 79 |
+| ResearchBacked | 80 |
 | MaxDpsBacked | 60 |
 | CompanionRule | 91 |
 | ManualByDesign | 79 |
-| Incomplete | 2970 |
+| Incomplete | 2969 |
 | Unknown | 0 |
 
 **Violations: 0** (row violations 0 + missing 0 + stale 0; must be 0).  
@@ -103,19 +103,19 @@ acted on only when MaxDps itself suggests them.
 
 | Class | Specs | Entries (class total) | Automatic | Interrupt | Defensive | Offensive | Sustain | Mobility | Utility |
 |---|---|---|---|---|---|---|---|---|---|
-| DEATHKNIGHT | 3 | 477 | 465 | 3 | 35 | 32 | 6 | 9 | 6 |
+| DEATHKNIGHT | 3 | 478 | 466 | 3 | 35 | 33 | 6 | 9 | 6 |
 | DEMONHUNTER | 3 | 294 | 283 | 3 | 17 | 35 | 0 | 5 | 6 |
 | DRUID | 4 | 855 | 825 | 4 | 28 | 37 | 12 | 16 | 12 |
 | EVOKER | 3 | 515 | 501 | 3 | 18 | 22 | 8 | 3 | 9 |
 | HUNTER | 3 | 512 | 501 | 3 | 17 | 24 | 3 | 6 | 6 |
-| MAGE | 3 | 503 | 493 | 3 | 32 | 11 | 0 | 3 | 6 |
+| MAGE | 3 | 505 | 495 | 3 | 34 | 11 | 0 | 3 | 6 |
 | MONK | 3 | 652 | 626 | 3 | 37 | 16 | 8 | 15 | 9 |
 | PALADIN | 3 | 547 | 529 | 3 | 82 | 29 | 9 | 9 | 9 |
-| PRIEST | 3 | 508 | 494 | 1 | 36 | 20 | 8 | 6 | 6 |
+| PRIEST | 3 | 510 | 496 | 1 | 36 | 20 | 10 | 6 | 6 |
 | ROGUE | 3 | 292 | 274 | 3 | 19 | 13 | 3 | 12 | 9 |
-| SHAMAN | 3 | 563 | 534 | 3 | 46 | 33 | 8 | 18 | 9 |
+| SHAMAN | 3 | 564 | 535 | 3 | 46 | 33 | 9 | 18 | 9 |
 | WARLOCK | 3 | 536 | 521 | 6 | 27 | 39 | 9 | 6 | 9 |
-| WARRIOR | 3 | 483 | 476 | 3 | 19 | 33 | 6 | 7 | 6 |
+| WARRIOR | 3 | 483 | 476 | 3 | 19 | 36 | 6 | 7 | 6 |
 
 ## Violations
 
@@ -770,7 +770,7 @@ None.
 | 190984 | Wrath | Offensive | Incomplete | MaxDpsOnly | NotSurfaced | None | Unknown | 0 | - | Unknown | - |
 | 191034 | Starfall | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 191384 | Aspect of the Beast | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 191427 | Metamorphosis | Offensive | ResearchBacked | Autonomous | OffensiveBucket | None | OffGcd | 240000 | - | Transformation | - |
+| 191427 | Metamorphosis | Offensive | ResearchBacked | Autonomous | OffensiveBucket | None | OffGcd | 120000 | - | Transformation | - |
 | 191634 | Stormkeeper | Offensive | Incomplete | MaxDpsOnly | NotSurfaced | None | Unknown | 0 | - | Unknown | - |
 | 191717 | Fury of the Storms | Offensive | Incomplete | MaxDpsOnly | NotSurfaced | None | Unknown | 0 | - | Unknown | - |
 | 191861 | Power of the Maelstrom | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -1049,7 +1049,7 @@ None.
 | 228264 | Voidform | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 228266 | Void Bolt | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 228477 | Soul Cleave | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 228920 | Ravager | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 228920 | Ravager | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | OffGcd | 90000 | - | MajorBurst | - |
 | 230332 | Cavalier | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 231040 | Lingering Healing | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 231042 | Owlkin Frenzy | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -3352,7 +3352,7 @@ None.
 | 1217525 | Mana Tide | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 1217535 | Poisoned Barbs | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 1217598 | Whispering Waves | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 1217605 | Void Metamorphosis | Offensive | MaxDpsBacked | Autonomous | OffensiveBucket | None | OffGcd | 120000 | - | MajorBurst | - |
+| 1217605 | Void Metamorphosis | Offensive | MaxDpsBacked | Autonomous | OffensiveBucket | None | OffGcd | 0 | - | Transformation | - |
 | 1217622 | Therazane's Resilience | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 1217788 | Manhunter | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 1218047 | Primordial Storm | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |

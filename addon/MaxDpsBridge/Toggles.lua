@@ -287,3 +287,39 @@ function MDB.Toggles.IsTTK () return Get("TTK"); end
 function MDB.Toggles.IsOOC () return Get("OOC"); end
 function MDB.Toggles.IsAutoTarget () return Get("AutoTarget"); end
 function MDB.Toggles.IsAutoInteract () return Get("AutoInteract"); end
+
+-- ---- Crowd control (v3.4.0 CC appendix) -------------------------------
+-- A 14th toggle that is deliberately NOT part of the canonical 13 (Keys()
+-- stays 13 so the frozen toggle-count semantics and the 186-check harness are
+-- unchanged). It is restrict-only and missing = ON, exactly like the others:
+-- an absent DB / absent Toggles table / absent key reads as ON, and only an
+-- explicit false turns CC off. Every accessor fails open.
+--
+-- effective = companion AND addon; an addon OFF wins. No wire field carries
+-- this key, so the addon-side gate is published here for the bridge to consult
+-- when it encodes CC candidates; that cross-surface wiring is OWED live. The
+-- companion's own opt-in remains AppSettings.CrowdControlEnabled.
+function MDB.Toggles.IsCC ()
+  local Ok, Allowed = pcall(function ()
+    local DB = _G.MaxDpsBridgeDB;
+    if type(DB) ~= "table" then return true; end
+    local Toggles = DB.Toggles;
+    if type(Toggles) ~= "table" then return true; end
+    local Value = Toggles.CC;
+    if Value == nil then return true; end
+    return Value ~= false;
+  end);
+  if Ok then return Allowed; end
+  return true;
+end
+
+function MDB.Toggles.SetCC (On)
+  local DB = _G.MaxDpsBridgeDB;
+  if type(DB) ~= "table" then DB = {}; _G.MaxDpsBridgeDB = DB; end
+  local Toggles = DB.Toggles;
+  if type(Toggles) ~= "table" then Toggles = {}; DB.Toggles = Toggles; end
+  local Value = (On ~= false);
+  Toggles.CC = Value;
+  BumpVersion();
+  return Value;
+end

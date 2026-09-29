@@ -1,3 +1,41 @@
+3.3.0
+Date: 2026-09-29
+Companion 3.3.0 / bridge 3.3.0. Protocol unchanged: v5 core (35 cells, version
+nibble 5) + additive Ext2 40-cell block. Two additive v3.3.0 features:
+(a) Solo HP-banded survival ladder - in Solo, defensives/shields/absorbs
+escalate as HP drops (Minor <=75 / heal <=65 / Major <=50 / Immunity <=30);
+catalog widened to a core+talent superset, unchosen talents ignored at runtime,
+group behaviour unchanged. (b) In-game 13-toggle UI - the companion hero's 13
+toggles (8 Spells + Solo / OOC / Auto-target / Auto-interact / TTK) are now
+available in the addon via `/mdb` and Esc > Options > MaxDps Bridge; the addon
+can only restrict (effective = companion AND addon, addon OFF wins), a missing
+key reads as ON, and a blanked slot is wire-indistinguishable from "no
+candidate". No cell/count/version-nibble change.
+
+v3.3.0 SOLO LADDER + IN-GAME TOGGLES
+
+- Solo ladder: [Solo] EscalationEnabled=1 + MinorHpPct 75 (40-99) /
+  MajorHpPct 50 (20-90) / ImmunityHpPct 30 (5-60); PolicyOptions
+  ValidateSoloBands; AbilityCatalog DefensiveGapFillMajor + ImmunityGapFill
+  (CatalogVersion 4); CatalogLuaGenerator emits defensiveMajor + immunity;
+  Reader.lua Solo ladder block armed by Bridge.lua only while Solo ON and
+  known ungrouped; telemetry sesc/smin/smaj/simm additive (omitted at
+  defaults). Group verdicts byte-identical.
+- In-game toggles: new addon/MaxDpsBridge/Toggles.lua (pure policy +
+  SlotAllowed gate) and Panel.lua (plain-frame settings panel + draggable
+  overlay); Bridge.lua v3.3.0 per-tick context + deep Defaults merge + slash
+  commands; Options.lua "Toggles..." entry; harness T21 33 checks. The addon
+  only restricts; no wire change.
+
+VALIDATED (this machine): build 0 warnings / 0 errors; dotnet test 585/585;
+lua harness 186/186; luac -p clean; audit Violations 0 / Warnings 0 / Missing
+0 / Stale 0, Catalog.lua matches generated.
+
+LIVE OWED (retail 12.1): each Solo band fires at the right HP; nothing new
+fires grouped; toggle OFF blanks the slot and returns ON; overlay drag/guard;
+TTK OFF forces the unknown band; persistence across /reload. NOT validated on
+a live client here.
+
 3.2.0
 Date: 2026-09-29
 Companion 3.2.0 / bridge 3.2.0 (version-only bridge bump; no Lua change). TTK

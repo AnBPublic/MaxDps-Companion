@@ -308,6 +308,40 @@ internal enum InterruptKind
     Incapacitate,
 }
 
+/// <summary>
+/// Crowd-control shape (v3.4.0 CC appendix). Registry/coverage knowledge only:
+/// it is documented per curated entry and drives the conservative diminishing
+/// rule. It never infers the target's live DR state — the companion only
+/// remembers its own recent applications (see
+/// <see cref="CrowdControlDiminishing"/>). Silence/displacement/incapacitate
+/// remain primarily modelled through <see cref="InterruptKind"/>, which is
+/// untouched.
+/// </summary>
+internal enum CcKind
+{
+    Unknown = 0,
+    /// <summary>Hard stun (target cannot act). DR category: stun.</summary>
+    Stun,
+    /// <summary>Incapacitate (Paralysis/Sap/imprison-type). DR category: incapacitate.</summary>
+    Incapacitate,
+    /// <summary>Disorient/fear-like break-on-damage or movement CC. DR category: disorient.</summary>
+    Disorient,
+    /// <summary>Silence (school lockout without a stun). DR category: silence.</summary>
+    Silence,
+    /// <summary>Root/snare (target can act but cannot move). DR category: root.</summary>
+    Root,
+    /// <summary>Fear (Psychic Scream/Intimidating Shout-type). DR category: fear.</summary>
+    Fear,
+    /// <summary>Banish/subjugate (demon/undead/elemental specific). DR category: incapacitate.</summary>
+    Banish,
+    /// <summary>Subjugate/dominate (Control Undead/Subjugate Demon). DR category: incapacitate.</summary>
+    Subjugate,
+    /// <summary>Sleep (Sleep Walk-type). DR category: disorient.</summary>
+    Sleep,
+    /// <summary>Knockback/displacement; cast-breaking only, tracked as CC coverage.</summary>
+    Knockback,
+}
+
 /// <summary>What kind of offensive tool an ability is (offensive cooldown intelligence).</summary>
 internal enum OffensiveUsage
 {

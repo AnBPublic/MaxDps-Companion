@@ -9,6 +9,15 @@ namespace MaxDpsCompanion;
 /// every TTK gate (the ability keeps its pre-TTK verdict). Holding on an unknown
 /// target is exactly the "holding cooldowns too long" DPS loss the feature
 /// exists to avoid.
+///
+/// Stream 3 §3.1 review (2026-09-29): the estimator constants (3 s EWMA seed,
+/// &gt;10 s unknown reset, &gt;0.12 upward-jump reset, (band+0.5)/15 frac) and the
+/// T1–T4 thresholds were re-run against every checked-in replay
+/// (<c>ttk-warrior-burst</c> + 7 more): all recompute with 0 decision
+/// mismatches and 0 verdict mismatches. No replay produces an outcome metric
+/// that a threshold tweak could improve, so the constants are deliberately
+/// UNCHANGED — changing them would be an unverifiable live-behaviour claim.
+/// Live retail target-dummy / M+ review stays OWED.
 /// </summary>
 internal static class TtkPolicy
 {
