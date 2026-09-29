@@ -53,7 +53,9 @@ function strmatch(s, p) return s:match(p) end
 function strsplit(sep, s) local a, b = s:match("([^" .. sep .. "]*)" .. sep .. "?(.*)"); return a, b end
 function format(f, ...) return string.format(f, ...) end
 LibStub = nil
-DEFAULT_CHAT_FRAME = { AddMessage = function() end }
+ChatLog = {}
+DEFAULT_CHAT_FRAME = { AddMessage = function(_, Message) ChatLog[#ChatLog + 1] = tostring(Message) end }
+function ClearChat () for i = #ChatLog, 1, -1 do ChatLog[i] = nil end end
 function CreateColor(r, g, b, a) return { r = r, g = g, b = b, a = a } end
 Enum = { LuaCurveType = { Linear = 1 } }
 bit = {
@@ -78,12 +80,13 @@ bit = {
   end,
 }
 SlashCmdList = {}
-C_Timer = nil
+C_Timer = { After = function() end }
 
 -- frames
 local AnonCount = 0
 local AllFrames = {}
 local Textures = {}
+Vertex = {}   -- texture id -> first SetVertexColor arg (secret passthrough)
 local TextureCount = 0
 local function FakeFrame(name)
   local f = { _scripts = {}, _textures = {} }
@@ -106,6 +109,7 @@ local function FakeFrame(name)
     local id = TextureCount
     local t = { _id = id }
     t.SetColorTexture = function(self2, r, g, b, a) Textures[self2._id] = { r, g, b } end
+    t.SetVertexColor = function(self2, r, g, b, a) Vertex[self2._id] = r end
     t.SetAlpha = function() end
     t.ClearAllPoints = function() end
     t.SetPoint = function() end
@@ -118,7 +122,7 @@ local function FakeFrame(name)
   f.GetEffectiveScale = function() return 1 end
   f.ClearAllPoints = function() end
   f.SetPoint = function() end
-  f.SetSize = function() end
+  f.SetSize = function(self, w, h) self._size = { w, h } end
   f.SetWidth = function() end
   f.SetHeight = function() end
   f.SetColorTexture = function() end
@@ -173,6 +177,15 @@ GetSpecialization = function() return 1 end
 GetSpecializationInfo = function() return 71 end
 AuraUtil = nil
 
+-- Ext2 (v3.0.0) variant APIs: identity stubs; individual tests override them.
+function FindBaseSpellByID(id) return id end
+function FindSpellOverrideByID(id) return nil end
+function GetOverrideSpell(id) return nil end
+function GetMacroSpell(id) return nil end
+C_SpellBook = nil
+IsPlayerSpell = nil
+UnitHealthPercent = nil
+
 -- ================= MaxDps engine stub =================
 C_Spell = {}
 -- default: non-charge spell, plain no-cooldown table
@@ -215,7 +228,11 @@ C_AssistedCombat = nil
 local MDB = {}
 _G.MaxDpsBridge = MDB
 assert(loadfile("addon/MaxDpsBridge/Catalog.lua"))("MaxDpsBridge", MDB)
+-- Workstream C emits the real MDB.SpellAliases in Catalog.lua; this worktree
+-- stubs it so the variant path is exercised before C is merged.
+MDB.SpellAliases = { [202168] = { 34428 } }
 assert(loadfile("addon/MaxDpsBridge/Keymap.lua"))("MaxDpsBridge", MDB)
+assert(loadfile("addon/MaxDpsBridge/Bars.lua"))("MaxDpsBridge", MDB)
 assert(loadfile("addon/MaxDpsBridge/Reader.lua"))("MaxDpsBridge", MDB)
 assert(loadfile("addon/MaxDpsBridge/Bridge.lua"))("MaxDpsBridge", MDB)
 assert(type(MDB.IsSpellReady) == "function")
@@ -225,8 +242,15 @@ assert(type(MDB.GetPlayerHpPct) == "function")
 
 -- boot the bridge: fire ADDON_LOADED like the client would, then take the
 -- OnUpdate handler the bootstrap installed on the strip frame.
-local Loader = _G.AnonFrame1
-assert(Loader and Loader._scripts.OnEvent, "loader frame missing")
+-- Find the frame that registered ADDON_LOADED (Bars.lua now also creates
+-- anonymous frames, so AnonFrame1 is not necessarily the bridge loader).
+local Loader
+for _, f in ipairs(AllFrames) do
+  if f._events and f._events["ADDON_LOADED"] and f._scripts and f._scripts.OnEvent then
+    Loader = f; break
+  end
+end
+assert(Loader, "loader frame missing")
 Loader._scripts.OnEvent(Loader, "ADDON_LOADED", "MaxDpsBridge")
 local Strip = _G.MaxDpsBridge_Block
 assert(Strip, "strip frame missing")
@@ -509,7 +533,9 @@ check("v5 target cast cleared", bit.band(tflags2, 1) == 0)
 
 -- class/spec cell (WARRIOR=13, Arms=1)
 local kh, kg, kf = Nib(33)
-check("v5 class/spec ids", kh == 13 and kg == 1 and kf == 1)
+-- bit0 class/spec valid; bit2 EXT2 present is expected in a 3.0.0 frame.
+check("v5 class/spec ids", kh == 13 and kg == 1 and bit.band(kf, 1) == 1)
+check("v5 Ext2 present bit set", bit.band(kf, 4) == 4)
 
 -- v2.7: no AuraUtil -> every self-buff probe degrades -> the block-valid bit
 -- (cell33 B bit1) stays clear and no buff bit is a silent "active"; the
@@ -770,6 +796,246 @@ local _, v6ExtGapCs = Nib(34)
 check("v6 encode catalog gap-fill source bit + Red + checksum commits all 3",
   bit.band(b31gap, 1) == 1 and g31gap == 4 and b32gap ~= 0
   and b31gap ~= 0 and (ExtSumThrough33() % 16) == v6ExtGapCs)
+
+-- =====================================================================
+-- Workstream B / Ext2 (bridge 3.0.0): spell variants, variant binds,
+-- extras selection, 40-cell encode, commands, EnsureEngine throttle.
+-- Scoped in a function so its locals do not push the main chunk over
+-- Lua's 200-local limit.
+-- =====================================================================
+local function RunExt2Tests ()
+
+-- ================= 15. spell variants (B1) =================
+FindBaseSpellByID = function(id) if id == 34428 then return 202168 end return id end
+FindSpellOverrideByID = function(id) if id == 202168 then return 34428 end return nil end
+GetOverrideSpell = function() return nil end
+
+local function HasId (Tbl, Id)
+  for _, v in ipairs(Tbl) do if v == Id then return true end end
+  return false
+end
+
+local vAlias = MDB.SpellVariants(202168)
+check("B1 SpellVariants input first", vAlias[1] == 202168)
+check("B1 SpellVariants alias-table expansion", HasId(vAlias, 34428))
+local vBase = MDB.SpellVariants(34428)
+check("B1 SpellVariants base knows its override id", vBase[1] == 34428 and HasId(vBase, 202168))
+local vDedupe = MDB.SpellVariants(202168)
+local seen, dup = {}, false
+for _, v in ipairs(vDedupe) do if seen[v] then dup = true end; seen[v] = true end
+check("B1 SpellVariants de-duplicated", not dup)
+local vPlain = MDB.SpellVariants(65000)
+check("B1 SpellVariants base-only is a single id", #vPlain == 1 and vPlain[1] == 65000)
+check("B1 SpellVariants secret arg: no throw", pcall(MDB.SpellVariants, S(202168)))
+check("B1 SpellVariants non-positive -> empty", #MDB.SpellVariants(0) == 0)
+
+C_SpellBook = { IsSpellKnown = function(id) return id == 34428 end }
+check("B1 ActiveVariant picks the known variant", MDB.ActiveVariant(202168) == 34428)
+C_SpellBook = { IsSpellKnown = function(id) return id == 202168 end }
+check("B1 ActiveVariant keeps the known base", MDB.ActiveVariant(202168) == 202168)
+C_SpellBook = nil
+IsPlayerSpell = function() return true end
+check("B1 ActiveVariant IsPlayerSpell fallback", MDB.ActiveVariant(65000) == 65000)
+IsPlayerSpell = nil
+C_SpellBook = { IsSpellKnown = function() error("secret compare") end }
+local okAV, av = pcall(MDB.ActiveVariant, 202168)
+check("B1 ActiveVariant secret probe: no throw, fail open", okAV and av == 202168)
+C_SpellBook = nil
+
+-- ================= 16. binds by any variant (B2) =================
+MaxDps.Spells = {}
+MaxDps.Flags = {}
+MDB._BindCache = {}
+GetActionInfo = function() return nil end
+GetBindingKey = function() return nil end
+GetMacroSpell = function() return nil end
+C_Spell.GetSpellName = nil
+GetSpellTexture = function() return nil end
+
+-- (a) overlay HotKey carried under the variant id.
+MaxDps.Spells[34428] = { { HotKey = { GetText = function() return "V" end } } }
+MDB._BindCache = {}
+local bVK = MDB.ResolveBinding(202168)
+check("B2 overlay HotKey matches a variant id", bVK == 0x56)
+
+-- (b) action-bar spell slot holds 34428, list asks 202168.
+MaxDps.Spells = {}
+MaxDps.Spells[34428] = {}
+MDB._BindCache = {}
+GetActionInfo = function(slot) if slot == 1 then return "spell", 34428 end return nil end
+GetBindingKey = function(cmd) if cmd == "ACTIONBUTTON1" then return "1" end return nil end
+local barVK = MDB.ResolveBinding(202168)
+check("B2 action-bar scan matches a variant id", barVK == 0x31)
+
+-- (c) a /cast macro resolving to a variant counts as bound.
+GetActionInfo = function(slot) if slot == 2 then return "macro", 99 end return nil end
+GetMacroSpell = function(id) if id == 99 then return "Victory Rush", nil, 34428 end return nil end
+GetBindingKey = function(cmd) if cmd == "ACTIONBUTTON2" then return "2" end return nil end
+MDB._BindCache = {}
+local macroVK = MDB.ResolveBinding(202168)
+check("B2 macro casting a variant is bound", macroVK == 0x32)
+
+-- (d) texture fallback matches a variant's texture.
+GetActionInfo = function() return nil end
+MDB.BindingForTexture = function(tex) if tex == "tex34428" then return "3" end return nil end
+GetSpellTexture = function(id) if id == 34428 then return "tex34428" end return nil end
+MDB._BindCache = {}
+local texVK = MDB.ResolveBinding(202168)
+check("B2 texture fallback matches a variant texture", texVK == 0x33)
+GetSpellTexture = function() return nil end
+MDB.BindingForTexture = function() return nil end
+
+-- ================= 17. extras selection (B3) =================
+local realExtras = MDB.Extras["WARRIOR"]["Arms"]
+realExtras.selfHeal = { 202168, 34428, 184364 }
+MaxDps.Spells = {
+  [34428] = { { HotKey = { GetText = function() return "H" end } } },
+  [184364] = { { HotKey = { GetText = function() return "J" end } } },
+}
+C_SpellBook = { IsSpellKnown = function(id) return id == 34428 or id == 184364 end }
+C_Spell.GetSpellCooldown = function()
+  return { startTime = 0, duration = 0, isEnabled = true, isActive = false, isOnGCD = false }
+end
+C_Spell.GetSpellCharges = function() return nil end
+MDB._BindCache = {}
+MDB.BeginTick()
+local cands = MDB.ExtraCandidates("selfHeal", 2)
+check("B3 first two distinct ready+bound entries",
+  #cands == 2 and cands[1] == 34428 and cands[2] == 184364)
+check("B3 encodes the known variant, never the unknown list id", not HasId(cands, 202168))
+
+C_SpellBook = { IsSpellKnown = function() return false end }
+MDB._BindCache = {}
+MDB.BeginTick()
+local candsUnknown = MDB.ExtraCandidates("selfHeal", 2)
+check("B3 no known variant falls back to the listed id", candsUnknown[1] == 202168)
+C_SpellBook = { IsSpellKnown = function(id) return id == 34428 or id == 184364 end }
+
+-- ================= 18. Ext2 encode (B4/B5) =================
+MaxDps.Flags = { [34428] = true }
+MaxDps.Spell = 34428
+MaxDps.SpellsGlowing = { [34428] = 1 }
+MaxDps.IsSpellInRange = function() return 1 end
+MaxDpsBridgeDB.HpCurve = true
+MDB._BindCache = {}
+UnitHealthPercent = function() return { GetRGBA = function() return 0.4, 0.6, 0, 1 end } end
+
+local okEnc = pcall(Update, Strip, 0.06)
+check("B4 Ext2 encode Update: no throw", okEnc)
+check("B4 strip is 40 cells wide", type(Strip._size) == "table"
+  and Strip._size[1] == 8 * 40 and Strip._size[2] == 8)
+
+local _, _, kfEnc = Nib(33)
+check("B4 cell33 B bit2 EXT2 present", bit.band(kfEnc, 4) == 4)
+check("B4 cell33 B bit3 HP-curve active", bit.band(kfEnc, 8) == 8)
+check("B4 cell35 vertex colour painted", Vertex[36] ~= nil and Vertex[36] == 0.4)
+
+-- SelfHeal2 = second distinct candidate (184364, VK 0x4A).
+local s2h, s2l, s2f = Nib(36)
+check("B4 SelfHeal2 slot vk+flags (VK 0x4A)",
+  bit.band(s2f, 8) == 8 and (s2h * 16 + s2l) == 0x4A)
+check("B4 SelfHeal2 spell id round-trips", IdAt(37, 38) == 184364)
+local _, _, cfEnc = Nib(28)
+check("B4 cell28 B carries SelfHeal2 range tri-state", bit.band(cfEnc, 3) == 1)
+
+local sum36 = 0
+for i = 36, 38 do local r, g, b = Nib(i); sum36 = sum36 + r + g + b end
+local e2r, e2g, e2b = Nib(39)
+local _, hbEnc = Nib(9)
+check("B4 cell39 Ext2 checksum over cells 36-38",
+  e2r == 0 and (sum36 % 16) == e2g and e2b == hbEnc)
+
+local coreSum, extSum = 0, 0
+for i = 1, 9 do local r, g, b = Nib(i); coreSum = coreSum + r + g + b end
+for i = 11, 33 do local r, g, b = Nib(i); extSum = extSum + r + g + b end
+local _, coreCs = Nib(10)
+local _, extCs = Nib(34)
+check("B4 core checksum still covers cells 1-9", (coreSum % 16) == coreCs)
+check("B4 ext checksum still covers cells 11-33", (extSum % 16) == extCs)
+
+-- Secret HP sentinel: GetRGBA -> SetVertexColor, untouched, no compare.
+local SecretColor = S(1.0)
+UnitHealthPercent = function() return { GetRGBA = function() return SecretColor end } end
+MDB._BindCache = {}
+local okSecret, errSecret = pcall(Update, Strip, 0.06)
+check("B5 secret HP curve: no throw", okSecret)
+if not okSecret then print("  secret curve error: " .. tostring(errSecret)) end
+check("B5 secret sentinel reached SetVertexColor untouched", rawequal(Vertex[36], SecretColor))
+local _, _, kfSecret = Nib(33)
+check("B5 secret HP curve still reports active", bit.band(kfSecret, 8) == 8)
+
+-- bit2/bit3 truth table.
+UnitHealthPercent = function() return { GetRGBA = function() return 0.4, 0.6, 0, 1 end } end
+MaxDpsBridgeDB.HpCurve = false
+pcall(Update, Strip, 0.06)
+local _, _, kfOff = Nib(33)
+local offTex = Textures[36]
+check("B5 hpcurve off: bit3 clear", bit.band(kfOff, 8) == 0)
+check("B5 hpcurve off: cell35 black", offTex and offTex[1] == 0 and offTex[2] == 0 and offTex[3] == 0)
+check("B5 hpcurve off: bit2 still present", bit.band(kfOff, 4) == 4)
+MaxDpsBridgeDB.HpCurve = true
+
+UnitHealthPercent = nil
+pcall(Update, Strip, 0.06)
+local _, _, kfNone = Nib(33)
+check("B5 missing colour API: bit3 clear", bit.band(kfNone, 8) == 0)
+
+UnitHealthPercent = function() error("secret") end
+local okThrow = pcall(Update, Strip, 0.06)
+check("B5 throwing colour source: contained", okThrow)
+local _, _, kfThrow = Nib(33)
+check("B5 throwing colour source: bit3 clear", bit.band(kfThrow, 8) == 0)
+
+UnitHealthPercent = function() return { GetRGBA = function() return 0.4, 0.6, 0, 1 end } end
+pcall(Update, Strip, 0.06)
+local _, _, kfOn = Nib(33)
+check("B5 valid colour source: bit3 set", bit.band(kfOn, 8) == 8)
+
+-- ================= 19. Ext2 commands (B6) =================
+local Cmd = SlashCmdList["MAXDPSBRIDGE"]
+MaxDpsBridgeDB.HpCurve = true
+Cmd("hpcurve off")
+check("B6 /mdb hpcurve off persists", MaxDpsBridgeDB.HpCurve == false)
+Cmd("hpcurve on")
+check("B6 /mdb hpcurve on persists", MaxDpsBridgeDB.HpCurve == true)
+
+ClearChat()
+Cmd("status")
+local StatusLine = ChatLog[#ChatLog] or ""
+check("B6 /mdb status shows ext2=1", StatusLine:find("ext2=1", 1, true) ~= nil)
+check("B6 /mdb status shows hpcurve=on", StatusLine:find("hpcurve=on", 1, true) ~= nil)
+check("B6 /mdb status shows sh2=", StatusLine:find("sh2=", 1, true) ~= nil)
+
+ClearChat()
+Cmd("heal")
+local HealLine = ChatLog[#ChatLog] or ""
+check("B6 /mdb heal prints variant/ready/key",
+  HealLine:find("known=", 1, true) ~= nil
+  and HealLine:find("ready=", 1, true) ~= nil
+  and HealLine:find("key=", 1, true) ~= nil)
+
+-- ================= 20. EnsureEngine throttle (B7) =================
+local realEnsure = MDB.EnsureEngine
+local ensureCalls = 0
+MDB.EnsureEngine = function() ensureCalls = ensureCalls + 1 end
+local realSpells = MaxDps.Spells
+local realSpell = MaxDps.Spell
+MaxDps.Spells = {}
+for _ = 1, 20 do pcall(Update, Strip, 0.06) end
+check("B7 EnsureEngine fires while MaxDps.Spells is empty", ensureCalls >= 1)
+check("B7 EnsureEngine is throttled (not every tick)", ensureCalls <= 2)
+local callsAfter = ensureCalls
+MaxDps.Spells = realSpells
+MaxDps.Spell = realSpell
+pcall(Update, Strip, 0.06)
+check("B7 EnsureEngine skipped once Spells is populated", ensureCalls == callsAfter)
+MDB.EnsureEngine = realEnsure
+
+-- restore the generated selfHeal list so later workstreams see the catalog.
+realExtras.selfHeal = { 202168 }
+
+end
+RunExt2Tests()
 
 print(string.format("RESULT: %d passed, %d failed", PASS, FAIL))
 if FAIL > 0 then os.exit(1) end

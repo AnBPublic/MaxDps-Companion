@@ -783,6 +783,102 @@ function MDB.IsInterruptReady (SpellID)
   return true;
 end
 
+--- ======= SPELL VARIANTS (protocol Ext2 / v3.0.0) =======
+-- One curated ability can be known to the client under several ids: the
+-- base spell (FindBaseSpellByID), the talent override (FindSpellOverrideByID
+-- / GetOverrideSpell) and the curated alias map (MDB.SpellAliases, emitted
+-- by the companion's generator). Readiness and binding must therefore match
+-- ANY of them; the slot encodes whichever id the player actually knows.
+--
+-- Every API call is pcall-contained and every return scrubbed: a secret or
+-- failed probe simply contributes nothing (never a compare, never a throw).
+local function KnownSpell (SpellID)
+  -- true / false / nil (UNKNOWN when neither API answers). Callers fail open
+  -- on nil: an unobservable id is treated as eligible, never as absent.
+  if type(SpellID) ~= "number" or SpellID <= 0 then return false; end
+  if _G.C_SpellBook and type(_G.C_SpellBook.IsSpellKnown) == "function" then
+    local Ok, Known = pcall(_G.C_SpellBook.IsSpellKnown, SpellID);
+    if Ok and Known ~= nil then
+      local Clean = Scrubbed(Known);
+      if Clean == true then return true; end
+      if Clean == false then return false; end
+    end
+  end
+  if type(IsPlayerSpell) == "function" then
+    local Ok, Known = pcall(IsPlayerSpell, SpellID);
+    if Ok and Known ~= nil then
+      local Clean = Scrubbed(Known);
+      if Clean == true then return true; end
+      if Clean == false then return false; end
+    end
+  end
+  return nil;
+end
+
+--[[*
+  * @function MDB.SpellVariants
+  * @desc Every plain-number id this ability may be known under, de-duplicated
+  *       (the input first, then base / override / alias expansions).
+  * @param SpellID number
+  * @return table array of ids (empty for a non-positive input)
+  *]]
+function MDB.SpellVariants (SpellID)
+  if type(SpellID) ~= "number" or SpellID <= 0 then return {}; end
+  local Aliases = MDB.SpellAliases;
+  local Out, Seen, Queue = {}, {}, { SpellID };
+  local Head = 1;
+  local function Add (Id)
+    if type(Id) ~= "number" or Id <= 0 or Seen[Id] then return false; end
+    Seen[Id] = true;
+    Out[#Out + 1] = Id;
+    Queue[#Queue + 1] = Id;
+    return true;
+  end
+  local function Probe (Fn, Id)
+    if type(Fn) ~= "function" then return nil; end
+    local Ok, Value = pcall(Fn, Id);
+    if not Ok then return nil; end
+    local Clean = Scrubbed(Value);
+    if type(Clean) == "number" and Clean > 0 then return Clean; end
+    return nil;
+  end
+  Add(SpellID);
+  local BaseFn = _G.FindBaseSpellByID;
+  local OverFn = _G.FindSpellOverrideByID;
+  local GetOvFn = _G.GetOverrideSpell;
+  while Head <= #Queue do
+    local Id = Queue[Head];
+    Head = Head + 1;
+    if type(Aliases) == "table" and type(Aliases[Id]) == "table" then
+      local List = Aliases[Id];
+      for i = 1, #List do Add(List[i]); end
+    end
+    Add(Probe(BaseFn, Id));
+    Add(Probe(OverFn, Id));
+    Add(Probe(GetOvFn, Id));
+  end
+  return Out;
+end
+
+-- The variant the player actually knows (first known in SpellVariants order).
+-- No known variant / unknown API -> the listed id (fail open; the caller
+-- still gates on readiness + binding).
+function MDB.ActiveVariant (SpellID)
+  local Variants = MDB.SpellVariants(SpellID);
+  for i = 1, #Variants do
+    if KnownSpell(Variants[i]) == true then return Variants[i]; end
+  end
+  return SpellID;
+end
+
+--[[*
+  * @function MDB.IsSpellKnownVariant
+  * @desc true/false/nil for diagnostics (nil = the client API is absent).
+  *]]
+function MDB.IsSpellKnownVariant (SpellID)
+  return KnownSpell(SpellID);
+end
+
 --- ======= BINDING RESOLUTION =======
 
 -- SpellFrame.lua shortens raw bindings for display (SHIFT- -> S-,
@@ -907,24 +1003,31 @@ end
 --     transported keybind data, exactly as the user says.
 local function HotKeyBinding (SpellID)
   local MaxDps = MaxDpsEngine();
-  local Buttons = MaxDps and MaxDps.Spells and MaxDps.Spells[SpellID];
-  if not Buttons then return nil; end
+  if not MaxDps or not MaxDps.Spells then return nil; end
+  -- v3: the MaxDps overlay may carry the ability under any variant id (a
+  -- base spell / talent override / curated alias), so scan every variant.
+  local Variants = MDB.SpellVariants(SpellID);
   local OkRead, Result = pcall(function ()
     if type(dropsecretaccess) == "function" then dropsecretaccess(); end
-    for i = 1, #Buttons do
-      local Button = Buttons[i];
-      local HotKey = Button and Button.HotKey;
-      if not HotKey and Button and Button.GetName then
-        local Name = Button:GetName();
-        if Name then HotKey = _G[Name .. "HotKey"]; end
-      end
-      if HotKey and HotKey.GetText then
-        local Text = HotKey:GetText();
-        if type(Text) == "string" and Text ~= "" and string.byte(Text) ~= 226 then
-          local VirtualKey, Modifiers = MDB.ParseBinding(MDB.ExpandHotKey(Text));
-          if VirtualKey then return { VK = VirtualKey, Mods = Modifiers }; end
-          -- Parse miss (e.g. exotic ElvUI token): keep scanning buttons
-          -- instead of aborting — a later button may carry plain text.
+    for v = 1, #Variants do
+      local Buttons = MaxDps.Spells[Variants[v]];
+      if Buttons then
+        for i = 1, #Buttons do
+          local Button = Buttons[i];
+          local HotKey = Button and Button.HotKey;
+          if not HotKey and Button and Button.GetName then
+            local Name = Button:GetName();
+            if Name then HotKey = _G[Name .. "HotKey"]; end
+          end
+          if HotKey and HotKey.GetText then
+            local Text = HotKey:GetText();
+            if type(Text) == "string" and Text ~= "" and string.byte(Text) ~= 226 then
+              local VirtualKey, Modifiers = MDB.ParseBinding(MDB.ExpandHotKey(Text));
+              if VirtualKey then return { VK = VirtualKey, Mods = Modifiers }; end
+              -- Parse miss (e.g. exotic ElvUI token): keep scanning buttons
+              -- instead of aborting — a later button may carry plain text.
+            end
+          end
         end
       end
     end
@@ -942,21 +1045,39 @@ end
 -- scrubbed scans (already plain); re-check cheaply (pure Lua, our data).
 local function FindSpellOnActionBar (SpellID)
   if type(SpellID) ~= "number" or SpellID == 0 then return nil; end
+  local Variants = MDB.SpellVariants(SpellID);
+  local VariantSet = {};
+  for i = 1, #Variants do VariantSet[Variants[i]] = true; end
   local OkScan, Found = pcall(function ()
     if type(dropsecretaccess) == "function" then dropsecretaccess(); end
-    local SearchName = nil;
+    -- Name set is built from the variants so a renamed/base ability still
+    -- matches its live-client name. All inside dropsecretaccess containment.
+    local NameSet = nil;
     if C_Spell and C_Spell.GetSpellName then
-      local Name = C_Spell.GetSpellName(SpellID);
-      if type(Name) == "string" then SearchName = Name; end
+      NameSet = {};
+      for i = 1, #Variants do
+        local Name = C_Spell.GetSpellName(Variants[i]);
+        if type(Name) == "string" then NameSet[Name] = true; end
+      end
+    end
+    local function Matches (ID)
+      if type(ID) ~= "number" then return false; end
+      if VariantSet[ID] then return true; end;
+      if NameSet and C_Spell and C_Spell.GetSpellName then
+        local Name = C_Spell.GetSpellName(ID);
+        if type(Name) == "string" and NameSet[Name] then return true; end
+      end
+      return false;
     end
     for Slot = 1, 180 do
       local ActionType, ID = GetActionInfo(Slot);
-      if ActionType == "spell" and type(ID) == "number" then
-        if ID == SpellID then return Slot; end
-        if SearchName and C_Spell and C_Spell.GetSpellName then
-          local SlotName = C_Spell.GetSpellName(ID);
-          if type(SlotName) == "string" and SlotName == SearchName then return Slot; end
-        end
+      if ActionType == "spell" then
+        if Matches(ID) then return Slot; end
+      elseif ActionType == "macro" and type(ID) == "number" and type(GetMacroSpell) == "function" then
+        -- A /cast macro still counts: GetMacroSpell resolves the macro to the
+        -- spell it casts (any variant), so a macro'd ability is bound.
+        local _, _, MacroSpell = GetMacroSpell(ID);
+        if Matches(MacroSpell) then return Slot; end
       end
     end
     return nil;
@@ -999,7 +1120,13 @@ local function SpellFrameBinding (SpellID)
   if not Frame or not Frame.IsVisible or not Frame:IsVisible() then return nil; end
   -- Both sides arrive from scrubbed scans (proven plain); pure-Lua compare.
   if type(SpellID) ~= "number" then return nil; end
-  if SpellID ~= MDB.GetMainSpellID() then return nil; end
+  local Main = MDB.GetMainSpellID();
+  local Variants = MDB.SpellVariants(SpellID);
+  local IsMain = false;
+  for i = 1, #Variants do
+    if Variants[i] == Main then IsMain = true; break; end
+  end
+  if not IsMain then return nil; end
   if not Frame.bindText or not Frame.bindText.GetText then return nil; end
   local Ok, Text = pcall(Frame.bindText.GetText, Frame.bindText);
   if not Ok then return nil; end
@@ -1009,17 +1136,25 @@ end
 local function TextureBinding (SpellID)
   -- SpellID arrives from scrubbed scans (proven plain, pure-Lua check).
   if type(SpellID) ~= "number" or SpellID == 0 then return nil; end
-  local Texture = nil;
-  if C_Spell and C_Spell.GetSpellTexture then
-    local Ok, Tex = pcall(C_Spell.GetSpellTexture, SpellID);
-    if Ok then Texture = Tex; end
+  -- v3: the mapped texture may belong to any variant of the ability.
+  local Variants = MDB.SpellVariants(SpellID);
+  for i = 1, #Variants do
+    local Id = Variants[i];
+    local Texture = nil;
+    if C_Spell and C_Spell.GetSpellTexture then
+      local Ok, Tex = pcall(C_Spell.GetSpellTexture, Id);
+      if Ok then Texture = Tex; end
+    end
+    if not Texture and type(GetSpellTexture) == "function" then
+      local Ok, Tex = pcall(GetSpellTexture, Id);
+      if Ok then Texture = Tex; end
+    end
+    if Texture then
+      local VirtualKey, Modifiers = MDB.ParseBinding(MDB.BindingForTexture(Texture));
+      if VirtualKey then return VirtualKey, Modifiers; end
+    end
   end
-  if not Texture and type(GetSpellTexture) == "function" then
-    local Ok, Tex = pcall(GetSpellTexture, SpellID);
-    if Ok then Texture = Tex; end
-  end
-  if not Texture then return nil; end
-  return MDB.ParseBinding(MDB.BindingForTexture(Texture));
+  return nil;
 end
 
 -- v1.3.2 order (user's words: the overlay IS the binding — no visual
@@ -1358,21 +1493,44 @@ end
 -- UNBOUND talent (not on any bar, no MaxDps overlay button) must not shadow a
 -- bound alternative. ResolveBinding is cached (misses included) and
 -- invalidated on bar updates, so the extra lookups are a table hit.
-local function ExtraSpellID (Kind)
+--[[*
+  * @function MDB.ExtraCandidates
+  * @desc First Count DISTINCT entries of a curated extras list that are
+  *       ready AND bound, each encoded as the variant the player actually
+  *       knows (base / override / alias; see MDB.ActiveVariant).
+  * @param Kind string "mobility" | "selfHeal" | "defensive"
+  * @param Count number
+  * @return table array of variant ids (may be shorter than Count)
+  *]]
+function MDB.ExtraCandidates (Kind, Count)
+  Count = Count or 1;
   local _, classFile, specName = ClassSpec();
-  if not classFile or not specName then return nil; end
+  if not classFile or not specName then return {}; end
   local Table = MDB.Extras and MDB.Extras[classFile] and MDB.Extras[classFile][specName];
-  if type(Table) ~= "table" then return nil; end
+  if type(Table) ~= "table" then return {}; end
   local List = Table[Kind];
-  if type(List) ~= "table" then return nil; end
+  if type(List) ~= "table" then return {}; end
+  local Out, Seen = {}, {};
   for i = 1, #List do
-    local SpellID = List[i];
-    if type(SpellID) == "number" and SpellID > 0 and MDB.IsSpellReady(SpellID)
-      and MDB.ResolveBinding and MDB.ResolveBinding(SpellID) then
-      return SpellID;
+    local Entry = List[i];
+    if type(Entry) == "number" and Entry > 0 then
+      local Active = MDB.ActiveVariant(Entry);
+      if type(Active) == "number" and Active > 0 and not Seen[Active] then
+        -- Readiness/binding are tested on the variant that will be encoded.
+        if MDB.IsSpellReady(Active) and MDB.ResolveBinding and MDB.ResolveBinding(Active) then
+          Seen[Active] = true;
+          Out[#Out + 1] = Active;
+          if #Out >= Count then return Out; end
+        end
+      end
     end
   end
-  return nil;
+  return Out;
+end
+
+local function ExtraSpellID (Kind)
+  local Candidates = MDB.ExtraCandidates(Kind, 1);
+  return Candidates[1];
 end
 
 function MDB.GetMobilitySpellID ()
@@ -1381,6 +1539,12 @@ end
 
 function MDB.GetSelfHealSpellID ()
   return ExtraSpellID("selfHeal");
+end
+
+-- The second distinct SelfHeal candidate (protocol Ext2 cells 36-38).
+function MDB.GetSelfHeal2SpellID ()
+  local Candidates = MDB.ExtraCandidates("selfHeal", 2);
+  return Candidates[2];
 end
 
 --- ======= DEFENSIVE URGENCY + GAP-FILL (protocol v6) =======
@@ -1476,6 +1640,74 @@ function MDB.GetDefensiveUrgencyNibble (SpellID)
   local Nibble = MDB.GetDefensiveUrgency(SpellID);
   if type(Nibble) ~= "number" or Nibble < 0 or Nibble > 4 then return 0; end
   return Nibble;
+end
+
+--- ======= EXT2 HP CURVE (protocol Ext2 / v3.0.0) =======
+-- The companion reads the player HP off the strip when the game hides the
+-- vitals cell (plain cell 27 secret). The bridge never reads the value: it
+-- passes a ColorCurve into UnitHealthPercent and forwards the returned
+-- colour straight into Texture:SetVertexColor, engine-side. The curve is
+-- linear, 0.0 HP -> green (0,1,0,1), 1.0 HP -> red (1,0,0,1), so the
+-- decoder's R = hp fraction and G = 1-hp arithmetic holds. Built once,
+-- lazily; a client without C_CurveUtil simply reports the curve inactive.
+function MDB.EnsureHpCurve ()
+  if MDB.HpCurve then return MDB.HpCurve; end
+  if MDB._HpCurveTried then return nil; end
+  MDB._HpCurveTried = true;
+  if not (_G.C_CurveUtil and type(_G.C_CurveUtil.CreateColorCurve) == "function") then
+    return nil;
+  end
+  local Ok, Curve = pcall(_G.C_CurveUtil.CreateColorCurve);
+  if not Ok or Curve == nil then return nil; end
+  -- Enum / CreateColor live INSIDE the pcall: a client without them must
+  -- degrade to inactive, never throw on argument evaluation.
+  local OkSetup = pcall(function ()
+    Curve:SetType(Enum.LuaCurveType.Linear);
+    Curve:AddPoint(0.0, CreateColor(0, 1, 0, 1));
+    Curve:AddPoint(1.0, CreateColor(1, 0, 0, 1));
+  end);
+  if not OkSetup then return nil; end
+  MDB.HpCurve = Curve;
+  return MDB.HpCurve;
+end
+
+--- ======= /mdb heal DIAGNOSTICS =======
+-- Per selfHeal list entry: the variant that would be encoded, whether it is
+-- known / ready / usable and the resolved key. Every probe is pcall-safe and
+-- reports "?" where the client cannot answer. Plain numbers/strings only.
+function MDB.SelfHealDiag ()
+  local _, classFile, specName = ClassSpec();
+  if not classFile or not specName then return "no class/spec"; end
+  local Table = MDB.Extras and MDB.Extras[classFile] and MDB.Extras[classFile][specName];
+  local List = Table and Table.selfHeal;
+  if type(List) ~= "table" then
+    return ("%s/%s: no selfHeal list"):format(classFile, specName);
+  end
+  local Lines = {};
+  for i = 1, #List do
+    local Entry = List[i];
+    local Active = MDB.ActiveVariant(Entry);
+    local Known = "?";
+    local KnownState = MDB.IsSpellKnownVariant(Active);
+    if KnownState == true then Known = "y" elseif KnownState == false then Known = "n"; end
+    local Ready = "?";
+    local OkReady, IsReady = pcall(MDB.IsSpellReady, Active);
+    if OkReady then Ready = IsReady and "y" or "n"; end
+    local Usable = "?";
+    local OkUsable, IsUsable = pcall(UsableNow, Active);
+    if OkUsable then Usable = IsUsable and "y" or "n"; end
+    local Key = "-";
+    local OkBind, VK = pcall(MDB.ResolveBinding, Active);
+    if OkBind and type(VK) == "number" and VK > 0 then
+      Key = ("0x%02X"):format(VK);
+    end
+    local Why = "listed";
+    if Active ~= Entry then Why = ("variant of %d"):format(Entry); end
+    if KnownState == false then Why = Why .. ", not known"; end
+    Lines[#Lines + 1] = ("%d -> %d known=%s ready=%s usable=%s key=%s why=%s")
+      :format(Entry, Active, Known, Ready, Usable, Key, Why);
+  end
+  return table.concat(Lines, "\n");
 end
 
 -- /mdb status diagnostics for the extras lists.
