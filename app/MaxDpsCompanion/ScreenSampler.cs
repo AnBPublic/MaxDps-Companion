@@ -41,8 +41,8 @@ internal sealed class ScreenSampler : IDisposable
     /// </summary>
     public static Color[] SampleRegion(Func<int, int, Color> read, int blockX, int blockY, int cellSize)
     {
-        var colors = new Color[PixelProtocol.CellCount];
-        for (var i = 0; i < PixelProtocol.CellCount; i++)
+        var colors = new Color[PixelProtocol.CellCountExt2];
+        for (var i = 0; i < PixelProtocol.CellCountExt2; i++)
             colors[i] = SampleCell((x, y) => read(blockX + x, blockY + y), i, cellSize);
         return colors;
     }
@@ -60,7 +60,10 @@ internal sealed class ScreenSampler : IDisposable
         SampleCells(origin, cellSize, PixelProtocol.CellCountV1, (x, y) => ReadPixel(x, y));
 
     private Color[] SampleCells(Point origin, int cellSize, Func<int, int, Color> read) =>
-        SampleCells(origin, cellSize, PixelProtocol.CellCount, read);
+        // Ext2 (v3.0.0): capture the full 40-cell frame in one BitBlt so the
+        // HP-curve and SelfHeal2 cells are readable; a 35-cell stale addon
+        // leaves the extra cells as background and decodes normally.
+        SampleCells(origin, cellSize, PixelProtocol.CellCountExt2, read);
 
     private Color[] SampleCells(Point origin, int cellSize, int cellCount, Func<int, int, Color> read)
     {

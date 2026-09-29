@@ -10,7 +10,7 @@ namespace MaxDpsCompanion.Tests;
 /// </summary>
 internal sealed class TestV5Frame
 {
-    private readonly (int R, int G, int B)[] _nibbles = new (int, int, int)[PixelProtocol.CellCount];
+    private readonly (int R, int G, int B)[] _nibbles = new (int, int, int)[PixelProtocol.CellCountExt2];
 
     public TestV5Frame()
     {
@@ -128,7 +128,79 @@ internal sealed class TestV5Frame
         return this;
     }
 
+    // ---- Ext2 (v3.0.0) ----------------------------------------------------
+
+    /// <summary>
+    /// Marks the Ext2 block present (cell 33 B bit2), optionally the HP curve
+    /// active (bit3), and writes the curve nibbles: R = band, G = 15-band so
+    /// the valid R+G band (14..16) holds.
+    /// </summary>
+    public TestV5Frame Ext2(bool hpCurveActive, int curveBand)
+    {
+        var (classId, specId, flags) = _nibbles[PixelProtocol.ClassSpecCellIndex];
+        flags |= PixelProtocol.ClassFlagExt2Present;
+        if (hpCurveActive) flags |= PixelProtocol.ClassFlagHpCurveActive;
+        _nibbles[PixelProtocol.ClassSpecCellIndex] = (classId, specId, flags);
+        SetCurve(curveBand, 15 - curveBand);
+        return this;
+    }
+
+    /// <summary>Writes the raw curve nibbles (for corruption / out-of-band tests).</summary>
+    public TestV5Frame SetCurve(int r, int g)
+    {
+        _nibbles[PixelProtocol.HpCurveCellIndex] = (r, g, 0);
+        return this;
+    }
+
+    /// <summary>Encodes the SelfHeal2 candidate (cells 36-38) and its cell 28 B range.</summary>
+    public TestV5Frame SelfHeal2(KeyStroke stroke, int spellId, TriState range)
+    {
+        var flags = 8
+            | (stroke.Shift ? 1 : 0)
+            | (stroke.Ctrl ? 2 : 0)
+            | (stroke.Alt ? 4 : 0);
+        _nibbles[PixelProtocol.SelfHeal2CellIndex] = (stroke.VirtualKey >> 4, stroke.VirtualKey & 0x0F, flags);
+        var hi = (spellId >> 12) & 0x0FFF;
+        var lo = spellId & 0x0FFF;
+        _nibbles[PixelProtocol.SelfHeal2SpellIdCellIndex] = ((hi >> 8) & 0xF, (hi >> 4) & 0xF, hi & 0xF);
+        _nibbles[PixelProtocol.SelfHeal2SpellIdCellIndex + 1] = ((lo >> 8) & 0xF, (lo >> 4) & 0xF, lo & 0xF);
+
+        var code = range switch
+        {
+            TriState.Yes => PixelProtocol.RangeIn,
+            TriState.No => PixelProtocol.RangeOut,
+            _ => PixelProtocol.RangeUnknown,
+        };
+        var (castState, castBand, castB) = _nibbles[PixelProtocol.CastCellIndex];
+        _nibbles[PixelProtocol.CastCellIndex] = (castState, castBand, (castB & ~3) | code);
+        return this;
+    }
+
     public Color[] Build(int heartbeat, bool inCombat = true, bool onGcd = false, bool hasTarget = true, int version = 0)
+    {
+        Prepare(heartbeat, inCombat, onGcd, hasTarget, version);
+        var cells = new Color[PixelProtocol.CellCount];
+        for (var i = 0; i < cells.Length; i++)
+            cells[i] = ToColor(_nibbles[i]);
+        return cells;
+    }
+
+    /// <summary>Ext2 capture: the 35 core cells plus 35-39 (curve + SelfHeal2 + cell-39 checksum).</summary>
+    public Color[] BuildExt2(int heartbeat, bool inCombat = true, bool onGcd = false, bool hasTarget = true, int version = 0)
+    {
+        Prepare(heartbeat, inCombat, onGcd, hasTarget, version);
+        var h2 = 0;
+        for (var i = PixelProtocol.SelfHeal2CellIndex; i <= PixelProtocol.SelfHeal2SpellIdCellIndex + 1; i++)
+            h2 += _nibbles[i].R + _nibbles[i].G + _nibbles[i].B;
+        _nibbles[PixelProtocol.SelfHeal2CommitCellIndex] = (0, h2 & 0xF, heartbeat);
+
+        var cells = new Color[PixelProtocol.CellCountExt2];
+        for (var i = 0; i < cells.Length; i++)
+            cells[i] = ToColor(_nibbles[i]);
+        return cells;
+    }
+
+    private void Prepare(int heartbeat, bool inCombat, bool onGcd, bool hasTarget, int version)
     {
         var flags = (inCombat ? PixelProtocol.StatusFlagInCombat : 0)
             | (onGcd ? PixelProtocol.StatusFlagOnGcd : 0)
@@ -146,10 +218,7 @@ internal sealed class TestV5Frame
         for (var i = PixelProtocol.SpellIdCellBase; i <= PixelProtocol.ClassSpecCellIndex; i++)
             ext += _nibbles[i].R + _nibbles[i].G + _nibbles[i].B;
         _nibbles[PixelProtocol.ExtensionCellIndex] = (0, ext & 0xF, heartbeat);
-
-        var cells = new Color[PixelProtocol.CellCount];
-        for (var i = 0; i < cells.Length; i++)
-            cells[i] = Color.FromArgb(_nibbles[i].R * 17, _nibbles[i].G * 17, _nibbles[i].B * 17);
-        return cells;
     }
+
+    private static Color ToColor((int R, int G, int B) n) => Color.FromArgb(n.R * 17, n.G * 17, n.B * 17);
 }

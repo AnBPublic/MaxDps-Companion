@@ -43,6 +43,14 @@ internal readonly record struct KeyStroke(byte VirtualKey, bool Shift, bool Ctrl
     }
 }
 
+/// <summary>
+/// Ext2 (v3.0.0) second self-sustain candidate: the next distinct ready+bound
+/// entry the bridge encoded into cells 36-38, with its own range tri-state from
+/// cell 28 B bits0-1. Null when the block is absent (bit2=0), inactive, or the
+/// cell-39 checksum failed.
+/// </summary>
+internal readonly record struct SelfHeal2Slot(KeyStroke Stroke, int SpellId, TriState Range);
+
 /// <summary>One decoded reading of the addon's pixel block.</summary>
 internal sealed class BridgeFrame
 {
@@ -92,6 +100,19 @@ internal sealed class BridgeFrame
     /// <summary>True when the bridge's self-buff probe block ran without a failed/secret probe (v2.7 additive cell 33 B bit1).</summary>
     public bool BuffProbeValid { get; init; }
 
+    /// <summary>
+    /// Ext2 (v3.0.0): the HP-curve reading decoded from cell 35 is usable
+    /// (bit2 EXT2 present AND bit3 HP CURVE ACTIVE, and the R+G nibble sum is
+    /// in the accepted 14..16 band). False on older 35-cell frames.
+    /// </summary>
+    public bool HpCurveValid { get; init; }
+
+    /// <summary>Ext2: HP-curve band (cell 35 R nibble, 0..15); -1 when not valid.</summary>
+    public int HpCurveBand { get; init; } = -1;
+
+    /// <summary>Ext2: the second self-sustain candidate (cells 36-38); null when absent/invalid.</summary>
+    public SelfHeal2Slot? SelfHeal2 { get; init; }
+
     public string? ClassName { get; init; }
     public string? SpecName { get; init; }
 
@@ -139,7 +160,17 @@ internal static class PixelProtocol
     /// </summary>
     public const int CellCountV1 = 8;
     public const int CellCountV4 = 9;
+
+    /// <summary>v5 core width (35 cells). The addon still renders this layout.</summary>
     public const int CellCount = 35;
+
+    /// <summary>
+    /// Ext2 (v3.0.0): the frame becomes 40 cells wide. Cells 0-34 are the
+    /// unchanged v5 layout; 35-39 are the HP-curve + SelfHeal2 block. The
+    /// companion captures 40 cells so it can read the extension, while a
+    /// 35-cell stale addon still decodes (cell 33 B bit2 = 0).
+    /// </summary>
+    public const int CellCountExt2 = 40;
     public const int SupportedVersionV1 = 1;
     public const int SupportedVersionV4 = 4;
     public const int SupportedVersion = 5;
@@ -174,6 +205,21 @@ internal static class PixelProtocol
     public const int BuffCellIndex = 32;
     public const int ClassSpecCellIndex = 33;
     public const int ExtensionCellIndex = 34;
+
+    /// <summary>Ext2 cell indices (only present in a 40-cell capture).</summary>
+    public const int HpCurveCellIndex = 35;
+    public const int SelfHeal2CellIndex = 36;
+    public const int SelfHeal2SpellIdCellIndex = 37;
+    public const int SelfHeal2CommitCellIndex = 39;
+
+    /// <summary>Cell 33 B bits (v5 class/spec + v2.7 buff probe + Ext2).</summary>
+    public const int ClassFlagClassSpecValid = 1;
+    public const int ClassFlagBuffProbeValid = 2;
+    public const int ClassFlagExt2Present = 4;
+    public const int ClassFlagHpCurveActive = 8;
+
+    /// <summary>True for any capture width the v5 decoder understands (core or Ext2).</summary>
+    public static bool IsV5Length(int length) => length is CellCount or CellCountExt2;
 
     /// <summary>v5 sentinel nibble for "value unknown / not applicable".</summary>
     public const int UnknownNibble = 15;
@@ -233,7 +279,7 @@ internal static class PixelProtocol
         // addon). A v4 addon renders only 9 cells; the extra cells the sampler
         // captured are background, so v5 decode fails on the version nibble
         // and the v4 path takes over.
-        if (cells.Length == CellCount) return DecodeV5(cells, profile);
+        if (IsV5Length(cells.Length)) return DecodeV5(cells, profile);
         if (cells.Length == CellCountV4)
             return DecodeCells(cells, StatusCellIndexV4, VersionCellIndexV4, null, SupportedVersionV4, profile);
         if (cells.Length == CellCountV1)
@@ -247,7 +293,7 @@ internal static class PixelProtocol
     /// </summary>
     public static DecodeFault Diagnose(Color[] cells, ColorProfile? profile)
     {
-        if (cells.Length == CellCount)
+        if (IsV5Length(cells.Length))
         {
             DecodeV5(cells, profile, out var fault);
             return fault;
@@ -495,6 +541,54 @@ internal static class PixelProtocol
         var staggerUrgency = DecodeUrgency(staggerNibble);
         var defensiveCatalogSource = (defensiveSourceBits & 1) != 0;
 
+        // Ext2 block (v3.0.0): cells 35-39. A 35-cell capture has no such
+        // cells, so it is always absent. bit2 says the block exists; bit3 says
+        // cell 35 holds a live HP curve. The cell-39 checksum covers ONLY cells
+        // 36-38: a failure drops only SelfHeal2, never the whole frame or the
+        // curve. The curve itself has no checksum (Lua cannot read it), so its
+        // validity is the R+G nibble sum being inside the accepted band.
+        var ext2Present = (classFlags & ClassFlagExt2Present) != 0 && cells.Length >= CellCountExt2;
+        var hpCurveValid = false;
+        var hpCurveBand = -1;
+        SelfHeal2Slot? selfHeal2 = null;
+        if (ext2Present)
+        {
+            var (curveR, curveG, _) = N(HpCurveCellIndex);
+            if ((classFlags & ClassFlagHpCurveActive) != 0
+                && curveR + curveG is >= 14 and <= 16)
+            {
+                hpCurveValid = true;
+                hpCurveBand = curveR;
+            }
+
+            var heal2Sum = 0;
+            for (var i = SelfHeal2CellIndex; i <= SelfHeal2SpellIdCellIndex + 1; i++)
+            {
+                var (r, g, b) = N(i);
+                heal2Sum += r + g + b;
+            }
+            var (_, heal2Checksum, heal2Commit) = N(SelfHeal2CommitCellIndex);
+            if (heal2Commit == heartbeat && (heal2Sum & 0xF) == heal2Checksum)
+            {
+                var (h2hi, h2lo, h2flags) = N(SelfHeal2CellIndex);
+                if ((h2flags & FlagValid) != 0)
+                {
+                    var (s0, s1, s2) = N(SelfHeal2SpellIdCellIndex);
+                    var (s3, s4, s5) = N(SelfHeal2SpellIdCellIndex + 1);
+                    var heal2SpellId = (s0 << 20) | (s1 << 16) | (s2 << 12) | (s3 << 8) | (s4 << 4) | s5;
+                    // Cell 28 B bits0-1 carry the SelfHeal2 range tri-state.
+                    selfHeal2 = new SelfHeal2Slot(
+                        new KeyStroke(
+                            (byte)((h2hi << 4) | h2lo),
+                            (h2flags & FlagShift) != 0,
+                            (h2flags & FlagCtrl) != 0,
+                            (h2flags & FlagAlt) != 0),
+                        heal2SpellId,
+                        DecodeRange(castFlagsRaw & 3));
+                }
+            }
+        }
+
         var className = (classFlags & 1) != 0 ? AbilityCatalog.ClassName(classId) : null;
         var specName = className is not null ? AbilityCatalog.SpecName(className, specId) : null;
 
@@ -521,6 +615,9 @@ internal static class PixelProtocol
             DefensiveUrgency = urgency,
             StaggerUrgency = staggerUrgency,
             DefensiveCatalogSource = defensiveCatalogSource,
+            HpCurveValid = hpCurveValid,
+            HpCurveBand = hpCurveBand,
+            SelfHeal2 = selfHeal2,
         };
     }
 
