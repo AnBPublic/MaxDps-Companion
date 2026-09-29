@@ -305,3 +305,27 @@ frames carry no defensive urgency, cast state, target state or range
 tri-state: every additive field is UNKNOWN and the policy falls back to its
 documented pre-v2.3 behaviour. The addon encodes v5 with the additive urgency
 nibbles (`addon/MaxDpsBridge/Bridge.lua`, `PROTOCOL_VERSION = 5`).
+
+## Ext2 block (v3.0.0, additive)
+
+```
+Frame width becomes 40 cells. Cells 0-34 are unchanged (v5, version nibble stays 5).
+Cell 33 B: bit0 class/spec valid, bit1 buff block valid,
+           bit2 EXT2 PRESENT, bit3 HP CURVE ACTIVE.
+Cell 28 B: bits0-1 = SelfHeal2 range tri-state (0 unknown/1 in/2 out); was reserved 0.
+Cell 35: HP curve. The bridge paints it with SetVertexColor(color:GetRGBA()), where
+         color = UnitHealthPercent("player", false, MDB.HpCurve) and HpCurve is linear:
+         0.0 -> (0,1,0,1), 1.0 -> (1,0,0,1).  R = hp fraction, G = 1-hp, B = 0.
+         No checksum covers it (Lua cannot read the value). If bit3 = 0, paint black.
+Cell 36: SelfHeal2 vk hi | vk lo | flags   (same semantics as slot cells 1-8)
+Cells 37-38: SelfHeal2 spell id (6 nibbles, same as cells 11-26)
+Cell 39: R=0, G = sum of the R/G/B nibbles of cells 36-38 mod 16, B = commit (=heartbeat)
+Decoder: if bit2 = 0, ignore cells 35-39 (old addon). A cell-39 checksum failure drops
+         ONLY SelfHeal2, never the whole frame. HP curve is valid iff bit2 & bit3 &
+         14 <= nR+nG <= 16 (nibbles via the learned ColorProfile).
+         band = nR (0..15); HpPct = round(nR*100/15);
+         HpPctUpper = min(100, round((nR+0.5)*100/15)).
+Selection: SelfHeal = first ready+bound entry; SelfHeal2 = the next distinct
+         ready+bound entry.
+HP precedence (companion): plain cell 27 > curve > unknown.
+```

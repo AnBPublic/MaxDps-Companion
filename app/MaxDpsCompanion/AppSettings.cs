@@ -30,6 +30,9 @@ internal sealed class AppSettings
     public int WindowWidth { get; set; }
     public int WindowHeight { get; set; }
 
+    /// <summary>Layout tag (classic3 = v3 classic shell); forces size reset on shell change.</summary>
+    public string WindowLayout { get; set; } = "";
+
     // [Pause] — global toggle hotkey, parsed as a System.Windows.Forms.Keys name.
     public string PauseHotkey { get; set; } = "Pause";
 
@@ -87,6 +90,9 @@ internal sealed class AppSettings
     // A candidate already pressed since it last changed and unchanged for this
     // long is demoted behind a fresh alternative (never removed).
     public int IntelligenceStaleAfterMs { get; set; } = 1500;
+
+    // [Intelligence] — paint the player HP curve strip (cell 35). ON by default.
+    public bool HpCurve { get; set; } = true;
 
     // [Solo] — SOLO / SELF-SUSTAIN mode (v2.0). OFF by default. ON adds the
     // survival-first layer on top of the standard policy: self-heals become
@@ -173,6 +179,7 @@ internal sealed class AppSettings
             case ("window", "allowbackgroundkeys"): AllowBackgroundKeys = ParseBool(value, AllowBackgroundKeys); break;
             case ("window", "width"): WindowWidth = Math.Clamp(ParseInt(value, WindowWidth), 0, 8000); break;
             case ("window", "height"): WindowHeight = Math.Clamp(ParseInt(value, WindowHeight), 0, 8000); break;
+            case ("window", "layout"): WindowLayout = value.Trim(); break;
             case ("pause", "button"): PauseHotkey = value; break;
             case ("spells", "spell1"): SlotEnabled[0] = ParseBool(value, SlotEnabled[0]); break;
             case ("spells", "spell2"): SlotEnabled[1] = ParseBool(value, SlotEnabled[1]); break;
@@ -195,6 +202,7 @@ internal sealed class AppSettings
             case ("scheduler", "repeatsuppressms"): SchedulerRepeatSuppressMs = Math.Clamp(ParseInt(value, SchedulerRepeatSuppressMs), 100, 5000); break;
             case ("intelligence", "enabled"): IntelligenceEnabled = ParseBool(value, IntelligenceEnabled); break;
             case ("intelligence", "staleafterms"): IntelligenceStaleAfterMs = ParseInt(value, IntelligenceStaleAfterMs); break;
+            case ("intelligence", "hpcurve"): HpCurve = ParseBool(value, HpCurve); break;
             case ("solo", "enabled"): SoloEnabled = ParseBool(value, SoloEnabled); break;
             case ("solo", "emergencyhppct"): SoloEmergencyHpPct = Math.Clamp(ParseInt(value, SoloEmergencyHpPct), 5, 90); break;
             case ("solo", "selfsustainhppct"): SoloSelfSustainHpPct = Math.Clamp(ParseInt(value, SoloSelfSustainHpPct), 10, 99); break;
@@ -230,6 +238,8 @@ internal sealed class AppSettings
             .AppendLine("; Saved client size (0 = default); written on resize/close.")
             .AppendLine($"Width={WindowWidth}")
             .AppendLine($"Height={WindowHeight}")
+            .AppendLine("; Layout tag (classic3 = v3 classic shell); forces size reset on shell change.")
+            .AppendLine($"Layout={WindowLayout}")
             .AppendLine()
             .AppendLine("[Pause]")
             .AppendLine($"Button={PauseHotkey}")
@@ -278,6 +288,7 @@ internal sealed class AppSettings
             .AppendLine("[Intelligence]")
             .AppendLine($"Enabled={(IntelligenceEnabled ? 1 : 0)}")
             .AppendLine($"StaleAfterMs={IntelligenceStaleAfterMs}")
+            .AppendLine($"HpCurve={(HpCurve ? 1 : 0)}")
             .AppendLine()
             .AppendLine("; Solo / self-sustain mode (default off; requires [Intelligence] Enabled=1).")
             .AppendLine("; EmergencyHpPct: below this, survival actions outrank the rotation.")

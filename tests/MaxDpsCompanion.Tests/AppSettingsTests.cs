@@ -103,6 +103,50 @@ public class AppSettingsTests : IDisposable
         Assert.Equal(5, settings.SoloDefensiveEscalateHpPct);
     }
 
+    // ----- [Window] Layout (v3 classic shell) ------------------------------
+
+    [Fact]
+    public void WindowLayout_Defaults_To_Empty()
+    {
+        var settings = AppSettings.Load(_path);
+
+        Assert.Equal("", settings.WindowLayout);
+    }
+
+    [Fact]
+    public void Save_Round_Trips_WindowLayout()
+    {
+        var settings = AppSettings.Load(_path);
+        settings.WindowLayout = "classic3";
+        settings.Save();
+
+        var reloaded = AppSettings.Load(_path);
+
+        Assert.Equal("classic3", reloaded.WindowLayout);
+    }
+
+    // ----- [Intelligence] HpCurve (v3.0.0) ---------------------------------
+
+    [Fact]
+    public void HpCurve_Defaults_To_True()
+    {
+        var settings = AppSettings.Load(_path);
+
+        Assert.True(settings.HpCurve);
+    }
+
+    [Fact]
+    public void Save_Round_Trips_HpCurve_Disabled()
+    {
+        var settings = AppSettings.Load(_path);
+        settings.HpCurve = false;
+        settings.Save();
+
+        var reloaded = AppSettings.Load(_path);
+
+        Assert.False(reloaded.HpCurve);
+    }
+
     // ----- [Telemetry] (v1.5.0): OFF by default is the safety contract -----
 
     [Fact]
