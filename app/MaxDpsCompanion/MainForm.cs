@@ -122,6 +122,10 @@ internal sealed class MainForm : Form
     private Panel _abilitiesOverlay = null!;
     private SegmentedTabs _advancedTabs = null!;
     private SegmentedTabs _abilitiesTabs = null!;
+    // v3.5 S7: the console home (default view over the classic body).
+    private ConsoleHome _consoleHome = null!;
+    private ConsolePreset? _activePreset;
+    private string _consoleLastStatus = "";
     private readonly LinkLamp _linkLamp = new();
     private readonly Label _stateLabel = new();
     private readonly Label _liveValue = new();
@@ -708,6 +712,9 @@ internal sealed class MainForm : Form
         scroll.Controls.Add(layout);
         canvas.Controls.Add(scroll);
 
+        _consoleHome = BuildConsoleHome();
+        canvas.Controls.Add(_consoleHome);
+
         _advancedOverlay = BuildAdvancedOverlay();
         _abilitiesOverlay = BuildAbilitiesOverlay();
         canvas.Controls.Add(_advancedOverlay);
@@ -715,6 +722,88 @@ internal sealed class MainForm : Form
         _advancedOverlay.BringToFront();
         _abilitiesOverlay.BringToFront();
         return canvas;
+    }
+
+    // ----- v3.5 S7 console home wiring -----
+
+    private ConsoleHome BuildConsoleHome()
+    {
+        var console = new ConsoleHome();
+        console.PauseRequested += TogglePauseFromConsole;
+        console.FolderRequested += OpenAppFolder;
+        console.ConsoleToggleRequested += () => console.Visible = !console.Visible;
+        console.BindsRequested += () => OpenAdvancedTab(0);
+        console.SettingsRequested += () => OpenAdvancedTab(0);
+        console.RotationRequested += ShowRotationMenu;
+        console.DebugRequested += () => OpenAdvancedTab(1);
+        console.PresetRequested += ApplyPreset;
+        return console;
+    }
+
+    /// <summary>Opens the Advanced overlay on a tab without disturbing z-order.</summary>
+    private void OpenAdvancedTab(int index)
+    {
+        ShowAdvanced();
+        if (_advancedTabs is not null && index >= 0 && index < _advancedTabs.TabPages.Count)
+            _advancedTabs.SelectedIndex = index;
+    }
+
+    private void TogglePauseFromConsole()
+    {
+        if (!_engine.IsRunning)
+        {
+            StartEngine();
+            return;
+        }
+        _engine.Paused = !_engine.Paused;
+        _consoleHome.SetPaused(_engine.Paused);
+        SetStatus(_engine.Paused ? "Paused." : "Running.", _engine.Paused ? DesignTokens.Accent : DesignTokens.Success);
+    }
+
+    /// <summary>
+    /// Applies a named preset bundle by writing the SAME hero toggles the user
+    /// can flip, then records the change in the update log. The addon can still
+    /// only restrict further; nothing here changes the wire.
+    /// </summary>
+    private void ApplyPreset(ConsolePreset preset)
+    {
+        var bundle = ConsolePresets.Get(preset);
+        _main.Checked = bundle.Main;
+        _offensive.Checked = bundle.Offensive;
+        _defensives.Checked = bundle.Defensives;
+        _consumable.Checked = bundle.Consumable;
+        _trinket.Checked = bundle.Trinket;
+        _outOfCombat.Checked = bundle.OutOfCombat;
+        _autoTarget.Checked = bundle.AutoTarget;
+        _autoInteract.Checked = bundle.AutoInteract;
+        _timeToKill.Checked = bundle.TimeToKill;
+        _crowdControl.Checked = bundle.CrowdControl;
+        _interrupt.Checked = bundle.Interrupt;
+        _mobility.Checked = bundle.Mobility;
+        _selfHeal.Checked = bundle.SelfHeal;
+        _solo2.Checked = bundle.Solo;
+        _activePreset = preset;
+        _consoleHome.SetActivePreset(preset);
+        _consoleHome.AppendLog($"Preset \"{bundle.Name}\" applied.", ConsolePalette.Brass);
+        _consoleHome.NoteChange($"Preset \"{bundle.Name}\" applied. {bundle.Summary}");
+        SetStatus($"Preset: {bundle.Name}. {bundle.Summary}", DesignTokens.Accent);
+    }
+
+    private void ShowRotationMenu()
+    {
+        var menu = new ContextMenuStrip { ShowImageMargin = false };
+        menu.Items.Add(new ToolStripMenuItem("Rotation source: MaxDps (suggest-only)") { Enabled = false });
+        menu.Items.Add(new ToolStripSeparator());
+        foreach (var bundle in ConsolePresets.All)
+        {
+            var item = new ToolStripMenuItem($"Preset: {bundle.Name}") { ToolTipText = bundle.Summary };
+            var captured = bundle.Preset;
+            item.Click += (_, _) => ApplyPreset(captured);
+            menu.Items.Add(item);
+        }
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(new ToolStripMenuItem("Class skills\u2026", null, (_, _) => ShowAbilities()));
+        menu.Show(Cursor.Position);
     }
 
     private Control BuildHeroCard()
@@ -1040,6 +1129,8 @@ internal sealed class MainForm : Form
         // The Class skills screen owns its own combo/legend type steps (S5).
         _classSkills?.ApplyScale(_scale);
         _classBrowser.ApplyScale(_scale);
+        // v3.5 S7: the console home tracks the same width tiers.
+        _consoleHome?.ApplyScale(_scale);
     }
 
     private static void ApplyScaleRecursive(Control root, UiScale scale)
@@ -2516,6 +2607,23 @@ internal sealed class MainForm : Form
 
         // S6: funnel the engine's published verdicts into the open browser.
         if (_classBrowser.Visible) _classBrowser.RefreshLive();
+
+        // v3.5 S7: mirror the same values into the console home. Every call is
+        // value-only (text writes / invalidate), so the status timer still
+        // performs no layout anywhere.
+        if (_consoleHome is null) return;
+        _engine.TryGetLiveClass(out var consoleClass);
+        _engine.TryGetLiveSpec(out var consoleSpec);
+        _consoleHome.SetSpec(consoleClass, consoleSpec);
+        _consoleHome.SetState(stateText, stateColor);
+        _consoleHome.SetBridge(running ? $"Bridge: {status.State}" : "Bridge: stopped");
+        _consoleHome.SetNow(action, why);
+        _consoleHome.SetPaused(_engine.Paused);
+        if (_consoleLastStatus != _statusMessage)
+        {
+            _consoleLastStatus = _statusMessage;
+            _consoleHome.AppendLog(_statusMessage, DesignTokens.StatusColor(_statusMessageTone));
+        }
     }
 
     private void SetStatus(string message, Color color)
@@ -2777,6 +2885,11 @@ internal sealed class MainForm : Form
     internal AbilityExplorer ExplorerForTest => _explorer;
     /// <summary>S6: the single Class Browser hosted in the Abilities popup.</summary>
     internal ClassBrowserView ClassBrowserForTest => _classBrowser;
+    // v3.5 S7 console-home seams.
+    internal ConsoleHome ConsoleForTest => _consoleHome;
+    internal bool ConsoleVisibleForTest => _consoleHome?.Visible ?? false;
+    internal void ApplyPresetForTest(ConsolePreset preset) => ApplyPreset(preset);
+    internal void ToggleConsoleForTest() => _consoleHome.Visible = !_consoleHome.Visible;
     /// <summary>v3.4.0 §4: the hero bubbles, so a test can raise their Click.</summary>
     internal IReadOnlyList<SettingRow> HeroSettingRowsForTest => _heroSettingRows;
     internal ClassSkillsView? ClassSkillsForTest => _classSkills;

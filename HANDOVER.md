@@ -65,7 +65,68 @@ VALIDATED (offline): `dotnet build app/... -c Release` 0 warn / 0 err;
 `Decision/**` / `addon/**` / `vendor/**` change.
 LIVE OWED: inspect the Class Browser popup in a retail run (docs/TESTING.md 3).
 
-## 2026-09-30 v3.5 T5 — TOGGLE SSOT
+## 2026-09-30 v3.5 S7 CONSOLE HOME + PRESETS (this change)
+
+GOAL: default the window to a read-only status console and add one-click named
+presets, per Plan v3.5 S7. UI/tests only — no wire/encoder/scheduler/Lua change.
+
+WHAT CHANGED:
+- `app/MaxDpsCompanion/Ui/ConsoleHome.cs` (new): an owner-drawn console home —
+  top bar (Pause, Folder, Console, Binds, Settings, Rotation menu, Debug), spec
+  header with an inferred role badge + per-spec summary, a status block
+  (app/bridge state, now-action + why, last change), rolling status and update
+  logs (`RollingLog`), and a preset strip (`PresetChip`). Every update method is
+  value-only (text writes / invalidate), so the status timer still performs no
+  layout.
+- `app/MaxDpsCompanion/Ui/ConsolePresets.cs` (new): five named bundles
+  (Solo/Levelling/Dungeon/Raid/Tank) expressed as the SAME 14 hero toggles, plus
+  `ConsoleRole` spec-name role inference. Applying a preset is a visible
+  shortcut that moves the existing switches — never a hidden mode, never a wire
+  change.
+- `MainForm.cs`: `BuildConsoleHome` mounts it as the default view over the
+  classic body; `PresetRequested` -> `ApplyPreset` (writes each existing
+  `ToggleSwitch.Checked` through the existing SaveNow path), `RotationRequested`
+  -> `ShowRotationMenu`; `UpdateHero` mirrors state/spec/now/status into it;
+  `ApplyScale` covers the width tiers; test seams `ConsoleForTest`,
+  `ConsoleVisibleForTest`, `ApplyPresetForTest`, `ToggleConsoleForTest`.
+- `AppSettings.cs`: S7 schema addition (`ConfigVersion`, additive).
+- Tests: `tests/MaxDpsCompanion.Tests/ConsoleHomeTests.cs` (new).
+
+VALIDATED (offline): merged build re-verified here with the S6/T5 union.
+LIVE OWED (retail 12.1): the console home renders and mirrors live state; each
+preset flips the intended toggles; the Rotation menu opens.
+
+## 2026-09-30 v3.5 T5 — TOGGLE SSOT (this change)
+
+GOAL: app-wins toggle sync (S1 companion half). The 14 app toggles pack into the
+Ext3 14-bit mask; `<hh>` bit order is `Main Offensive Defensive Consumable
+Trinket Interrupt Mobility SelfHeal Solo OOC AutoTarget AutoInteract TTK CC`
+(OOC = `!CombatOnly`). The companion pushes `/mdb mask <hhhh> <e>` at engine
+Start and on any toggle change, out of combat only, and consumes the bridge's
+Ext3 echo as the effective mask.
+
+WHAT CHANGED: `app/MaxDpsCompanion/ToggleSync.cs` (new) — pure state machine:
+`BuildMask`, `FormatCommand` (4 uppercase hex + decimal 0-15 epoch),
+`BeginPush`/`ObserveMirror` retry ladder (window 1500 ms, max 2 retries, then a
+red `HasConflict`), `EffectiveMask` = mirrored mask when Ext3 valid else app
+mask. `ChatCommander.SendToggleMask` formats + sends the silent command.
+`RotationEngine` gains `TryGetToggleMirror(out Ext3Block?, out bool inCombat)`
+(read-only Ext3 echo + combat flag, published per decoded frame).
+`MainForm` pumps the sync on the 250 ms UI timer and marks the Diagnostics
+banner "Toggle sync: blocked" on conflict. `AppSettings` gains `[Meta]
+ConfigVersion=1` and a one-time migration: a config with `[Spells]` but no
+`[Meta]` gets Mobility + `[CrowdControl] Enabled` turned ON (fixes RC1/RC2);
+Save stamps `[Meta]` so a later user OFF sticks. `settings.ini` and
+`dist\settings.ini` carry the new defaults.
+
+VALIDATED: `dotnet build -c Release` 0/0; non-UI `dotnet test` **660/660**
+(incl. 12 new ToggleSyncTests); the 21 headless STA timeouts are the known
+pre-existing ClassicUi/ClassSkillsView/UiShell environment failures (baseline
+log: 20; the extra `WidthTiers_Scale_Popups` passes standalone in 2 s).
+
+LIVE OWED (retail 12.1): with the Ext3 addon, flip a hero toggle in combat and
+verify the push is deferred until combat ends, the Ext3 echo matches, and a
+deliberately unmirrored mask surfaces the red "Toggle sync: blocked" banner.
 
 ## 2026-09-30 EXT3 T0 CONTRACTS (this change)
 
