@@ -110,6 +110,15 @@ internal sealed class RotationEngine : IDisposable
     private CombatContext? _lastCombatContext;
     private bool _planFreshThisTick;
 
+    // v3.5 S1 toggle SSOT: the last decoded Ext3 mirror and the last combat
+    // flag, exposed read-only to the UI thread's ToggleSync. Plain ints/bools
+    // so the writer (engine tick) and reader (UI timer) never tear.
+    private int _mirrorMask;
+    private int _mirrorEpoch;
+    private int _mirrorBlocked;
+    private volatile bool _mirrorValid;
+    private volatile bool _lastInCombat;
+
     // v2.7 UI snapshots (frozen names). Lock-guarded reference swaps; the
     // snapshot is an immutable record holding only plain strings.
     private readonly object _snapshotLock = new();
@@ -163,6 +172,24 @@ internal sealed class RotationEngine : IDisposable
     {
         specName = _lastCombatContext?.Spec;
         return specName is not null;
+    }
+
+    /// <summary>
+    /// v3.5 S1: the latest Ext3 toggle-mask mirror (null when the addon ships no
+    /// Ext3 block or the block failed its checksum) and the last decoded combat
+    /// flag. The UI thread's <see cref="ToggleSync"/> consumes this once per UI
+    /// tick; a reference read is safe and the values are plain (no tearing).
+    /// </summary>
+    public bool TryGetToggleMirror(out Ext3Block? ext3, out bool inCombat)
+    {
+        inCombat = _lastInCombat;
+        if (_mirrorValid)
+        {
+            ext3 = new Ext3Block(_mirrorMask, _mirrorEpoch, _mirrorBlocked);
+            return true;
+        }
+        ext3 = null;
+        return false;
     }
 
     /// <summary>Optional local telemetry sink. Null disables capture entirely.</summary>
@@ -434,6 +461,16 @@ internal sealed class RotationEngine : IDisposable
         // capture recovery clock is reset.
         _lastFrameMs = _clock.ElapsedMilliseconds;
         _telemetryFrame = frame;
+        // v3.5 S1: publish the Ext3 mirror + combat flag for ToggleSync. Done
+        // before any gate return so a hold/combat frame still refreshes them.
+        _lastInCombat = frame.InCombat;
+        _mirrorValid = frame.Ext3Present && frame.Ext3 is not null;
+        if (frame.Ext3 is { } mirror)
+        {
+            _mirrorMask = mirror.Mask;
+            _mirrorEpoch = mirror.Epoch;
+            _mirrorBlocked = mirror.Blocked;
+        }
 
         // Decision layer observation: record the decoded candidates once per
         // real frame (stroke, first-seen, last-changed, pressed-since-change).
