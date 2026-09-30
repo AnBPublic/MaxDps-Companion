@@ -1,5 +1,40 @@
 # Handover — MaxDps-Companion
 
+## 2026-09-30 EXT3 T0 CONTRACTS (this change)
+
+GOAL: freeze the Ext3 wire contract (T0 only — constants + decode shell + tests,
+no addon/encoder work). Ext3 is ADDITIVE over the frozen v5/Ext2 wire: a 43-cell
+strip keeps cells 0-39 and checksums 10/34/39 byte-identical, version nibble
+stays `5`.
+
+WHAT CHANGED (files): `docs/PROTOCOL.md` gains the Ext3 block section + cell-28
+presence row; `app/MaxDpsCompanion/PixelProtocol.cs` gains
+`CellCountExt3 = 43`, `IsV5Length` accepts 35/40/43, the Ext3 cell indices
+(40/41/42) + `Ext3MaskBitCount = 14` + `CastFlagExt3Present = 4` (cell 28 B
+bit2), a `Ext3Block(Mask,Epoch,Blocked)` record and `BridgeFrame.Ext3Present` /
+`.Ext3`; `tests/.../PixelProtocolExt3Tests.cs` (11 facts); `ARCHITECTURE.md`
+pipeline note. CELL 28 B is decoded through `& 0x3` for the SelfHeal2 range, so
+the new bit2 cannot bleed into it.
+
+WHAT DID NOT CHANGE: no addon Lua, no encoder, no UI/Scheduler/Knowledge; the
+addon still emits 40 cells (Ext3 render lands in a later task). `cells 40-42`
+are read only when `cell 28 B bit2 && length >= 43`; a cell-42 checksum/commit
+failure drops only the Ext3 block. Cell 42 R is reserved and ignored (not
+asserted `0`), matching the decoder's existing treatment of cell 34 R / 39 R.
+
+ARCHITECT QUESTIONS ANSWERED: (1) the old decoder ALREADY masks cell 28 B with
+`& 3` at the only SelfHeal2 read (`DecodeV5`), so bit2 is safe; (2) the decoder
+does NOT assert cell 34 R or cell 39 R `== 0` (both are read as `_`); cell 42 R
+is handled the same way. Pinned by
+`Ext3_Cell34_And_Cell39_Reserved_R_Are_Not_Asserted_Zero` and
+`Ext3_Cell42_Reserved_R_Is_Ignored_Not_Asserted_Zero`.
+
+VALIDATED (this machine): `dotnet build app\MaxDpsCompanion\MaxDpsCompanion.csproj
+-c Release` 0 warnings / 0 errors; `dotnet test --filter PixelProtocolExt3Tests`
+11/11; non-UI suite 648/648 (baseline 637 non-UI + 11 new; the 20 pre-existing
+headless UI/STA timeouts in ClassicUi/ClassSkillsView/UiShell are unchanged).
+LIVE OWED: none for T0 (no wire is emitted yet); Ext3 live render is T1+.
+
 ## Status: v3.4.0 — CC appendix (opt-in, DR-safe, all 13 classes) + surroundings awareness gates (melee/cast/range catalog-driven, LoS fails open) + wired UI publish (solo sliders, bridge-health banner, cast-audit grid) + CC slot-6 candidate source (Option A, wire frozen) (660 xunit tests + 186 Lua harness checks, live validation owed)
 
 ## 2026-09-30 OVERLAY REGISTERCLICKS FIX (this change)

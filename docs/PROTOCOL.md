@@ -1,25 +1,27 @@
-# Pixel protocol v5 + Ext2 (40-cell, additive) — MaxDpsBridge ↔ MaxDpsCompanion
+# Pixel protocol v5 + Ext2/Ext3 (additive; 35/40/43-cell) — MaxDpsBridge ↔ MaxDpsCompanion
 
 Normative spec. Bridge encodes, companion decodes. The frame is the **35-cell
-v5 core** plus the **additive Ext2 block** (cells 35-39), so a bridge 3.0.0
-strip is **40 cells**, left to right, each `CellSize` physical pixels square.
+v5 core** plus the **additive Ext2 block** (cells 35-39) and the **additive
+Ext3 block** (cells 40-42), so a bridge that ships Ext3 renders a **43-cell**
+strip, left to right, each `CellSize` physical pixels square.
 The app samples the centre pixel (5-tap median at ≥2 px cells).
 
 > **Compatibility contract (Sep-2026 outage lesson):** the companion MUST
-> decode the previous protocol versions too. It decodes **v5 + Ext2 (40
-> cells), v5/v6 (35 cells, v6 accepted forward-compatible), v4 (9 cells) and
-> v1 (8 cells)**; the in-game addon encodes **v5 + Ext2** (bridge 3.0.0). The
-> addon goes stale whenever the user runs a new exe without
-> `install-addon.ps1` + `/reload`. Rule for every protocol bump: **companion
-> decodes N and the older supported widths; addon encodes N**, and the app
-> warns (never hard-fails) on skew so recalibrate is the repair path. Both the
-> defensive-urgency block and Ext2 are **additive**: a pre-2.3 encoder leaves
-> the three urgency nibbles at `0` = UNKNOWN, and a pre-3.0 encoder leaves
-> cell 33 B bit2 clear, so the decoder ignores cells 35-39. The wire version
-> nibble stays `5` in both directions — an updated addon still decodes with an
-> older companion exe (it ignores the reserved nibbles, whose extension
-> checksum it already covered), and a 35-cell stale addon still drives the v3
-> companion (Ext2 absent).
+> decode the previous protocol versions too. It decodes **v5/Ext3 (43 cells),
+> v5/Ext2 (40 cells), v5/v6 (35 cells, v6 accepted forward-compatible), v4
+> (9 cells) and v1 (8 cells)**; the in-game addon encodes the widest layout it
+> ships (Ext2 = 40 cells; Ext3 = 43). The addon goes stale whenever the user
+> runs a new exe without `install-addon.ps1` + `/reload`. Rule for every
+> protocol bump: **companion decodes N and the older supported widths; addon
+> encodes N**, and the app warns (never hard-fails) on skew so recalibrate is
+> the repair path. The defensive-urgency block, Ext2 and Ext3 are all
+> **additive**: a pre-2.3 encoder leaves the three urgency nibbles at `0` =
+> UNKNOWN, a pre-3.0 encoder leaves cell 33 B bit2 clear (cells 35-39 ignored),
+> and a pre-Ext3 encoder leaves cell 28 B bit2 clear (cells 40-42 ignored). The
+> wire version nibble stays `5` in all directions — an updated addon still
+> decodes with an older companion exe (it ignores the reserved nibbles, whose
+> checksums it already covered), and a stale addon still drives the current
+> companion.
 
 Slot naming: slots 1-6 mirror the in-game Spell Frame categories (offensive =
 `classCooldowns` offensive bucket, defensive = `GlowDefensiveHPMidnight`,
@@ -58,7 +60,7 @@ profile says otherwise.
 | 23-24 | 6 nibbles | | | Mobility spell id |
 | 25-26 | 6 nibbles | | | SelfHeal spell id |
 | 27 | hp% hi | hp% lo | hp flags | player health |
-| 28 | cast state | remaining band | Ext2: SelfHeal2 range bits0-1 (rest reserved) | player cast/channel (+ alternate range) |
+| 28 | cast state | remaining band | Ext2: SelfHeal2 range bits0-1; Ext3: presence bit2; bits3 reserved | player cast/channel (+ alternate range + Ext3 presence) |
 | 29 | target flags | target hp band | target cast flags | target state |
 | 30 | slot1\|slot2 | slot3\|slot4 | slot5\|slot6 | per-slot range tri-state (2 bits each) |
 | 31 | slot7\|slot8 | defensive urgency (HP curve) | gap-fill source | per-slot range tri-state + additive urgency |
@@ -422,3 +424,37 @@ clear, which the v3 decoder treats as "no extension" and ignores cells 35-39.
   valid curve supplies fallback HP only when cell 27 is secret/unknown, and
   `HpPctUpper` is the band's top so the overheal guard never assumes the low
   end. If `[Intelligence] HpCurve=0`, the curve is ignored entirely.
+
+## Ext3 block (v3.5, additive)
+
+Ext3 extends the strip to **43 cells**; cells 0-39 are the unchanged v5 core +
+Ext2 layout (including the cells 10/34/39 checksums) and the version nibble
+stays `5`. A pre-Ext3 encoder leaves cell 28 B bit2 clear, which the decoder
+treats as "no extension" and ignores cells 40-42. The block is a **14-bit mask
++ epoch + blocked nibble**, closed by its own checksum/commit cell.
+
+| Cell | Channel | Ext3 (v3.5) meaning |
+| :--- | :--- | :--- |
+| 28 | B | bit2 EXT3 PRESENT (`0` = block absent, cells 40-42 ignored); bits0-1 are the Ext2 SelfHeal2 range tri-state (decoders mask with `& 0x3`) |
+| 40 | R/G/B | mask bits 0-11: `R = bits 0-3`, `G = bits 4-7`, `B = bits 8-11` |
+| 41 | R/G/B | `R = mask bits 12-13` (bits 0-1; bits 2-3 reserved), `G = epoch` (0-15), `B = blocked nibble` (0-15) |
+| 42 | R/G/B | Ext3 checksum: `R = 0` (reserved), `G = sum(R,G,B nibbles of cells 40-41) mod 16`, `B = commit (= heartbeat)` |
+
+**Decode rules (companion):**
+
+- The block is read only from a **43-cell capture**: `ext3Present = cell 28 B
+  bit2 && cells.Length >= 43`. A 40-cell Ext2 (or 35-cell core) addon decodes
+  exactly as before; cells 40-42 are never read.
+- `mask` is rebuilt as `m40.R | (m40.G << 4) | (m40.B << 8) | ((m41.R & 3) <<
+  12)` — the 14-bit field, MSB nibbles last. `epoch` is cell 41 G and
+  `blocked` is cell 41 B, both plain 0-15 values.
+- A cell-42 checksum failure (or a torn commit) drops **only the Ext3 block**;
+  the frame, the v5 core and Ext2 are kept — the same "drop only this block"
+  rule as cell-39/Ext2.
+- The cell-42 `R` channel is reserved and **ignored** (not asserted `0`), like
+  cell 34 R and cell 39 R. An encoder writes `0` there; the decoder must not
+  reject a frame because a reserved channel drifted.
+- The core checksums (cells 10 and 34) and the Ext2 checksum (cell 39) keep
+  covering exactly cells 1-9, 11-33 and 36-38; none of them change.
+- The Ext3 block is additive over the **frozen** v5 contract: no cell, nibble
+  lane, version nibble or checksum defined above is renumbered or moved.

@@ -15,7 +15,9 @@ Vendor discovery (read-only): MaxDps:GlowDefensiveHPMidnight (Buttons.lua:1056)
        │
        ▼
 MaxDpsBridge addon — 40-cell pixel strip (bridge 3.3.0; v5 + Ext2 layout
-  unchanged from 3.0.0)
+  unchanged from 3.0.0). Ext3 T0 contract declared (v3.5): a 43-cell strip
+  (cells 40-42 = 14-bit mask + epoch + blocked nibble + cell-42 checksum/commit,
+  presence cell 28 B bit2); the addon still ships 40 cells until T1+.
   v5 core (35 cells, version nibble stays 5): magic · 8 slots (Main/Off/Def/
         Cons/Trin/Int/Mobility/SelfHeal) · status · version+checksum · 8 × 24-bit
         spell id · vitals · cast · target · range tri-states · self-buff bits
@@ -26,6 +28,10 @@ MaxDpsBridge addon — 40-cell pixel strip (bridge 3.3.0; v5 + Ext2 layout
         passed to SetVertexColor, never read/compared) · cells 36-38 SelfHeal2
         key + 24-bit id · cell 39 checksum (scope = cells 36-38 only); presence
         bits cell 33 B bit2/bit3, SelfHeal2 range in cell 28 B bits0-1
+  Ext3 (cells 40-42, additive, T0 decode only): cell 40 mask bits 0-11 ·
+        cell 41 R mask bits 12-13 / G epoch / B blocked nibble · cell 42
+        checksum over cells 40-41 + commit; presence cell 28 B bit2; a cell-42
+        failure drops only the block, never the frame/core/Ext2
   variant resolution (bridge 3.0.0): every slot key resolves across base /
         talent-override / alias ids (FindBaseSpellByID, FindSpellOverrideByID,
         GetOverrideSpell, generated MDB.SpellAliases), so a bar holding
@@ -81,11 +87,11 @@ MaxDpsBridge addon — 40-cell pixel strip (bridge 3.3.0; v5 + Ext2 layout
        │   UNKNOWN — never throws, never compares a secret value)
        ▼
 MaxDpsCompanion.exe — DIB BitBlt sample @ PollIntervalMs
-  decode 40-cell Ext2 capture (v5/v6 35-cell accepted; v4/v1 fallback by width)
-  → BridgeFrame (slots + keybinds + spell ids + SelfHeal2 + CombatContext:
-   HP + HpSource + HpPctUpper, cast, target, range, defensive urgency,
-   stagger urgency, defensive gap-fill source). HP precedence: plain cell 27
-  > Ext2 curve > unknown; `[Intelligence] HpCurve=0` ignores the curve.
+  decode v5 capture at 35 (core) / 40 (Ext2) / 43 (Ext3) cells
+  → BridgeFrame (slots + keybinds + spell ids + SelfHeal2 + Ext3 mask/epoch/
+   blocked + CombatContext: HP + HpSource + HpPctUpper, cast, target, range,
+   defensive urgency, stagger urgency, defensive gap-fill source). HP precedence:
+   plain cell 27 > Ext2 curve > unknown; `[Intelligence] HpCurve=0` ignores the curve.
        │
        ▼
 Candidate tracker (Decision/CandidateTracker)
