@@ -247,15 +247,19 @@ public class CrowdControlTests
     }
 
     [Fact]
-    public void Slot6_MaxDps_Owned_Stuns_Are_Casting_Only_Candidates()
+    public void Slot6_MaxDps_Owned_Stun_Is_Casting_Only_Candidate_And_Shockwave_Demoted()
     {
-        // v3.5: Storm Bolt 107570 and Shockwave 46968 are now auto-eligible and
-        // ride the generated per-spec cc list. They are MaxDps-owned rotation
-        // rows (registry Incomplete, Purpose Rotational), so the companion
-        // keeps them on the delegated interrupt path — which is casting-only by
-        // construction (InterruptVetoes holds when no cast is observed).
+        // v3.5: Storm Bolt 107570 is auto-eligible and rides the generated
+        // per-spec cc list. It is a MaxDps-owned rotation row (registry
+        // Incomplete, Purpose Rotational), so the companion keeps it on the
+        // delegated interrupt path — casting-only by construction
+        // (InterruptVetoes holds/Skips when no cast is observed).
         Assert.Contains(107570, Catalog.CrowdControlGapFill("WARRIOR", "Arms"));
-        Assert.Contains(46968, Catalog.CrowdControlGapFill("WARRIOR", "Arms"));
+        // v3.6 demotes Shockwave 46968 to Suggest: no enemy-count signal, so
+        // the AoE stun cannot be proven safe in M+/cleave (as Leg Sweep).
+        Assert.DoesNotContain(46968, Catalog.CrowdControlGapFill("WARRIOR", "Arms"));
+        Assert.False(Catalog.CrowdControlFor("WARRIOR", "Arms", 46968)!.AutoEligible);
+
         CrowdControlGate.Enabled = true;
         try
         {
@@ -362,15 +366,173 @@ public class CrowdControlTests
     [Fact]
     public void MaxDps_Owned_Stuns_Are_Auto_Eligible_Casting_Only()
     {
-        // v3.5: Storm Bolt / Shockwave are rotation rows on MaxDps authority
-        // but now ride the curated CC list; the casting-only gate (Stun kind)
-        // keeps them from ever firing as a blind stun.
+        // v3.5/v3.6: Storm Bolt is a rotation row on MaxDps authority but rides
+        // the curated CC list; the casting-only gate (Stun kind) keeps it from
+        // ever firing as a blind stun. Shockwave is demoted back to Suggest
+        // (no enemy-count signal) and must not ride the list.
         var bolt = Catalog.CrowdControlFor("WARRIOR", "Arms", 107570)!;
         var wave = Catalog.CrowdControlFor("WARRIOR", "Arms", 46968)!;
         Assert.True(bolt.AutoEligible);
-        Assert.True(wave.AutoEligible);
+        Assert.False(wave.AutoEligible);
         Assert.Equal(CcKind.Stun, bolt.Kind);
         Assert.Equal(CcKind.Stun, wave.Kind);
+    }
+
+    // ---- v3.6 all-class auto-fire ------------------------------------------
+
+    [Theory]
+    [InlineData(408, "ROGUE", "Assassination", "Stun")]
+    [InlineData(408, "ROGUE", "Outlaw", "Stun")]
+    [InlineData(408, "ROGUE", "Subtlety", "Stun")]
+    [InlineData(5211, "DRUID", "Balance", "Stun")]
+    [InlineData(5211, "DRUID", "Feral", "Stun")]
+    [InlineData(5211, "DRUID", "Guardian", "Stun")]
+    [InlineData(5211, "DRUID", "Restoration", "Stun")]
+    [InlineData(19577, "HUNTER", "Beast Mastery", "Stun")]
+    [InlineData(19577, "HUNTER", "Marksmanship", "Stun")]
+    [InlineData(19577, "HUNTER", "Survival", "Stun")]
+    [InlineData(78675, "DRUID", "Balance", "Silence")]
+    [InlineData(15487, "PRIEST", "Shadow", "Silence")]
+    public void V36_Flipped_And_New_Cc_Ids_Are_AutoEligible_StunOrSilence(
+        int id, string className, string spec, string kind)
+    {
+        var entry = Catalog.CrowdControlFor(className, spec, id);
+        Assert.NotNull(entry);
+        Assert.True(entry!.AutoEligible);
+        Assert.Equal(kind, entry.Kind.ToString());
+        Assert.Contains(id, Catalog.CrowdControlGapFill(className, spec));
+    }
+
+    [Theory]
+    [InlineData("WARRIOR", "Arms", 46968)]
+    [InlineData("WARRIOR", "Fury", 46968)]
+    [InlineData("WARRIOR", "Protection", 46968)]
+    [InlineData("MONK", "Brewmaster", 119381)]
+    [InlineData("MONK", "Mistweaver", 119381)]
+    [InlineData("MONK", "Windwalker", 119381)]
+    public void V36_Aoe_Stuns_Stay_Suggest(string className, string spec, int id)
+    {
+        var entry = Catalog.CrowdControlFor(className, spec, id);
+        Assert.NotNull(entry);
+        Assert.False(entry!.AutoEligible);
+        Assert.DoesNotContain(id, Catalog.CrowdControlGapFill(className, spec));
+    }
+
+    [Theory]
+    [InlineData("ROGUE", "Assassination", 1833)]
+    [InlineData("ROGUE", "Subtlety", 163505)]
+    [InlineData("DRUID", "Feral", 22570)]
+    [InlineData("PRIEST", "Shadow", 64044)]
+    [InlineData("WARLOCK", "Destruction", 30283)]
+    [InlineData("MAGE", "Frost", 113724)]
+    [InlineData("SHAMAN", "Elemental", 192058)]
+    [InlineData("WARLOCK", "Affliction", 89766)]
+    [InlineData("DEATHKNIGHT", "Unholy", 47476)]
+    public void V36_NoList_Ids_Stay_Suggest_Or_Absent(string className, string spec, int id)
+    {
+        var entry = Catalog.CrowdControlFor(className, spec, id);
+        Assert.True(entry is null || !entry.AutoEligible,
+            $"{id} must not be auto-eligible (spec NO list)");
+        Assert.DoesNotContain(id, Catalog.CrowdControlGapFill(className, spec));
+    }
+
+    [Fact]
+    public void V36_Maim_22570_Is_Not_In_The_Cc_Catalog()
+    {
+        Assert.Null(CrowdControlCatalog.Find("DRUID", "Feral", 22570));
+        Assert.DoesNotContain(22570, CrowdControlCatalog.AllIds());
+    }
+
+    [Fact]
+    public void V36_Silence_15487_Is_Shadow_Only()
+    {
+        Assert.NotNull(Catalog.CrowdControlFor("PRIEST", "Shadow", 15487));
+        Assert.Null(Catalog.CrowdControlFor("PRIEST", "Holy", 15487));
+        Assert.Null(Catalog.CrowdControlFor("PRIEST", "Discipline", 15487));
+        Assert.Null(Catalog.CrowdControlFor("WARLOCK", "Affliction", 15487));
+    }
+
+    [Fact]
+    public void V36_SolarBeam_78675_Is_Balance_Only()
+    {
+        Assert.NotNull(Catalog.CrowdControlFor("DRUID", "Balance", 78675));
+        Assert.Null(Catalog.CrowdControlFor("DRUID", "Feral", 78675));
+        Assert.Null(Catalog.CrowdControlFor("DRUID", "Guardian", 78675));
+        Assert.Null(Catalog.CrowdControlFor("DRUID", "Restoration", 78675));
+        Assert.Null(Catalog.CrowdControlFor("SHAMAN", "Elemental", 78675));
+    }
+
+    [Fact]
+    public void V36_Provider_Silence_15487_Is_Casting_Only_And_Gate_Off_Holds()
+    {
+        // 15487 is a curated (ResearchBacked) interrupt, so it reaches the CC
+        // provider directly. Gate OFF => not fired without an observed cast.
+        CrowdControlGate.Reset();
+        var off = Evaluate(Slot.Interrupt, 15487,
+            Context("PRIEST", "Shadow", range: Range(Slot.Interrupt, TriState.Yes),
+                targetCasting: TriState.No));
+        Assert.NotEqual(PolicyVerdict.Use, off.Verdict);
+
+        CrowdControlGate.Enabled = true;
+        try
+        {
+            var fired = Evaluate(Slot.Interrupt, 15487,
+                Context("PRIEST", "Shadow", range: Range(Slot.Interrupt, TriState.Yes),
+                    targetCasting: TriState.Yes));
+            Assert.Equal(PolicyVerdict.Use, fired.Verdict);
+            Assert.Equal("CrowdControl", fired.Provider);
+
+            var notCasting = Evaluate(Slot.Interrupt, 15487,
+                Context("PRIEST", "Shadow", range: Range(Slot.Interrupt, TriState.Yes),
+                    targetCasting: TriState.No));
+            Assert.Equal(PolicyVerdict.Hold, notCasting.Verdict);
+            Assert.Equal("CrowdControl", notCasting.Provider);
+
+            var unknown = Evaluate(Slot.Interrupt, 15487,
+                Context("PRIEST", "Shadow", range: Range(Slot.Interrupt, TriState.Yes),
+                    targetCasting: TriState.Unknown));
+            Assert.Equal(PolicyVerdict.Hold, unknown.Verdict);
+        }
+        finally { CrowdControlGate.Reset(); }
+    }
+
+    [Theory]
+    [InlineData(408, "ROGUE", "Assassination")]
+    [InlineData(5211, "DRUID", "Balance")]
+    [InlineData(19577, "HUNTER", "Beast Mastery")]
+    [InlineData(78675, "DRUID", "Balance")]
+    public void V36_Delegated_Cc_Ids_Are_Casting_Only_In_Slot6(int id, string className, string spec)
+    {
+        // These class-spell rows are registry Incomplete, so the companion CC
+        // provider is not reached: the generated cc list offers them on slot 6
+        // and the delegated interrupt path keeps them casting-only (never a
+        // blind stun). Gate OFF must likewise never fire without a live cast.
+        var ability = Catalog.TryGet(id);
+        Assert.NotNull(ability);
+        Assert.Equal(IntelligenceStatus.Incomplete, ability!.Status);
+        Assert.Contains(id, Catalog.CrowdControlGapFill(className, spec));
+
+        CrowdControlGate.Reset();
+        var off = Evaluate(Slot.Interrupt, id,
+            Context(className, spec, range: Range(Slot.Interrupt, TriState.Yes),
+                targetCasting: TriState.No));
+        Assert.NotEqual(PolicyVerdict.Use, off.Verdict);
+
+        CrowdControlGate.Enabled = true;
+        try
+        {
+            var held = Evaluate(Slot.Interrupt, id,
+                Context(className, spec, range: Range(Slot.Interrupt, TriState.Yes),
+                    targetCasting: TriState.No));
+            Assert.NotEqual(PolicyVerdict.Use, held.Verdict);
+            Assert.Contains("cast", held.Reason);
+
+            var fired = Evaluate(Slot.Interrupt, id,
+                Context(className, spec, range: Range(Slot.Interrupt, TriState.Yes),
+                    targetCasting: TriState.Yes));
+            Assert.Equal(PolicyVerdict.Use, fired.Verdict);
+        }
+        finally { CrowdControlGate.Reset(); }
     }
 
     [Fact]

@@ -77,7 +77,11 @@ MaxDpsBridge addon — 43-cell pixel strip (bridge 3.5.0; v5 + Ext2 layout
            (Q1 casting-only). No new slot and no new source bit — the id rides
            the existing slot-6 cells and the companion recognises it by curated
            CC membership at the existing `CrowdControlVetoes.Evaluate`
-           call-site.
+           call-site. Since v3.6 every class's qualifying single-target
+           stun/silence is auto-eligible (Kidney Shot 408, Mighty Bash 5211,
+           Intimidation 19577, Solar Beam 78675, Silence 15487); Shockwave
+           (46968) is demoted to Suggest because the provider has no
+           enemy-count signal. All Stun/Silence rows stay casting-gated.
   gates (bridge 3.3.0): Toggles.lua is the single addon-side restriction
         point. `SlotAllowed(slot, ctx)` is consulted before every WriteSlot —
         a denied slot is written empty with the valid flag clear, i.e. the
@@ -421,11 +425,13 @@ MaxDps-Companion/
       CrowdControlCatalog.cs curated verified CC registry (v3.4.0): DR
                              category, Single/AoE, CD, AutoEligible; read by
                              AbilityCatalog.CrowdControlFor / CrowdControlGapFill.
-                             v3.5 raises the MaxDps-owned warrior stuns
-                             (Storm Bolt 107570, Shockwave 46968) to
-                             AutoEligible=true — the provider's casting-only
-                             Stun/Silence gate keeps them from ever firing as a
-                             blind stun
+                             v3.5 raised Storm Bolt 107570 to AutoEligible=true.
+                             v3.6 adds the all-class auto-fire set: flips Kidney
+                             Shot 408, Mighty Bash 5211, Intimidation 19577 true;
+                             adds Solar Beam 78675 (Balance) and Silence 15487
+                             (Shadow); renames 9484 "Shackle Undead"; demotes
+                             Shockwave 46968 back to Suggest (no enemy-count
+                             signal). Stun/Silence stays casting-gated.
       CrowdControlVetoes.cs  companion CC opt-in gate (CrowdControlGate,
                              default OFF), companion-only same-DR anti-chain
                              memory (fail open), and CrowdControlVetoes.Evaluate
@@ -842,11 +848,14 @@ MaxDps-Companion/
   the Never/Manual user vetoes, curated auto-eligibility, target/range/opener
   checks and the same-DR anti-chain memory all still govern. Since v3.5 the CC
   provider holds every **Stun/Silence** row unless `TargetCasting == Yes`
-  (Q1 casting-only — these rows are interrupt substitutes, never blind stuns);
-  MaxDps-owned warrior stuns (Storm Bolt / Shockwave) are now AutoEligible and
-  ride the generated `cc` list, but their registry status is Incomplete so the
-  companion keeps them on the delegated interrupt path (itself casting-gated
-  by `InterruptVetoes`), preserving MaxDps authority over blind stuns.
+  (Q1 casting-only — these rows are interrupt substitutes, never blind stuns).
+  v3.5 made Storm Bolt (107570) auto-eligible; v3.6 extends the same rule to
+  every class's qualifying single-target stun/silence (Kidney Shot 408, Mighty
+  Bash 5211, Intimidation 19577, Solar Beam 78675, Silence 15487) and demotes
+  Shockwave (46968) to Suggest (no enemy-count signal, so AoE stun safety is
+  unprovable, as with Leg Sweep). MaxDps-owned/curated-status Incomplete rows
+  ride the delegated interrupt path (itself casting-gated by
+  `InterruptVetoes`), preserving MaxDps authority over blind stuns.
 - **Self-sustain is reset-aware (r2).** Self-heal readiness is re-read every
   tick and never cached; a ready SelfHeal is never stale- or pending-demoted;
   a transient failed press is capped at 1.5 s with no escalating backoff. A

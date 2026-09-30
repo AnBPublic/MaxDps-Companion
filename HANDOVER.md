@@ -1,5 +1,58 @@
 # Handover — MaxDps-Companion
 
+## 2026-09-30 v3.6 CC ALL-CLASS AUTO-FIRE (this change)
+
+GOAL: make every class's qualifying stun/silence a real slot-6 CC candidate
+(architect-APPROVED `docs/plans/2026-10-01-cc-all-classes.md`, contracts-first),
+while keeping every Stun/Silence casting-gated. No `docs/PROTOCOL.md` /
+`PixelProtocol.cs` / `KeySender.cs` / `Scheduler/**` / `Decision/**` /
+`vendor/` change (wire frozen, slot 6 unchanged, catalog SSOT).
+
+CHANGED:
+- `Knowledge/CrowdControlCatalog.cs` (only code file): Kidney Shot 408,
+  Mighty Bash 5211, Intimidation 19577 flipped `AutoEligible=true`; added
+  Solar Beam 78675 (DRUID Balance, Silence, AoE, 60 s) and Silence 15487
+  (PRIEST Shadow, Silence, single, 45 s); Shockwave 46968 demoted to
+  `AutoEligible=false` (no enemy-count signal -> AoE stun cannot be proven
+  safe in M+/cleave, same as Leg Sweep 119381); 9484 renamed "Shackle Undead"
+  (was the DB2-sourced "Shackle Horror") with an audit note; header/v3.5
+  comments updated. `CrowdControlEntry` record signature unchanged.
+- `addon/MaxDpsBridge/Catalog.lua` + `tests/./fixtures/Catalog.lua`:
+  regenerated via `--gen-catalog` (never hand-edited). Confirmed cc diffs:
+  ROGUE `{1776,2094,6770,408}`; DRUID Balance `{339,33786,78675,5211}`
+  (others `{339,33786,5211}`); HUNTER `{187650,19577}`; PRIEST Shadow
+  `{8122,15487}` (Disc/Holy `{8122}`); all WARRIOR specs `{5246,107570}`.
+- `abilities.json`: confirmed per id - none of 408/5211/78675/19577/15487/46968
+  carries `neverAutomatic:true` or `UnsafeToAutomate`; only 15487 is present
+  (Interrupt/ResearchBacked, 45000, no flags). 408/5211/78675/19577/46968 are
+  absent from `abilities.json`/`vendor-abilities.json` (class-spell layer,
+  registry Incomplete/MaxDpsOnly), so the CC provider is not reached for them:
+  they ride the generated `cc` list on slot 6 and stay casting-gated by
+  `InterruptVetoes` on the delegated path. Only 15487 reaches the CC provider.
+- `tests/MaxDpsCompanion.Tests/CrowdControlTests.cs`: 12-row AE/kind/class-spec
+  theory; 6-row AoE-stays-Suggest theory (46968/119381); 9-row NO-list
+  false-or-absent theory; Maim 22570 null; 15487 Shadow-only; 78675
+  Balance-only; 15487 provider Use/Hold + gate OFF; 4-row delegated slot-6
+  casting-only theory. Existing Shockwave facts updated to the demotion.
+- `HANDOVER.md` (this section) + `ARCHITECTURE.md` (pipeline + CC section)
+  updated in this pass.
+- `docs/research/ABILITY_REGISTRY_AUDIT.md` regenerated (timestamp only). The
+  9484 display row still reads "Shackle Horror": that name comes from the
+  do-not-hand-edit Wago DB2 export (`spell-verification.json`,
+  tools/Verify-ClassSpells.ps1); the correction lives in the curated CC catalog
+  label. Regenerating that source is outside the approved contract.
+
+VALIDATED (this machine): app `dotnet build -c Release` 0 warnings / 0 errors;
+`dotnet test -c Release` **833/833**; `lua tests/secret_harness.lua`
+**237/237**; `luac -p` all 8 bridge files clean; `pwsh tools/ability_audit.ps1`
+exit 0 (Violations 0 / Warnings 0 / Missing 0 / Stale 0, committed addon
+Catalog.lua matches generated).
+
+LIVE OWED (retail 12.1): Solar Beam ground-target assumption; Intimidation
+pet-less/cast-state; Kidney Shot vs MaxDps finisher (may revert to Suggest if
+it fights the finisher); Asphyxiate reported id; full cast/non-boss/boss
+matrix. Static != automated != live.
+
 ## 2026-09-30 v3.5 CC FIX — Storm Bolt 107570 + Shockwave 46968 (this change)
 
 GOAL: make the two MaxDps-owned warrior stuns real slot-6 CC candidates in the

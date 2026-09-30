@@ -26,12 +26,17 @@ internal enum CcDrCategory
 ///
 /// <see cref="AutoEligible"/> is the safety flag: only rows the companion is
 /// allowed to offer as automatic crowd control while the CC toggle is ON. The
-/// v3.5 fix raises Storm Bolt (107570) and Shockwave (46968) to
-/// <c>AutoEligible=true</c>: they are MaxDps-owned rotation stuns, so the
-/// companion may only ever fire them as an interrupt substitute — the CC
-/// provider's casting-only gate (<see cref="CrowdControlCandidateProvider"/>)
-/// holds every <see cref="CcKind.Stun"/>/<see cref="CcKind.Silence"/> row
-/// unless the target is observably casting. A blind stun is never generated.
+/// v3.6 pass raises every class's qualifying single-target stun/silence to
+/// <c>AutoEligible=true</c> (Kidney Shot 408, Mighty Bash 5211, Intimidation
+/// 19577) and adds Solar Beam (78675) + Silence (15487). Shockwave (46968) is
+/// demoted back to Suggest: the provider has no enemy-count signal, so an AoE
+/// stun cannot be proven safe in M+/cleave (same reason Leg Sweep 119381 stays
+/// out). Every <see cref="CcKind.Stun"/>/<see cref="CcKind.Silence"/> row stays
+/// casting-gated: the CC provider
+/// (<see cref="CrowdControlCandidateProvider"/>) holds curated rows unless the
+/// target is observably casting, and the delegated interrupt path
+/// (<see cref="CrowdControlVetoes"/>) fails open only to MaxDps's own gate. A
+/// blind stun is never generated.
 /// </summary>
 internal sealed record CrowdControlEntry(
     int SpellId,
@@ -132,22 +137,37 @@ internal static class CrowdControlCatalog
         Cc(372048, "Oppressing Roar", CcKind.Disorient, CcDrCategory.Disorient, false, true, 60000, true, "EVOKER", "Augmentation", "Devastation", "Preservation"),
 
         // ---- v3.5: MaxDps-owned rotation stuns, casting-only CC (Q1) --------
-        // Storm Bolt / Shockwave are MaxDps rotation rows; the companion only
-        // offers them as a CC candidate and the provider holds them unless the
+        // Storm Bolt is a MaxDps rotation row; the companion only offers it as
+        // a CC candidate and the delegated interrupt path holds it unless the
         // target is observably casting (never a blind stun). AutoEligible=true
-        // so the bridge's per-spec cc list carries them.
+        // so the bridge's per-spec cc list carries it.
         Cc(107570, "Storm Bolt", CcKind.Stun, CcDrCategory.Stun, true, false, 30000, true, "WARRIOR", "Arms", "Fury", "Protection"),
-        Cc(46968, "Shockwave", CcKind.Stun, CcDrCategory.Stun, false, true, 40000, true, "WARRIOR", "Arms", "Fury", "Protection"),
+        // v3.6 DEMOTED to Suggest (AutoEligible=false): Shockwave is an AoE
+        // stun and the provider has no enemy-count signal, so M+/cleave DR risk
+        // cannot be proven away. Same reasoning keeps Leg Sweep (119381) out.
+        Cc(46968, "Shockwave", CcKind.Stun, CcDrCategory.Stun, false, true, 40000, false, "WARRIOR", "Arms", "Fury", "Protection"),
+
+        // ---- v3.6: all-class auto-fire, casting-only CC ----------------------
+        // The remaining qualifying class stuns/silences become real slot-6 CC
+        // candidates. Solar Beam / Silence are added here; Kidney Shot / Mighty
+        // Bash / Intimidation are flipped AutoEligible=true below. All are
+        // Stun/Silence, so the casting-only gates above keep them as interrupt
+        // substitutes only — a blind stun is never generated.
+        Cc(78675, "Solar Beam", CcKind.Silence, CcDrCategory.Silence, false, true, 60000, true, "DRUID", "Balance"),
+        Cc(15487, "Silence", CcKind.Silence, CcDrCategory.Silence, true, false, 45000, true, "PRIEST", "Shadow"),
         Cc(207167, "Blinding Sleet", CcKind.Disorient, CcDrCategory.Disorient, false, true, 60000, false, "DEATHKNIGHT", "Blood", "Frost", "Unholy"),
-        Cc(5211, "Mighty Bash", CcKind.Stun, CcDrCategory.Stun, true, false, 50000, false, "DRUID", "Balance", "Feral", "Guardian", "Restoration"),
+        Cc(5211, "Mighty Bash", CcKind.Stun, CcDrCategory.Stun, true, false, 50000, true, "DRUID", "Balance", "Feral", "Guardian", "Restoration"),
         Cc(102359, "Mass Entanglement", CcKind.Root, CcDrCategory.Root, false, true, 30000, false, "DRUID", "Balance", "Feral", "Guardian", "Restoration"),
         Cc(102793, "Ursol's Vortex", CcKind.Root, CcDrCategory.Root, false, true, 60000, false, "DRUID", "Balance", "Feral", "Guardian", "Restoration"),
         Cc(119381, "Leg Sweep", CcKind.Stun, CcDrCategory.Stun, false, true, 60000, false, "MONK", "Brewmaster", "Mistweaver", "Windwalker"),
-        Cc(19577, "Intimidation", CcKind.Stun, CcDrCategory.Stun, true, false, 60000, false, "HUNTER", "Beast Mastery", "Marksmanship", "Survival"),
+        Cc(19577, "Intimidation", CcKind.Stun, CcDrCategory.Stun, true, false, 60000, true, "HUNTER", "Beast Mastery", "Marksmanship", "Survival"),
         Cc(1833, "Cheap Shot", CcKind.Stun, CcDrCategory.Stun, true, false, 0, false, "ROGUE", "Assassination", "Outlaw", "Subtlety"),
-        Cc(408, "Kidney Shot", CcKind.Stun, CcDrCategory.Stun, true, false, 0, false, "ROGUE", "Assassination", "Outlaw", "Subtlety"),
+        Cc(408, "Kidney Shot", CcKind.Stun, CcDrCategory.Stun, true, false, 0, true, "ROGUE", "Assassination", "Outlaw", "Subtlety"),
         Cc(88625, "Holy Word: Chastise", CcKind.Stun, CcDrCategory.Stun, true, false, 60000, false, "PRIEST", "Discipline", "Holy", "Shadow"),
-        Cc(9484, "Shackle Horror", CcKind.Incapacitate, CcDrCategory.Incapacitate, true, false, 0, false, "PRIEST", "Discipline", "Holy", "Shadow"),
+        // v3.6 rename: 9484 is "Shackle Undead", not "Shackle Horror" (the
+        // spell-verification DB2 row carried the wrong name). Stays
+        // AutoEligible=false (undead-only, situational).
+        Cc(9484, "Shackle Undead", CcKind.Incapacitate, CcDrCategory.Incapacitate, true, false, 0, false, "PRIEST", "Discipline", "Holy", "Shadow"),
         Cc(192058, "Capacitor Totem", CcKind.Stun, CcDrCategory.Stun, false, true, 60000, false, "SHAMAN", "Elemental", "Enhancement", "Restoration"),
         Cc(31661, "Dragon's Breath", CcKind.Disorient, CcDrCategory.Disorient, false, true, 45000, false, "MAGE", "Arcane", "Fire", "Frost"),
         Cc(157980, "Supernova", CcKind.Disorient, CcDrCategory.Disorient, false, true, 60000, false, "MAGE", "Arcane", "Fire", "Frost"),
