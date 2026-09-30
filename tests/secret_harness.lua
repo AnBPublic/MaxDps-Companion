@@ -50,7 +50,19 @@ function strlower(s) return s:lower() end
 function strlen(s) return #s end
 function strfind(s, p) return s:find(p) end
 function strmatch(s, p) return s:match(p) end
-function strsplit(sep, s) local a, b = s:match("([^" .. sep .. "]*)" .. sep .. "?(.*)"); return a, b end
+function strsplit(sep, s, limit)
+  local out = {}
+  s = tostring(s or "")
+  local start = 1
+  while true do
+    if limit and #out >= limit - 1 then out[#out + 1] = s:sub(start); break end
+    local a, b = s:find(sep, start, true)
+    if not a then out[#out + 1] = s:sub(start); break end
+    out[#out + 1] = s:sub(start, a - 1)
+    start = b + 1
+  end
+  return table.unpack(out)
+end
 function format(f, ...) return string.format(f, ...) end
 LibStub = nil
 ChatLog = {}
@@ -417,8 +429,10 @@ MaxDps.Spells = {
   [185358] = { { HotKey = { GetText = function() return "1" end } } },
   [100] = { { HotKey = { GetText = function() return "2" end } } },
 }
-MaxDps.Flags = { [185358] = true }
-MaxDps.Spell = 185358
+  MaxDps.Flags = { [185358] = true }
+  MaxDps.Spell = 185358
+  MaxDps.SpellsGlowing = { [185358] = 1 }
+  MaxDps.NextSpell = nil
 -- Binding results are cached per spell id; earlier sections cached misses
 -- against the old Spells table, so drop the cache for this section.
 MDB._BindCache = {}
@@ -781,6 +795,7 @@ local function ExtSumThrough33 ()
   return Sum
 end
 
+MDB.ResetRotation()
 local okV6, errV6 = pcall(Update, Strip, 0.06)
 check("v6 encode Update: no throw", okV6)
 if not okV6 then print("  v6 update error: " .. tostring(errV6)) end
@@ -1031,10 +1046,11 @@ MaxDpsBridgeDB.HpCurve = true
 MDB._BindCache = {}
 UnitHealthPercent = function() return { GetRGBA = function() return 0.4, 0.6, 0, 1 end } end
 
+MDB.ResetRotation()
 local okEnc = pcall(Update, Strip, 0.06)
 check("B4 Ext2 encode Update: no throw", okEnc)
-check("B4 strip is 40 cells wide", type(Strip._size) == "table"
-  and Strip._size[1] == 8 * 40 and Strip._size[2] == 8)
+check("B4 strip is 43 cells wide", type(Strip._size) == "table"
+  and Strip._size[1] == 8 * 43 and Strip._size[2] == 8)
 
 local _, _, kfEnc = Nib(33)
 check("B4 cell33 B bit2 EXT2 present", bit.band(kfEnc, 4) == 4)
@@ -1336,6 +1352,178 @@ local function RunToggleTests ()
   DB.Toggles.TTK = true
 end
 RunToggleTests()
+
+-- =====================================================================
+-- Workstream: v3.5 Ext3 app mask + multi-candidate slot rotation.
+-- =====================================================================
+local function RunExt3Tests ()
+  local TG = MDB.Toggles
+  local DB = MaxDpsBridgeDB
+
+  local function MaskAt ()
+    local r0, g0, b0 = Nib(40)
+    local r1 = Nib(41)
+    return (bit.band(r1, 3) * 4096) + (b0 * 256) + (g0 * 16) + r0
+  end
+
+  -- Clean Warrior/Arms frame: Main + Charge + Heroic Leap bound, no CDs.
+  MaxDps.Spells = {
+    [185358] = { { HotKey = { GetText = function() return "1" end } } },
+    [100]    = { { HotKey = { GetText = function() return "2" end } } },
+    [6544]   = { { HotKey = { GetText = function() return "T" end } } },
+  }
+  MaxDps.Flags = { [185358] = true }
+  MaxDps.Spell = 185358
+  MaxDps.SpellsGlowing = { [185358] = 1 }
+  MaxDps.NextSpell = nil
+  MaxDps.classCooldowns = { WARRIOR = { Arms = { defensive = {}, offensive = {} } } }
+  MaxDps.classInterrupts = { WARRIOR = { Arms = {} } }
+  MaxDps.db.global.enableCooldowns = true
+  MaxDps.db.global.enableDefensives = true
+  C_Spell.GetSpellCooldown = function()
+    return { startTime = 0, duration = 0, isEnabled = true, isActive = false, isOnGCD = false }
+  end
+  C_Spell.GetSpellCharges = function() return nil end
+  UnitHealth = function() return 80 end
+  UnitHealthMax = function() return 100 end
+  UnitAffectingCombat = function() return true end
+  MDB._BindCache = {}
+  DB.Toggles = {}
+  DB.AppMask, DB.AppEpoch, DB.AppBlocked = nil, nil, nil
+  MaxDpsBridgeDB.RotationDwell = 3
+
+  -- --- Ext3 presence + local effective mask (epoch 0) ---
+  MDB.ResetRotation()
+  local okEx3 = pcall(Update, Strip, 0.06)
+  check("T35 Ext3 encode Update: no throw", okEx3)
+  local _, _, c28b = Nib(28)
+  check("T35 cell28 B bit2 Ext3 present", bit.band(c28b, 4) == 4)
+  check("T35 epoch 0 publishes the local effective mask (all ON 0x3FFF)",
+    MaskAt() == 0x3FFF)
+  local m40r, m40g, m40b = Nib(40)
+  local m41r, m41g, m41b = Nib(41)
+  local _, e3cs, e3commit = Nib(42)
+  local _, hb3 = Nib(9)
+  check("T35 Ext3 checksum over cells 40-41",
+    ((m40r + m40g + m40b + m41r + m41g + m41b) % 16) == e3cs)
+  check("T35 Ext3 commit == heartbeat", e3commit == hb3)
+  check("T35 epoch 0 encodes epoch nibble 0", m41g == 0)
+
+  -- --- app mask wins when epoch ~= 0 ---
+  TG.SetAppMask(0x0001, 5, 0)
+  check("T35 AppControlled at epoch 5",
+    TG.AppControlled() == true and TG.AppEpoch() == 5)
+  check("T35 app bit ON for Main / OFF for Mobility",
+    TG.Get("Main") == true and TG.Get("Mobility") == false)
+  MDB._LastBlank[7] = nil
+  check("T35 SlotAllowed gates on the app mask (slot 7 denied)",
+    TG.SlotAllowed(7, { InCombat = true, HpPct = 80, Grouped = true }) == false
+    and MDB._LastBlank[7] == "app mask")
+  DB.Toggles.Mobility = true   -- local ON must NOT override an app OFF
+  check("T35 app mask removes the addon-OFF-wins veto",
+    TG.SlotAllowed(7, { InCombat = true, HpPct = 80, Grouped = true }) == false)
+  check("T35 EffectiveMask returns the app mask verbatim", TG.EffectiveMask() == 0x0001)
+  check("T35 Conflict detects the local mismatch", TG.Conflict("Mobility") == true)
+
+  -- Wire while controlled: mask + epoch + blocked, app OFF blanks the slot.
+  MDB.ResetRotation()
+  pcall(Update, Strip, 0.06)
+  check("T35 wire publishes app mask 0x0001", MaskAt() == 0x0001)
+  local f41r, f41g, f41b = Nib(41)
+  check("T35 wire publishes epoch 5 + blocked 0",
+    f41g == 5 and f41b == 0 and bit.band(f41r, 3) == 0)
+  local _, _, slot7flags = Nib(7)
+  check("T35 app OFF blanks the mobility slot", bit.band(slot7flags, 8) == 0)
+  local _, _, slot1flags = Nib(1)
+  check("T35 app ON keeps the main slot alive", bit.band(slot1flags, 8) == 8)
+
+  -- --- /mdb mask refusals raise blocked bit1, valid push clears it ---
+  local Cmd = SlashCmdList["MAXDPSBRIDGE"]
+  ClearChat()
+  Cmd("mask 0002 6")   -- in combat -> refused
+  check("T35 /mdb mask refused in combat, blocks bit1",
+    TG.AppEpoch() == 5 and TG.AppMask() == 0x0001
+    and bit.band(TG.AppBlocked(), 2) == 2)
+  UnitAffectingCombat = function() return false end
+  Cmd("mask 0002 6")
+  check("T35 /mdb mask applies out of combat",
+    TG.AppMask() == 0x0002 and TG.AppEpoch() == 6 and TG.AppBlocked() == 0)
+  Cmd("mask ffff 8")   -- mask > 0x3FFF -> bad checksum
+  check("T35 /mdb mask bad checksum refused, blocks bit1",
+    TG.AppEpoch() == 6 and bit.band(TG.AppBlocked(), 2) == 2)
+  Cmd("mask 0002 99")  -- epoch out of range
+  check("T35 /mdb mask bad epoch refused",
+    TG.AppEpoch() == 6 and bit.band(TG.AppBlocked(), 2) == 2)
+  Cmd("mask 0002 0")
+  check("T35 /mdb mask valid clears the blocked bit",
+    TG.AppEpoch() == 0 and TG.AppMask() == 0x0002 and TG.AppBlocked() == 0)
+  DB.AppEpoch = 3
+  ClearChat()
+  Cmd("mobility")
+  check("T35 /mdb key prints app-controlled",
+    (ChatLog[#ChatLog] or ""):find("app-controlled", 1, true) ~= nil)
+  DB.AppEpoch = 0
+  DB.AppMask = nil
+
+  -- --- rotation: cap 4 + never-automatic filter ---
+  local SavedMobility = MDB.Extras.WARRIOR.Arms.mobility
+  local SavedSpells = MaxDps.Spells
+  MDB.Extras.WARRIOR.Arms.mobility = { 100, 6544, 2983, 102401, 33786 }
+  MaxDps.Spells = {
+    [100]    = { { HotKey = { GetText = function() return "2" end } } },
+    [6544]   = { { HotKey = { GetText = function() return "T" end } } },
+    [2983]   = { { HotKey = { GetText = function() return "S" end } } },
+    [102401] = { { HotKey = { GetText = function() return "W" end } } },
+    [33786]  = { { HotKey = { GetText = function() return "C" end } } },
+  }
+  MDB._BindCache = {}
+  MDB.BeginTick()
+  local Pool = MDB.RotationCandidates(7, 10)
+  check("T35 rotation pool is capped at 4", #Pool == 4)
+  local HasNever = false
+  for i = 1, #Pool do if Pool[i] == 33786 then HasNever = true end end
+  check("T35 rotation pool excludes never-automatic ids", HasNever == false)
+  check("T35 IsNeverAutomatic knows Cyclone", MDB.IsNeverAutomatic(33786) == true)
+  check("T35 IsNeverAutomatic fails open on a plain id",
+    MDB.IsNeverAutomatic(6544) == false)
+
+  -- --- rotation: independent per-slot clocks + weighted advance ---
+  MDB.Extras.WARRIOR.Arms.mobility = SavedMobility
+  MaxDps.Spells = SavedSpells
+  MDB._BindCache = {}
+  MaxDpsBridgeDB.RotationDwell = 1
+  MDB.ResetRotation()
+  local Seen = {}
+  for _ = 1, 4 do
+    pcall(Update, Strip, 0.06)
+    local Id = IdAt(23, 24)
+    Seen[Id] = (Seen[Id] or 0) + 1
+  end
+  check("T35 weighted rotation offers both mobility candidates",
+    (Seen[100] or 0) >= 1 and (Seen[6544] or 0) >= 1)
+  check("T35 rotation advances every tick at dwell 1",
+    ((Seen[100] or 0) + (Seen[6544] or 0)) == 4)
+  check("T35 per-slot clocks are independent (4 rotating slots tracked)",
+    type(MDB._RotCounts) == "table" and (MDB._RotCounts[3] or -1) >= 0
+    and (MDB._RotCounts[6] or -1) >= 0 and (MDB._RotCounts[7] or -1) >= 0
+    and (MDB._RotCounts[8] or -1) >= 0)
+  ClearChat()
+  Cmd("status")
+  local Line = ChatLog[#ChatLog] or ""
+  check("T35 /mdb status reports ext3=1", Line:find("ext3=1", 1, true) ~= nil)
+  check("T35 /mdb status reports per-slot candidate counts",
+    Line:find("rot=3:", 1, true) ~= nil and Line:find("dwell=1", 1, true) ~= nil)
+
+  -- --- dwell command ---
+  Cmd("dwell 5")
+  check("T35 /mdb dwell persists", MaxDpsBridgeDB.RotationDwell == 5)
+  Cmd("dwell 0")
+  check("T35 /mdb dwell clamps to 1", MaxDpsBridgeDB.RotationDwell == 1)
+  MaxDpsBridgeDB.RotationDwell = 3
+  MDB.ResetRotation()
+  UnitAffectingCombat = nil
+end
+RunExt3Tests()
 
 print(string.format("RESULT: %d passed, %d failed", PASS, FAIL))
 if FAIL > 0 then os.exit(1) end

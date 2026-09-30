@@ -1564,6 +1564,132 @@ function MDB.GetCrowdControlCandidate ()
   return ExtraSpellID("cc");
 end
 
+--- ======= MULTI-CANDIDATE ROTATION (v3.5, bridge 3.5.0) =======
+-- The single "first ready+bound entry wins" selection let one held candidate
+-- shadow every alternative (RC4: Charge > Heroic Leap). These helpers return
+-- an ORDERED, de-duplicated pool (cap 4) for the four rotating slots so
+-- Bridge.lua can cycle through it. A candidate must be ready, bound, known as
+-- a variant, and NOT never-automatic; readiness is re-read every tick.
+--
+-- neverAutomatic is a curated deny-list of manual-only buttons the plan
+-- forbids from ever firing automatically. It is matched against the spell and
+-- every known variant of it, and fails open (unknown id = allowed).
+local NEVER_AUTOMATIC = {
+  [33786] = true,   -- Cyclone
+  [118]   = true,   -- Polymorph
+  [6770]  = true,   -- Sap
+  [710]   = true,   -- Banish
+  [217832] = true,  -- Imprison
+  [73325] = true,   -- Leap of Faith
+  [20484] = true,   -- Rebirth
+};
+
+function MDB.IsNeverAutomatic (SpellID)
+  if type(SpellID) ~= "number" or SpellID <= 0 then return false; end
+  if NEVER_AUTOMATIC[SpellID] then return true; end
+  if MDB.SpellVariants then
+    local Ok, Variants = pcall(MDB.SpellVariants, SpellID);
+    if Ok and type(Variants) == "table" then
+      for i = 1, #Variants do
+        if NEVER_AUTOMATIC[Variants[i]] then return true; end
+      end
+    end
+  end
+  return false;
+end
+
+-- Walk one curated list into the pool: ready + bound + known variant +
+-- not never-automatic, dedup by the ACTIVE variant id. Returns an array.
+local function WalkCurated (List, Count, Seen)
+  local Out = {};
+  if type(List) ~= "table" then return Out; end
+  for i = 1, #List do
+    local Entry = List[i];
+    if type(Entry) == "number" and Entry > 0 then
+      local Active = MDB.ActiveVariant(Entry);
+      if type(Active) == "number" and Active > 0 and not Seen[Active]
+        and not MDB.IsNeverAutomatic(Active) then
+        local Ready = false;
+        pcall(function () Ready = MDB.IsSpellReady(Active) == true; end);
+        local Bound = false;
+        if MDB.ResolveBinding then
+          pcall(function () Bound = MDB.ResolveBinding(Active) ~= nil; end);
+        end
+        if Ready and Bound then
+          Seen[Active] = true;
+          Out[#Out + 1] = Active;
+          if #Out >= Count then return Out; end
+        end
+      end
+    end
+  end
+  return Out;
+end
+
+--- Ordered rotation pool for a rotating slot (3 defensive, 6 interrupt/CC,
+-- 7 mobility, 8 self-heal). Cap is hard-limited to 4 so the wire and the
+-- `/mdb status` count stay bounded. Catalog priority for the defensive slot
+-- is major > minor > utility, with MaxDps's own flagged candidate on top.
+function MDB.RotationCandidates (Slot, Count)
+  Count = tonumber(Count) or 4;
+  if Count > 4 then Count = 4 end;
+  if Count < 1 then return {}; end
+  local Out, Seen = {}, {};
+  local function Append (List)
+    if #Out >= Count then return; end
+    local Found = WalkCurated(List, Count, Seen);
+    for i = 1, #Found do
+      Out[#Out + 1] = Found[i];
+      if #Out >= Count then return; end
+    end
+  end
+
+  if Slot == 3 then
+    local Flagged = FirstFlagged("defensive", false, true);
+    if Flagged and not MDB.IsNeverAutomatic(Flagged) then
+      Seen[Flagged] = true;
+      Out[1] = Flagged;
+    end
+    local _, classFile, specName = ClassSpec();
+    local Table = classFile and specName and MDB.Extras
+      and MDB.Extras[classFile] and MDB.Extras[classFile][specName];
+    if type(Table) == "table" then
+      Append(Table.defensiveMajor);
+      Append(Table.defensiveMinor);
+      Append(Table.defensive);
+    end
+  elseif Slot == 6 then
+    -- The interrupt candidate stays first-class in Bridge (a live cast is
+    -- unconditional); the pool here is the CC fall-through list.
+    if not (MDB.Toggles and MDB.Toggles.IsCC and not MDB.Toggles.IsCC()) then
+      local _, classFile, specName = ClassSpec();
+      local Table = classFile and specName and MDB.Extras
+        and MDB.Extras[classFile] and MDB.Extras[classFile][specName];
+      if type(Table) == "table" then Append(Table.cc); end
+    end
+  elseif Slot == 7 or Slot == 8 then
+    local _, classFile, specName = ClassSpec();
+    local Table = classFile and specName and MDB.Extras
+      and MDB.Extras[classFile] and MDB.Extras[classFile][specName];
+    if type(Table) == "table" then
+      Append(Slot == 7 and Table.mobility or Table.selfHeal);
+    end
+  end
+  return Out;
+end
+
+--- Defensive urgency with the v3.5 HP-curve fallback. When the plain HP read
+-- is secret/unreadable (Midnight combat) but the Ext2 HP curve is live, the
+-- slot still offers a conservative Orange so the catalog minor gap-fill is in
+-- the pool; otherwise an unreadable HP stays UNKNOWN. MDB.GetDefensiveUrgency
+-- itself is untouched so its documented secret-HP = UNKNOWN contract holds.
+function MDB.GetDefensiveUrgencyFallback (SpellID)
+  local U = MDB.GetDefensiveUrgency(SpellID);
+  if U ~= URGENCY_UNKNOWN then return U; end
+  if MDB.HpCurve then return URGENCY_ORANGE; end
+  return URGENCY_UNKNOWN;
+end
+
 --- ======= DEFENSIVE URGENCY + GAP-FILL (protocol v6) =======
 -- Mirrors the vendor colour curves in MaxDps:GlowDefensiveHPMidnight
 -- (vendor/MaxDps/Buttons.lua:1056-1110) at the curves' own control points.
