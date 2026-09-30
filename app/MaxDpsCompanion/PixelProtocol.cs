@@ -51,6 +51,15 @@ internal readonly record struct KeyStroke(byte VirtualKey, bool Shift, bool Ctrl
 /// </summary>
 internal readonly record struct SelfHeal2Slot(KeyStroke Stroke, int SpellId, TriState Range);
 
+/// <summary>
+/// Ext3 (v3.5) block decoded from cells 40-42: a 14-bit mask (bits 0-11 in
+/// cell 40 R/G/B, bits 12-13 in cell 41 R), a 4-bit epoch (cell 41 G) and a
+/// 4-bit blocked nibble (cell 41 B). Null when the block is absent (cell 28 B
+/// bit2 clear), the capture is not 43 cells wide, or the cell-42 checksum /
+/// commit failed — mirroring Ext2's "drop only this block" contract.
+/// </summary>
+internal readonly record struct Ext3Block(int Mask, int Epoch, int Blocked);
+
 /// <summary>One decoded reading of the addon's pixel block.</summary>
 internal sealed class BridgeFrame
 {
@@ -113,6 +122,12 @@ internal sealed class BridgeFrame
     /// <summary>Ext2: the second self-sustain candidate (cells 36-38); null when absent/invalid.</summary>
     public SelfHeal2Slot? SelfHeal2 { get; init; }
 
+    /// <summary>Ext3 (v3.5): cell 28 B bit2 says a 43-cell Ext3 block is present.</summary>
+    public bool Ext3Present { get; init; }
+
+    /// <summary>Ext3 (v3.5): decoded cells 40-42; null when absent or the cell-42 checksum/commit failed.</summary>
+    public Ext3Block? Ext3 { get; init; }
+
     public string? ClassName { get; init; }
     public string? SpecName { get; init; }
 
@@ -153,10 +168,11 @@ internal static class PixelProtocol
     ///  v6 = 6 — accepted for forward compatibility if an encoder ever bumps
     ///       the version nibble explicitly; same 35-cell layout.
     ///
-    /// The companion decodes v5/v6 (35 cells), v4 (9 cells) and v1 (8 cells);
-    /// the addon encodes v5. Same-length misreads are rejected by the version
-    /// nibble. A rescue fallback to the legacy windows is applied by the
-    /// engine, so an old in-game addon still drives the current companion.
+    /// The companion decodes the v5/v6 layout at 35 (core), 40 (Ext2) or 43
+    /// (Ext3) cells, v4 (9 cells) and v1 (8 cells); the addon encodes the
+    /// widest layout it ships. Same-length misreads are rejected by the
+    /// version nibble. A rescue fallback to the legacy windows is applied by
+    /// the engine, so an old in-game addon still drives the current companion.
     /// </summary>
     public const int CellCountV1 = 8;
     public const int CellCountV4 = 9;
@@ -171,6 +187,14 @@ internal static class PixelProtocol
     /// 35-cell stale addon still decodes (cell 33 B bit2 = 0).
     /// </summary>
     public const int CellCountExt2 = 40;
+
+    /// <summary>
+    /// Ext3 (v3.5): the frame becomes 43 cells wide. Cells 0-39 are the
+    /// unchanged v5 core + Ext2 layout; 40-42 are the additive mask/epoch/
+    /// blocked block. Gated on cell 28 B bit2, so a 40-cell Ext2 or 35-cell
+    /// core addon still decodes with cells 40-42 ignored.
+    /// </summary>
+    public const int CellCountExt3 = 43;
     public const int SupportedVersionV1 = 1;
     public const int SupportedVersionV4 = 4;
     public const int SupportedVersion = 5;
@@ -212,14 +236,34 @@ internal static class PixelProtocol
     public const int SelfHeal2SpellIdCellIndex = 37;
     public const int SelfHeal2CommitCellIndex = 39;
 
+    /// <summary>Ext3 cell indices (only present in a 43-cell capture).</summary>
+    public const int Ext3MaskCellIndex = 40;
+    public const int Ext3FlagsCellIndex = 41;
+    public const int Ext3CommitCellIndex = 42;
+
+    /// <summary>Ext3 mask width: bits 0-11 in cell 40, bits 12-13 in cell 41 R.</summary>
+    public const int Ext3MaskBitCount = 14;
+
+    /// <summary>
+    /// Cell 28 B bit2: the Ext3 block is present. Bits 0-1 stay the SelfHeal2
+    /// range tri-state; every reader masks cell 28 B with <c>&amp; 3</c> so this
+    /// bit can never bleed into the range value.
+    /// </summary>
+    public const int CastFlagExt3Present = 4;
+
     /// <summary>Cell 33 B bits (v5 class/spec + v2.7 buff probe + Ext2).</summary>
     public const int ClassFlagClassSpecValid = 1;
     public const int ClassFlagBuffProbeValid = 2;
     public const int ClassFlagExt2Present = 4;
     public const int ClassFlagHpCurveActive = 8;
 
-    /// <summary>True for any capture width the v5 decoder understands (core or Ext2).</summary>
-    public static bool IsV5Length(int length) => length is CellCount or CellCountExt2;
+    /// <summary>
+    /// True for any capture width the v5 decoder understands: 43 (Ext3), 40
+    /// (Ext2) or 35 (v5 core). Decode reads the widest block the capture can
+    /// hold and falls back to Ext2/core semantics when the presence bit is
+    /// clear, so a stale addon still decodes.
+    /// </summary>
+    public static bool IsV5Length(int length) => length is CellCount or CellCountExt2 or CellCountExt3;
 
     /// <summary>v5 sentinel nibble for "value unknown / not applicable".</summary>
     public const int UnknownNibble = 15;
@@ -576,7 +620,8 @@ internal static class PixelProtocol
                     var (s0, s1, s2) = N(SelfHeal2SpellIdCellIndex);
                     var (s3, s4, s5) = N(SelfHeal2SpellIdCellIndex + 1);
                     var heal2SpellId = (s0 << 20) | (s1 << 16) | (s2 << 12) | (s3 << 8) | (s4 << 4) | s5;
-                    // Cell 28 B bits0-1 carry the SelfHeal2 range tri-state.
+                    // Cell 28 B bits0-1 carry the SelfHeal2 range tri-state; the
+                    // mask keeps bit2 (Ext3 presence) from bleeding into it.
                     selfHeal2 = new SelfHeal2Slot(
                         new KeyStroke(
                             (byte)((h2hi << 4) | h2lo),
@@ -586,6 +631,29 @@ internal static class PixelProtocol
                         heal2SpellId,
                         DecodeRange(castFlagsRaw & 3));
                 }
+            }
+        }
+
+        // Ext3 block (v3.5): cells 40-42. Gated on cell 28 B bit2 AND a 43-cell
+        // capture, so a 40-cell Ext2 (or 35-cell v5) addon decodes exactly as
+        // before with cells 40-42 ignored. Cell 42 G covers cells 40-41 only; a
+        // failure (or a torn commit) drops ONLY the Ext3 values, never the
+        // frame, the v5 core or Ext2. Cell 42 R is reserved/ignored — like
+        // cells 34 R and 39 R, the decoder never asserts it is zero.
+        var ext3Present = (castFlagsRaw & CastFlagExt3Present) != 0 && cells.Length >= CellCountExt3;
+        Ext3Block? ext3 = null;
+        if (ext3Present)
+        {
+            var (m0, m1, m2) = N(Ext3MaskCellIndex);
+            var (mHi, epoch, blocked) = N(Ext3FlagsCellIndex);
+            var ext3Sum = m0 + m1 + m2 + mHi + epoch + blocked;
+            var (_, ext3Checksum, ext3Commit) = N(Ext3CommitCellIndex);
+            if (ext3Commit == heartbeat && (ext3Sum & 0xF) == ext3Checksum)
+            {
+                ext3 = new Ext3Block(
+                    m0 | (m1 << 4) | (m2 << 8) | ((mHi & 3) << 12),
+                    epoch,
+                    blocked);
             }
         }
 
@@ -618,6 +686,8 @@ internal static class PixelProtocol
             HpCurveValid = hpCurveValid,
             HpCurveBand = hpCurveBand,
             SelfHeal2 = selfHeal2,
+            Ext3Present = ext3Present,
+            Ext3 = ext3,
         };
     }
 
