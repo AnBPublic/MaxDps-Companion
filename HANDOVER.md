@@ -69,6 +69,32 @@ LIVE OWED: none for T0 (no wire is emitted yet); Ext3 live render is T1+.
 
 ## Status: v3.4.0 — CC appendix (opt-in, DR-safe, all 13 classes) + surroundings awareness gates (melee/cast/range catalog-driven, LoS fails open) + wired UI publish (solo sliders, bridge-health banner, cast-audit grid) + CC slot-6 candidate source (Option A, wire frozen) (660 xunit tests + 186 Lua harness checks, live validation owed)
 
+## 2026-09-30 S5 UI FOUNDATION (this change)
+
+GOAL: fix the garbled popup and put the popup on one owner-drawn paint layer.
+The popup scrim was an alpha BackColor Panel painted over native TabControl /
+ComboBox children; WinForms' simulated transparency asks the PARENT to repaint,
+native child HWNDs never composite, so their pixels garbled.
+
+WHAT CHANGED (UI only - no wire/scheduler/knowledge/addon/vendor):
+- Ui/UiFoundation.cs (new): SegmentedTabs + SegmentedTabPage (owner-drawn tab
+  strip replacing native TabControl), OwnedComboBox (tier-scaled item height),
+  OwnedToolTip (themed, width-wrapped bubble so the "Click for skill list"
+  suffix can't run off-screen), ThemedScrollBar + ThemedScrollHost (replaces the
+  AutoScroll stray bar), LegendGrid (multi-column key).
+- MainForm.cs: scrim is now static opaque (DesignTokens.Scrim, A=255); popup
+  fade timer removed; popups host SegmentedTabs; ValidateTabs updated.
+- ClassSkillsView.cs: duplicate in-view header removed (popup header kept),
+  owned combo/tooltip wired, legend is 2 columns, TreeBuilder delegate seam
+  keeps ClassSkillTree.Build ready to move off the UI thread for S8.
+- UiControls.cs: SettingRow uses a per-row owned tooltip (the static native
+  shared ToolTip was a cross-thread race); Ui/DesignTokens.cs added
+  Scrim/scroll tokens + Title/Caption/Micro type steps.
+
+VALIDATED (offline): dotnet build app/... -c Release 0 warn/0 err; dotnet test
+-c Release 660/660 pass (ClassSkillsView + UiShell smoke included).
+LIVE OWED: inspect the Advanced/Abilities popups in a retail run.
+
 ## 2026-09-30 OVERLAY REGISTERCLICKS FIX (this change)
 
 GOAL: stop `BuildOverlay` aborting so `Overlay` no longer stays nil (it
