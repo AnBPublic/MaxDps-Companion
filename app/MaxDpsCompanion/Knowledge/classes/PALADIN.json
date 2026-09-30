@@ -1,0 +1,206 @@
+{
+  "schema": 1,
+  "class": "PALADIN",
+  "abilities": [
+    {
+      "spellId": 498,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Divine Protection: minor mitigation (Holy/Protection)."
+    },
+    {
+      "spellId": 633,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 4,
+      "notes": "Lay on Hands: big emergency self-heal; solo ladder ceiling."
+    },
+    {
+      "spellId": 642,
+      "role": "Major",
+      "route": "Defensive",
+      "emergencyEscape": true,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 4,
+      "notes": "Divine Shield: immunity last resort; Red only."
+    },
+    {
+      "spellId": 853,
+      "role": "CC",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Hammer of Justice: stun usable as interrupt, but curated neverAutomatic is preserved, so it is surfaced (Suggest) and never fires automatically."
+    },
+    {
+      "spellId": 1022,
+      "role": "Utility",
+      "route": "Defensive",
+      "emergencyEscape": true,
+      "offGcd": true,
+      "mode": "Suggest",
+      "minUrgency": 4,
+      "notes": "Blessing of Protection: physical immunity (self/ally); manual external."
+    },
+    {
+      "spellId": 1044,
+      "role": "Utility",
+      "route": "Mobility",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Blessing of Freedom: root/snare removal + speed; manual."
+    },
+    {
+      "spellId": 19750,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Flash of Light: solo self-sustain ladder."
+    },
+    {
+      "spellId": 20066,
+      "role": "CC",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Repentance: incapacitate; manual."
+    },
+    {
+      "spellId": 31821,
+      "role": "Major",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 4,
+      "notes": "Aura Mastery: major group mitigation, Holy."
+    },
+    {
+      "spellId": 31850,
+      "role": "Major",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 4,
+      "notes": "Ardent Defender: major mitigation, Protection."
+    },
+    {
+      "spellId": 53600,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Shield of the Righteous: active mitigation, Protection/Retribution."
+    },
+    {
+      "spellId": 6940,
+      "role": "Utility",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Never",
+      "minUrgency": 4,
+      "notes": "Blessing of Sacrifice: ally external; never automatic (ally state not observable)."
+    },
+    {
+      "spellId": 85673,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Word of Glory: solo self-sustain ladder."
+    },
+    {
+      "spellId": 86659,
+      "role": "Major",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 4,
+      "notes": "Guardian of Ancient Kings: major mitigation, Protection."
+    },
+    {
+      "spellId": 96231,
+      "role": "Utility",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 0,
+      "notes": "Rebuke: shared melee kick."
+    },
+    {
+      "spellId": 184662,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Shield of Vengeance: minor absorb."
+    },
+    {
+      "spellId": 190784,
+      "role": "Mobility",
+      "route": "Mobility",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Divine Steed: mount sprint; manual movement utility."
+    },
+    {
+      "spellId": 204018,
+      "role": "Utility",
+      "route": "Defensive",
+      "emergencyEscape": true,
+      "offGcd": true,
+      "mode": "Suggest",
+      "minUrgency": 4,
+      "notes": "Blessing of Spellwarding: magic immunity (Protection); manual external."
+    },
+    {
+      "spellId": 210294,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Never",
+      "minUrgency": 2,
+      "notes": "Divine Favor: needs verification (id absent from spell-verification.json)."
+    },
+    {
+      "spellId": 403876,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Divine Protection: minor mitigation (Retribution)."
+    }
+  ]
+}
