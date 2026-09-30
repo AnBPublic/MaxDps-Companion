@@ -202,6 +202,19 @@ internal sealed class RotationEngine : IDisposable
     /// <summary>Monotonic engine clock; used for telemetry session events.</summary>
     public long ElapsedMs => _clock.ElapsedMilliseconds;
 
+    /// <summary>
+    /// S8 diagnostics (read-only): age of the last decoded frame on the engine
+    /// clock, or -1 before the first frame decodes. The UI's why-not-firing
+    /// explainer uses this as the candidate-staleness witness.
+    /// </summary>
+    public int LastFrameAgeMs()
+    {
+        var last = _lastFrameMs;
+        if (last == long.MinValue) return -1;
+        var age = _clock.ElapsedMilliseconds - last;
+        return age < 0 ? 0 : (int)Math.Min(age, int.MaxValue);
+    }
+
     public event Action<EngineStatus>? StatusChanged;
 
     /// <summary>Raised when the sweep finds the block somewhere other than the configured offset.</summary>

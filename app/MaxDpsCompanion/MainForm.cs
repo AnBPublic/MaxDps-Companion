@@ -145,6 +145,16 @@ internal sealed class MainForm : Form
     private readonly ClassBrowserView _classBrowser;
     private readonly Dictionary<string, ClassOverlay> _classOverlays = new(StringComparer.OrdinalIgnoreCase);
 
+    // S8 perf + diagnostics: off-thread Class Browser precompute (warmed on
+    // idle), the per-toggle why-not-firing explainer and the install doctor.
+    private readonly ClassBrowserPrecompute _classBrowserPrecompute;
+    private readonly WhyNotFiringPanel _whyNotFiring = new();
+    private readonly Label _doctorValue = new();
+    private readonly ChamferButton _doctorRefresh = new() { Text = "Run install doctor", Role = ButtonRole.Ghost };
+    private int? _lastLocatedCellSize;
+    private bool _classBrowserWarmScheduled;
+    private int _doctorTick;
+
     // Stream 3 wiring: solo survival-band editor (Safety card) and the
     // bridge-health banner + suggested-vs-cast audit (Diagnostics page).
     private readonly SoloBandEditor _soloBands = new();
@@ -274,6 +284,12 @@ internal sealed class MainForm : Form
             },
         });
 
+        // S8: route the Class Browser row build through the off-thread cache
+        // (the S5 TreeBuilder seam). A cache miss still builds inline, so the
+        // screen can never regress to blank.
+        _classBrowserPrecompute = new ClassBrowserPrecompute(AbilityCatalog.Default, ClassSpellBook.Default);
+        _classSkills.TreeBuilder = _classBrowserPrecompute.Build;
+
         // WS-C drill-through: a clickable Intelligence metric tile opens the
         // Abilities overlay on the Explorer tab with the matching preset.
         _intelligencePage.DrillRequested += tag => ShowAbilitiesWithPreset(tag);
@@ -364,6 +380,44 @@ internal sealed class MainForm : Form
             ApplyScale(resetHeight: !_userSizedHeight);
         };
         _uiInitialised = true;
+
+        // S8: pre-build the Class Browser rows once the window is up and the
+        // message loop goes idle, off the UI thread.
+        Shown += (_, _) => BeginClassBrowserWarmup();
+    }
+
+    // ----- S8 perf: idle Class Browser precompute -----
+
+    private void BeginClassBrowserWarmup()
+    {
+        if (_classBrowserWarmScheduled) return;
+        _classBrowserWarmScheduled = true;
+        Application.Idle += WarmClassBrowserOnIdle;
+    }
+
+    private void WarmClassBrowserOnIdle(object? sender, EventArgs e)
+    {
+        Application.Idle -= WarmClassBrowserOnIdle;
+        try
+        {
+            // The rows the user is most likely to open: the live class/spec
+            // when the engine knows it, else the first class and its first spec.
+            var className = _engine.TryGetLiveClass(out var live) ? live : null;
+            var specName = _engine.TryGetLiveSpec(out var liveSpec) ? liveSpec : null;
+            if (string.IsNullOrEmpty(className) || string.IsNullOrEmpty(specName))
+            {
+                className = AbilityCatalog.ClassOrder.FirstOrDefault(c => c.Length > 0);
+                if (className is not null
+                    && AbilityCatalog.SpecOrder.TryGetValue(className, out var specs)
+                    && specs.Length > 1)
+                {
+                    specName = specs[1];
+                }
+            }
+            if (!string.IsNullOrEmpty(className) && !string.IsNullOrEmpty(specName))
+                _classBrowserPrecompute.Warm(className, specName);
+        }
+        catch { /* prebuild is best-effort */ }
     }
 
     // ----- persistence -----
@@ -1611,6 +1665,19 @@ internal sealed class MainForm : Form
             (Ui.FieldRow("Block offset X", _offsetX), 38),
             (Ui.FieldRow("Block offset Y", _offsetY), 38)));
 
+        // S8 diagnostics: per-toggle why-not-firing (scheduler verdict + toggle
+        // state + candidate staleness) and the install doctor.
+        _whyNotFiring.MinimumSize = new Size(0, 96);
+        page.AddCard("Why not firing", "Explain").Add(Stack((_whyNotFiring, 96)));
+
+        _doctorRefresh.Click += (_, _) => RefreshInstallDoctor();
+        StatusLabel(_doctorValue);
+        page.AddCard("Install doctor", "Version / wiring").Add(Stack(
+            (ButtonsRow(40, _doctorRefresh), 40),
+            (_doctorValue, 44),
+            (Hint("Checks the exe build vs HEAD, configured vs emitted cell size, the app mask vs the Ext3 mirror and the addon version."), 0)));
+        RefreshInstallDoctor();
+
         // The decoded bridge strip lives here now (moved off the hero card).
         // StripHeight is the tier value reused for this card's strip height.
         _stripView.Dock = DockStyle.Fill;
@@ -1631,6 +1698,77 @@ internal sealed class MainForm : Form
             (Ui.FieldRow("BNet path", _bnetPath), 38),
             (ButtonsRow(40, _bnetBrowse, _launchGameAdv, _openFolderAdvDiag), 40),
             (Hint("Launch Game opens Battle.net for WoW. No credentials are stored - the launcher's remembered account is used."), 0)));
+    }
+
+    /// <summary>
+    /// S8: push one why-not-firing snapshot for the current plan head. Fail-open:
+    /// a copy bug must never stall the UI timer or the diagnostics page.
+    /// </summary>
+    private void UpdateWhyNotFiring()
+    {
+        try
+        {
+            var head = _engine.CurrentPlanHead;
+            var running = _engine.IsRunning;
+            var reason = head?.Reason ?? _engine.LastAction?.Reason;
+            var action = head?.Action ?? _engine.LastAction?.Action;
+            var mainOn = _settings.SlotEnabled.Length > 0 && _settings.SlotEnabled[0];
+            var facts = new WhyNotFiringFacts(
+                Label: string.IsNullOrEmpty(action) ? "the current slot" : action,
+                ToggleOn: head is not null || mainOn,
+                EngineRunning: running,
+                Paused: _engine.Paused,
+                SchedulerReason: string.IsNullOrEmpty(reason) ? null : reason,
+                PlanHeadAction: string.IsNullOrEmpty(action) ? null : action,
+                FrameAgeMs: running ? _engine.LastFrameAgeMs() : -1,
+                StaleAfterMs: 1500);
+            _whyNotFiring.Update(facts);
+        }
+        catch { /* fail-open */ }
+    }
+
+    /// <summary>
+    /// S8 install doctor: compares the exe build commit against the repo HEAD,
+    /// the configured cell size against the size the addon emitted, the app mask
+    /// against the Ext3 mirror, and the installed addon version against the
+    /// companion release. Read-only observations; warn-only where data is absent.
+    /// </summary>
+    private void RefreshInstallDoctor()
+    {
+        try
+        {
+            var appDir = Program.AppDir;
+            var inputs = new DoctorInputs(
+                ExeCommit: ThisAssemblyGen.GitCommit,
+                HeadCommit: InstallDoctor.TryReadHeadCommit(appDir),
+                AppVersion: InstallDoctor.TryReadVersionFile(Path.Combine(appDir, "VERSION.txt")),
+                AddonVersion: InstallDoctor.TryReadVersionFile(FindAddonVersionPath(appDir)),
+                SettingsCellSize: _settings.CellSize,
+                LocatedCellSize: _lastLocatedCellSize,
+                AppMask: ToggleSync.BuildMask(_settings),
+                MirrorMask: _toggleSync.MirrorMask,
+                MirrorValid: _toggleSync.MirrorValid);
+            var findings = InstallDoctor.Audit(inputs);
+            var issues = findings.Where(f => f.Severity is DoctorSeverity.Warn or DoctorSeverity.Fail).ToList();
+            _doctorValue.Text = issues.Count == 0
+                ? InstallDoctor.Summarize(findings)
+                : string.Join("   ", issues.Select(f => $"[{f.Check}] {f.Detail}"));
+            _doctorValue.ForeColor = issues.Count == 0 ? DesignTokens.Success : DesignTokens.Warning;
+        }
+        catch { _doctorValue.Text = "Install doctor failed."; }
+    }
+
+    /// <summary>Locates the shipped addon VERSION.txt from the exe dir upward.</summary>
+    private static string FindAddonVersionPath(string appDir)
+    {
+        var dir = appDir;
+        for (var i = 0; i < 6 && !string.IsNullOrEmpty(dir); i++)
+        {
+            var candidate = Path.Combine(dir, "addon", "MaxDpsBridge", "VERSION.txt");
+            if (File.Exists(candidate)) return candidate;
+            dir = Path.GetDirectoryName(dir);
+        }
+        return Path.Combine(appDir, "addon", "MaxDpsBridge", "VERSION.txt");
     }
 
     private static Label StatusLabel(Label label)
@@ -2421,6 +2559,7 @@ internal sealed class MainForm : Form
         _settings.OffsetX = location.OffsetX;
         _settings.OffsetY = location.OffsetY;
         _settings.CellSize = location.CellSize;
+        _lastLocatedCellSize = location.CellSize;   // S8 install-doctor witness
         _offsetX.Value = location.OffsetX;
         _offsetY.Value = location.OffsetY;
         _cellSize.Value = location.CellSize;
@@ -2471,6 +2610,14 @@ internal sealed class MainForm : Form
 
         PumpToggleSync();
         UpdateBridgeBanner(status);
+        UpdateWhyNotFiring();
+        // S8 install doctor: throttle the file reads to ~2 s (the input values
+        // move slowly); only after the diagnostics page has been built.
+        if (_advancedContentBuilt && ++_doctorTick >= 8)
+        {
+            _doctorTick = 0;
+            RefreshInstallDoctor();
+        }
 
         UpdateHero();
     }

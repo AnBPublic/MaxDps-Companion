@@ -96,6 +96,39 @@ VALIDATED (offline): merged build re-verified here with the S6/T5 union.
 LIVE OWED (retail 12.1): the console home renders and mirrors live state; each
 preset flips the intended toggles; the Rotation menu opens.
 
+## 2026-09-30 v3.5 S8 — PERF + DIAGNOSTICS (this change)
+
+GOAL: make the Class Browser open without a UI-thread row build and add the
+diagnostics that catch the stale-install class of failure. Cherry-picked with
+`--no-commit` S5 (`5a6f8c1`) + T5 (`98831e8`, incoming wins on Ui/MainForm);
+then S8 on top. No wire/scheduler logic, no addon Lua, no vendor edits.
+
+WHAT CHANGED (new files + wiring):
+- `Ui/ClassBrowserPrecompute.cs` (new): concurrent cache keyed by (class, spec);
+  `Build` matches the S5 `ClassSkillsView.TreeBuilder` delegate (miss builds
+  inline once, so the screen can never go blank); `Warm` precomputes on the
+  thread pool. `MainForm` sets `_classSkills.TreeBuilder = _classBrowser.Build`
+  and warms the live (or first) class/spec once `Application.Idle` fires after
+  `Shown`.
+- `Ui/ScaledIconCache.cs` (new): device-scaled icon bitmaps keyed by
+  (spell id, px), evicted on `SpellIconCache.IconReady`; `AbilityToggleRow`
+  paints the 44 px cached copy instead of a per-paint HighQualityBicubic rescale.
+- `Ui/WhyNotFiring.cs` + `Ui/WhyNotFiringPanel.cs` (new): pure explainer
+  (toggle state, scheduler verdict, candidate staleness) and its owner-drawn
+  render; mounted on the Diagnostics page. `RotationEngine.LastFrameAgeMs()`
+  is a read-only witness (no logic change).
+- `Diagnostics/InstallDoctor.cs` (new): pure `Audit` checks exe build commit vs
+  repo HEAD, configured vs emitted CellSize, app mask vs Ext3 mirror, addon
+  version; best-effort `.git/HEAD` / VERSION.txt readers. Mounted on the
+  Diagnostics page (button + ~2 s throttle).
+- `tests/.../S8PerfDiagnosticsTests.cs` (new): 16 facts.
+
+VALIDATED (this machine): `dotnet build app\MaxDpsCompanion\MaxDpsCompanion.csproj
+-c Release` 0 warnings / 0 errors; `dotnet test -c Release` **699/699** (was 683;
++16 S8). No live validation owed: these are offline perf/diagnostic paths. Note:
+the test project carries 2 pre-existing CS8604 warnings in `ClassicUiTests.cs`
+(untouched, present on base).
+
 ## 2026-09-30 v3.5 T5 — TOGGLE SSOT (this change)
 
 GOAL: app-wins toggle sync (S1 companion half). The 14 app toggles pack into the

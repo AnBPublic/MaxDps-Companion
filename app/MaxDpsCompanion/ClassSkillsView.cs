@@ -663,6 +663,9 @@ internal sealed class AbilityToggleRow : Panel
 {
     public const int RowHeight = 88;
 
+    /// <summary>S8: square pixel size of the icon tile / scaled-icon cache key.</summary>
+    private const int IconPixels = 44;
+
     private readonly AbilityToggleRowState _state;
     private readonly IconTile _icon = new();
     private readonly Label _name = new();
@@ -734,7 +737,9 @@ internal sealed class AbilityToggleRow : Panel
         SpellIconCache.Instance.IconReady += _state.OnIconReady;
         UpdateSubtitle();
 
-        var image = SpellIconCache.Instance.TryGet(ability.SpellId);
+        // S8: the row paints a pre-scaled copy so scrolling never runs a
+        // HighQualityBicubic rescale per row per frame.
+        var image = ScaledIconCache.Instance.Get(ability.SpellId, IconPixels);
         if (image is not null) _icon.SetImage(image);
     }
 
@@ -753,7 +758,7 @@ internal sealed class AbilityToggleRow : Panel
     protected override void OnLayout(LayoutEventArgs levent)
     {
         base.OnLayout(levent);
-        const int iconSize = 44;
+        const int iconSize = IconPixels;
         _icon.Bounds = new Rectangle(4, (Height - iconSize) / 2, iconSize, iconSize);
         var textX = _icon.Right + 14;
         var toggleX = Width - 8 - _toggle.Width;
@@ -1052,7 +1057,8 @@ internal sealed class AbilityToggleRow : Panel
             {
                 _tile.BeginInvoke(() =>
                 {
-                    var image = SpellIconCache.Instance.TryGet(_spellId);
+                    // S8: scaled copy, matching the ctor path.
+                    var image = ScaledIconCache.Instance.Get(_spellId, IconPixels);
                     if (image is not null) _tile.SetImage(image);
                 });
             }

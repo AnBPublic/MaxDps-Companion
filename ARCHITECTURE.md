@@ -427,7 +427,19 @@ MaxDps-Companion/
     ClassSkillsView.cs       legacy full-size Class skills screen (superseded
                              by Ui/ClassBrowserView.cs in S6; kept as a test
                              seam): class/spec dropdowns, shared + per-spec
-                             sections, toggles
+                             sections, toggles; S5 TreeBuilder seam (S8 routes
+                             it to the cache)
+    Ui/ClassBrowserPrecompute.cs  S8: off-thread Class Browser row cache keyed
+                             by (class, spec); warmed on Application.Idle and
+                             consumed through ClassSkillsView.TreeBuilder
+    Ui/ScaledIconCache.cs    S8: device-scaled icon bitmaps keyed by
+                             (spell id, px); evicted on SpellIconCache.IconReady
+    Ui/WhyNotFiring.cs       S8: pure explainer — toggle state + scheduler
+                             verdict + candidate staleness (frame age)
+    Ui/WhyNotFiringPanel.cs  S8: owner-drawn render of the explainer
+    Diagnostics/InstallDoctor.cs  S8: pure install checks — exe build vs repo
+                             HEAD, configured vs emitted CellSize, app mask vs
+                             Ext3 mirror, addon version; best-effort file reads
     Ui/                      UI shell (classic v3): DesignTokens (system
                              variable-font chain — Geist/UiFonts removed),
                              Layout (measured VertStack/WrapFlow/GridPanel/
