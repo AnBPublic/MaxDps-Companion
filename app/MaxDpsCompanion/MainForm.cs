@@ -22,6 +22,12 @@ internal sealed class MainForm : Form
     private readonly RotationEngine _engine;
     private readonly System.Windows.Forms.Timer _uiTimer = new() { Interval = 250 };
 
+    // v3.5 S1 toggle SSOT: the app-WINS mask push state machine. Mutated only on
+    // the UI thread; the blocking ChatCommander send is dispatched to the
+    // thread pool so a toggle change or Start never freezes the window.
+    private readonly ToggleSync _toggleSync = new();
+    private int _togglePushInFlight;
+
     private EngineStatus _status;
     private bool _hotkeyRegistered;
     private string _statusMessage = "Stopped";
@@ -2016,7 +2022,52 @@ internal sealed class MainForm : Form
         _start.Enabled = false;
         _stop.Enabled = true;
         if (_trayStartStop is not null) _trayStartStop.Text = "Stop";
+        // v3.5 S1: a fresh session re-pushes the toggle mask once out of combat.
+        _toggleSync.BeginSession(_settings);
         SetStatus("Engine started.", DesignTokens.Success);
+    }
+
+    // ----- v3.5 S1 toggle SSOT (app-wins mask push + mirror echo) -----
+
+    /// <summary>
+    /// Drives the mask sync once per UI tick: re-reads the app toggles, feeds the
+    /// engine's Ext3 mirror, and pushes <c>/mdb mask &lt;hhhh&gt; &lt;e&gt;</c>
+    /// at Start and on change — ONLY out of combat, with the retry ladder inside
+    /// <see cref="ToggleSync"/>. The blocking chat send runs on the thread pool.
+    /// </summary>
+    private void PumpToggleSync()
+    {
+        _toggleSync.ObserveSettings(_settings);
+
+        Ext3Block? mirror = null;
+        var inCombat = false;
+        if (_engine.IsRunning) _engine.TryGetToggleMirror(out mirror, out inCombat);
+        _toggleSync.ObserveMirror(_engine.ElapsedMs, mirror);
+
+        if (_toggleSync.NeedsPush && _engine.IsRunning && !inCombat && _togglePushInFlight == 0
+            && _toggleSync.BeginPush(_engine.ElapsedMs) is not null)
+        {
+            DispatchTogglePush();
+        }
+    }
+
+    private void DispatchTogglePush()
+    {
+        if (Interlocked.CompareExchange(ref _togglePushInFlight, 1, 0) != 0) return;
+        var mask = _toggleSync.PendingMask ?? ToggleSync.BuildMask(_settings);
+        var epoch = _toggleSync.PendingEpoch;
+        var processName = _settings.ProcessName;
+        ThreadPool.QueueUserWorkItem(_ =>
+        {
+            try
+            {
+                var game = new WowWindow();
+                if (game.Refresh(processName))
+                    ChatCommander.SendToggleMask(game, mask, epoch, settleMs: 450);
+            }
+            catch { /* best effort: a missing echo is retried by the ladder */ }
+            finally { Interlocked.Exchange(ref _togglePushInFlight, 0); }
+        });
     }
 
     private void StopEngine()
@@ -2234,6 +2285,7 @@ internal sealed class MainForm : Form
         if (_bridgeStateValue.Text != bridge) _bridgeStateValue.Text = bridge;
         if (_protocolValue.Text == "-") _protocolValue.Text = $"v{PixelProtocol.SupportedVersion} (supported)";
 
+        PumpToggleSync();
         UpdateBridgeBanner(status);
 
         UpdateHero();
@@ -2253,7 +2305,16 @@ internal sealed class MainForm : Form
             string title, detail;
             StatusTone tone;
 
-            if (!_engine.IsRunning)
+            if (_toggleSync.HasConflict)
+            {
+                // v3.5 S1 red badge: the addon never mirrored the pushed mask
+                // after the retry ladder. The app still runs on its own mask
+                // (fail-open) but the cross-surface sync is broken.
+                (title, tone, detail) = ("Toggle sync: blocked", StatusTone.Warning,
+                    "The in-game addon did not mirror the app's /mdb mask. " +
+                    "Run install-addon.ps1 + /reload, or change a toggle to retry.");
+            }
+            else if (!_engine.IsRunning)
             {
                 (title, tone, detail) = ("Bridge health: unknown", StatusTone.Info, "");
             }

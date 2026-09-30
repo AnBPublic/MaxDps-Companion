@@ -216,6 +216,13 @@ internal sealed class AppSettings
     // no credentials are stored anywhere.
     public string BNetPath { get; set; } = "";
 
+    /// <summary>
+    /// Settings schema version (v3.5 S1). Written as <c>[Meta] ConfigVersion</c>;
+    /// a config that has a <c>[Spells]</c> section but no <c>[Meta]</c> is a
+    /// pre-3.5 install and receives the one-time migration below.
+    /// </summary>
+    public const int ConfigVersion = 1;
+
     public static AppSettings Load(string path)
     {
         var settings = new AppSettings { Path = path };
@@ -227,6 +234,8 @@ internal sealed class AppSettings
         }
 
         var section = "";
+        var hasSpells = false;
+        var hasMeta = false;
         foreach (var raw in File.ReadAllLines(path))
         {
             var line = raw.Trim();
@@ -235,6 +244,8 @@ internal sealed class AppSettings
             if (line.StartsWith('[') && line.EndsWith(']'))
             {
                 section = line[1..^1].Trim().ToLowerInvariant();
+                if (section == "spells") hasSpells = true;
+                if (section == "meta") hasMeta = true;
                 continue;
             }
 
@@ -246,10 +257,23 @@ internal sealed class AppSettings
             settings.Apply(section, key, value);
         }
 
+        // v3.5 S1 one-time migration (fixes RC1/RC2). A genuine pre-3.5 install
+        // config has [Spells] but no [Meta] section; the symptoms were Mobility
+        // shipped OFF (RC1: `spell7=0` and the scheduler silently drops the
+        // slot) and CrowdControl shipped OFF (RC2: CC rows fell through to the
+        // Utility provider and never fired). Turn the new defaults ON exactly
+        // once; the next Save stamps [Meta] so a later user OFF choice sticks.
+        // Partial/legacy-less test configs (no [Spells]) are never touched.
+        if (hasSpells && !hasMeta)
+        {
+            settings.SlotEnabled[6] = true;              // Mobility
+            settings.CrowdControlEnabled = true;         // CC appendix
+        }
+
         // Publish the companion CC opt-in to the policy gate (the settings class
         // is the single load point; the evaluator's one-line CC call-site has no
         // options plumbing by contract). Default OFF, so an absent section keeps
-        // CC manual-by-design.
+        // CC manual-by-design unless the migration above turned it ON.
         CrowdControlGate.Configure(settings.CrowdControlEnabled);
         settings.LoadAbilityOverrides();
         return settings;
@@ -340,6 +364,11 @@ internal sealed class AppSettings
         var text = new StringBuilder()
             .AppendLine("; MaxDPS Companion settings.")
             .AppendLine("; CellSize/OffsetX/OffsetY must match the addon's '/mdb status' output.")
+            .AppendLine()
+            .AppendLine("; Settings schema version; stamped on Save so the v3.5")
+            .AppendLine("; Mobility/CrowdControl migration runs at most once.")
+            .AppendLine("[Meta]")
+            .AppendLine($"ConfigVersion={ConfigVersion}")
             .AppendLine()
             .AppendLine("[Bridge]")
             .AppendLine($"CellSize={CellSize}")

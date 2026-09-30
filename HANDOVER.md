@@ -1,5 +1,37 @@
 # Handover — MaxDps-Companion
 
+## 2026-09-30 v3.5 T5 — TOGGLE SSOT (this change)
+
+GOAL: app-wins toggle sync (S1 companion half). The 14 app toggles pack into the
+Ext3 14-bit mask; `<hh>` bit order is `Main Offensive Defensive Consumable
+Trinket Interrupt Mobility SelfHeal Solo OOC AutoTarget AutoInteract TTK CC`
+(OOC = `!CombatOnly`). The companion pushes `/mdb mask <hhhh> <e>` at engine
+Start and on any toggle change, out of combat only, and consumes the bridge's
+Ext3 echo as the effective mask.
+
+WHAT CHANGED: `app/MaxDpsCompanion/ToggleSync.cs` (new) — pure state machine:
+`BuildMask`, `FormatCommand` (4 uppercase hex + decimal 0-15 epoch),
+`BeginPush`/`ObserveMirror` retry ladder (window 1500 ms, max 2 retries, then a
+red `HasConflict`), `EffectiveMask` = mirrored mask when Ext3 valid else app
+mask. `ChatCommander.SendToggleMask` formats + sends the silent command.
+`RotationEngine` gains `TryGetToggleMirror(out Ext3Block?, out bool inCombat)`
+(read-only Ext3 echo + combat flag, published per decoded frame).
+`MainForm` pumps the sync on the 250 ms UI timer and marks the Diagnostics
+banner "Toggle sync: blocked" on conflict. `AppSettings` gains `[Meta]
+ConfigVersion=1` and a one-time migration: a config with `[Spells]` but no
+`[Meta]` gets Mobility + `[CrowdControl] Enabled` turned ON (fixes RC1/RC2);
+Save stamps `[Meta]` so a later user OFF sticks. `settings.ini` and
+`dist\settings.ini` carry the new defaults.
+
+VALIDATED: `dotnet build -c Release` 0/0; non-UI `dotnet test` **660/660**
+(incl. 12 new ToggleSyncTests); the 21 headless STA timeouts are the known
+pre-existing ClassicUi/ClassSkillsView/UiShell environment failures (baseline
+log: 20; the extra `WidthTiers_Scale_Popups` passes standalone in 2 s).
+
+LIVE OWED (retail 12.1): with the Ext3 addon, flip a hero toggle in combat and
+verify the push is deferred until combat ends, the Ext3 echo matches, and a
+deliberately unmirrored mask surfaces the red "Toggle sync: blocked" banner.
+
 ## 2026-09-30 EXT3 T0 CONTRACTS (this change)
 
 GOAL: freeze the Ext3 wire contract (T0 only — constants + decode shell + tests,

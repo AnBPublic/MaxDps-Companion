@@ -709,6 +709,16 @@ MaxDps-Companion/
   OFF blanks only Defensive/SelfHeal while known ungrouped (emergency HP
   excepted); AutoTarget/AutoInteract silence states 3/4 without touching the
   status flags; TTK OFF forces target band 15. No layout/version change.
+- **Toggle SSOT: the app wins (v3.5 T5).** The companion packs its 14 toggles
+  into the additive Ext3 14-bit mask and pushes `/mdb mask <hhhh> <e>` at engine
+  Start and on every toggle change — out of combat only — with a retry ladder
+  (1.5 s window, 2 retries, then a red badge). The bridge echoes the accepted
+  mask in Ext3 cells 40-42; `ToggleSync.EffectiveMask` uses that echo while it
+  is valid and falls back to the app mask otherwise (fail-open). `ToggleSync.cs`
+  is a pure state machine; `ChatCommander.SendToggleMask` does the silent send;
+  `RotationEngine.TryGetToggleMirror` publishes the read-only echo + combat flag.
+  The `[Meta] ConfigVersion` migration turns the new Mobility / CrowdControl
+  defaults ON once for a pre-3.5 `[Spells]` config (fixes RC1/RC2).
 - **Cross-stream wiring owed (v3.3.0 Stream 4).** The three streams ship
   complete units but four connections are intentionally deferred (their target
   files are outside this merge pass): `Scheduler/BridgeHealth` consumed by
