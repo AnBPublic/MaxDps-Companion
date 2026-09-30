@@ -1,6 +1,101 @@
 # Handover — MaxDps-Companion
 
+## 2026-09-30 S6 CLASS BROWSER (this change)
+
+GOAL: one Class Browser window replacing the separate Class skills + Explorer
+tabs (and their duplicate header), per Plan v3.5 S6.
+
+WHAT CHANGED (UI/tests only - no wire/scheduler/Lua/vendor):
+- `app/MaxDpsCompanion/Ui/ClassBrowserView.cs` (new): Class | Spec | Mode
+  selectors (All, Main, Offensive, Defensive, Interrupt, CC, Mobility, Solo
+  self-sustain, Consumable, Trinket, Utility/manual), quick knobs (min HP%
+  filter, urgency floor -> `AbilityOverrides`, solo-only/normal-only/always ->
+  `AbilityPolicy.WithMode`, Reset row), and a `VirtualAbilityList` host. The
+  view CONSUMES the resolved registry entry (`ClassOverlayLoader` + overrides)
+  and the engine's published live verdict; it evaluates no scheduler gate.
+- `Ui/AbilityExplorer.cs`: `VirtualAbilityList` gains a `Verdicts` map and row
+  paint for cooldown, tier badge and the live why-held pill (additive).
+- `MainForm.cs`: constructs the browser with a `ClassBrowserHost` (resolved
+  entry from `Knowledge/classes/<CLASS>.json` + `AbilityOverrides.Apply`,
+  verdict from `CurrentPlanHead`/`LastAction`), hosts it as the single
+  "Class browser" tab in the Abilities popup, scales it with the width tier,
+  and refreshes verdicts on the status timer. The legacy `ClassSkillsView` and
+  `AbilityExplorer` stay constructed as test seams (not displayed).
+- `AppSettings.cs`: `SetUrgencyOverride` / `ClearOverride` /
+  `SaveAbilityOverrides` so the knobs persist `ability-overrides.json`.
+- Tests: `ClassBrowserViewTests.cs` (new: modes, rows, warm open < 150 ms,
+  owner-drawn paint smoke); `ClassSkillsViewTests.cs` removed; ClassicUi/
+  UiShell expectations updated for the single tab.
+
+VALIDATED (offline): `dotnet build app/... -c Release` 0 warn / 0 err;
+`dotnet test -c Release` 746/746 pass. Measured warm open:
+`classBrowserWarmOpenMs=0.916`, `abilitiesPopupWarmOpenMs=17.713`, 161 rows
+(MAGE/Fire "All"). No `PixelProtocol.cs` / `KeySender.cs` / `Scheduler/**` /
+`Decision/**` / `addon/**` / `vendor/**` change.
+LIVE OWED: inspect the Class Browser popup in a retail run (docs/TESTING.md 3).
+
+## 2026-09-30 EXT3 T0 CONTRACTS (this change)
+
+GOAL: freeze the Ext3 wire contract (T0 only — constants + decode shell + tests,
+no addon/encoder work). Ext3 is ADDITIVE over the frozen v5/Ext2 wire: a 43-cell
+strip keeps cells 0-39 and checksums 10/34/39 byte-identical, version nibble
+stays `5`.
+
+WHAT CHANGED (files): `docs/PROTOCOL.md` gains the Ext3 block section + cell-28
+presence row; `app/MaxDpsCompanion/PixelProtocol.cs` gains
+`CellCountExt3 = 43`, `IsV5Length` accepts 35/40/43, the Ext3 cell indices
+(40/41/42) + `Ext3MaskBitCount = 14` + `CastFlagExt3Present = 4` (cell 28 B
+bit2), a `Ext3Block(Mask,Epoch,Blocked)` record and `BridgeFrame.Ext3Present` /
+`.Ext3`; `tests/.../PixelProtocolExt3Tests.cs` (11 facts); `ARCHITECTURE.md`
+pipeline note. CELL 28 B is decoded through `& 0x3` for the SelfHeal2 range, so
+the new bit2 cannot bleed into it.
+
+WHAT DID NOT CHANGE: no addon Lua, no encoder, no UI/Scheduler/Knowledge; the
+addon still emits 40 cells (Ext3 render lands in a later task). `cells 40-42`
+are read only when `cell 28 B bit2 && length >= 43`; a cell-42 checksum/commit
+failure drops only the Ext3 block. Cell 42 R is reserved and ignored (not
+asserted `0`), matching the decoder's existing treatment of cell 34 R / 39 R.
+
+ARCHITECT QUESTIONS ANSWERED: (1) the old decoder ALREADY masks cell 28 B with
+`& 3` at the only SelfHeal2 read (`DecodeV5`), so bit2 is safe; (2) the decoder
+does NOT assert cell 34 R or cell 39 R `== 0` (both are read as `_`); cell 42 R
+is handled the same way. Pinned by
+`Ext3_Cell34_And_Cell39_Reserved_R_Are_Not_Asserted_Zero` and
+`Ext3_Cell42_Reserved_R_Is_Ignored_Not_Asserted_Zero`.
+
+VALIDATED (this machine): `dotnet build app\MaxDpsCompanion\MaxDpsCompanion.csproj
+-c Release` 0 warnings / 0 errors; `dotnet test --filter PixelProtocolExt3Tests`
+11/11; non-UI suite 648/648 (baseline 637 non-UI + 11 new; the 20 pre-existing
+headless UI/STA timeouts in ClassicUi/ClassSkillsView/UiShell are unchanged).
+LIVE OWED: none for T0 (no wire is emitted yet); Ext3 live render is T1+.
+
 ## Status: v3.4.0 — CC appendix (opt-in, DR-safe, all 13 classes) + surroundings awareness gates (melee/cast/range catalog-driven, LoS fails open) + wired UI publish (solo sliders, bridge-health banner, cast-audit grid) + CC slot-6 candidate source (Option A, wire frozen) (660 xunit tests + 186 Lua harness checks, live validation owed)
+
+## 2026-09-30 S5 UI FOUNDATION (this change)
+
+GOAL: fix the garbled popup and put the popup on one owner-drawn paint layer.
+The popup scrim was an alpha BackColor Panel painted over native TabControl /
+ComboBox children; WinForms' simulated transparency asks the PARENT to repaint,
+native child HWNDs never composite, so their pixels garbled.
+
+WHAT CHANGED (UI only - no wire/scheduler/knowledge/addon/vendor):
+- Ui/UiFoundation.cs (new): SegmentedTabs + SegmentedTabPage (owner-drawn tab
+  strip replacing native TabControl), OwnedComboBox (tier-scaled item height),
+  OwnedToolTip (themed, width-wrapped bubble so the "Click for skill list"
+  suffix can't run off-screen), ThemedScrollBar + ThemedScrollHost (replaces the
+  AutoScroll stray bar), LegendGrid (multi-column key).
+- MainForm.cs: scrim is now static opaque (DesignTokens.Scrim, A=255); popup
+  fade timer removed; popups host SegmentedTabs; ValidateTabs updated.
+- ClassSkillsView.cs: duplicate in-view header removed (popup header kept),
+  owned combo/tooltip wired, legend is 2 columns, TreeBuilder delegate seam
+  keeps ClassSkillTree.Build ready to move off the UI thread for S8.
+- UiControls.cs: SettingRow uses a per-row owned tooltip (the static native
+  shared ToolTip was a cross-thread race); Ui/DesignTokens.cs added
+  Scrim/scroll tokens + Title/Caption/Micro type steps.
+
+VALIDATED (offline): dotnet build app/... -c Release 0 warn/0 err; dotnet test
+-c Release 660/660 pass (ClassSkillsView + UiShell smoke included).
+LIVE OWED: inspect the Advanced/Abilities popups in a retail run.
 
 ## 2026-09-30 OVERLAY REGISTERCLICKS FIX (this change)
 

@@ -114,11 +114,12 @@ internal sealed class MainForm : Form
     private Control _mainBody = null!;
     private Panel _advancedOverlay = null!;
     private Panel _abilitiesOverlay = null!;
-    private TabControl _advancedTabs = null!;
-    private TabControl _abilitiesTabs = null!;
+    private SegmentedTabs _advancedTabs = null!;
+    private SegmentedTabs _abilitiesTabs = null!;
     private readonly LinkLamp _linkLamp = new();
     private readonly Label _stateLabel = new();
     private readonly Label _liveValue = new();
+    private readonly OwnedToolTip _liveTip = new();
     private readonly Label _statusLine = new();
     private readonly ClassBadge _classBadge = new();
     private readonly StripView _stripView = new();
@@ -131,6 +132,8 @@ internal sealed class MainForm : Form
     private readonly DiagnosticsPage _diagnostics = new();
     private ClassSkillsView? _classSkills;
     private ChamferButton? _classSkillsEntry;
+    private readonly ClassBrowserView _classBrowser;
+    private readonly Dictionary<string, ClassOverlay> _classOverlays = new(StringComparer.OrdinalIgnoreCase);
 
     // Stream 3 wiring: solo survival-band editor (Safety card) and the
     // bridge-health banner + suggested-vs-cast audit (Diagnostics page).
@@ -177,25 +180,14 @@ internal sealed class MainForm : Form
     private bool _forceHeight;
     private int _contentHeight;
 
-    // D6: popups open synchronously and then run exactly ONE bounded fade. The
-    // scrim alpha is animated by a single timer (never a chain of fades/slides),
-    // the fade finishes within PopupFadeDurationMs, and it is skipped entirely
-    // while the engine is running so a live rotation never competes for the UI
-    // thread. The UI thread is never blocked (no Sleep / no modal wait).
-    internal const int PopupFadeDurationMs = 120;
-    private const int PopupFadeStepMs = 15;
-    private const int PopupScrimAlpha = 228;
-    private static readonly Color PopupScrimOpaque = Color.FromArgb(PopupScrimAlpha, 7, 9, 11);
-    private static readonly Color PopupScrimClear = Color.FromArgb(0, 7, 9, 11);
-    private readonly System.Windows.Forms.Timer _popupFadeTimer = new() { Interval = PopupFadeStepMs };
-    private Panel? _popupFadeScrim;
-    private long _popupFadeStart;
+    // S5: popups use a STATIC OPAQUE scrim. The old animated alpha scrim
+    // (0xE4,7,9,11) was painted by WinForms' simulated-transparency hack over
+    // native TabControl/ComboBox children, which never composite — the garbled
+    // popup. One opaque layer, no fade over native children.
     private double _lastPopupOpenMs;
 
-    /// <summary>Test seam: behave as if the engine were running without starting it.</summary>
+    /// <summary>Test seam: kept for the engine-running gate; now a no-op since the scrim is static.</summary>
     internal bool EngineRunningForFadeGate { get; set; }
-
-    private bool FadeSuppressed => _engine.IsRunning || EngineRunningForFadeGate;
 
     private static Image? _appIcon;
     private bool _uiInitialised;
@@ -236,6 +228,41 @@ internal sealed class MainForm : Form
                 _settings.Abilities = _settings.Abilities.With(ability.SpellId, on, !ability.NeverAutomatic);
                 SaveSettings();
             });
+
+        // S6 (v3.5): one Class Browser replaces the Class skills + Explorer
+        // tabs. It consumes the resolved registry entry (overlay + overrides)
+        // and the engine's published verdict; it evaluates no gate itself.
+        _classBrowser = new ClassBrowserView(AbilityCatalog.Default, new ClassBrowserHost
+        {
+            IsEnabled = ability => _settings.Abilities.IsEnabled(ability),
+            SetEnabled = (ability, on) =>
+            {
+                _settings.Abilities = _settings.Abilities.With(ability.SpellId, on, !ability.NeverAutomatic);
+                SaveSettings();
+            },
+            RegistryEntry = ResolveRegistryEntry,
+            LiveVerdict = LiveVerdictFor,
+            ModeOf = spellId => _settings.Abilities.ModeOf(spellId),
+            SetMode = (spellId, mode) =>
+            {
+                _settings.Abilities = _settings.Abilities.WithMode(spellId, mode);
+                SaveSettings();
+            },
+            UrgencyFloorOf = spellId => _settings.AbilityOverrides.For(spellId)?.MinUrgency,
+            SetUrgencyFloor = (spellId, value) =>
+            {
+                _settings.SetUrgencyOverride(spellId, value);
+                _settings.SaveAbilityOverrides();
+                SaveSettings();
+            },
+            ResetOverrides = spellId =>
+            {
+                _settings.ClearOverride(spellId);
+                _settings.SaveAbilityOverrides();
+                _settings.Abilities = _settings.Abilities.WithMode(spellId, UserAbilityMode.Default);
+                SaveSettings();
+            },
+        });
 
         // WS-C drill-through: a clickable Intelligence metric tile opens the
         // Abilities overlay on the Explorer tab with the matching preset.
@@ -326,7 +353,6 @@ internal sealed class MainForm : Form
             if (!_userSizedHeight) { /* height is content-driven */ }
             ApplyScale(resetHeight: !_userSizedHeight);
         };
-        _popupFadeTimer.Tick += (_, _) => PopupFadeTick();
         _uiInitialised = true;
     }
 
@@ -374,6 +400,83 @@ internal sealed class MainForm : Form
         ApplyToSettings();
         SaveSettings();
         RegisterPauseHotkey();
+    }
+
+    // ----- S6 Class Browser: resolved registry + live verdict ----------------
+
+    /// <summary>
+    /// The resolved registry entry (registry + overlay + user override) for a
+    /// spell. The loader applies the safety transforms once per class and the
+    /// result is cached; the browser only consumes it.
+    /// </summary>
+    private ClassOverlayEntry? ResolveRegistryEntry(string className, string specName, int spellId)
+    {
+        if (string.IsNullOrEmpty(className)) return null;
+        var entry = OverlayFor(className).For(spellId);
+        return entry is null ? null : _settings.AbilityOverrides.Apply(entry);
+    }
+
+    private ClassOverlay OverlayFor(string className)
+    {
+        if (_classOverlays.TryGetValue(className, out var cached)) return cached;
+        ClassOverlay overlay;
+        try
+        {
+            var path = FindClassOverlayPath(className);
+            overlay = path is null
+                ? ClassOverlay.Empty(className: className)
+                : ClassOverlayLoader.LoadFile(path);
+        }
+        catch
+        {
+            overlay = ClassOverlay.Empty(className: className);
+        }
+        _classOverlays[className] = overlay;
+        return overlay;
+    }
+
+    /// <summary>
+    /// Locates <c>Knowledge/classes/&lt;class&gt;.json</c>: next to the exe, or
+    /// in the repo tree during development. Null when the class has no overlay.
+    /// </summary>
+    private static string? FindClassOverlayPath(string className)
+    {
+        var file = className + ".json";
+        var candidates = new List<string>
+        {
+            Path.Combine(AppContext.BaseDirectory, "Knowledge", "classes", file),
+        };
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        for (var i = 0; i < 8 && dir is not null; i++, dir = dir.Parent)
+        {
+            candidates.Add(Path.Combine(dir.FullName, "app", "MaxDpsCompanion", "Knowledge", "classes", file));
+            candidates.Add(Path.Combine(dir.FullName, "Knowledge", "classes", file));
+        }
+        foreach (var candidate in candidates)
+            if (File.Exists(candidate)) return candidate;
+        return null;
+    }
+
+    /// <summary>
+    /// The live why-held / why-ready verdict for a row, read from the engine's
+    /// published snapshot. No gate is evaluated here (the scheduler owns that).
+    /// </summary>
+    private string? LiveVerdictFor(AbilityDefinition ability)
+    {
+        if (_engine.Paused) return "held: paused";
+        var current = _engine.CurrentPlanHead;
+        if (current is not null && string.Equals(current.Action, ability.Name, StringComparison.OrdinalIgnoreCase))
+            return "next: " + VerdictReason(current);
+        var last = _engine.LastAction;
+        if (last is not null && string.Equals(last.Action, ability.Name, StringComparison.OrdinalIgnoreCase))
+            return "sent: " + VerdictReason(last);
+        return null;
+    }
+
+    private static string VerdictReason(LiveActionSnapshot snapshot)
+    {
+        var why = snapshot.Why.Count > 0 ? string.Join("; ", snapshot.Why) : snapshot.Reason;
+        return string.IsNullOrWhiteSpace(why) ? "no reasons recorded" : why;
     }
 
     private void WireAutoSave()
@@ -662,8 +765,7 @@ internal sealed class MainForm : Form
         _liveValue.BackColor = Color.Transparent;
         _liveValue.Text = "Now: -";
         _liveValue.AccessibleName = "Current suggestion";
-        var liveTip = new ToolTip { AutoPopDelay = 20000, InitialDelay = 300 };
-        liveTip.SetToolTip(_liveValue, "What the companion is about to send and why");
+        _liveTip.SetToolTip(_liveValue, "What the companion is about to send and why");
         _liveRow = _liveValue;
         layout.Controls.Add(_liveValue, 0, 1);
 
@@ -929,6 +1031,9 @@ internal sealed class MainForm : Form
         _abilitiesTabs.Font = DesignTokens.Type(_scale.BaseFont);
         foreach (var host in new Control[] { _config, _diagnostics, _intelligencePage, _explorer })
             ApplyScaleRecursive(host, _scale);
+        // The Class skills screen owns its own combo/legend type steps (S5).
+        _classSkills?.ApplyScale(_scale);
+        _classBrowser.ApplyScale(_scale);
     }
 
     private static void ApplyScaleRecursive(Control root, UiScale scale)
@@ -954,6 +1059,9 @@ internal sealed class MainForm : Form
                     break;
                 case NumericUpDown numeric:
                     ApplyFontStep(numeric, scale.FontStep);
+                    break;
+                case OwnedComboBox owned:
+                    owned.ApplyScale(scale);
                     break;
             }
             if (child.HasChildren) ApplyScaleRecursive(child, scale);
@@ -1009,17 +1117,18 @@ internal sealed class MainForm : Form
 
     private Panel BuildAbilitiesOverlay()
     {
-        var (scrim, tabs, popup) = BuildPopup("Abilities", 900, onClose: HideAbilities);
+        var (scrim, tabs, popup) = BuildPopup("Class browser", 900, onClose: HideAbilities);
         _abilitiesTabs = tabs;
         _abilitiesPopup = popup;
-        AddTab(tabs, "Class skills", _classSkills!);
-        AddTab(tabs, "Explorer", _explorer);
+        // S6: one Class Browser replaces the separate Class skills + Explorer
+        // tabs (and the duplicate in-view header they carried).
+        AddTab(tabs, "Class browser", _classBrowser);
         return scrim;
     }
 
-    private static void AddTab(TabControl tabs, string title, Control content)
+    private static void AddTab(SegmentedTabs tabs, string title, Control content)
     {
-        var page = new TabPage(title)
+        var page = new SegmentedTabPage(title)
         {
             BackColor = DesignTokens.Background,
             Padding = Padding.Empty,
@@ -1030,15 +1139,17 @@ internal sealed class MainForm : Form
     }
 
     /// <summary>
-    /// Dimmed scrim + centred card (width min(client-40, <paramref name="maxWidth"/>),
-    /// height client-60) with a header (title + Back) and a tab host.
+    /// Opaque scrim + centred card (width min(client-40, <paramref name="maxWidth"/>),
+    /// height client-60) with the single popup header (title + Back) and a
+    /// segmented tab host.
     /// </summary>
-    private (Panel Scrim, TabControl Tabs, RoundedCard Popup) BuildPopup(string title, int maxWidth, Action onClose)
+    private (Panel Scrim, SegmentedTabs Tabs, RoundedCard Popup) BuildPopup(string title, int maxWidth, Action onClose)
     {
         var scrim = new Panel
         {
             Dock = DockStyle.Fill,
-            BackColor = Color.FromArgb(228, 7, 9, 11),
+            // S5: STATIC OPAQUE. Never alpha — it sits behind native children.
+            BackColor = DesignTokens.Scrim,
             Visible = false,
         };
         var popup = new RoundedCard
@@ -1085,7 +1196,7 @@ internal sealed class MainForm : Form
         header.Controls.Add(titleLabel);
         header.Controls.Add(back);
 
-        var tabs = new TabControl { Dock = DockStyle.Fill, Font = DesignTokens.Type(DesignTokens.BodySize) };
+        var tabs = new SegmentedTabs { Dock = DockStyle.Fill, Font = DesignTokens.Type(DesignTokens.BodySize) };
 
         shell.Controls.Add(header, 0, 0);
         shell.Controls.Add(tabs, 0, 1);
@@ -1151,13 +1262,12 @@ internal sealed class MainForm : Form
         _abilitiesTabs.SelectedIndex = 0;
         _abilitiesOverlay.Visible = true;
         _abilitiesOverlay.BringToFront();
-        _classSkills?.Open(
+        // S6: warm open (< 150 ms): the browser rebuilds rows only when the
+        // class/spec/mode/hp-floor selection changed since the last open.
+        _classBrowser.Open(
             _engine.TryGetLiveClass(out var cls) ? cls : null,
             _engine.TryGetLiveSpec(out var spec) ? spec : null);
-        // D6: no chained motion. The ClassSkillsView owns an exponential
-        // fade+slide+settle timer; the popup supplies the single bounded fade,
-        // so settle the screen instantly instead of stacking animations.
-        _classSkills?.SnapToShown();
+        _classBrowser.RefreshLive();
         _abilitiesOverlay.PerformLayout();
         _abilitiesOverlay.Focus();
         _lastPopupOpenMs = openClock.Elapsed.TotalMilliseconds;
@@ -1172,42 +1282,21 @@ internal sealed class MainForm : Form
         if (_mainBody is not null) _mainBody.Visible = true;
     }
 
-    // ----- D6: one bounded popup fade (never while the engine runs) -----
+    // ----- S5: static opaque scrim (no animation over native children) -----
 
-    private void BeginPopupFade(Panel scrim)
+    /// <summary>
+    /// Ensures the scrim is the opaque S5 backdrop. There is deliberately no
+    /// fade: the scrim sits behind native controls and an animated alpha
+    /// BackColor garbles them. Kept as a seam so Show/Hide stay one call each.
+    /// </summary>
+    private static void BeginPopupFade(Panel scrim)
     {
-        EndPopupFade();
-        if (FadeSuppressed)
-        {
-            // Engine running: show at full scrim instantly, no timer at all.
-            scrim.BackColor = PopupScrimOpaque;
-            return;
-        }
-        _popupFadeScrim = scrim;
-        _popupFadeStart = System.Diagnostics.Stopwatch.GetTimestamp();
-        scrim.BackColor = PopupScrimClear;
-        _popupFadeTimer.Start();
+        scrim.BackColor = DesignTokens.Scrim;
     }
 
-    private void PopupFadeTick()
+    private static void EndPopupFade()
     {
-        if (_popupFadeScrim is null)
-        {
-            _popupFadeTimer.Stop();
-            return;
-        }
-        var elapsedMs = (System.Diagnostics.Stopwatch.GetTimestamp() - _popupFadeStart)
-            * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
-        var t = Math.Min(1.0, elapsedMs / PopupFadeDurationMs);
-        _popupFadeScrim.BackColor = Color.FromArgb((int)Math.Round(PopupScrimAlpha * t), 7, 9, 11);
-        if (t >= 1.0) EndPopupFade();
-    }
-
-    private void EndPopupFade()
-    {
-        _popupFadeTimer.Stop();
-        if (_popupFadeScrim is not null) _popupFadeScrim.BackColor = PopupScrimOpaque;
-        _popupFadeScrim = null;
+        // No timer, no alpha: nothing to unwind.
     }
 
     /// <summary>
@@ -1220,7 +1309,11 @@ internal sealed class MainForm : Form
     private void ShowAbilitiesWithPreset(string tag, string? className = null, string? specName = null)
     {
         ShowAbilities();
-        _abilitiesTabs.SelectedIndex = 1;
+        // S6: the Class Browser owns the tab now; the legacy Explorer/Class
+        // skills views stay in sync for their standalone test seams.
+        _classBrowser.ApplyPreset(tag, className, specName);
+        _classBrowser.RefreshLive();
+        _classBrowser.PerformLayout();
         _explorer.ApplyPreset(tag, className, specName);
         _explorer.PerformLayout();
         if (AbilityViewPresets.IsCategoryTag(tag))
@@ -2359,6 +2452,9 @@ internal sealed class MainForm : Form
 
         if (_statusLine.Text != _statusMessage) _statusLine.Text = _statusMessage;
         _statusLine.ForeColor = DesignTokens.StatusColor(_statusMessageTone);
+
+        // S6: funnel the engine's published verdicts into the open browser.
+        if (_classBrowser.Visible) _classBrowser.RefreshLive();
     }
 
     private void SetStatus(string message, Color color)
@@ -2511,7 +2607,6 @@ internal sealed class MainForm : Form
         _uiTimer.Stop();
         _saveDebounce.Stop();
         _resizeDebounce.Stop();
-        _popupFadeTimer.Stop();
         if (_tray is not null)
         {
             _tray.Visible = false;
@@ -2519,6 +2614,7 @@ internal sealed class MainForm : Form
             _tray = null;
         }
         if (_hotkeyRegistered) Native.UnregisterHotKey(Handle, PauseHotkeyId);
+        _liveTip.Dispose();
         _engine.Dispose();
         base.OnFormClosed(e);
     }
@@ -2566,8 +2662,9 @@ internal sealed class MainForm : Form
                 break;
             case "abilities-explorer":
                 ShowAbilities();
-                _abilitiesTabs.SelectedIndex = 1;
-                _explorer.PerformLayout();
+                _abilitiesTabs.SelectedIndex = 0;
+                _classBrowser.RefreshLive();
+                _classBrowser.PerformLayout();
                 break;
         }
         PerformLayout();
@@ -2605,25 +2702,27 @@ internal sealed class MainForm : Form
 
     internal void OpenClassSkillsForSnapshot(string className, string specName)
     {
-        if (_classSkills is null) return;
         ShowAbilities();
         _abilitiesTabs.SelectedIndex = 0;
-        _classSkills.Open(className, specName);
-        _classSkills.SnapToShown();
+        _classBrowser.Open(className, specName);
+        _classBrowser.RefreshLive();
         PerformLayout();
     }
 
     internal string ClassSkillsDebugState => _classSkills?.DebugState ?? "null";
+    internal string ClassBrowserDebugState => _classBrowser.DebugState;
 
     internal Control MainBodyForTest => _mainBody;
     internal AbilityExplorer ExplorerForTest => _explorer;
+    /// <summary>S6: the single Class Browser hosted in the Abilities popup.</summary>
+    internal ClassBrowserView ClassBrowserForTest => _classBrowser;
     /// <summary>v3.4.0 §4: the hero bubbles, so a test can raise their Click.</summary>
     internal IReadOnlyList<SettingRow> HeroSettingRowsForTest => _heroSettingRows;
     internal ClassSkillsView? ClassSkillsForTest => _classSkills;
     internal IntelligencePage IntelligenceForTest => _intelligencePage;
     internal ConfigurationPage ConfigurationForTest => _config;
-    internal TabControl AdvancedTabsForTest => _advancedTabs;
-    internal TabControl AbilitiesTabsForTest => _abilitiesTabs;
+    internal SegmentedTabs AdvancedTabsForTest => _advancedTabs;
+    internal SegmentedTabs AbilitiesTabsForTest => _abilitiesTabs;
     internal bool AnyPopupVisibleForTest => AnyPopupVisible;
     internal bool AbilitiesVisibleForTest => _abilitiesOverlay?.Visible ?? false;
     internal Size MinimumSizeForTest => MinimumSize;
@@ -2642,9 +2741,9 @@ internal sealed class MainForm : Form
     internal float AdvancedTabFontForTest => _advancedTabs.Font.SizeInPoints;
     internal float AbilitiesTabFontForTest => _abilitiesTabs.Font.SizeInPoints;
 
-    // D6 popup-open + fade seams.
+    // S5 popup seams: the scrim is static opaque, so no fade timer exists.
     internal double LastPopupOpenMsForTest => _lastPopupOpenMs;
-    internal bool PopupFadeActiveForTest => _popupFadeTimer.Enabled;
+    internal bool PopupFadeActiveForTest => false;
     internal Color AdvancedScrimColorForTest => _advancedOverlay?.BackColor ?? Color.Empty;
     internal IReadOnlyList<string> BottomButtonLabelsForTest => new[]
     {
@@ -2726,7 +2825,7 @@ internal sealed class MainForm : Form
         return findings;
     }
 
-    private static void ValidateTabs(TabControl tabs, string prefix, List<string> findings)
+    private static void ValidateTabs(SegmentedTabs tabs, string prefix, List<string> findings)
     {
         for (var i = 0; i < tabs.TabPages.Count; i++)
         {
@@ -2736,7 +2835,7 @@ internal sealed class MainForm : Form
             content?.PerformLayout();
             Application.DoEvents();
             if (content is not null)
-                findings.AddRange(UiShellValidation.Validate(content, $"{prefix}/{page.Text}"));
+                findings.AddRange(UiShellValidation.Validate(content, $"{prefix}/{page.Title}"));
         }
     }
 }

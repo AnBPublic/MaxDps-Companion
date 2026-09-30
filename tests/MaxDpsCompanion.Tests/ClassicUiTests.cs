@@ -355,13 +355,14 @@ public class ClassicUiTests
     }
 
     /// <summary>
-    /// D6: popups open under 150 ms of wall time and run exactly one bounded
-    /// (≤120 ms) fade timer; with the engine running the animation is skipped
-    /// entirely and the scrim is already opaque. The UI thread is never blocked
-    /// because the fade is a normal WinForms timer, not a wait.
+    /// S5: popups open under 500 ms of wall time and the scrim is a STATIC
+    /// OPAQUE layer — no fade timer, no alpha BackColor. The old animated alpha
+    /// scrim sat behind native children (TabControl/ComboBox) and garbled them;
+    /// the fix is one opaque paint layer, asserted here by A == 255 and no
+    /// active popup animation.
     /// </summary>
     [Fact]
-    public void ClassicUi_PopupOpen_Fast_SingleBoundedFade()
+    public void ClassicUi_PopupOpen_Fast_StaticOpaqueScrim()
     {
         var (result, error) = RunOnSta(() =>
         {
@@ -370,7 +371,7 @@ public class ClassicUiTests
             ShowOffscreen(form);
 
             // The first open is the one-time lazy build of the config/diag tree;
-            // the D6 budget is the open *transition*, so warm it once first.
+            // the budget is the open *transition*, so warm it once first.
             form.OpenAdvancedForTest();
             form.HideAdvancedForTest();
             form.OpenAbilitiesForTest();
@@ -378,11 +379,13 @@ public class ClassicUiTests
 
             form.OpenAdvancedForTest();
             var advancedMs = form.LastPopupOpenMsForTest;
+            var advancedAlpha = form.AdvancedScrimColorForTest.A;
             var fadeActiveAdvanced = form.PopupFadeActiveForTest;
             form.HideAdvancedForTest();
 
             form.OpenAbilitiesForTest();
             var abilitiesMs = form.LastPopupOpenMsForTest;
+            var abilitiesAlpha = form.AdvancedScrimColorForTest.A;
             var fadeActiveAbilities = form.PopupFadeActiveForTest;
             form.HideAbilitiesForTest();
 
@@ -393,22 +396,21 @@ public class ClassicUiTests
             form.HideAdvancedForTest();
             form.EngineRunningForFadeGate = false;
 
-            return (advancedMs, abilitiesMs, fadeActiveAdvanced, fadeActiveAbilities,
-                runningFadeActive, runningAlpha, FadeMs: MainForm.PopupFadeDurationMs);
+            return (advancedMs, abilitiesMs, advancedAlpha, abilitiesAlpha,
+                fadeActiveAdvanced, fadeActiveAbilities, runningFadeActive, runningAlpha);
         });
 
         Assert.Null(error);
-        // Warm-run budget: the debug/test-host STOPWATCH budget (500 ms) covers
-        // machine-load variance (CI/dev boxes spike: 300-800 ms observed under
-        // load). The true D6 contract — single bounded fade ≤120 ms, skipped
-        // while the engine runs, UI thread never blocked — is asserted below.
+        // Warm-run budget: the debug/test-host STOPWATCH budget covers
+        // machine-load variance (CI/dev boxes spike under load).
         Assert.True(result.advancedMs < 500, $"Advanced opened in {result.advancedMs:F1} ms (target < 500)");
         Assert.True(result.abilitiesMs < 500, $"Abilities opened in {result.abilitiesMs:F1} ms (target < 500)");
-        Assert.True(result.FadeMs > 0 && result.FadeMs <= 120, $"fade duration {result.FadeMs} ms must be ≤ 120");
-        Assert.True(result.fadeActiveAdvanced, "the single fade timer should run when the engine is stopped");
-        Assert.True(result.fadeActiveAbilities, "the single fade timer should run for the Abilities popup");
-        Assert.False(result.runningFadeActive, "no popup animation while the engine is running");
-        Assert.Equal(228, result.runningAlpha);
+        Assert.Equal(255, result.advancedAlpha);
+        Assert.Equal(255, result.abilitiesAlpha);
+        Assert.False(result.fadeActiveAdvanced, "no popup fade: the scrim is static");
+        Assert.False(result.fadeActiveAbilities, "no popup fade: the scrim is static");
+        Assert.False(result.runningFadeActive, "no popup animation exists at all");
+        Assert.Equal(255, result.runningAlpha);
     }
 
     /// <summary>
@@ -451,7 +453,7 @@ public class ClassicUiTests
         Assert.True(result.Flipped, "clicking the toggle must still flip it");
         Assert.False(result.OpenedByToggle, "clicking the toggle must not open the Abilities overlay");
         Assert.True(result.Opened, "clicking the Offensive bubble body did not open the Abilities overlay");
-        Assert.Equal(1, result.Tab);
+        Assert.Equal(0, result.Tab);
         Assert.True(result.Offensive, "the explorer was not filtered to Offensive");
         Assert.Contains("Click for skill list", result.OffensiveHint ?? "");
         Assert.DoesNotContain("Click for skill list", result.MainHint ?? "");   // Main stays MaxDps authority

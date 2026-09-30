@@ -35,6 +35,22 @@ internal static class DesignTokens
     /// <summary>Soft shadow line under elevated cores.</summary>
     public static readonly Color ShadowLine = Color.FromArgb(0x59, 0x00, 0x00, 0x00);
 
+    // ----- S5 UI-foundation tokens -----
+
+    /// <summary>
+    /// Opaque popup backdrop. Deliberately 0xFF: the popup scrim must never
+    /// carry alpha, because WinForms paints an alpha Panel via the parent's
+    /// background (not real compositing) and native TabControl/ComboBox
+    /// children never take part in that paint — the garbled-popup defect.
+    /// </summary>
+    public static readonly Color Scrim = Color.FromArgb(0xFF, 0x07, 0x09, 0x0B);
+
+    /// <summary>Owned scrollbar track (barely lifted from the ground).</summary>
+    public static readonly Color ScrollTrack = Blend(Color.White, Background, 0.03f);
+
+    /// <summary>Owned scrollbar thumb.</summary>
+    public static readonly Color ScrollThumb = Color.FromArgb(0x4D, 0xFF, 0xFF, 0xFF);
+
     /// <summary>Ambient mesh glow colours (painted once on the shell).</summary>
     public static readonly Color GlowBrass = Color.FromArgb(0x14, 0xC9, 0xA2, 0x4A);
     public static readonly Color GlowTeal = Color.FromArgb(0x10, 0x38, 0x8C, 0x78);
@@ -56,10 +72,13 @@ internal static class DesignTokens
 
     // ----- type scale (pt) -----
     public const float DisplaySize = 20F;
+    public const float TitleSize = 15F;
     public const float SectionSize = 13F;
     public const float LabelSize = 11F;
     public const float BodySize = 10F;
+    public const float CaptionSize = 9F;
     public const float MetaSize = 8.5F;
+    public const float MicroSize = 8F;
 
     private static string? _family;
 
@@ -96,10 +115,13 @@ internal static class DesignTokens
     public static Font Type(float size, FontStyle style = FontStyle.Regular) => new(FamilyName, size, style);
 
     public static Font Display => Type(DisplaySize, FontStyle.Bold);
+    public static Font Title => Type(TitleSize, FontStyle.Bold);
     public static Font Section => Type(SectionSize, FontStyle.Bold);
     public static Font Label => Type(LabelSize, FontStyle.Bold);
     public static Font Body => Type(BodySize);
+    public static Font Caption => Type(CaptionSize);
     public static Font Meta => Type(MetaSize);
+    public static Font Micro => Type(MicroSize);
 
     /// <summary>Lighten a colour toward white by a 0..1 amount (hover feedback).</summary>
     public static Color Lighten(Color c, float amount) => Color.FromArgb(

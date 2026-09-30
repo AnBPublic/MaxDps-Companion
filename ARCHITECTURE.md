@@ -15,7 +15,9 @@ Vendor discovery (read-only): MaxDps:GlowDefensiveHPMidnight (Buttons.lua:1056)
        │
        ▼
 MaxDpsBridge addon — 40-cell pixel strip (bridge 3.3.0; v5 + Ext2 layout
-  unchanged from 3.0.0)
+  unchanged from 3.0.0). Ext3 T0 contract declared (v3.5): a 43-cell strip
+  (cells 40-42 = 14-bit mask + epoch + blocked nibble + cell-42 checksum/commit,
+  presence cell 28 B bit2); the addon still ships 40 cells until T1+.
   v5 core (35 cells, version nibble stays 5): magic · 8 slots (Main/Off/Def/
         Cons/Trin/Int/Mobility/SelfHeal) · status · version+checksum · 8 × 24-bit
         spell id · vitals · cast · target · range tri-states · self-buff bits
@@ -26,6 +28,10 @@ MaxDpsBridge addon — 40-cell pixel strip (bridge 3.3.0; v5 + Ext2 layout
         passed to SetVertexColor, never read/compared) · cells 36-38 SelfHeal2
         key + 24-bit id · cell 39 checksum (scope = cells 36-38 only); presence
         bits cell 33 B bit2/bit3, SelfHeal2 range in cell 28 B bits0-1
+  Ext3 (cells 40-42, additive, T0 decode only): cell 40 mask bits 0-11 ·
+        cell 41 R mask bits 12-13 / G epoch / B blocked nibble · cell 42
+        checksum over cells 40-41 + commit; presence cell 28 B bit2; a cell-42
+        failure drops only the block, never the frame/core/Ext2
   variant resolution (bridge 3.0.0): every slot key resolves across base /
         talent-override / alias ids (FindBaseSpellByID, FindSpellOverrideByID,
         GetOverrideSpell, generated MDB.SpellAliases), so a bar holding
@@ -81,11 +87,11 @@ MaxDpsBridge addon — 40-cell pixel strip (bridge 3.3.0; v5 + Ext2 layout
        │   UNKNOWN — never throws, never compares a secret value)
        ▼
 MaxDpsCompanion.exe — DIB BitBlt sample @ PollIntervalMs
-  decode 40-cell Ext2 capture (v5/v6 35-cell accepted; v4/v1 fallback by width)
-  → BridgeFrame (slots + keybinds + spell ids + SelfHeal2 + CombatContext:
-   HP + HpSource + HpPctUpper, cast, target, range, defensive urgency,
-   stagger urgency, defensive gap-fill source). HP precedence: plain cell 27
-  > Ext2 curve > unknown; `[Intelligence] HpCurve=0` ignores the curve.
+  decode v5 capture at 35 (core) / 40 (Ext2) / 43 (Ext3) cells
+  → BridgeFrame (slots + keybinds + spell ids + SelfHeal2 + Ext3 mask/epoch/
+   blocked + CombatContext: HP + HpSource + HpPctUpper, cast, target, range,
+   defensive urgency, stagger urgency, defensive gap-fill source). HP precedence:
+   plain cell 27 > Ext2 curve > unknown; `[Intelligence] HpCurve=0` ignores the curve.
        │
        ▼
 Candidate tracker (Decision/CandidateTracker)
@@ -232,33 +238,35 @@ static data; the policy only consumes decoded protocol fields and the
 companion's own send history. Nothing invented, nothing secret, no LLM in the
 runtime.
 
-## Class skills screen
+## Class Browser (S6) / Class skills screen
 
 ```
 AbilityCatalog (vendor Cooldowns + curated + merged class-spells)
   + ClassSpellBook (generated class-spells.json)
   + curated per-spec extras (Mobility/SelfHeal/Defensive)
+  + ClassOverlayLoader (Knowledge/classes/<CLASS>.json; registry-gated, then
+    AbilityOverrides.Apply = per-machine mode/minUrgency store)
         │
         ▼
-ClassSkillTree.Build(class, spec)
-  shared ids (present in every wire spec) + per-spec ids
-  grouped Main / Offensive / Defensive / Movement, provenanced-first sort
+ClassBrowserView (S6, v3.5) — one window, Class | Spec | Mode selectors
+  (All, Main, Offensive, Defensive, Interrupt, CC, Mobility, Solo
+  self-sustain, Consumable, Trinket, Utility/manual) + quick knobs
+  (min HP% filter, urgency floor, solo-only/normal-only/always)
+  rows: icon + name + cooldown + tier/ownership badges + live why-held
+  verdict + ON/OFF toggle, virtualized/owner-drawn via VirtualAbilityList
         │
         ▼
-ClassSkillsView rows (icon + name + recommendation + ToggleSwitch)
-  class/spec dropdowns (shared section then per-spec sections)
-        │
-        ▼
-AbilityPolicy.With(spellId, ...) → settings.ini [Abilities] On=/Off=
+AbilityPolicy.With / WithMode + AppSettings override store
+  → settings.ini [Abilities] On=/Off=/Modes= + ability-overrides.json
   → PolicyEvaluator / ActionScheduler
 ```
 
-The screen is read/build-only over the same immutable catalog the policy
-uses; a toggle just writes the existing per-spell override. `ClassSpellBook`
-decodes tokens, applies the live-client verification (removed ids are absent;
-names/icons are the client's own) and flags junk/passives; `ClassSkillTree`
-owns membership and ordering. Icons come from `SpellIconCache` (below), never
-from game memory.
+The browser CONSUMES the already-resolved registry entry (registry + overlay +
+overrides) and the engine's published live verdict; it never evaluates a
+scheduler gate — the scheduler owns evaluation. `ClassSkillTree` still owns the
+membership/ordering used by the legacy `ClassSkillsView` (kept as a test seam)
+and `--dump-class-skills`. Icons come from `SpellIconCache`, never from game
+memory.
 `MaxDpsCompanion.exe --dump-class-skills=<path>` dumps the merged tree for
 filter curation, and `--ui-snapshot-class-skills=<png>`
 [`--ui-snapshot-class=CLASS --ui-snapshot-spec=SPEC`] renders the screen for
@@ -288,7 +296,8 @@ MainForm (borderless; 660-wide fixed frame; 2px ring red stopped / green
        ├─ Advanced scrim + centred card (tabs Configuration | Diagnostics |
        │   Intelligence), built lazily once, one AutoScroll panel of fixed
        │   RuleSections per tab
-       └─ Abilities scrim + centred card (tabs Class skills | Explorer)
+        └─ Abilities scrim + centred card (one "Class browser" tab, S6)
+
   Default client 660 × min(content, working area); MinimumSize 520×560; Esc
   closes the topmost popup. Width tiers (UiScale, D5): client width picks
   Compact (≤560) / Classic (≤700, the 660 default) / Roomy (≤950) / Wide
@@ -411,14 +420,19 @@ MaxDps-Companion/
       spell-verification.json GENERATED live-client name/icon/verified per
                              class-spell id (wago.tools DB2 export); unverified
                              ids are not merged (see ClassSpellBook)
-    ClassSkillsView.cs       full-size Class skills screen: class/spec
-                             dropdowns, shared + per-spec sections, toggles
+    ClassSkillsView.cs       legacy full-size Class skills screen (superseded
+                             by Ui/ClassBrowserView.cs in S6; kept as a test
+                             seam): class/spec dropdowns, shared + per-spec
+                             sections, toggles
     Ui/                      UI shell (classic v3): DesignTokens (system
                              variable-font chain — Geist/UiFonts removed),
                              Layout (measured VertStack/WrapFlow/GridPanel/
                              BentoSplit + UiMeasure), UiPrimitives (GlassCard,
                              KvRow, pills/tiles/chips, UiClickable),
-                             AbilityExplorer / AbilityInspector,
+                             ClassBrowserView (S6: selector + mode filter +
+                             knobs + virtualized rows), AbilityExplorer /
+                             AbilityInspector (VirtualAbilityList + legacy
+                             Explorer, kept as test seams),
                              Pages (StackPage hosts for the popup tabs),
                              SettingsPages (Configuration/Diagnostics +
                              v3.3.0 SoloBandEditor Minor/Major/Immunity rows;
@@ -502,8 +516,8 @@ MaxDps-Companion/
                              (official name/icon, removed id not merged),
                              gap-fill exclusion, tree shared/per-spec, main
                              opt-out, all-class coverage
-    ClassSkillsViewTests.cs  STA window builds the Class skills screen with
-                             rows for every class
+    ClassBrowserViewTests.cs  S6 STA window: selectors/modes, warm open
+                             (&lt; 150 ms) + owner-drawn paint smoke
     SpellIconCacheTests.cs   download-once + disk cache, offline degradation,
                              hostile slug rejection, official-slug single
                              request

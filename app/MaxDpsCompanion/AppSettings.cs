@@ -183,6 +183,21 @@ internal sealed class AppSettings
     // never "spam when ready".
     public AbilityPolicy Abilities { get; set; } = AbilityPolicy.Default;
 
+    // [AbilityOverrides] — per-machine user overrides of the v3.5 taxonomy
+    // (T4). Keyed by spell id; an entry may ONLY set mode + minUrgency, so a
+    // store file can never re-route an ability, pull it into the main rotation
+    // or exempt it from the cast gate, and it can never raise a Never base to
+    // Auto/Suggest. The store file is OPTIONAL and lives NEXT TO THE EXE
+    // (dist\), which is git-ignored and therefore never committed. Absent file
+    // = no overrides. Precedence: registry < overlay < overrides.
+    public bool AbilityOverridesEnabled { get; set; } = true;
+
+    /// <summary>Store file name (relative to the settings file / exe).</summary>
+    public string AbilityOverridesFile { get; set; } = "ability-overrides.json";
+
+    /// <summary>The loaded per-machine store (never null; Empty when disabled/absent).</summary>
+    public AbilityOverrides AbilityOverrides { get; private set; } = AbilityOverrides.Empty;
+
     // [Telemetry] — local rotation telemetry (v1.5.0). OFF by default: the
     // recorder is opt-in, keeps a bounded in-memory ring of JSONL events
     // (keybinds/flags/timestamps only — no Blizzard values, no network), and
@@ -207,6 +222,7 @@ internal sealed class AppSettings
         if (!File.Exists(path))
         {
             CrowdControlGate.Configure(settings.CrowdControlEnabled);
+            settings.LoadAbilityOverrides();
             return settings;
         }
 
@@ -235,8 +251,47 @@ internal sealed class AppSettings
         // options plumbing by contract). Default OFF, so an absent section keeps
         // CC manual-by-design.
         CrowdControlGate.Configure(settings.CrowdControlEnabled);
+        settings.LoadAbilityOverrides();
         return settings;
     }
+
+    /// <summary>
+    /// Resolves the per-machine override file next to the settings file (which
+    /// lives next to the exe in production). An absolute configured path wins.
+    /// </summary>
+    public string AbilityOverridesPath()
+    {
+        var directory = System.IO.Path.GetDirectoryName(Path);
+        if (string.IsNullOrEmpty(directory)) directory = ".";
+        return System.IO.Path.Combine(directory, AbilityOverridesFile);
+    }
+
+    /// <summary>Loads the optional store; a missing file means "no overrides".</summary>
+    private void LoadAbilityOverrides() =>
+        AbilityOverrides = AbilityOverridesEnabled
+            ? AbilityOverrides.LoadFile(AbilityOverridesPath())
+            : AbilityOverrides.Empty;
+
+    /// <summary>
+    /// S6 Class Browser knob: sets (or clears, when null) the per-machine
+    /// urgency-floor override for one spell. Mode is left untouched; the same
+    /// allow-list (spellId/mode/minUrgency) still governs the store.
+    /// </summary>
+    public void SetUrgencyOverride(int spellId, int? minUrgency)
+    {
+        if (spellId <= 0) return;
+        AbilityOverrides = AbilityOverrides.With(spellId, null, minUrgency);
+    }
+
+    /// <summary>S6 knob "Reset row": drops any override for one spell id.</summary>
+    public void ClearOverride(int spellId)
+    {
+        if (spellId <= 0) return;
+        AbilityOverrides = AbilityOverrides.Without(spellId);
+    }
+
+    /// <summary>Persists the per-machine override store next to the exe (best effort).</summary>
+    public bool SaveAbilityOverrides() => AbilityOverrides.SaveFile(AbilityOverridesPath());
 
     private void Apply(string section, string key, string value)
     {
@@ -288,6 +343,8 @@ internal sealed class AppSettings
             case ("abilities", "on"): Abilities = AbilityPolicy.FromParts(value, Abilities.EncodeOff(), Abilities.EncodeModes()); break;
             case ("abilities", "off"): Abilities = AbilityPolicy.FromParts(Abilities.EncodeOn(), value, Abilities.EncodeModes()); break;
             case ("abilities", "modes"): Abilities = AbilityPolicy.FromParts(Abilities.EncodeOn(), Abilities.EncodeOff(), value); break;
+            case ("abilityoverrides", "enabled"): AbilityOverridesEnabled = ParseBool(value, AbilityOverridesEnabled); break;
+            case ("abilityoverrides", "file"): AbilityOverridesFile = string.IsNullOrWhiteSpace(value) ? AbilityOverridesFile : value.Trim(); break;
             case ("telemetry", "enabled"): TelemetryEnabled = ParseBool(value, TelemetryEnabled); break;
             case ("telemetry", "capacity"): TelemetryCapacity = Math.Clamp(ParseInt(value, TelemetryCapacity), 64, 1_000_000); break;
             case ("color", "magic"): ParseTriple(value, Color.MagicR, Color.MagicG, Color.MagicB, out var mr, out var mg, out var mb); Color.MagicR = mr; Color.MagicG = mg; Color.MagicB = mb; break;
@@ -413,6 +470,13 @@ internal sealed class AppSettings
             .AppendLine($"On={Abilities.EncodeOn()}")
             .AppendLine($"Off={Abilities.EncodeOff()}")
             .AppendLine($"Modes={Abilities.EncodeModes()}")
+            .AppendLine()
+            .AppendLine("; Per-machine taxonomy overrides (T4). The store file lives next to the")
+            .AppendLine("; exe (dist\\), is never committed, and may only set mode + minUrgency.")
+            .AppendLine("; Absent file = no overrides. Precedence: registry < overlay < overrides.")
+            .AppendLine("[AbilityOverrides]")
+            .AppendLine($"Enabled={(AbilityOverridesEnabled ? 1 : 0)}")
+            .AppendLine($"File={AbilityOverridesFile}")
             .AppendLine()
             .AppendLine("; Local rotation telemetry (opt-in, default off). Bounded in-memory")
             .AppendLine("; JSONL ring; Export writes it next to the exe. No network, no")

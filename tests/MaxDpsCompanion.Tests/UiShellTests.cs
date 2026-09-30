@@ -93,7 +93,7 @@ public class UiShellTests
         Assert.True(result.escClosedAdvanced);
         Assert.False(result.advancedAfterEsc);
         Assert.True(result.abilitiesOpen);
-        Assert.Equal(2, result.abilitiesTabs);
+        Assert.Equal(1, result.abilitiesTabs);
         Assert.True(result.escHandled);
         Assert.False(result.abilitiesAfterEsc);
     }
@@ -155,7 +155,7 @@ public class UiShellTests
 
         Assert.Null(error);
         Assert.True(result.Item1, "drilling from the Intelligence tile did not open the Abilities popup");
-        Assert.Equal(1, result.Item2);
+        Assert.Equal(0, result.Item2);
         Assert.Equal("Companion", result.Item3);
     }
 
