@@ -14,10 +14,11 @@ Vendor discovery (read-only): MaxDps:GlowDefensiveHPMidnight (Buttons.lua:1056)
   curve's own control points — see docs/research/ABILITY_RESEARCH.md §6.
        │
        ▼
-MaxDpsBridge addon — 40-cell pixel strip (bridge 3.3.0; v5 + Ext2 layout
-  unchanged from 3.0.0). Ext3 T0 contract declared (v3.5): a 43-cell strip
-  (cells 40-42 = 14-bit mask + epoch + blocked nibble + cell-42 checksum/commit,
-  presence cell 28 B bit2); the addon still ships 40 cells until T1+.
+MaxDpsBridge addon — 43-cell pixel strip (bridge 3.5.0; v5 + Ext2 layout
+  unchanged from 3.0.0, Ext3 shipped by T1/T2). Ext3: a 43-cell strip
+  (cells 40-42 = 14-bit app toggle mask + epoch + blocked nibble + cell-42
+  checksum/commit, presence cell 28 B bit2); a pre-3.5 companion ignores it
+  and an old 40-cell addon still drives the 3.5 companion (bit2=0).
   v5 core (35 cells, version nibble stays 5): magic · 8 slots (Main/Off/Def/
         Cons/Trin/Int/Mobility/SelfHeal) · status · version+checksum · 8 × 24-bit
         spell id · vitals · cast · target · range tri-states · self-buff bits
@@ -28,7 +29,8 @@ MaxDpsBridge addon — 40-cell pixel strip (bridge 3.3.0; v5 + Ext2 layout
         passed to SetVertexColor, never read/compared) · cells 36-38 SelfHeal2
         key + 24-bit id · cell 39 checksum (scope = cells 36-38 only); presence
         bits cell 33 B bit2/bit3, SelfHeal2 range in cell 28 B bits0-1
-  Ext3 (cells 40-42, additive, T0 decode only): cell 40 mask bits 0-11 ·
+  Ext3 (cells 40-42, additive, shipped v3.5 = T0 decode + T1/T2 render):
+        cell 40 mask bits 0-11 ·
         cell 41 R mask bits 12-13 / G epoch / B blocked nibble · cell 42
         checksum over cells 40-41 + commit; presence cell 28 B bit2; a cell-42
         failure drops only the block, never the frame/core/Ext2
@@ -276,6 +278,32 @@ filter curation, and `--ui-snapshot-class-skills=<png>`
 [`--ui-snapshot-class=CLASS --ui-snapshot-spec=SPEC`] renders the screen for
 design review without a game.
 
+## Console home (S7, v3.5) / diagnostics
+
+```
+MainForm
+  └─ ConsoleHome (default view, mounted over the classic body; S7)
+       top bar: Pause · Folder · Console · Binds · Settings · Rotation ▾ · Debug
+       spec header: inferred role badge + per-spec summary
+       status block: app/bridge state · now-action + why · last change
+       rolling status + update logs (RollingLog)
+       preset strip (PresetChip): Solo · Levelling · Dungeon · Raid · Tank
+         │  PresetRequested / RotationRequested
+         ▼
+MainForm.ApplyPreset → writes the SAME 14 hero ToggleSwitch.Checked values
+  through the existing SaveNow path (never a hidden mode, never a wire change)
+```
+
+`ConsolePresets.cs` expresses the five bundles as the same 14 toggles plus a
+`ConsoleRole` spec-name role inference. Every `ConsoleHome` update method is
+value-only (text writes / invalidate), so the status timer performs no layout.
+The **Install doctor** (`Diagnostics/InstallDoctor.cs`, S8, mounted on the
+Advanced → Diagnostics page with a ~2 s throttle) is a pure `Audit` over
+best-effort file reads: exe build commit vs repo HEAD, configured vs emitted
+`CellSize`, app mask vs the Ext3 mirror, and addon version vs companion
+(major/minor). `WhyNotFiring` (S8) explains a non-firing row (toggle state,
+scheduler verdict, candidate staleness) and is rendered owner-drawn.
+
 ## Classic UI shell (v3.0.0; replaces the v2.8 rail/pages shell)
 
 ```
@@ -332,8 +360,9 @@ MainForm (borderless; 660-wide fixed frame; 2px ring red stopped / green
 
 ```
 MaxDps-Companion/
-  addon/MaxDpsBridge/        bridge addon 3.3.0 (v5 + Ext2 encoder, in-game
-                             13-toggle UI, /mdb commands)
+  addon/MaxDpsBridge/        bridge addon 3.5.0 (v5 + Ext2 + additive Ext3
+                             encoder, candidate rotation, in-game toggle UI,
+                             /mdb commands)
     Catalog.lua              GENERATED class/spec ids + extras (--gen-catalog,
                              incl. per-spec offensive (curated), defensive
                              (Red) and defensiveMinor (Orange) gap-fill lists,
@@ -449,6 +478,10 @@ MaxDps-Companion/
                              knobs + virtualized rows), AbilityExplorer /
                              AbilityInspector (VirtualAbilityList + legacy
                              Explorer, kept as test seams),
+                             ConsoleHome (S7: owner-drawn read-only status
+                             console + rolling logs + top bar),
+                             ConsolePresets (S7: five named bundles over the
+                             same 14 toggles + ConsoleRole inference),
                              Pages (StackPage hosts for the popup tabs),
                              SettingsPages (Configuration/Diagnostics +
                              v3.3.0 SoloBandEditor Minor/Major/Immunity rows;

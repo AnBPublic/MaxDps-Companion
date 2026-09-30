@@ -1,3 +1,38 @@
+3.5.0
+Date: 2026-09-30
+Companion 3.5.0 / bridge 3.5.0. Protocol ADDITIVE: v5 core (35 cells, nibble 5)
++ Ext2 (40) + new Ext3 block (43 cells: 14-bit app toggle mask + epoch +
+blocked nibble + cell-42 checksum/commit, presence cell 28 B bit2). v3.5 is the
+largest release since v3: multi-candidate bridge rotation, app-wins toggle sync,
+per-class verified taxonomy overlays, the Class Browser, a read-only Console
+home, and perf/diagnostics (off-thread browser precompute, scaled icons,
+why-not-firing, install doctor).
+
+v3.5.0 RELIABLE COVERAGE + CLASS BROWSER + CONSOLE UI
+
+- RC1-RC7 closed: app-wins toggle sync (T5) + ConfigVersion migration turns
+  Mobility/CC defaults ON once (RC1/RC2); candidate rotation (T1/S2) ends
+  first-entry shadowing (RC4); Escape/Movement routed to Mobility (T6) (RC5);
+  scheduler GCD-bypass + scoped RetryBackoff (T6) (RC6); taxonomy overlays +
+  browser give every spec a companion-owned path (RC7); HP-curve urgency
+  fallback (RC3).
+- Ext3 T0 contract + T2 capture: 43-cell decode, cells 40-42 mask/epoch/blocked
+  + checksum, presence bit, drops only Ext3 on failure.
+- T4/S3a-c: per-class Knowledge/classes/<CLASS>.json overlays (13 classes) +
+  ClassOverlayLoader + AbilityOverrides store.
+- S5 UI foundation: opaque scrim, single-layer paint, segmented tabs, owned
+  ComboBox/tooltip, themed scrollbar, type scale.
+- S6 Class Browser: Class|Spec|Mode selectors + knobs + virtualized owner-drawn
+  rows with live why-held; replaces Class skills/Explorer tabs.
+- S7 Console home: read-only status console + rolling log + 5 named presets.
+- S8 perf/diagnostics: off-thread precompute, scaled icon cache, why-not-firing
+  panel, InstallDoctor (build drift, CellSize, mask mirror, addon version).
+
+VALIDATED (this machine): build 0 warnings / 0 errors; dotnet test 797/797;
+lua harness 219/219; luac -p clean; audit Violations 0 / Warnings 0 / Missing 0
+/ Stale 0; vendor/ empty. Reviewer APPROVE. Exe rebuilt from HEAD to fix install
+drift. LIVE OWED: full retail 12.1 checklist (docs/TESTING.md 3).
+
 3.3.0
 Date: 2026-09-29
 Companion 3.3.0 / bridge 3.3.0. Protocol unchanged: v5 core (35 cells, version

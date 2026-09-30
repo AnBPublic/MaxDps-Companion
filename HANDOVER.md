@@ -1,5 +1,56 @@
 # Handover — MaxDps-Companion
 
+## 2026-09-30 v3.5 MERGE (this change)
+
+GOAL: merge all Wave-1/2/3 streams into `v3.5-class-browser`, close RC1–RC7,
+bump to 3.5.0 and land the final docs. No code/tests/Lua change in this
+Wave-3 pass — docs + `csproj`/version files + the report only.
+
+STREAMS MERGED (nine streams, T-series bridge/companion + S-series UI):
+- **T0** Ext3 contract: `docs/PROTOCOL.md` Ext3 section, `PixelProtocol.cs`
+  (`CellCountExt3=43`, cells 40-42 indices, `Ext3MaskBitCount=14`,
+  `CastFlagExt3Present`, `Ext3Block`, `BridgeFrame.Ext3Present/.Ext3`),
+  `PixelProtocolExt3Tests.cs`.
+- **T1/T2** bridge rotation + mask render / 43-cell capture: `Bridge.lua`
+  (candidate rotation, Ext3 `WriteExt3`, `/mdb mask`, `/mdb dwell`),
+  `Reader.lua` (multi-candidate rotation), `Panel.lua`, `Toggles.lua`,
+  `ScreenSampler.cs`/`BlockLocator.cs`/`ColorLearner.cs` (43-cell capture),
+  harness Ext3/rotation checks.
+- **T4** (`S4a`) taxonomy loader + overrides: `Knowledge/ClassOverlayLoader.cs`,
+  `Knowledge/AbilityOverrides.cs`, `AppSettings.cs` store, `Knowledge/classes/`
+  DK/DH/Druid/Evoker + tests.
+- **T5** toggle SSOT: `ToggleSync.cs`, `ChatCommander.SendToggleMask`,
+  `RotationEngine.TryGetToggleMirror`, `MainForm` pump, `[Meta] ConfigVersion`
+  migration (RC1/RC2), `settings.ini` defaults.
+- **S3a/S3b/S3c** taxonomy overlays: the remaining 9 class JSON files.
+- **S5** UI foundation: `Ui/UiFoundation.cs` (segmented tabs, owned
+  ComboBox/tooltip, themed scrollbar, legend), opaque scrim, `DesignTokens`.
+- **T6** routing + scheduler: `CandidateProviders` Escape/Movement → Mobility /
+  EmergencyEscape → Defensive, `CandidateTracker` (slot,spellId) last-seen TTL,
+  `ActionScheduler` GCD-bypass + `(slot,stroke,spellId)` scoping + preempt.
+- **S6** Class Browser: `Ui/ClassBrowserView.cs`, `AbilityExplorer` verdict
+  columns, `MainForm` single "Class browser" tab.
+- **S7** Console home: `Ui/ConsoleHome.cs`, `Ui/ConsolePresets.cs`, `MainForm`
+  mount + preset/rotation wiring.
+- **S8** perf/diagnostics: `Ui/ClassBrowserPrecompute.cs`, `Ui/ScaledIconCache.cs`,
+  `Ui/WhyNotFiring.cs`+`Panel`, `Diagnostics/InstallDoctor.cs` (build drift,
+  CellSize, mask mirror, addon version), diagnostics page.
+
+VERIFIED (this machine, merged HEAD): `dotnet build -c Release` 0 warnings /
+0 errors; `dotnet test -c Release` **797/797**; `lua tests/secret_harness.lua`
+**219/219**; `luac -p` all bridge files clean; `tools/ability_audit.ps1` exit 0
+(Violations 0 / Warnings 0 / Missing 0 / Stale 0); `vendor/` clean — `git
+status --short vendor` is empty, the upstream pin is untouched. Reviewer:
+**APPROVE** on the merged diff. The
+shipped `dist/MaxDpsCompanion.exe` was rebuilt from HEAD to fix the reported
+install drift (exe lagged HEAD, CellSize 15 vs 8).
+
+LIVE OWED (retail 12.1): the full `docs/TESTING.md` §3 checklist — Ext3 mask
+round-trip + red conflict badge, rotation reaching a held-then-released
+candidate, Class Browser open + knobs, Console home + each preset, install
+doctor findings, and the v3.3.0/v3.4.0 carried checks. Static ≠ automated ≠
+live: nothing here is a retail run.
+
 ## 2026-09-30 T6 ROUTING + SCHEDULER (this change)
 
 GOAL: consume the v3.5 bridge's rotating candidate pool and close RC2/RC4/RC5/RC6

@@ -1,4 +1,4 @@
-# MaxDPS Companion (Retail Midnight 12.1, v3.2.0)
+# MaxDPS Companion (Retail Midnight 12.1, v3.5.0)
 
 Pixel bridge driver for [kaminaris MaxDps](https://www.curseforge.com/wow/addons/maxdps)
 (vendor pin: MaxDps v11.3.49). No memory read, no injection, no OCR, no LLM.
@@ -11,6 +11,25 @@ Two pieces:
  | :--- | :--- |
  | `MaxDpsBridge` (addon, `addon/MaxDpsBridge/`) | Queries the MaxDps rotation engine each frame and encodes suggestions, ability ids and combat context into a 40-cell strip of flat-coloured pixels (35-cell v5 core + additive Ext2 block). |
  | `MaxDpsCompanion.exe` (desktop app, `app/MaxDpsCompanion/`) | Samples those pixels, decodes the frame, evaluates every situational suggestion (USE / HOLD / SKIP / UNAVAILABLE / UNKNOWN) against an embedded ability intelligence registry + explicit candidate providers, schedules one action at a time, and replays the player's own keybinds into the attached game window. |
+
+## v3.5.0 — reliable coverage, Class Browser, Console home
+
+The v3.5 release closes the "toggled skills never fire" defects (RC1–RC7) and
+rebuilds the UI around them. The bridge now rotates **every** ready+bound+
+policy-eligible candidate per slot instead of only the first, so a held gap
+closer no longer starves an escape; Escape/Movement route to the Mobility
+provider; and the scheduler can preempt on a brief GCD-off tick. Toggles are
+**app-wins**: the companion pushes its 14-bit mask to the addon and the bridge
+echoes the effective mask in the new additive **Ext3** block (43-cell strip,
+cells 40–42; nibble stays 5, a pre-3.5 companion ignores it). The Class Browser
+replaces the separate Class skills/Explorer tabs (Class|Spec|Mode, knobs,
+virtualized owner-drawn rows, live why-held), and the default view is a
+read-only Console home with rolling log and five named presets. Per-class
+verified overlays (`Knowledge/classes/<CLASS>.json`, 13 classes) plus an
+override store give every spec a companion-owned path. Perf/diagnostics add
+off-thread browser precompute, cached scaled icons, a why-not-firing panel and
+an install doctor. Protocol: v5 core + Ext2 + additive Ext3 (no v5 change).
+Offline-proven; live retail checklist stays OWED (`docs/TESTING.md` §3).
 
 ## Intelligence coverage (v2.7.0, unchanged in 2.8)
 

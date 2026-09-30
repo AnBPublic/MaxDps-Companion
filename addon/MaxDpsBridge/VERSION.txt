@@ -1,3 +1,23 @@
+3.5.0
+date: 2026-09-30
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: v5 core 35 cells + ADDITIVE Ext2 40-cell block + ADDITIVE Ext3 43-cell
+          block (cells 40-42: 14-bit app toggle mask + epoch + blocked nibble,
+          cell 42 checksum/commit; presence cell 28 B bit2). The v5 version
+          nibble stays 5 and cells 0-39 are byte-identical, so a pre-3.5
+          companion ignores Ext3 and an old 40-cell addon still drives the 3.5
+          companion (bit2=0). The Ext3 block is read only from a 43-cell
+          capture; a cell-42 failure drops only Ext3.
+v3.5.0:   Candidate rotation + toggle-mask mirror (T1/T2). COMPANION-ONLY slots
+          (Mobility/SelfHeal/Defensive/Offensive/CC) rotate ALL ready+bound+
+          policy-eligible candidates per tick instead of only the first entry,
+          so a held first candidate (Charge > Heroic Leap, Shadowstep >
+          Vanish) no longer starves the rest; the candidate dwell/TTL keeps a
+          rotated sibling's identity stable. Bridge.lua renders the additive
+          Ext3 block (ext3=1) publishing the effective 14-bit toggle mask;
+          `/mdb mask <hhhh> <epoch>` accepts an app-wins push, and `/mdb dwell
+          <1-60>` sets the rotation dwell. No v5/Ext2 change.
 3.3.0
 date: 2026-09-29
 git: <commit placeholder - fill at release>
