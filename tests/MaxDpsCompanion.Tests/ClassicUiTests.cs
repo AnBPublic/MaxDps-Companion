@@ -1,3 +1,4 @@
+using System.Reflection;
 using Xunit;
 
 namespace MaxDpsCompanion.Tests;
@@ -274,6 +275,27 @@ public class ClassicUiTests
         Assert.True(result.Height >= result.Min);
     }
 
+    /// <summary>§3: a user-chosen height taller than the content is kept, not clamped back.</summary>
+    [Fact]
+    public void ClassicUi_UserTallerHeight_IsKept_NotClamped()
+    {
+        var (result, error) = RunOnSta(() =>
+        {
+            var settings = new AppSettings();
+            using var form = new MainForm(settings);
+            ShowOffscreen(form);
+            var content = form.MeasuredContentHeightForTest;
+            var want = content + 180;
+            form.ResizeHeightForTest(want);
+            return (Want: want, Content: form.MeasuredContentHeightForTest, Height: form.ClientSize.Height);
+        });
+
+        Assert.Null(error);
+        Assert.True(result.Content > 0);
+        Assert.True(result.Want > result.Content);
+        Assert.Equal(result.Want, result.Height);
+    }
+
     /// <summary>D5: width tiers pick the base font step + row height at 520/660/900/1100.</summary>
     [Fact]
     public void ClassicUi_WidthTiers_ScaleFontAndRowHeight()
@@ -387,6 +409,61 @@ public class ClassicUiTests
         Assert.True(result.fadeActiveAbilities, "the single fade timer should run for the Abilities popup");
         Assert.False(result.runningFadeActive, "no popup animation while the engine is running");
         Assert.Equal(228, result.runningAlpha);
+    }
+
+    /// <summary>
+    /// v3.4.0 Approach A §4: the companion-appendix hero bubble body opens the
+    /// Abilities overlay pre-filtered to its set, while the toggle switch keeps
+    /// flipping and "Main" stays non-clickable (MaxDps authority).
+    /// </summary>
+    [Fact]
+    public void ClassicUi_HeroBubble_Click_Opens_Filtered_Abilities()
+    {
+        var (result, error) = RunOnSta(() =>
+        {
+            var settings = new AppSettings();
+            using var form = new MainForm(settings);
+            ShowOffscreen(form);
+
+            var rows = form.HeroSettingRowsForTest;
+            var offensiveRow = rows.First(r => HasToggle(r, "Offensive"));
+            var mainRow = rows.First(r => HasToggle(r, "Main"));
+            var toggle = offensiveRow.Controls.OfType<ToggleSwitch>().First();
+
+            // The switch keeps flipping and must NOT open the overlay.
+            var before = toggle.Checked;
+            RaiseClick(toggle);
+            var flipped = toggle.Checked != before;
+            var openedByToggle = form.AbilitiesVisibleForTest;
+
+            // The body opens the overlay, filtered, on the Explorer tab.
+            RaiseClick(offensiveRow);
+            System.Windows.Forms.Application.DoEvents();
+            return (Flipped: flipped, OpenedByToggle: openedByToggle,
+                Opened: form.AbilitiesVisibleForTest,
+                Tab: form.AbilitiesTabsForTest.SelectedIndex,
+                Offensive: form.ExplorerForTest.CategoriesForTest.Contains("Offensive"),
+                MainHint: mainRow.AccessibleDescription,
+                OffensiveHint: offensiveRow.AccessibleDescription);
+        });
+
+        Assert.Null(error);
+        Assert.True(result.Flipped, "clicking the toggle must still flip it");
+        Assert.False(result.OpenedByToggle, "clicking the toggle must not open the Abilities overlay");
+        Assert.True(result.Opened, "clicking the Offensive bubble body did not open the Abilities overlay");
+        Assert.Equal(1, result.Tab);
+        Assert.True(result.Offensive, "the explorer was not filtered to Offensive");
+        Assert.Contains("Click for skill list", result.OffensiveHint ?? "");
+        Assert.DoesNotContain("Click for skill list", result.MainHint ?? "");   // Main stays MaxDps authority
+    }
+
+    private static bool HasToggle(SettingRow row, string title) =>
+        row.Controls.OfType<ToggleSwitch>().Any(t => t.AccessibleName == title);
+
+    private static void RaiseClick(Control control)
+    {
+        var onClick = typeof(Control).GetMethod("OnClick", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        onClick.Invoke(control, new object[] { EventArgs.Empty });
     }
 
     private static void ShowOffscreen(Form form)

@@ -172,7 +172,6 @@ internal sealed class MainForm : Form
     private readonly List<GroupHeader> _heroHeaders = new();
     private Control _statusRow = null!;
     private Control _liveRow = null!;
-    private Control _stripRow = null!;
     private readonly System.Windows.Forms.Timer _resizeDebounce = new() { Interval = 120 };
     private bool _userSizedHeight;
     private bool _forceHeight;
@@ -243,6 +242,10 @@ internal sealed class MainForm : Form
         _intelligencePage.DrillRequested += tag => ShowAbilitiesWithPreset(tag);
 
         BuildLayout();
+        // v3.4.0 Approach A §4: the companion-appendix hero bubbles open the
+        // Abilities overlay filtered to their set. Wired after the hero is built
+        // but before any layout so the click targets are in place on first paint.
+        WireHeroDrillThrough();
         LoadFromSettings();
         StyleInputs(this);
         WireAutoSave();
@@ -568,9 +571,13 @@ internal sealed class MainForm : Form
     private Control BuildBody()
     {
         var canvas = new GradientCanvas { Dock = DockStyle.Fill, Padding = new Padding(24, 10, 24, 12) };
+        // The main body scrolls: a taller window keeps its extra room and, when
+        // the measured content outgrows the viewport (tier change, small
+        // screen), every row stays reachable instead of being clipped.
+        var scroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Color.Transparent };
         var layout = new TableLayoutPanel
         {
-            Dock = DockStyle.Fill,
+            Dock = DockStyle.Top,
             ColumnCount = 1,
             RowCount = 4,
             BackColor = Color.Transparent,
@@ -589,7 +596,8 @@ internal sealed class MainForm : Form
         layout.Controls.Add(BuildButtonRow1(), 0, 1);
         layout.Controls.Add(BuildButtonRow2(), 0, 2);
         layout.Controls.Add(BuildStatusLine(), 0, 3);
-        canvas.Controls.Add(layout);
+        scroll.Controls.Add(layout);
+        canvas.Controls.Add(scroll);
 
         _advancedOverlay = BuildAdvancedOverlay();
         _abilitiesOverlay = BuildAbilitiesOverlay();
@@ -613,14 +621,14 @@ internal sealed class MainForm : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 12,
+            RowCount = 11,
             BackColor = Color.Transparent,
             Margin = Padding.Empty,
             Padding = Padding.Empty,
         };
         _heroLayout = layout;
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-        for (var i = 0; i < 12; i++) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24F));
+        for (var i = 0; i < 11; i++) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24F));
 
         // Status row: lamp + state + class badge.
         _stateLabel.AutoSize = false;
@@ -659,34 +667,36 @@ internal sealed class MainForm : Form
         _liveRow = _liveValue;
         layout.Controls.Add(_liveValue, 0, 1);
 
-        // Strip row: the actual decoded bridge cells.
-        _stripView.Dock = DockStyle.Fill;
-        _stripRow = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
-        _stripRow.Controls.Add(_stripView);
-        layout.Controls.Add(_stripRow, 0, 2);
-
+        // The decoded bridge strip moved out of the hero to the Diagnostics
+        // page ("Bridge strip" card) so the hero stays suggestion-focused.
         var spellsHeader = GroupHeaderFor("Spells");
         _heroHeaders.Add(spellsHeader);
-        layout.Controls.Add(spellsHeader, 0, 3);
-        layout.Controls.Add(TwoToggleRow("Main", "Core rotation", _main, "Offensive", "Burst cooldowns", _offensive, alt: false), 0, 4);
-        layout.Controls.Add(TwoToggleRow("Defensive", "Mitigation and absorbs", _defensives, "Interrupt", "Kick casts", _interrupt, alt: true), 0, 5);
-        layout.Controls.Add(TwoToggleRow("Self-heal", "Solo self-sustain", _selfHeal, "Mobility", "Gap closers", _mobility, alt: false), 0, 6);
-        layout.Controls.Add(TwoToggleRow("Consumable", "Potions", _consumable, "Trinket", "On-use trinkets", _trinket, alt: true), 0, 7);
+        layout.Controls.Add(spellsHeader, 0, 2);
+        layout.Controls.Add(TwoToggleRow("Main", "Core rotation", _main, "Offensive", "Burst cooldowns", _offensive, alt: false,
+            "Core rotation: highest-priority ability each GCD.", "Burst cooldowns fire in burst windows / TTK-valid boss."), 0, 3);
+        layout.Controls.Add(TwoToggleRow("Defensive", "Mitigation and absorbs", _defensives, "Interrupt", "Kick casts", _interrupt, alt: true,
+            "Mitigation at urgency Yellow+, majors at Red.", "Fires on interruptible cast in range."), 0, 4);
+        layout.Controls.Add(TwoToggleRow("Self-heal", "Solo self-sustain", _selfHeal, "Mobility", "Gap closers", _mobility, alt: false,
+            "Solo: below 65% HP.", "Gap closer when target outside melee."), 0, 5);
+        layout.Controls.Add(TwoToggleRow("Consumable", "Potions", _consumable, "Trinket", "On-use trinkets", _trinket, alt: true,
+            "Burst window.", "Burst window."), 0, 6);
 
         var modesHeader = GroupHeaderFor("Modes");
         _heroHeaders.Add(modesHeader);
-        layout.Controls.Add(modesHeader, 0, 8);
-        layout.Controls.Add(TwoToggleRow("Solo", "Self-sustain mode", _solo2, "Out of combat", "Run outside combat", _outOfCombat, alt: false), 0, 9);
-        layout.Controls.Add(TwoToggleRow("Auto-target", "Target when needed", _autoTarget, "Auto-interact", "Interact when needed", _autoInteract, alt: true), 0, 10);
+        layout.Controls.Add(modesHeader, 0, 7);
+        layout.Controls.Add(TwoToggleRow("Solo", "Self-sustain mode", _solo2, "Out of combat", "Run outside combat", _outOfCombat, alt: false,
+            "Self-sustain mode; survival first.", "Runs out-of-combat actions outside combat."), 0, 8);
+        layout.Controls.Add(TwoToggleRow("Auto-target", "Target when needed", _autoTarget, "Auto-interact", "Interact when needed", _autoInteract, alt: true,
+            "Targets the nearest valid enemy when needed.", "Interacts with quest/loot targets when needed."), 0, 9);
         // v3.2.0 TTK + v3.4.0 CC: one shared Modes row (add-only).
-        layout.Controls.Add(TwoToggleRow("Time-to-kill", "Estimate target kill time", _timeToKill, "Crowd control", "Stun on confirmed target", _crowdControl, alt: false), 0, 11);
+        layout.Controls.Add(TwoToggleRow("Time-to-kill", "Estimate target kill time", _timeToKill, "Crowd control", "Stuns a confirmed target", _crowdControl, alt: false,
+            "Estimates target time-to-kill to gate burst windows.", "Opt-in DR-safe control: stuns a confirmed target."), 0, 10);
 
         // Row order must match the RowStyles declared above.
         _heroRows.Add(_statusRow);
         _heroRows.Add(_liveValue);
-        _heroRows.Add(_stripRow);
         _heroRows.Add(spellsHeader);
-        for (var r = 4; r <= 11; r++) _heroRows.Add(layout.GetControlFromPosition(0, r)!);
+        for (var r = 3; r <= 10; r++) _heroRows.Add(layout.GetControlFromPosition(0, r)!);
 
         _heroCard.Controls.Add(layout);
         return _heroCard;
@@ -706,7 +716,7 @@ internal sealed class MainForm : Form
     private Control TwoToggleRow(
         string titleA, string hintA, ToggleSwitch toggleA,
         string titleB, string hintB, ToggleSwitch toggleB,
-        bool alt)
+        bool alt, string? tooltipA = null, string? tooltipB = null)
     {
         toggleA.AccessibleName = titleA;
         toggleA.AccessibleDescription = hintA;
@@ -714,6 +724,10 @@ internal sealed class MainForm : Form
         toggleB.AccessibleDescription = hintB;
         var left = new SettingRow(titleA, hintA, toggleA) { Dock = DockStyle.Fill, Margin = new Padding(4, 2, 4, 2), AlternateFill = alt };
         var right = new SettingRow(titleB, hintB, toggleB) { Dock = DockStyle.Fill, Margin = new Padding(4, 2, 4, 2), AlternateFill = alt };
+        // Hover-only condition text: the visible subtitle stays short so the
+        // bubble never crams; the full trigger condition lives in the tooltip.
+        if (tooltipA is not null) left.Hint = tooltipA;
+        if (tooltipB is not null) right.Hint = tooltipB;
         _heroSettingRows.Add(left);
         _heroSettingRows.Add(right);
         return new ToggleRowPanel(left, right) { Dock = DockStyle.Fill, Margin = Padding.Empty };
@@ -828,7 +842,6 @@ internal sealed class MainForm : Form
         SettingRow setting => Math.Max(_scale.RowHeight, setting.MeasuredHeight(HeroInnerWidth)),
         _ when row == _statusRow => _scale.StatusHeight,
         _ when row == _liveRow => _scale.LiveHeight,
-        _ when row == _stripRow => _scale.StripHeight,
         _ => _scale.HeaderHeight,
     };
 
@@ -860,7 +873,11 @@ internal sealed class MainForm : Form
 
         LayoutHero();
 
-        if (!keepHeight && !_forceHeight && (resetHeight || !_userSizedHeight || ClientSize.Height < _contentHeight))
+        // A user-chosen height is never clamped down to the measured content:
+        // a taller window keeps its extra room (the body scrolls if content
+        // grows later), while a window shorter than its content is grown to
+        // fit. Content-driven mode (never user-sized) sizes to content.
+        if (!keepHeight && !_forceHeight && (!_userSizedHeight || ClientSize.Height < _contentHeight))
             ApplyContentHeight();
 
         ApplyPopupScale();
@@ -884,8 +901,11 @@ internal sealed class MainForm : Form
         _bodyLayout.RowStyles[2].Height = ButtonRow2Height;
         _bodyLayout.RowStyles[3].Height = _scale.StatusLineHeight;
 
-        // Titlebar 48 + canvas vertical padding (10+12) + all body rows.
-        _contentHeight = 48 + 22 + (heroHeight + 12) + ButtonRowHeight + ButtonRow2Height + _scale.StatusLineHeight;
+        // The body layout is top-docked and explicit-height so the scroll host
+        // can scroll past it; titlebar 48 + canvas vertical padding (10+12).
+        var bodyHeight = (heroHeight + 12) + ButtonRowHeight + ButtonRow2Height + _scale.StatusLineHeight;
+        _bodyLayout.Height = bodyHeight;
+        _contentHeight = 48 + 22 + bodyHeight;
     }
 
     /// <summary>Sets the client height to the measured content, capped to the working area.</summary>
@@ -1192,16 +1212,91 @@ internal sealed class MainForm : Form
 
     /// <summary>
     /// Opens the Abilities overlay on the Explorer tab and applies the preset
-    /// requested by an Intelligence dashboard tile (WS-C drill-through).
+    /// requested by an Intelligence dashboard tile (WS-C drill-through) or a
+    /// clickable hero bubble (v3.4.0 Approach A §4). When the preset names a
+    /// category set, the Class skills tab is opened on the same class/spec and
+    /// filtered to the same set (§6).
     /// </summary>
-    private void ShowAbilitiesWithPreset(string tag)
+    private void ShowAbilitiesWithPreset(string tag, string? className = null, string? specName = null)
     {
         ShowAbilities();
         _abilitiesTabs.SelectedIndex = 1;
-        _explorer.ApplyPreset(tag);
+        _explorer.ApplyPreset(tag, className, specName);
         _explorer.PerformLayout();
+        if (AbilityViewPresets.IsCategoryTag(tag))
+        {
+            _classSkills?.Open(className, specName, tag);
+            _classSkills?.SnapToShown();
+        }
         _abilitiesOverlay.PerformLayout();
     }
+
+    /// <summary>
+    /// v3.4.0 Approach A §4: a companion-appendix hero bubble click opens the
+    /// Abilities overlay pre-filtered to that set, scoped to the live-detected
+    /// class/spec (same detection as the plain Abilities open).
+    /// </summary>
+    private void OpenHeroSkillList(string preset)
+    {
+        var className = _engine.TryGetLiveClass(out var cls) ? cls : null;
+        var specName = _engine.TryGetLiveSpec(out var spec) ? spec : null;
+        ShowAbilitiesWithPreset(preset, className, specName);
+    }
+
+    /// <summary>
+    /// Wires click-on-body for every companion-appendix hero bubble (Offensive,
+    /// Defensive, Interrupt, Mobility, Self-heal, Consumable, Trinket, Crowd
+    /// control, Solo). The row and its text labels are clickable; the toggle
+    /// switch keeps flipping and is deliberately excluded. "Main" stays
+    /// non-clickable — the core rotation is MaxDps authority.
+    /// </summary>
+    private void WireHeroDrillThrough()
+    {
+        foreach (var row in _heroSettingRows)
+        {
+            ToggleSwitch? toggle = null;
+            foreach (Control child in row.Controls)
+                if (child is ToggleSwitch found) { toggle = found; break; }
+            var preset = HeroPresetFor(toggle?.AccessibleName);
+            if (preset is null) continue;
+
+            void Open(object? _, EventArgs __) => OpenHeroSkillList(preset);
+
+            row.Cursor = Cursors.Hand;
+            row.AccessibleDescription = "Click for skill list \u25B8";
+            row.Click += Open;
+            foreach (Control child in row.Controls)
+            {
+                if (child is not Label label) continue;   // never the toggle
+                label.Cursor = Cursors.Hand;
+                label.Click += Open;
+            }
+
+            // The visible subtitle stays short (D3); the hover hint already
+            // carries the condition text, so the drill-through is appended with
+            // a trailing chevron instead of changing the asserted title.
+            var hint = row.Hint;
+            row.Hint = string.IsNullOrWhiteSpace(hint)
+                ? "Click for skill list"
+                : hint + "  \u25B8 Click for skill list";
+        }
+    }
+
+    /// <summary>Hero bubble title -> Abilities preset set (null = not clickable).</summary>
+    private static string? HeroPresetFor(string? title) => title switch
+    {
+        "Offensive" => "Offensive",
+        "Defensive" => "Defensive",
+        "Interrupt" => "Interrupt",
+        "Mobility" => "Mobility",
+        "Self-heal" => "Self-heal",
+        "Consumable" => "Consumable",
+        "Trinket" => "Trinket",
+        "Crowd control" => "CrowdControl",
+        "Solo" => "Solo",
+        // Main is MaxDps authority; the pure mode toggles have no skill set.
+        _ => null,
+    };
 
     private bool AnyPopupVisible => (_advancedOverlay?.Visible ?? false) || (_abilitiesOverlay?.Visible ?? false);
 
@@ -1325,6 +1420,18 @@ internal sealed class MainForm : Form
             (Ui.FieldRow("Cell size (px)", _cellSize), 38),
             (Ui.FieldRow("Block offset X", _offsetX), 38),
             (Ui.FieldRow("Block offset Y", _offsetY), 38)));
+
+        // The decoded bridge strip lives here now (moved off the hero card).
+        // StripHeight is the tier value reused for this card's strip height.
+        _stripView.Dock = DockStyle.Fill;
+        var stripHost = new Panel
+        {
+            Dock = DockStyle.Top,
+            BackColor = Color.Transparent,
+            MinimumSize = new Size(0, _scale.StripHeight),
+        };
+        stripHost.Controls.Add(_stripView);
+        page.AddCard("Bridge strip", "Live").Add(stripHost);
 
         page.AddCard("Patch / registry audit", "Provenance").Add(Stack(
             (Hint("Coverage is computed from AbilityCatalog.Default via AbilityCoverage.Build."), 0),
@@ -2299,12 +2406,17 @@ internal sealed class MainForm : Form
         // Remembered geometry is honoured only under the classic3 layout; a
         // v2 shell size would otherwise open the new chrome at the wrong size.
         var classic = string.Equals(_settings.WindowLayout, "classic3", StringComparison.OrdinalIgnoreCase);
-        var wantW = classic && _settings.WindowWidth > 0 ? _settings.WindowWidth : ClassicWantWidth;
-        var wantH = classic && _settings.WindowHeight > 0 ? _settings.WindowHeight : ClassicWantHeight;
+        var savedSize = classic && _settings.WindowWidth > 0 && _settings.WindowHeight > 0;
+        var wantW = savedSize ? _settings.WindowWidth : ClassicWantWidth;
+        var wantH = savedSize ? _settings.WindowHeight : ClassicWantHeight;
         var w = Math.Max(MinWindowWidth, Math.Min(wantW, area.Width));
         var h = Math.Max(MinWindowHeight, Math.Min(wantH, area.Height));
         MinimumSize = new Size(MinWindowWidth, MinWindowHeight);
         ClientSize = new Size(w, h);
+        // A remembered size is a user choice: construction must not clamp it
+        // back to content height (the body scrolls instead). This is what makes
+        // a taller-than-content window round-trip across launches.
+        if (savedSize) _userSizedHeight = true;
         if (!classic)
         {
             // Size migration (v3 classic shell): stamp the layout tag at
@@ -2478,6 +2590,19 @@ internal sealed class MainForm : Form
         ApplyScale(resetHeight: false, keepHeight: true);
     }
 
+    /// <summary>
+    /// Test seam (tall window, §3): simulate the user choosing a client height,
+    /// then re-run the tier pass the 120 ms resize debounce would run. A chosen
+    /// height at or above the measured content must survive untouched.
+    /// </summary>
+    internal void ResizeHeightForTest(int height)
+    {
+        _userSizedHeight = true;
+        ClientSize = new Size(ClientSize.Width, Math.Max(MinWindowHeight, height));
+        ApplyScale(resetHeight: false);
+        PerformLayout();
+    }
+
     internal void OpenClassSkillsForSnapshot(string className, string specName)
     {
         if (_classSkills is null) return;
@@ -2492,6 +2617,9 @@ internal sealed class MainForm : Form
 
     internal Control MainBodyForTest => _mainBody;
     internal AbilityExplorer ExplorerForTest => _explorer;
+    /// <summary>v3.4.0 §4: the hero bubbles, so a test can raise their Click.</summary>
+    internal IReadOnlyList<SettingRow> HeroSettingRowsForTest => _heroSettingRows;
+    internal ClassSkillsView? ClassSkillsForTest => _classSkills;
     internal IntelligencePage IntelligenceForTest => _intelligencePage;
     internal ConfigurationPage ConfigurationForTest => _config;
     internal TabControl AdvancedTabsForTest => _advancedTabs;

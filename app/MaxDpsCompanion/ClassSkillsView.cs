@@ -261,6 +261,9 @@ internal sealed class ClassSkillsView : Panel
         };
     }
 
+    /// <summary>Test seam: the empty-state copy shown when the list is empty (v3.4.0 §6).</summary>
+    internal string EmptyTextForTest => _empty.Text;
+
     /// <summary>Snapshot/UI-test diagnostics: what the screen currently holds.</summary>
     internal string DebugState
     {
@@ -275,6 +278,7 @@ internal sealed class ClassSkillsView : Panel
                 $"scrollB={_scroll.Bounds.X},{_scroll.Bounds.Y},{_scroll.Bounds.Width}x{_scroll.Bounds.Height} " +
                 $"stackH={_stack.Height} stackVis={_stack.Visible} stackTop={_stack.Top} " +
                 $"first={firstBounds} shellZ={Controls.GetChildIndex(_shell)} " +
+                $"emptyVis={_empty.Visible} preset={_preset ?? "-"} " +
                 $"handles self={IsHandleCreated} shell={_shell.IsHandleCreated} scroll={_scroll.IsHandleCreated} stack={_stack.IsHandleCreated}";
         }
     }
@@ -303,9 +307,15 @@ internal sealed class ClassSkillsView : Panel
 
     // ---- open / close + animation -----------------------------------------
 
-    /// <summary>Shows the screen, preselecting the live class/spec when known.</summary>
-    public void Open(string? liveClass, string? liveSpec)
+    /// <summary>
+    /// Shows the screen, preselecting the live class/spec when known.
+    /// <paramref name="preset"/> (v3.4.0 Approach A §6) filters the rows to a
+    /// hero-bubble set ("Offensive", "Self-heal", "CrowdControl", "Solo", …)
+    /// and names that set in the empty state. Null keeps the full list.
+    /// </summary>
+    public void Open(string? liveClass, string? liveSpec, string? preset = null)
     {
+        _preset = preset;
         _syncing = true;
         try
         {
@@ -333,7 +343,8 @@ internal sealed class ClassSkillsView : Panel
         // popup open is multi-second. The tree only depends on the selected
         // class/spec, so rebuild only when that selection actually changes.
         var sameSelection = string.Equals(_builtClass, SelectedClass, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(_builtSpec, SelectedSpec, StringComparison.Ordinal);
+            && string.Equals(_builtSpec, SelectedSpec, StringComparison.Ordinal)
+            && string.Equals(_builtPreset, _preset, StringComparison.Ordinal);
         if (!sameSelection) Rebuild();
         _closing = false;
         _fade = 0f;
@@ -388,10 +399,12 @@ internal sealed class ClassSkillsView : Panel
 
     private bool _syncing;
 
-    // D6: the (class, spec) the current row tree was built for; a reopen with
-    // the same selection keeps the tree instead of recreating every row.
+    // D6: the (class, spec, preset) the current row tree was built for; a
+    // reopen with the same selection keeps the tree instead of recreating rows.
     private string? _builtClass;
     private string? _builtSpec;
+    private string? _builtPreset;
+    private string? _preset;
 
     private void PopulateSpecs()
     {
@@ -447,6 +460,7 @@ internal sealed class ClassSkillsView : Panel
             var specName = SelectedSpec;
             _builtClass = className;
             _builtSpec = specName;
+            _builtPreset = _preset;
             if (className is null || specName is null)
             {
                 _empty.Visible = true;
@@ -454,37 +468,65 @@ internal sealed class ClassSkillsView : Panel
             }
 
             var build = ClassSkillTree.Build(_catalog, _book, className, specName);
+            var filtered = _preset is not null && AbilityViewPresets.IsCategoryTag(_preset);
+            if (filtered) build = FilterBuild(build, className, specName, _preset!);
             // Stream 1 §1.1: no speculative self-heal ids. When the curated
             // catalog has no verified solo self-heal for the spec (DH today),
-            // say so instead of inventing an owed spell id.
+            // say so instead of inventing an owed spell id. The note is a
+            // full-list statement, so it is hidden while a preset is active.
             var noSelfHeal = _catalog.Extras(className, specName, AbilityCategory.SelfHeal).Length == 0;
-            var rowCount = 1 + build.Shared.Count
+            var selfHealNote = noSelfHeal && !filtered;
+            var rowCount = (build.Shared.Count > 0 ? 1 : 0)
+                + build.Shared.Count
                 + build.Groups.Sum(g => g.Value.Count + 1)
-                + (noSelfHeal ? 1 : 0);
+                + (selfHealNote ? 1 : 0);
             _stack.RowCount = rowCount;
 
             var row = 0;
-            AddSectionHeader($"Shared — all {ClassDisplay(className)} specs", ref row);
-            foreach (var ability in build.Shared) AddAbilityRow(ability, ref row);
+            if (build.Shared.Count > 0)
+            {
+                AddSectionHeader($"Shared — all {ClassDisplay(className)} specs", ref row);
+                foreach (var ability in build.Shared) AddAbilityRow(ability, className, specName, ref row);
+            }
             foreach (var group in ClassSkillTree.SectionOrder)
             {
                 if (!build.Groups.TryGetValue(group, out var list) || list.Count == 0) continue;
                 AddSectionHeader(ClassSkillTree.SectionTitle(group), ref row);
-                foreach (var ability in list) AddAbilityRow(ability, ref row);
+                foreach (var ability in list) AddAbilityRow(ability, className, specName, ref row);
             }
-            if (noSelfHeal) AddSelfHealNoteRow(className, specName, ref row);
+            if (selfHealNote) AddSelfHealNoteRow(className, specName, ref row);
 
-            _empty.Visible = rowCount <= 1;
-            if (_empty.Visible)
-            {
-                _empty.Text = "No abilities known for this class/spec yet.";
-                _empty.BringToFront();
-            }
+            // The text is set even while hidden: Control.Visible is the effective
+            // (parent-chain) visibility, so reading it back is false on a
+            // headless form and the copy would never be applied there.
+            _empty.Text = filtered
+                ? $"No {AbilityViewPresets.CategoryDisplay(_preset!)} skills for {ClassDisplay(className)}/{specName}."
+                : "No abilities known for this class/spec yet.";
+            _empty.Visible = rowCount == 0;
+            if (rowCount == 0) _empty.BringToFront();
         }
         finally
         {
             _stack.ResumeLayout();
         }
+    }
+
+    /// <summary>v3.4.0 §6: keep only the abilities that belong to the preset set.</summary>
+    private SpecSkillList FilterBuild(SpecSkillList build, string className, string specName, string preset)
+    {
+        bool Keep(AbilityDefinition ability) =>
+            AbilityViewPresets.MatchesCategory(ability, preset, _catalog, className, specName);
+
+        var shared = new List<AbilityDefinition>();
+        foreach (var ability in build.Shared) if (Keep(ability)) shared.Add(ability);
+        var groups = new Dictionary<ClassSkillGroup, List<AbilityDefinition>>();
+        foreach (var pair in build.Groups)
+        {
+            var kept = new List<AbilityDefinition>();
+            foreach (var ability in pair.Value) if (Keep(ability)) kept.Add(ability);
+            if (kept.Count > 0) groups[pair.Key] = kept;
+        }
+        return new SpecSkillList(shared, groups);
     }
 
     private static string ClassDisplay(string wire) =>
@@ -523,13 +565,17 @@ internal sealed class ClassSkillsView : Panel
         row++;
     }
 
-    private void AddAbilityRow(AbilityDefinition ability, ref int row)
+    private void AddAbilityRow(AbilityDefinition ability, string className, string specName, ref int row)
     {
+        // v3.4.0 §5: the visible condition one-liner (the full reason stays in
+        // the hover tooltip owned by AbilityToggleRow).
+        var cc = _catalog.CrowdControlFor(className, specName, ability.SpellId);
+        var condition = AbilityViewPresets.ConditionLine(ability, cc);
         var item = new AbilityToggleRow(ability, _isEnabled(ability), _tip, (on) =>
         {
             _setEnabled(ability, on);
             return _isEnabled(ability);
-        });
+        }, condition);
         item.Dock = DockStyle.Fill;
         item.Margin = new Padding(0, 1, 0, 1);
         _stack.RowStyles.Add(new RowStyle(SizeType.Absolute, AbilityToggleRow.RowHeight + 2));
@@ -660,7 +706,7 @@ internal sealed class AbilityToggleRow : Panel
     private readonly AbilityDefinition _ability;
     private readonly Func<bool, bool> _apply;
 
-    public AbilityToggleRow(AbilityDefinition ability, bool enabled, ToolTip tip, Func<bool, bool> apply)
+    public AbilityToggleRow(AbilityDefinition ability, bool enabled, ToolTip tip, Func<bool, bool> apply, string? condition = null)
     {
         _ability = ability;
         _apply = apply;
@@ -685,7 +731,9 @@ internal sealed class AbilityToggleRow : Panel
         _subtitle.BackColor = Color.Transparent;
 
         var manual = ability.NeverAutomatic || ability.Automation == AutomationContext.Manual;
-        _status.Text = RowStatusLabel(ability);
+        _status.Text = string.IsNullOrEmpty(condition)
+            ? RowStatusLabel(ability)
+            : RowStatusLabel(ability) + " \u00B7 " + condition;
         _status.AutoSize = false;
         _status.AutoEllipsis = true;
         _status.TextAlign = ContentAlignment.MiddleLeft;

@@ -48,6 +48,14 @@ internal sealed class VirtualAbilityList : Control
 
     public int Count => _items.Count;
 
+    /// <summary>v3.4.0 §6: empty-state copy supplied by the explorer (names the preset + class/spec).</summary>
+    public string EmptyText { get; set; } = "No abilities match the current filters.";
+
+    /// <summary>v3.4.0 §5: per-spell condition one-liner computed once per rebuild.</summary>
+    public IReadOnlyDictionary<int, string> Conditions { get; set; } = new Dictionary<int, string>();
+
+    private readonly ToolTip _tip = new() { AutoPopDelay = 20000, InitialDelay = 400, ReshowDelay = 100 };
+
     public void SetItems(List<AbilityDefinition> items)
     {
         _items.Clear();
@@ -98,9 +106,24 @@ internal sealed class VirtualAbilityList : Control
     protected override void OnMouseMove(MouseEventArgs e)
     {
         var index = RowAt(e.Y);
-        if (index != _hoverRow) { _hoverRow = index; Invalidate(); }
+        if (index != _hoverRow)
+        {
+            _hoverRow = index;
+            // v3.4.0 §5: the hover hint carries the full reason.
+            if (index >= 0 && index < _items.Count) _tip.SetToolTip(this, FullReason(_items[index]));
+            else _tip.SetToolTip(this, string.Empty);
+            Invalidate();
+        }
         Cursor = index >= 0 ? Cursors.Hand : Cursors.Default;
         base.OnMouseMove(e);
+    }
+
+    private static string FullReason(AbilityDefinition ability)
+    {
+        var reason = $"{ability.Name}: {Why(ability)}; holds {Hold(ability)}.";
+        if (ability.MinimumUrgency != DefensiveUrgency.White && ability.IsSurvival)
+            reason += $" Urgency {ability.MinimumUrgency}+.";
+        return reason;
     }
 
     protected override void OnMouseLeave(EventArgs e) { _hoverRow = -1; Invalidate(); base.OnMouseLeave(e); }
@@ -206,7 +229,7 @@ internal sealed class VirtualAbilityList : Control
 
         if (_items.Count == 0)
         {
-            TextRenderer.DrawText(e.Graphics, "No abilities match the current filters.",
+            TextRenderer.DrawText(e.Graphics, EmptyText,
                 DesignTokens.Type(DesignTokens.BodySize), new Rectangle(16, 20, Width - 32, 24),
                 DesignTokens.TextMuted, TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
             return;
@@ -255,7 +278,13 @@ internal sealed class VirtualAbilityList : Control
         TextRenderer.DrawText(g, ability.Name, DesignTokens.Type(DesignTokens.LabelSize, FontStyle.Bold),
             new Rectangle(textLeft, y + 7, textWidth, 20), DesignTokens.TextPrimary,
             TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
-        var sub = $"{ability.Category} \u00B7 {SubRole(ability)}";
+        // v3.4.0 §5: append the catalog-derived condition one-liner when known.
+        var condition = Conditions.TryGetValue(ability.SpellId, out var known)
+            ? known
+            : AbilityViewPresets.ConditionLine(ability);
+        var sub = condition.Length == 0
+            ? $"{ability.Category} \u00B7 {SubRole(ability)}"
+            : $"{ability.Category} \u00B7 {SubRole(ability)} \u00B7 {condition}";
         TextRenderer.DrawText(g, sub, DesignTokens.Type(DesignTokens.MetaSize),
             new Rectangle(textLeft, y + 26, textWidth, 18), DesignTokens.TextSecondary,
             TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
