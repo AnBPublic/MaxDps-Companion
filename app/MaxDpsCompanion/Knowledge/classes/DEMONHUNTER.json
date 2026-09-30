@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "class": "DEMONHUNTER",
+  "note": "S3a verified taxonomy overlay (schema 1). Routes gap-closers/CC/defensives only; never Main. Defensive tiers: minor = Yellow+, major = Red, immunity = last resort. CC stuns/silences are gated to casting/fleeing non-boss targets by the consumer. Never-automatic abilities stay Never whatever this file says. No verified Demon Hunter self-heal exists in the 12.1 DB2 export, so the solo HP-ladder intentionally has no self-heal row (a documented empty state, never a guessed id).",
+  "entries": [
+    { "spellId": 189110, "role": "Mobility", "route": "Mobility", "emergencyEscape": false, "offGcd": true, "mode": "Auto", "minUrgency": 0, "notes": "Infernal Strike: gap-closer only when the target is confirmed out of melee and in range; never toward hazards/raid bosses." },
+    { "spellId": 195072, "role": "Mobility", "route": "Mobility", "emergencyEscape": false, "offGcd": true, "mode": "Auto", "minUrgency": 0, "notes": "Fel Rush: gap-closer/dodge; out-of-melee + in-range only." },
+    { "spellId": 198793, "role": "Mobility", "route": "Mobility", "emergencyEscape": true, "offGcd": true, "mode": "Suggest", "minUrgency": 0, "notes": "Vengeful Retreat: escape backward; offered, not auto-fired." },
+    { "spellId": 183752, "role": "Utility", "route": "Interrupt", "emergencyEscape": false, "offGcd": true, "mode": "Auto", "minUrgency": 0, "notes": "Disrupt: interrupt/kick only on a live enemy cast; MaxDps's interrupt claim wins the slot first." },
+    { "spellId": 202137, "role": "CC", "route": "Interrupt", "emergencyEscape": false, "offGcd": false, "mode": "Auto", "minUrgency": 0, "notes": "Sigil of Silence: silence; casting/fleeing non-boss targets only." },
+    { "spellId": 217832, "role": "CC", "route": "Interrupt", "emergencyEscape": false, "offGcd": false, "mode": "Never", "minUrgency": 0, "notes": "Imprison: never-automatic list." },
+    { "spellId": 179057, "role": "CC", "route": "Interrupt", "emergencyEscape": false, "offGcd": false, "mode": "Suggest", "minUrgency": 0, "notes": "Chaos Nova: AoE stun; manual." },
+    { "spellId": 211881, "role": "CC", "route": "Interrupt", "emergencyEscape": false, "offGcd": false, "mode": "Suggest", "minUrgency": 0, "notes": "Fel Eruption: single-target stun; manual." },
+    { "spellId": 196555, "role": "Major", "route": "Defensive", "emergencyEscape": false, "offGcd": true, "mode": "Suggest", "minUrgency": 4, "notes": "Netherwalk: full immunity and last resort (the player cannot act while it lasts)." },
+    { "spellId": 196718, "role": "Major", "route": "Defensive", "emergencyEscape": false, "offGcd": true, "mode": "Auto", "minUrgency": 4, "notes": "Darkness: group AoE damage reduction; Red." },
+    { "spellId": 204021, "role": "Major", "route": "Defensive", "emergencyEscape": false, "offGcd": false, "mode": "Auto", "minUrgency": 4, "notes": "Fiery Brand: major defensive; Red." },
+    { "spellId": 212084, "role": "Major", "route": "Defensive", "emergencyEscape": false, "offGcd": false, "mode": "Auto", "minUrgency": 4, "notes": "Fel Devastation: channeled major mitigation; Red." },
+    { "spellId": 187827, "role": "Major", "route": "Defensive", "emergencyEscape": false, "offGcd": true, "mode": "Auto", "minUrgency": 4, "notes": "Metamorphosis (Vengeance): major mitigation/damage; Red." },
+    { "spellId": 198589, "role": "Minor", "route": "Defensive", "emergencyEscape": false, "offGcd": true, "mode": "Auto", "minUrgency": 2, "notes": "Blur: minor mitigation; Yellow+." },
+    { "spellId": 203720, "role": "Minor", "route": "Defensive", "emergencyEscape": false, "offGcd": false, "mode": "Auto", "minUrgency": 2, "notes": "Demon Spikes: minor active mitigation; Yellow+." },
+    { "spellId": 263648, "role": "Minor", "route": "Defensive", "emergencyEscape": false, "offGcd": true, "mode": "Auto", "minUrgency": 2, "notes": "Soul Barrier: minor absorb; Yellow+." },
+    { "spellId": 1217605, "role": "Major", "route": "Defensive", "emergencyEscape": false, "offGcd": true, "mode": "Never", "minUrgency": 4, "notes": "Void Metamorphosis (Devourer kit) is not confirmed in the live DB2 export; needs verification before it can ever be automatic." }
+  ]
+}
