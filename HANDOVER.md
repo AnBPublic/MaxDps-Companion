@@ -1,6 +1,132 @@
 # Handover — MaxDps-Companion
 
+## 2026-09-30 v3.5 S8 — PERF + DIAGNOSTICS (this change)
+
+GOAL: make the Class Browser open without a UI-thread row build and add the
+diagnostics that catch the stale-install class of failure. Cherry-picked with
+`--no-commit` S5 (`5a6f8c1`) + T5 (`98831e8`, incoming wins on Ui/MainForm);
+then S8 on top. No wire/scheduler logic, no addon Lua, no vendor edits.
+
+WHAT CHANGED (new files + wiring):
+- `Ui/ClassBrowserPrecompute.cs` (new): concurrent cache keyed by (class, spec);
+  `Build` matches the S5 `ClassSkillsView.TreeBuilder` delegate (miss builds
+  inline once, so the screen can never go blank); `Warm` precomputes on the
+  thread pool. `MainForm` sets `_classSkills.TreeBuilder = _classBrowser.Build`
+  and warms the live (or first) class/spec once `Application.Idle` fires after
+  `Shown`.
+- `Ui/ScaledIconCache.cs` (new): device-scaled icon bitmaps keyed by
+  (spell id, px), evicted on `SpellIconCache.IconReady`; `AbilityToggleRow`
+  paints the 44 px cached copy instead of a per-paint HighQualityBicubic rescale.
+- `Ui/WhyNotFiring.cs` + `Ui/WhyNotFiringPanel.cs` (new): pure explainer
+  (toggle state, scheduler verdict, candidate staleness) and its owner-drawn
+  render; mounted on the Diagnostics page. `RotationEngine.LastFrameAgeMs()`
+  is a read-only witness (no logic change).
+- `Diagnostics/InstallDoctor.cs` (new): pure `Audit` checks exe build commit vs
+  repo HEAD, configured vs emitted CellSize, app mask vs Ext3 mirror, addon
+  version; best-effort `.git/HEAD` / VERSION.txt readers. Mounted on the
+  Diagnostics page (button + ~2 s throttle).
+- `tests/.../S8PerfDiagnosticsTests.cs` (new): 16 facts.
+
+VALIDATED (this machine): `dotnet build app\MaxDpsCompanion\MaxDpsCompanion.csproj
+-c Release` 0 warnings / 0 errors; `dotnet test -c Release` **699/699** (was 683;
++16 S8). No live validation owed: these are offline perf/diagnostic paths. Note:
+the test project carries 2 pre-existing CS8604 warnings in `ClassicUiTests.cs`
+(untouched, present on base).
+
+## 2026-09-30 v3.5 T5 — TOGGLE SSOT (this change)
+
+GOAL: app-wins toggle sync (S1 companion half). The 14 app toggles pack into the
+Ext3 14-bit mask; `<hh>` bit order is `Main Offensive Defensive Consumable
+Trinket Interrupt Mobility SelfHeal Solo OOC AutoTarget AutoInteract TTK CC`
+(OOC = `!CombatOnly`). The companion pushes `/mdb mask <hhhh> <e>` at engine
+Start and on any toggle change, out of combat only, and consumes the bridge's
+Ext3 echo as the effective mask.
+
+WHAT CHANGED: `app/MaxDpsCompanion/ToggleSync.cs` (new) — pure state machine:
+`BuildMask`, `FormatCommand` (4 uppercase hex + decimal 0-15 epoch),
+`BeginPush`/`ObserveMirror` retry ladder (window 1500 ms, max 2 retries, then a
+red `HasConflict`), `EffectiveMask` = mirrored mask when Ext3 valid else app
+mask. `ChatCommander.SendToggleMask` formats + sends the silent command.
+`RotationEngine` gains `TryGetToggleMirror(out Ext3Block?, out bool inCombat)`
+(read-only Ext3 echo + combat flag, published per decoded frame).
+`MainForm` pumps the sync on the 250 ms UI timer and marks the Diagnostics
+banner "Toggle sync: blocked" on conflict. `AppSettings` gains `[Meta]
+ConfigVersion=1` and a one-time migration: a config with `[Spells]` but no
+`[Meta]` gets Mobility + `[CrowdControl] Enabled` turned ON (fixes RC1/RC2);
+Save stamps `[Meta]` so a later user OFF sticks. `settings.ini` and
+`dist\settings.ini` carry the new defaults.
+
+VALIDATED: `dotnet build -c Release` 0/0; non-UI `dotnet test` **660/660**
+(incl. 12 new ToggleSyncTests); the 21 headless STA timeouts are the known
+pre-existing ClassicUi/ClassSkillsView/UiShell environment failures (baseline
+log: 20; the extra `WidthTiers_Scale_Popups` passes standalone in 2 s).
+
+LIVE OWED (retail 12.1): with the Ext3 addon, flip a hero toggle in combat and
+verify the push is deferred until combat ends, the Ext3 echo matches, and a
+deliberately unmirrored mask surfaces the red "Toggle sync: blocked" banner.
+
+## 2026-09-30 EXT3 T0 CONTRACTS (this change)
+
+GOAL: freeze the Ext3 wire contract (T0 only — constants + decode shell + tests,
+no addon/encoder work). Ext3 is ADDITIVE over the frozen v5/Ext2 wire: a 43-cell
+strip keeps cells 0-39 and checksums 10/34/39 byte-identical, version nibble
+stays `5`.
+
+WHAT CHANGED (files): `docs/PROTOCOL.md` gains the Ext3 block section + cell-28
+presence row; `app/MaxDpsCompanion/PixelProtocol.cs` gains
+`CellCountExt3 = 43`, `IsV5Length` accepts 35/40/43, the Ext3 cell indices
+(40/41/42) + `Ext3MaskBitCount = 14` + `CastFlagExt3Present = 4` (cell 28 B
+bit2), a `Ext3Block(Mask,Epoch,Blocked)` record and `BridgeFrame.Ext3Present` /
+`.Ext3`; `tests/.../PixelProtocolExt3Tests.cs` (11 facts); `ARCHITECTURE.md`
+pipeline note. CELL 28 B is decoded through `& 0x3` for the SelfHeal2 range, so
+the new bit2 cannot bleed into it.
+
+WHAT DID NOT CHANGE: no addon Lua, no encoder, no UI/Scheduler/Knowledge; the
+addon still emits 40 cells (Ext3 render lands in a later task). `cells 40-42`
+are read only when `cell 28 B bit2 && length >= 43`; a cell-42 checksum/commit
+failure drops only the Ext3 block. Cell 42 R is reserved and ignored (not
+asserted `0`), matching the decoder's existing treatment of cell 34 R / 39 R.
+
+ARCHITECT QUESTIONS ANSWERED: (1) the old decoder ALREADY masks cell 28 B with
+`& 3` at the only SelfHeal2 read (`DecodeV5`), so bit2 is safe; (2) the decoder
+does NOT assert cell 34 R or cell 39 R `== 0` (both are read as `_`); cell 42 R
+is handled the same way. Pinned by
+`Ext3_Cell34_And_Cell39_Reserved_R_Are_Not_Asserted_Zero` and
+`Ext3_Cell42_Reserved_R_Is_Ignored_Not_Asserted_Zero`.
+
+VALIDATED (this machine): `dotnet build app\MaxDpsCompanion\MaxDpsCompanion.csproj
+-c Release` 0 warnings / 0 errors; `dotnet test --filter PixelProtocolExt3Tests`
+11/11; non-UI suite 648/648 (baseline 637 non-UI + 11 new; the 20 pre-existing
+headless UI/STA timeouts in ClassicUi/ClassSkillsView/UiShell are unchanged).
+LIVE OWED: none for T0 (no wire is emitted yet); Ext3 live render is T1+.
+
 ## Status: v3.4.0 — CC appendix (opt-in, DR-safe, all 13 classes) + surroundings awareness gates (melee/cast/range catalog-driven, LoS fails open) + wired UI publish (solo sliders, bridge-health banner, cast-audit grid) + CC slot-6 candidate source (Option A, wire frozen) (660 xunit tests + 186 Lua harness checks, live validation owed)
+
+## 2026-09-30 S5 UI FOUNDATION (this change)
+
+GOAL: fix the garbled popup and put the popup on one owner-drawn paint layer.
+The popup scrim was an alpha BackColor Panel painted over native TabControl /
+ComboBox children; WinForms' simulated transparency asks the PARENT to repaint,
+native child HWNDs never composite, so their pixels garbled.
+
+WHAT CHANGED (UI only - no wire/scheduler/knowledge/addon/vendor):
+- Ui/UiFoundation.cs (new): SegmentedTabs + SegmentedTabPage (owner-drawn tab
+  strip replacing native TabControl), OwnedComboBox (tier-scaled item height),
+  OwnedToolTip (themed, width-wrapped bubble so the "Click for skill list"
+  suffix can't run off-screen), ThemedScrollBar + ThemedScrollHost (replaces the
+  AutoScroll stray bar), LegendGrid (multi-column key).
+- MainForm.cs: scrim is now static opaque (DesignTokens.Scrim, A=255); popup
+  fade timer removed; popups host SegmentedTabs; ValidateTabs updated.
+- ClassSkillsView.cs: duplicate in-view header removed (popup header kept),
+  owned combo/tooltip wired, legend is 2 columns, TreeBuilder delegate seam
+  keeps ClassSkillTree.Build ready to move off the UI thread for S8.
+- UiControls.cs: SettingRow uses a per-row owned tooltip (the static native
+  shared ToolTip was a cross-thread race); Ui/DesignTokens.cs added
+  Scrim/scroll tokens + Title/Caption/Micro type steps.
+
+VALIDATED (offline): dotnet build app/... -c Release 0 warn/0 err; dotnet test
+-c Release 660/660 pass (ClassSkillsView + UiShell smoke included).
+LIVE OWED: inspect the Advanced/Abilities popups in a retail run.
 
 ## 2026-09-30 OVERLAY REGISTERCLICKS FIX (this change)
 

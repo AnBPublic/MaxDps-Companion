@@ -22,6 +22,12 @@ internal sealed class MainForm : Form
     private readonly RotationEngine _engine;
     private readonly System.Windows.Forms.Timer _uiTimer = new() { Interval = 250 };
 
+    // v3.5 S1 toggle SSOT: the app-WINS mask push state machine. Mutated only on
+    // the UI thread; the blocking ChatCommander send is dispatched to the
+    // thread pool so a toggle change or Start never freezes the window.
+    private readonly ToggleSync _toggleSync = new();
+    private int _togglePushInFlight;
+
     private EngineStatus _status;
     private bool _hotkeyRegistered;
     private string _statusMessage = "Stopped";
@@ -114,11 +120,12 @@ internal sealed class MainForm : Form
     private Control _mainBody = null!;
     private Panel _advancedOverlay = null!;
     private Panel _abilitiesOverlay = null!;
-    private TabControl _advancedTabs = null!;
-    private TabControl _abilitiesTabs = null!;
+    private SegmentedTabs _advancedTabs = null!;
+    private SegmentedTabs _abilitiesTabs = null!;
     private readonly LinkLamp _linkLamp = new();
     private readonly Label _stateLabel = new();
     private readonly Label _liveValue = new();
+    private readonly OwnedToolTip _liveTip = new();
     private readonly Label _statusLine = new();
     private readonly ClassBadge _classBadge = new();
     private readonly StripView _stripView = new();
@@ -131,6 +138,16 @@ internal sealed class MainForm : Form
     private readonly DiagnosticsPage _diagnostics = new();
     private ClassSkillsView? _classSkills;
     private ChamferButton? _classSkillsEntry;
+
+    // S8 perf + diagnostics: off-thread Class Browser precompute (warmed on
+    // idle), the per-toggle why-not-firing explainer and the install doctor.
+    private readonly ClassBrowserPrecompute _classBrowser;
+    private readonly WhyNotFiringPanel _whyNotFiring = new();
+    private readonly Label _doctorValue = new();
+    private readonly ChamferButton _doctorRefresh = new() { Text = "Run install doctor", Role = ButtonRole.Ghost };
+    private int? _lastLocatedCellSize;
+    private bool _classBrowserWarmScheduled;
+    private int _doctorTick;
 
     // Stream 3 wiring: solo survival-band editor (Safety card) and the
     // bridge-health banner + suggested-vs-cast audit (Diagnostics page).
@@ -177,25 +194,14 @@ internal sealed class MainForm : Form
     private bool _forceHeight;
     private int _contentHeight;
 
-    // D6: popups open synchronously and then run exactly ONE bounded fade. The
-    // scrim alpha is animated by a single timer (never a chain of fades/slides),
-    // the fade finishes within PopupFadeDurationMs, and it is skipped entirely
-    // while the engine is running so a live rotation never competes for the UI
-    // thread. The UI thread is never blocked (no Sleep / no modal wait).
-    internal const int PopupFadeDurationMs = 120;
-    private const int PopupFadeStepMs = 15;
-    private const int PopupScrimAlpha = 228;
-    private static readonly Color PopupScrimOpaque = Color.FromArgb(PopupScrimAlpha, 7, 9, 11);
-    private static readonly Color PopupScrimClear = Color.FromArgb(0, 7, 9, 11);
-    private readonly System.Windows.Forms.Timer _popupFadeTimer = new() { Interval = PopupFadeStepMs };
-    private Panel? _popupFadeScrim;
-    private long _popupFadeStart;
+    // S5: popups use a STATIC OPAQUE scrim. The old animated alpha scrim
+    // (0xE4,7,9,11) was painted by WinForms' simulated-transparency hack over
+    // native TabControl/ComboBox children, which never composite — the garbled
+    // popup. One opaque layer, no fade over native children.
     private double _lastPopupOpenMs;
 
-    /// <summary>Test seam: behave as if the engine were running without starting it.</summary>
+    /// <summary>Test seam: kept for the engine-running gate; now a no-op since the scrim is static.</summary>
     internal bool EngineRunningForFadeGate { get; set; }
-
-    private bool FadeSuppressed => _engine.IsRunning || EngineRunningForFadeGate;
 
     private static Image? _appIcon;
     private bool _uiInitialised;
@@ -236,6 +242,12 @@ internal sealed class MainForm : Form
                 _settings.Abilities = _settings.Abilities.With(ability.SpellId, on, !ability.NeverAutomatic);
                 SaveSettings();
             });
+
+        // S8: route the Class Browser row build through the off-thread cache
+        // (the S5 TreeBuilder seam). A cache miss still builds inline, so the
+        // screen can never regress to blank.
+        _classBrowser = new ClassBrowserPrecompute(AbilityCatalog.Default, ClassSpellBook.Default);
+        _classSkills.TreeBuilder = _classBrowser.Build;
 
         // WS-C drill-through: a clickable Intelligence metric tile opens the
         // Abilities overlay on the Explorer tab with the matching preset.
@@ -326,8 +338,45 @@ internal sealed class MainForm : Form
             if (!_userSizedHeight) { /* height is content-driven */ }
             ApplyScale(resetHeight: !_userSizedHeight);
         };
-        _popupFadeTimer.Tick += (_, _) => PopupFadeTick();
         _uiInitialised = true;
+
+        // S8: pre-build the Class Browser rows once the window is up and the
+        // message loop goes idle, off the UI thread.
+        Shown += (_, _) => BeginClassBrowserWarmup();
+    }
+
+    // ----- S8 perf: idle Class Browser precompute -----
+
+    private void BeginClassBrowserWarmup()
+    {
+        if (_classBrowserWarmScheduled) return;
+        _classBrowserWarmScheduled = true;
+        Application.Idle += WarmClassBrowserOnIdle;
+    }
+
+    private void WarmClassBrowserOnIdle(object? sender, EventArgs e)
+    {
+        Application.Idle -= WarmClassBrowserOnIdle;
+        try
+        {
+            // The rows the user is most likely to open: the live class/spec
+            // when the engine knows it, else the first class and its first spec.
+            var className = _engine.TryGetLiveClass(out var live) ? live : null;
+            var specName = _engine.TryGetLiveSpec(out var liveSpec) ? liveSpec : null;
+            if (string.IsNullOrEmpty(className) || string.IsNullOrEmpty(specName))
+            {
+                className = AbilityCatalog.ClassOrder.FirstOrDefault(c => c.Length > 0);
+                if (className is not null
+                    && AbilityCatalog.SpecOrder.TryGetValue(className, out var specs)
+                    && specs.Length > 1)
+                {
+                    specName = specs[1];
+                }
+            }
+            if (!string.IsNullOrEmpty(className) && !string.IsNullOrEmpty(specName))
+                _classBrowser.Warm(className, specName);
+        }
+        catch { /* prebuild is best-effort */ }
     }
 
     // ----- persistence -----
@@ -662,8 +711,7 @@ internal sealed class MainForm : Form
         _liveValue.BackColor = Color.Transparent;
         _liveValue.Text = "Now: -";
         _liveValue.AccessibleName = "Current suggestion";
-        var liveTip = new ToolTip { AutoPopDelay = 20000, InitialDelay = 300 };
-        liveTip.SetToolTip(_liveValue, "What the companion is about to send and why");
+        _liveTip.SetToolTip(_liveValue, "What the companion is about to send and why");
         _liveRow = _liveValue;
         layout.Controls.Add(_liveValue, 0, 1);
 
@@ -929,6 +977,8 @@ internal sealed class MainForm : Form
         _abilitiesTabs.Font = DesignTokens.Type(_scale.BaseFont);
         foreach (var host in new Control[] { _config, _diagnostics, _intelligencePage, _explorer })
             ApplyScaleRecursive(host, _scale);
+        // The Class skills screen owns its own combo/legend type steps (S5).
+        _classSkills?.ApplyScale(_scale);
     }
 
     private static void ApplyScaleRecursive(Control root, UiScale scale)
@@ -954,6 +1004,9 @@ internal sealed class MainForm : Form
                     break;
                 case NumericUpDown numeric:
                     ApplyFontStep(numeric, scale.FontStep);
+                    break;
+                case OwnedComboBox owned:
+                    owned.ApplyScale(scale);
                     break;
             }
             if (child.HasChildren) ApplyScaleRecursive(child, scale);
@@ -1017,9 +1070,9 @@ internal sealed class MainForm : Form
         return scrim;
     }
 
-    private static void AddTab(TabControl tabs, string title, Control content)
+    private static void AddTab(SegmentedTabs tabs, string title, Control content)
     {
-        var page = new TabPage(title)
+        var page = new SegmentedTabPage(title)
         {
             BackColor = DesignTokens.Background,
             Padding = Padding.Empty,
@@ -1030,15 +1083,17 @@ internal sealed class MainForm : Form
     }
 
     /// <summary>
-    /// Dimmed scrim + centred card (width min(client-40, <paramref name="maxWidth"/>),
-    /// height client-60) with a header (title + Back) and a tab host.
+    /// Opaque scrim + centred card (width min(client-40, <paramref name="maxWidth"/>),
+    /// height client-60) with the single popup header (title + Back) and a
+    /// segmented tab host.
     /// </summary>
-    private (Panel Scrim, TabControl Tabs, RoundedCard Popup) BuildPopup(string title, int maxWidth, Action onClose)
+    private (Panel Scrim, SegmentedTabs Tabs, RoundedCard Popup) BuildPopup(string title, int maxWidth, Action onClose)
     {
         var scrim = new Panel
         {
             Dock = DockStyle.Fill,
-            BackColor = Color.FromArgb(228, 7, 9, 11),
+            // S5: STATIC OPAQUE. Never alpha — it sits behind native children.
+            BackColor = DesignTokens.Scrim,
             Visible = false,
         };
         var popup = new RoundedCard
@@ -1085,7 +1140,7 @@ internal sealed class MainForm : Form
         header.Controls.Add(titleLabel);
         header.Controls.Add(back);
 
-        var tabs = new TabControl { Dock = DockStyle.Fill, Font = DesignTokens.Type(DesignTokens.BodySize) };
+        var tabs = new SegmentedTabs { Dock = DockStyle.Fill, Font = DesignTokens.Type(DesignTokens.BodySize) };
 
         shell.Controls.Add(header, 0, 0);
         shell.Controls.Add(tabs, 0, 1);
@@ -1172,42 +1227,21 @@ internal sealed class MainForm : Form
         if (_mainBody is not null) _mainBody.Visible = true;
     }
 
-    // ----- D6: one bounded popup fade (never while the engine runs) -----
+    // ----- S5: static opaque scrim (no animation over native children) -----
 
-    private void BeginPopupFade(Panel scrim)
+    /// <summary>
+    /// Ensures the scrim is the opaque S5 backdrop. There is deliberately no
+    /// fade: the scrim sits behind native controls and an animated alpha
+    /// BackColor garbles them. Kept as a seam so Show/Hide stay one call each.
+    /// </summary>
+    private static void BeginPopupFade(Panel scrim)
     {
-        EndPopupFade();
-        if (FadeSuppressed)
-        {
-            // Engine running: show at full scrim instantly, no timer at all.
-            scrim.BackColor = PopupScrimOpaque;
-            return;
-        }
-        _popupFadeScrim = scrim;
-        _popupFadeStart = System.Diagnostics.Stopwatch.GetTimestamp();
-        scrim.BackColor = PopupScrimClear;
-        _popupFadeTimer.Start();
+        scrim.BackColor = DesignTokens.Scrim;
     }
 
-    private void PopupFadeTick()
+    private static void EndPopupFade()
     {
-        if (_popupFadeScrim is null)
-        {
-            _popupFadeTimer.Stop();
-            return;
-        }
-        var elapsedMs = (System.Diagnostics.Stopwatch.GetTimestamp() - _popupFadeStart)
-            * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
-        var t = Math.Min(1.0, elapsedMs / PopupFadeDurationMs);
-        _popupFadeScrim.BackColor = Color.FromArgb((int)Math.Round(PopupScrimAlpha * t), 7, 9, 11);
-        if (t >= 1.0) EndPopupFade();
-    }
-
-    private void EndPopupFade()
-    {
-        _popupFadeTimer.Stop();
-        if (_popupFadeScrim is not null) _popupFadeScrim.BackColor = PopupScrimOpaque;
-        _popupFadeScrim = null;
+        // No timer, no alpha: nothing to unwind.
     }
 
     /// <summary>
@@ -1421,6 +1455,19 @@ internal sealed class MainForm : Form
             (Ui.FieldRow("Block offset X", _offsetX), 38),
             (Ui.FieldRow("Block offset Y", _offsetY), 38)));
 
+        // S8 diagnostics: per-toggle why-not-firing (scheduler verdict + toggle
+        // state + candidate staleness) and the install doctor.
+        _whyNotFiring.MinimumSize = new Size(0, 96);
+        page.AddCard("Why not firing", "Explain").Add(Stack((_whyNotFiring, 96)));
+
+        _doctorRefresh.Click += (_, _) => RefreshInstallDoctor();
+        StatusLabel(_doctorValue);
+        page.AddCard("Install doctor", "Version / wiring").Add(Stack(
+            (ButtonsRow(40, _doctorRefresh), 40),
+            (_doctorValue, 44),
+            (Hint("Checks the exe build vs HEAD, configured vs emitted cell size, the app mask vs the Ext3 mirror and the addon version."), 0)));
+        RefreshInstallDoctor();
+
         // The decoded bridge strip lives here now (moved off the hero card).
         // StripHeight is the tier value reused for this card's strip height.
         _stripView.Dock = DockStyle.Fill;
@@ -1441,6 +1488,77 @@ internal sealed class MainForm : Form
             (Ui.FieldRow("BNet path", _bnetPath), 38),
             (ButtonsRow(40, _bnetBrowse, _launchGameAdv, _openFolderAdvDiag), 40),
             (Hint("Launch Game opens Battle.net for WoW. No credentials are stored - the launcher's remembered account is used."), 0)));
+    }
+
+    /// <summary>
+    /// S8: push one why-not-firing snapshot for the current plan head. Fail-open:
+    /// a copy bug must never stall the UI timer or the diagnostics page.
+    /// </summary>
+    private void UpdateWhyNotFiring()
+    {
+        try
+        {
+            var head = _engine.CurrentPlanHead;
+            var running = _engine.IsRunning;
+            var reason = head?.Reason ?? _engine.LastAction?.Reason;
+            var action = head?.Action ?? _engine.LastAction?.Action;
+            var mainOn = _settings.SlotEnabled.Length > 0 && _settings.SlotEnabled[0];
+            var facts = new WhyNotFiringFacts(
+                Label: string.IsNullOrEmpty(action) ? "the current slot" : action,
+                ToggleOn: head is not null || mainOn,
+                EngineRunning: running,
+                Paused: _engine.Paused,
+                SchedulerReason: string.IsNullOrEmpty(reason) ? null : reason,
+                PlanHeadAction: string.IsNullOrEmpty(action) ? null : action,
+                FrameAgeMs: running ? _engine.LastFrameAgeMs() : -1,
+                StaleAfterMs: 1500);
+            _whyNotFiring.Update(facts);
+        }
+        catch { /* fail-open */ }
+    }
+
+    /// <summary>
+    /// S8 install doctor: compares the exe build commit against the repo HEAD,
+    /// the configured cell size against the size the addon emitted, the app mask
+    /// against the Ext3 mirror, and the installed addon version against the
+    /// companion release. Read-only observations; warn-only where data is absent.
+    /// </summary>
+    private void RefreshInstallDoctor()
+    {
+        try
+        {
+            var appDir = Program.AppDir;
+            var inputs = new DoctorInputs(
+                ExeCommit: ThisAssemblyGen.GitCommit,
+                HeadCommit: InstallDoctor.TryReadHeadCommit(appDir),
+                AppVersion: InstallDoctor.TryReadVersionFile(Path.Combine(appDir, "VERSION.txt")),
+                AddonVersion: InstallDoctor.TryReadVersionFile(FindAddonVersionPath(appDir)),
+                SettingsCellSize: _settings.CellSize,
+                LocatedCellSize: _lastLocatedCellSize,
+                AppMask: ToggleSync.BuildMask(_settings),
+                MirrorMask: _toggleSync.MirrorMask,
+                MirrorValid: _toggleSync.MirrorValid);
+            var findings = InstallDoctor.Audit(inputs);
+            var issues = findings.Where(f => f.Severity is DoctorSeverity.Warn or DoctorSeverity.Fail).ToList();
+            _doctorValue.Text = issues.Count == 0
+                ? InstallDoctor.Summarize(findings)
+                : string.Join("   ", issues.Select(f => $"[{f.Check}] {f.Detail}"));
+            _doctorValue.ForeColor = issues.Count == 0 ? DesignTokens.Success : DesignTokens.Warning;
+        }
+        catch { _doctorValue.Text = "Install doctor failed."; }
+    }
+
+    /// <summary>Locates the shipped addon VERSION.txt from the exe dir upward.</summary>
+    private static string FindAddonVersionPath(string appDir)
+    {
+        var dir = appDir;
+        for (var i = 0; i < 6 && !string.IsNullOrEmpty(dir); i++)
+        {
+            var candidate = Path.Combine(dir, "addon", "MaxDpsBridge", "VERSION.txt");
+            if (File.Exists(candidate)) return candidate;
+            dir = Path.GetDirectoryName(dir);
+        }
+        return Path.Combine(appDir, "addon", "MaxDpsBridge", "VERSION.txt");
     }
 
     private static Label StatusLabel(Label label)
@@ -2016,7 +2134,52 @@ internal sealed class MainForm : Form
         _start.Enabled = false;
         _stop.Enabled = true;
         if (_trayStartStop is not null) _trayStartStop.Text = "Stop";
+        // v3.5 S1: a fresh session re-pushes the toggle mask once out of combat.
+        _toggleSync.BeginSession(_settings);
         SetStatus("Engine started.", DesignTokens.Success);
+    }
+
+    // ----- v3.5 S1 toggle SSOT (app-wins mask push + mirror echo) -----
+
+    /// <summary>
+    /// Drives the mask sync once per UI tick: re-reads the app toggles, feeds the
+    /// engine's Ext3 mirror, and pushes <c>/mdb mask &lt;hhhh&gt; &lt;e&gt;</c>
+    /// at Start and on change — ONLY out of combat, with the retry ladder inside
+    /// <see cref="ToggleSync"/>. The blocking chat send runs on the thread pool.
+    /// </summary>
+    private void PumpToggleSync()
+    {
+        _toggleSync.ObserveSettings(_settings);
+
+        Ext3Block? mirror = null;
+        var inCombat = false;
+        if (_engine.IsRunning) _engine.TryGetToggleMirror(out mirror, out inCombat);
+        _toggleSync.ObserveMirror(_engine.ElapsedMs, mirror);
+
+        if (_toggleSync.NeedsPush && _engine.IsRunning && !inCombat && _togglePushInFlight == 0
+            && _toggleSync.BeginPush(_engine.ElapsedMs) is not null)
+        {
+            DispatchTogglePush();
+        }
+    }
+
+    private void DispatchTogglePush()
+    {
+        if (Interlocked.CompareExchange(ref _togglePushInFlight, 1, 0) != 0) return;
+        var mask = _toggleSync.PendingMask ?? ToggleSync.BuildMask(_settings);
+        var epoch = _toggleSync.PendingEpoch;
+        var processName = _settings.ProcessName;
+        ThreadPool.QueueUserWorkItem(_ =>
+        {
+            try
+            {
+                var game = new WowWindow();
+                if (game.Refresh(processName))
+                    ChatCommander.SendToggleMask(game, mask, epoch, settleMs: 450);
+            }
+            catch { /* best effort: a missing echo is retried by the ladder */ }
+            finally { Interlocked.Exchange(ref _togglePushInFlight, 0); }
+        });
     }
 
     private void StopEngine()
@@ -2186,6 +2349,7 @@ internal sealed class MainForm : Form
         _settings.OffsetX = location.OffsetX;
         _settings.OffsetY = location.OffsetY;
         _settings.CellSize = location.CellSize;
+        _lastLocatedCellSize = location.CellSize;   // S8 install-doctor witness
         _offsetX.Value = location.OffsetX;
         _offsetY.Value = location.OffsetY;
         _cellSize.Value = location.CellSize;
@@ -2234,7 +2398,16 @@ internal sealed class MainForm : Form
         if (_bridgeStateValue.Text != bridge) _bridgeStateValue.Text = bridge;
         if (_protocolValue.Text == "-") _protocolValue.Text = $"v{PixelProtocol.SupportedVersion} (supported)";
 
+        PumpToggleSync();
         UpdateBridgeBanner(status);
+        UpdateWhyNotFiring();
+        // S8 install doctor: throttle the file reads to ~2 s (the input values
+        // move slowly); only after the diagnostics page has been built.
+        if (_advancedContentBuilt && ++_doctorTick >= 8)
+        {
+            _doctorTick = 0;
+            RefreshInstallDoctor();
+        }
 
         UpdateHero();
     }
@@ -2253,7 +2426,16 @@ internal sealed class MainForm : Form
             string title, detail;
             StatusTone tone;
 
-            if (!_engine.IsRunning)
+            if (_toggleSync.HasConflict)
+            {
+                // v3.5 S1 red badge: the addon never mirrored the pushed mask
+                // after the retry ladder. The app still runs on its own mask
+                // (fail-open) but the cross-surface sync is broken.
+                (title, tone, detail) = ("Toggle sync: blocked", StatusTone.Warning,
+                    "The in-game addon did not mirror the app's /mdb mask. " +
+                    "Run install-addon.ps1 + /reload, or change a toggle to retry.");
+            }
+            else if (!_engine.IsRunning)
             {
                 (title, tone, detail) = ("Bridge health: unknown", StatusTone.Info, "");
             }
@@ -2511,7 +2693,6 @@ internal sealed class MainForm : Form
         _uiTimer.Stop();
         _saveDebounce.Stop();
         _resizeDebounce.Stop();
-        _popupFadeTimer.Stop();
         if (_tray is not null)
         {
             _tray.Visible = false;
@@ -2519,6 +2700,7 @@ internal sealed class MainForm : Form
             _tray = null;
         }
         if (_hotkeyRegistered) Native.UnregisterHotKey(Handle, PauseHotkeyId);
+        _liveTip.Dispose();
         _engine.Dispose();
         base.OnFormClosed(e);
     }
@@ -2622,8 +2804,8 @@ internal sealed class MainForm : Form
     internal ClassSkillsView? ClassSkillsForTest => _classSkills;
     internal IntelligencePage IntelligenceForTest => _intelligencePage;
     internal ConfigurationPage ConfigurationForTest => _config;
-    internal TabControl AdvancedTabsForTest => _advancedTabs;
-    internal TabControl AbilitiesTabsForTest => _abilitiesTabs;
+    internal SegmentedTabs AdvancedTabsForTest => _advancedTabs;
+    internal SegmentedTabs AbilitiesTabsForTest => _abilitiesTabs;
     internal bool AnyPopupVisibleForTest => AnyPopupVisible;
     internal bool AbilitiesVisibleForTest => _abilitiesOverlay?.Visible ?? false;
     internal Size MinimumSizeForTest => MinimumSize;
@@ -2642,9 +2824,9 @@ internal sealed class MainForm : Form
     internal float AdvancedTabFontForTest => _advancedTabs.Font.SizeInPoints;
     internal float AbilitiesTabFontForTest => _abilitiesTabs.Font.SizeInPoints;
 
-    // D6 popup-open + fade seams.
+    // S5 popup seams: the scrim is static opaque, so no fade timer exists.
     internal double LastPopupOpenMsForTest => _lastPopupOpenMs;
-    internal bool PopupFadeActiveForTest => _popupFadeTimer.Enabled;
+    internal bool PopupFadeActiveForTest => false;
     internal Color AdvancedScrimColorForTest => _advancedOverlay?.BackColor ?? Color.Empty;
     internal IReadOnlyList<string> BottomButtonLabelsForTest => new[]
     {
@@ -2726,7 +2908,7 @@ internal sealed class MainForm : Form
         return findings;
     }
 
-    private static void ValidateTabs(TabControl tabs, string prefix, List<string> findings)
+    private static void ValidateTabs(SegmentedTabs tabs, string prefix, List<string> findings)
     {
         for (var i = 0; i < tabs.TabPages.Count; i++)
         {
@@ -2736,7 +2918,7 @@ internal sealed class MainForm : Form
             content?.PerformLayout();
             Application.DoEvents();
             if (content is not null)
-                findings.AddRange(UiShellValidation.Validate(content, $"{prefix}/{page.Text}"));
+                findings.AddRange(UiShellValidation.Validate(content, $"{prefix}/{page.Title}"));
         }
     }
 }

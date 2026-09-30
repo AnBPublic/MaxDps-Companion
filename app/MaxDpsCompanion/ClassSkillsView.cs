@@ -25,13 +25,22 @@ internal sealed class ClassSkillsView : Panel
     private readonly Action<AbilityDefinition, bool> _setEnabled;
 
     private readonly Panel _shell = new() { Dock = DockStyle.Fill, BackColor = ConsolePalette.Iron };
-    private readonly Panel _header = new();
     private readonly TableLayoutPanel _toolbar = new();
-    private readonly ComboBox _classBox = new();
-    private readonly ComboBox _specBox = new();
+    private readonly OwnedComboBox _classBox = new();
+    private readonly OwnedComboBox _specBox = new();
     private readonly SmoothScrollPanel _scroll = new() { Dock = DockStyle.Fill };
     private readonly TableLayoutPanel _stack = new();
-    private readonly ToolTip _tip = new();
+    private readonly OwnedToolTip _tip = new();
+    private readonly LegendGrid _legend = new(
+        ("Verified = live-client checked", DesignTokens.Success),
+        ("MaxDps-backed = MaxDps decides", DesignTokens.Accent),
+        ("Manual = never automatic", ConsolePalette.Tidewash),
+        ("Incomplete = not yet researched", DesignTokens.Warning))
+    {
+        Dock = DockStyle.Fill,
+        Columns = 2,
+        Margin = new Padding(14, 0, 6, 0),
+    };
     private readonly Label _empty = new();
 
     private readonly System.Windows.Forms.Timer _anim = new() { Interval = 15 };
@@ -40,6 +49,14 @@ internal sealed class ClassSkillsView : Panel
     private bool _closing;
 
     public event Action? Closed;
+
+    /// <summary>
+    /// S8 seam: the tree build currently runs inline, but it is pure (catalog +
+    /// spell book) and lives behind this delegate so S8 can hand it to a worker
+    /// thread and marshal rows back without touching this view's call shape.
+    /// </summary>
+    internal Func<AbilityCatalog, ClassSpellBook, string, string, SpecSkillList> TreeBuilder { get; set; }
+        = ClassSkillTree.Build;
 
     /// <summary>Short display names for the wire class tokens.</summary>
     private static readonly Dictionary<string, string> ClassDisplayNames = new(StringComparer.OrdinalIgnoreCase)
@@ -102,48 +119,8 @@ internal sealed class ClassSkillsView : Panel
 
     private void BuildShell()
     {
-        _header.Dock = DockStyle.Top;
-        _header.Height = 48;
-        _header.BackColor = Color.Transparent;
-
-        var back = new ChamferButton
-        {
-            Text = "Back",
-            Role = ButtonRole.Ghost,
-            Dock = DockStyle.Right,
-            Width = 96,
-            AutoSize = false,
-            Margin = new Padding(0, 8, 8, 8),
-        };
-        back.Click += (_, _) => Close();
-
-        // Same title-bar language as the Advanced screen: generated app icon,
-        // thick title, Back at the right edge.
-        var icon = new PictureBox
-        {
-            SizeMode = PictureBoxSizeMode.Zoom,
-            Size = new Size(24, 24),
-            Location = new Point(0, 12),
-            BackColor = Color.Transparent,
-            Image = MainForm.AppIconForUi(),
-        };
-
-        var title = new Label
-        {
-            Text = "Class skills",
-            AutoSize = false,
-            Location = new Point(34, 0),
-            Size = new Size(300, 48),
-            TextAlign = ContentAlignment.MiddleLeft,
-            Font = new Font(MainForm.UiFontPublic, 11.5F, FontStyle.Bold),
-            ForeColor = ConsolePalette.Bone,
-            BackColor = Color.Transparent,
-        };
-
-        _header.Controls.Add(title);
-        _header.Controls.Add(icon);
-        _header.Controls.Add(back);
-
+        // S5: no header here — the enclosing popup owns the single title/Back
+        // header. The old in-view "Class skills" bar duplicated it.
         _toolbar.Dock = DockStyle.Top;
         _toolbar.Height = 44;
         _toolbar.ColumnCount = 5;
@@ -164,19 +141,7 @@ internal sealed class ClassSkillsView : Panel
         StyleCombo(_specBox);
         _toolbar.Controls.Add(_specBox, 3, 0);
 
-        var legend = new Label
-        {
-            Text = "Verified = live-client checked · MaxDps-backed = MaxDps decides · Manual = never automatic · Incomplete = not yet researched",
-            AutoSize = false,
-            Dock = DockStyle.Fill,
-            TextAlign = ContentAlignment.MiddleLeft,
-            Font = new Font(MainForm.UiFontPublic, 8.25F),
-            ForeColor = ConsolePalette.Tidewash,
-            BackColor = Color.Transparent,
-            AutoEllipsis = true,
-            Margin = new Padding(14, 0, 6, 0),
-        };
-        _toolbar.Controls.Add(legend, 4, 0);
+        _toolbar.Controls.Add(_legend, 4, 0);
 
         _classBox.SelectedIndexChanged += (_, _) =>
         {
@@ -216,9 +181,20 @@ internal sealed class ClassSkillsView : Panel
 
         _shell.Controls.Add(_scroll);
         _shell.Controls.Add(_toolbar);
-        _shell.Controls.Add(_header);
         Controls.Add(_shell);
         _shell.BringToFront();
+    }
+
+    /// <summary>
+    /// S5 width-tier hook: the tier scales the class/spec combo item heights and
+    /// the multi-column legend type. Called by MainForm.ApplyPopupScale.
+    /// </summary>
+    internal void ApplyScale(UiScale scale)
+    {
+        _classBox.ApplyScale(scale);
+        _specBox.ApplyScale(scale);
+        _legend.Font = DesignTokens.Type(Math.Max(8f, scale.BaseFont - 1.5f));
+        _legend.PerformLayout();
     }
 
     private static Label FieldCaption(string text) => new()
@@ -233,32 +209,11 @@ internal sealed class ClassSkillsView : Panel
         Margin = new Padding(0, 0, 3, 0),
     };
 
-    private static void StyleCombo(ComboBox box)
+    private static void StyleCombo(OwnedComboBox box)
     {
-        box.DropDownStyle = ComboBoxStyle.DropDownList;
-        box.FlatStyle = FlatStyle.Flat;
-        box.BackColor = ConsolePalette.Iron;
-        box.ForeColor = ConsolePalette.Bone;
+        // The owner-drawn combo configures itself; only layout is local.
         box.Dock = DockStyle.Fill;
         box.Margin = new Padding(0, 6, 0, 6);
-        box.IntegralHeight = false;
-        box.MaxDropDownItems = 14;
-        // Owner-drawn so the dropdown matches the dark theme (the native
-        // DropDownList paints a system-white edit box even with BackColor set).
-        box.DrawMode = DrawMode.OwnerDrawFixed;
-        box.ItemHeight = 22;
-        box.DrawItem += (_, e) =>
-        {
-            var selected = (e.State & DrawItemState.Selected) != 0;
-            using var fill = new SolidBrush(selected ? ConsolePalette.Field : ConsolePalette.Iron);
-            e.Graphics.FillRectangle(fill, e.Bounds);
-            if (e.Index >= 0)
-            {
-                TextRenderer.DrawText(e.Graphics, box.Items[e.Index]?.ToString() ?? "", box.Font,
-                    e.Bounds, ConsolePalette.Bone,
-                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
-            }
-        };
     }
 
     /// <summary>Test seam: the empty-state copy shown when the list is empty (v3.4.0 §6).</summary>
@@ -272,7 +227,7 @@ internal sealed class ClassSkillsView : Panel
             var first = _stack.Controls.Count > 0 ? _stack.Controls[0] : null;
             var firstBounds = first is null ? "-" : string.Join(",", first.Bounds.X, first.Bounds.Y, first.Bounds.Width, first.Bounds.Height);
             return
-                $"visible={Visible} wantVisible={_visibleRequested} header={_header.Controls.Count} rows={_stack.Controls.Count} " +
+                $"visible={Visible} wantVisible={_visibleRequested} rows={_stack.Controls.Count} " +
                 $"class={SelectedClass ?? "-"} spec={SelectedSpec ?? "-"} scroll={_scroll.Controls.Count} " +
                 $"shell={_shell.Bounds.X},{_shell.Bounds.Y},{_shell.Bounds.Width}x{_shell.Bounds.Height} " +
                 $"scrollB={_scroll.Bounds.X},{_scroll.Bounds.Y},{_scroll.Bounds.Width}x{_scroll.Bounds.Height} " +
@@ -297,7 +252,6 @@ internal sealed class ClassSkillsView : Panel
         PerformLayout();
         Invalidate(true);
         _shell.CreateControl();
-        _header.CreateControl();
         _scroll.CreateControl();
         _stack.CreateControl();
         _shell.PerformLayout();
@@ -467,7 +421,7 @@ internal sealed class ClassSkillsView : Panel
                 return;
             }
 
-            var build = ClassSkillTree.Build(_catalog, _book, className, specName);
+            var build = TreeBuilder(_catalog, _book, className, specName);
             var filtered = _preset is not null && AbilityViewPresets.IsCategoryTag(_preset);
             if (filtered) build = FilterBuild(build, className, specName, _preset!);
             // Stream 1 §1.1: no speculative self-heal ids. When the curated
@@ -582,10 +536,21 @@ internal sealed class ClassSkillsView : Panel
         _stack.Controls.Add(item, 0, row);
         row++;
     }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _anim.Stop();
+            _anim.Dispose();
+            _tip.Dispose();
+        }
+        base.Dispose(disposing);
+    }
 }
 
 /// <summary>Eased wheel scrolling for the ability list (never fights a drag).</summary>
-internal sealed class SmoothScrollPanel : Panel
+internal sealed class SmoothScrollPanel : ThemedScrollHost
 {
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 15 };
     private int _target;
@@ -619,6 +584,7 @@ internal sealed class SmoothScrollPanel : Panel
             _timer.Stop();
         }
         AutoScrollPosition = new Point(0, next);
+        SyncBar();
     }
 }
 
@@ -697,6 +663,9 @@ internal sealed class AbilityToggleRow : Panel
 {
     public const int RowHeight = 88;
 
+    /// <summary>S8: square pixel size of the icon tile / scaled-icon cache key.</summary>
+    private const int IconPixels = 44;
+
     private readonly AbilityToggleRowState _state;
     private readonly IconTile _icon = new();
     private readonly Label _name = new();
@@ -706,7 +675,7 @@ internal sealed class AbilityToggleRow : Panel
     private readonly AbilityDefinition _ability;
     private readonly Func<bool, bool> _apply;
 
-    public AbilityToggleRow(AbilityDefinition ability, bool enabled, ToolTip tip, Func<bool, bool> apply, string? condition = null)
+    public AbilityToggleRow(AbilityDefinition ability, bool enabled, OwnedToolTip tip, Func<bool, bool> apply, string? condition = null)
     {
         _ability = ability;
         _apply = apply;
@@ -768,7 +737,9 @@ internal sealed class AbilityToggleRow : Panel
         SpellIconCache.Instance.IconReady += _state.OnIconReady;
         UpdateSubtitle();
 
-        var image = SpellIconCache.Instance.TryGet(ability.SpellId);
+        // S8: the row paints a pre-scaled copy so scrolling never runs a
+        // HighQualityBicubic rescale per row per frame.
+        var image = ScaledIconCache.Instance.Get(ability.SpellId, IconPixels);
         if (image is not null) _icon.SetImage(image);
     }
 
@@ -787,7 +758,7 @@ internal sealed class AbilityToggleRow : Panel
     protected override void OnLayout(LayoutEventArgs levent)
     {
         base.OnLayout(levent);
-        const int iconSize = 44;
+        const int iconSize = IconPixels;
         _icon.Bounds = new Rectangle(4, (Height - iconSize) / 2, iconSize, iconSize);
         var textX = _icon.Right + 14;
         var toggleX = Width - 8 - _toggle.Width;
@@ -1086,7 +1057,8 @@ internal sealed class AbilityToggleRow : Panel
             {
                 _tile.BeginInvoke(() =>
                 {
-                    var image = SpellIconCache.Instance.TryGet(_spellId);
+                    // S8: scaled copy, matching the ctor path.
+                    var image = ScaledIconCache.Instance.Get(_spellId, IconPixels);
                     if (image is not null) _tile.SetImage(image);
                 });
             }
