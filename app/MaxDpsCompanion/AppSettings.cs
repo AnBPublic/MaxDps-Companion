@@ -296,6 +296,27 @@ internal sealed class AppSettings
             ? AbilityOverrides.LoadFile(AbilityOverridesPath())
             : AbilityOverrides.Empty;
 
+    /// <summary>
+    /// S6 Class Browser knob: sets (or clears, when null) the per-machine
+    /// urgency-floor override for one spell. Mode is left untouched; the same
+    /// allow-list (spellId/mode/minUrgency) still governs the store.
+    /// </summary>
+    public void SetUrgencyOverride(int spellId, int? minUrgency)
+    {
+        if (spellId <= 0) return;
+        AbilityOverrides = AbilityOverrides.With(spellId, null, minUrgency);
+    }
+
+    /// <summary>S6 knob "Reset row": drops any override for one spell id.</summary>
+    public void ClearOverride(int spellId)
+    {
+        if (spellId <= 0) return;
+        AbilityOverrides = AbilityOverrides.Without(spellId);
+    }
+
+    /// <summary>Persists the per-machine override store next to the exe (best effort).</summary>
+    public bool SaveAbilityOverrides() => AbilityOverrides.SaveFile(AbilityOverridesPath());
+
     private void Apply(string section, string key, string value)
     {
         switch (section, key)

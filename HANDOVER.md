@@ -31,7 +31,43 @@ VALIDATED (this machine): `dotnet build app\MaxDpsCompanion\MaxDpsCompanion.cspr
 ClassicUi/ClassSkillsView/UiShell STA timing flakes are unchanged under load.
 LIVE OWED: bridge rotation end-to-end in retail.
 
+## 2026-09-30 S6 CLASS BROWSER (this change)
+
+GOAL: one Class Browser window replacing the separate Class skills + Explorer
+tabs (and their duplicate header), per Plan v3.5 S6.
+
+WHAT CHANGED (UI/tests only - no wire/scheduler/Lua/vendor):
+- `app/MaxDpsCompanion/Ui/ClassBrowserView.cs` (new): Class | Spec | Mode
+  selectors (All, Main, Offensive, Defensive, Interrupt, CC, Mobility, Solo
+  self-sustain, Consumable, Trinket, Utility/manual), quick knobs (min HP%
+  filter, urgency floor -> `AbilityOverrides`, solo-only/normal-only/always ->
+  `AbilityPolicy.WithMode`, Reset row), and a `VirtualAbilityList` host. The
+  view CONSUMES the resolved registry entry (`ClassOverlayLoader` + overrides)
+  and the engine's published live verdict; it evaluates no scheduler gate.
+- `Ui/AbilityExplorer.cs`: `VirtualAbilityList` gains a `Verdicts` map and row
+  paint for cooldown, tier badge and the live why-held pill (additive).
+- `MainForm.cs`: constructs the browser with a `ClassBrowserHost` (resolved
+  entry from `Knowledge/classes/<CLASS>.json` + `AbilityOverrides.Apply`,
+  verdict from `CurrentPlanHead`/`LastAction`), hosts it as the single
+  "Class browser" tab in the Abilities popup, scales it with the width tier,
+  and refreshes verdicts on the status timer. The legacy `ClassSkillsView` and
+  `AbilityExplorer` stay constructed as test seams (not displayed).
+- `AppSettings.cs`: `SetUrgencyOverride` / `ClearOverride` /
+  `SaveAbilityOverrides` so the knobs persist `ability-overrides.json`.
+- Tests: `ClassBrowserViewTests.cs` (new: modes, rows, warm open < 150 ms,
+  owner-drawn paint smoke); `ClassSkillsViewTests.cs` removed; ClassicUi/
+  UiShell expectations updated for the single tab.
+
+VALIDATED (offline): `dotnet build app/... -c Release` 0 warn / 0 err;
+`dotnet test -c Release` 746/746 pass. Measured warm open:
+`classBrowserWarmOpenMs=0.916`, `abilitiesPopupWarmOpenMs=17.713`, 161 rows
+(MAGE/Fire "All"). No `PixelProtocol.cs` / `KeySender.cs` / `Scheduler/**` /
+`Decision/**` / `addon/**` / `vendor/**` change.
+LIVE OWED: inspect the Class Browser popup in a retail run (docs/TESTING.md 3).
+
 ## 2026-09-30 v3.5 T5 — TOGGLE SSOT
+
+## 2026-09-30 EXT3 T0 CONTRACTS (this change)
 
 GOAL: freeze the Ext3 wire contract (T0 only — constants + decode shell + tests,
 no addon/encoder work). Ext3 is ADDITIVE over the frozen v5/Ext2 wire: a 43-cell

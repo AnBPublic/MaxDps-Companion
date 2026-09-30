@@ -242,33 +242,35 @@ static data; the policy only consumes decoded protocol fields and the
 companion's own send history. Nothing invented, nothing secret, no LLM in the
 runtime.
 
-## Class skills screen
+## Class Browser (S6) / Class skills screen
 
 ```
 AbilityCatalog (vendor Cooldowns + curated + merged class-spells)
   + ClassSpellBook (generated class-spells.json)
   + curated per-spec extras (Mobility/SelfHeal/Defensive)
+  + ClassOverlayLoader (Knowledge/classes/<CLASS>.json; registry-gated, then
+    AbilityOverrides.Apply = per-machine mode/minUrgency store)
         │
         ▼
-ClassSkillTree.Build(class, spec)
-  shared ids (present in every wire spec) + per-spec ids
-  grouped Main / Offensive / Defensive / Movement, provenanced-first sort
+ClassBrowserView (S6, v3.5) — one window, Class | Spec | Mode selectors
+  (All, Main, Offensive, Defensive, Interrupt, CC, Mobility, Solo
+  self-sustain, Consumable, Trinket, Utility/manual) + quick knobs
+  (min HP% filter, urgency floor, solo-only/normal-only/always)
+  rows: icon + name + cooldown + tier/ownership badges + live why-held
+  verdict + ON/OFF toggle, virtualized/owner-drawn via VirtualAbilityList
         │
         ▼
-ClassSkillsView rows (icon + name + recommendation + ToggleSwitch)
-  class/spec dropdowns (shared section then per-spec sections)
-        │
-        ▼
-AbilityPolicy.With(spellId, ...) → settings.ini [Abilities] On=/Off=
+AbilityPolicy.With / WithMode + AppSettings override store
+  → settings.ini [Abilities] On=/Off=/Modes= + ability-overrides.json
   → PolicyEvaluator / ActionScheduler
 ```
 
-The screen is read/build-only over the same immutable catalog the policy
-uses; a toggle just writes the existing per-spell override. `ClassSpellBook`
-decodes tokens, applies the live-client verification (removed ids are absent;
-names/icons are the client's own) and flags junk/passives; `ClassSkillTree`
-owns membership and ordering. Icons come from `SpellIconCache` (below), never
-from game memory.
+The browser CONSUMES the already-resolved registry entry (registry + overlay +
+overrides) and the engine's published live verdict; it never evaluates a
+scheduler gate — the scheduler owns evaluation. `ClassSkillTree` still owns the
+membership/ordering used by the legacy `ClassSkillsView` (kept as a test seam)
+and `--dump-class-skills`. Icons come from `SpellIconCache`, never from game
+memory.
 `MaxDpsCompanion.exe --dump-class-skills=<path>` dumps the merged tree for
 filter curation, and `--ui-snapshot-class-skills=<png>`
 [`--ui-snapshot-class=CLASS --ui-snapshot-spec=SPEC`] renders the screen for
@@ -298,7 +300,8 @@ MainForm (borderless; 660-wide fixed frame; 2px ring red stopped / green
        ├─ Advanced scrim + centred card (tabs Configuration | Diagnostics |
        │   Intelligence), built lazily once, one AutoScroll panel of fixed
        │   RuleSections per tab
-       └─ Abilities scrim + centred card (tabs Class skills | Explorer)
+        └─ Abilities scrim + centred card (one "Class browser" tab, S6)
+
   Default client 660 × min(content, working area); MinimumSize 520×560; Esc
   closes the topmost popup. Width tiers (UiScale, D5): client width picks
   Compact (≤560) / Classic (≤700, the 660 default) / Roomy (≤950) / Wide
@@ -421,14 +424,19 @@ MaxDps-Companion/
       spell-verification.json GENERATED live-client name/icon/verified per
                              class-spell id (wago.tools DB2 export); unverified
                              ids are not merged (see ClassSpellBook)
-    ClassSkillsView.cs       full-size Class skills screen: class/spec
-                             dropdowns, shared + per-spec sections, toggles
+    ClassSkillsView.cs       legacy full-size Class skills screen (superseded
+                             by Ui/ClassBrowserView.cs in S6; kept as a test
+                             seam): class/spec dropdowns, shared + per-spec
+                             sections, toggles
     Ui/                      UI shell (classic v3): DesignTokens (system
                              variable-font chain — Geist/UiFonts removed),
                              Layout (measured VertStack/WrapFlow/GridPanel/
                              BentoSplit + UiMeasure), UiPrimitives (GlassCard,
                              KvRow, pills/tiles/chips, UiClickable),
-                             AbilityExplorer / AbilityInspector,
+                             ClassBrowserView (S6: selector + mode filter +
+                             knobs + virtualized rows), AbilityExplorer /
+                             AbilityInspector (VirtualAbilityList + legacy
+                             Explorer, kept as test seams),
                              Pages (StackPage hosts for the popup tabs),
                              SettingsPages (Configuration/Diagnostics +
                              v3.3.0 SoloBandEditor Minor/Major/Immunity rows;
@@ -512,8 +520,8 @@ MaxDps-Companion/
                              (official name/icon, removed id not merged),
                              gap-fill exclusion, tree shared/per-spec, main
                              opt-out, all-class coverage
-    ClassSkillsViewTests.cs  STA window builds the Class skills screen with
-                             rows for every class
+    ClassBrowserViewTests.cs  S6 STA window: selectors/modes, warm open
+                             (&lt; 150 ms) + owner-drawn paint smoke
     SpellIconCacheTests.cs   download-once + disk cache, offline degradation,
                              hostile slug rejection, official-slug single
                              request

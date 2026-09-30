@@ -453,7 +453,7 @@ public class ClassicUiTests
         Assert.True(result.Flipped, "clicking the toggle must still flip it");
         Assert.False(result.OpenedByToggle, "clicking the toggle must not open the Abilities overlay");
         Assert.True(result.Opened, "clicking the Offensive bubble body did not open the Abilities overlay");
-        Assert.Equal(1, result.Tab);
+        Assert.Equal(0, result.Tab);
         Assert.True(result.Offensive, "the explorer was not filtered to Offensive");
         Assert.Contains("Click for skill list", result.OffensiveHint ?? "");
         Assert.DoesNotContain("Click for skill list", result.MainHint ?? "");   // Main stays MaxDps authority

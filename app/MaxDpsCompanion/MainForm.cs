@@ -138,6 +138,8 @@ internal sealed class MainForm : Form
     private readonly DiagnosticsPage _diagnostics = new();
     private ClassSkillsView? _classSkills;
     private ChamferButton? _classSkillsEntry;
+    private readonly ClassBrowserView _classBrowser;
+    private readonly Dictionary<string, ClassOverlay> _classOverlays = new(StringComparer.OrdinalIgnoreCase);
 
     // Stream 3 wiring: solo survival-band editor (Safety card) and the
     // bridge-health banner + suggested-vs-cast audit (Diagnostics page).
@@ -232,6 +234,41 @@ internal sealed class MainForm : Form
                 _settings.Abilities = _settings.Abilities.With(ability.SpellId, on, !ability.NeverAutomatic);
                 SaveSettings();
             });
+
+        // S6 (v3.5): one Class Browser replaces the Class skills + Explorer
+        // tabs. It consumes the resolved registry entry (overlay + overrides)
+        // and the engine's published verdict; it evaluates no gate itself.
+        _classBrowser = new ClassBrowserView(AbilityCatalog.Default, new ClassBrowserHost
+        {
+            IsEnabled = ability => _settings.Abilities.IsEnabled(ability),
+            SetEnabled = (ability, on) =>
+            {
+                _settings.Abilities = _settings.Abilities.With(ability.SpellId, on, !ability.NeverAutomatic);
+                SaveSettings();
+            },
+            RegistryEntry = ResolveRegistryEntry,
+            LiveVerdict = LiveVerdictFor,
+            ModeOf = spellId => _settings.Abilities.ModeOf(spellId),
+            SetMode = (spellId, mode) =>
+            {
+                _settings.Abilities = _settings.Abilities.WithMode(spellId, mode);
+                SaveSettings();
+            },
+            UrgencyFloorOf = spellId => _settings.AbilityOverrides.For(spellId)?.MinUrgency,
+            SetUrgencyFloor = (spellId, value) =>
+            {
+                _settings.SetUrgencyOverride(spellId, value);
+                _settings.SaveAbilityOverrides();
+                SaveSettings();
+            },
+            ResetOverrides = spellId =>
+            {
+                _settings.ClearOverride(spellId);
+                _settings.SaveAbilityOverrides();
+                _settings.Abilities = _settings.Abilities.WithMode(spellId, UserAbilityMode.Default);
+                SaveSettings();
+            },
+        });
 
         // WS-C drill-through: a clickable Intelligence metric tile opens the
         // Abilities overlay on the Explorer tab with the matching preset.
@@ -369,6 +406,83 @@ internal sealed class MainForm : Form
         ApplyToSettings();
         SaveSettings();
         RegisterPauseHotkey();
+    }
+
+    // ----- S6 Class Browser: resolved registry + live verdict ----------------
+
+    /// <summary>
+    /// The resolved registry entry (registry + overlay + user override) for a
+    /// spell. The loader applies the safety transforms once per class and the
+    /// result is cached; the browser only consumes it.
+    /// </summary>
+    private ClassOverlayEntry? ResolveRegistryEntry(string className, string specName, int spellId)
+    {
+        if (string.IsNullOrEmpty(className)) return null;
+        var entry = OverlayFor(className).For(spellId);
+        return entry is null ? null : _settings.AbilityOverrides.Apply(entry);
+    }
+
+    private ClassOverlay OverlayFor(string className)
+    {
+        if (_classOverlays.TryGetValue(className, out var cached)) return cached;
+        ClassOverlay overlay;
+        try
+        {
+            var path = FindClassOverlayPath(className);
+            overlay = path is null
+                ? ClassOverlay.Empty(className: className)
+                : ClassOverlayLoader.LoadFile(path);
+        }
+        catch
+        {
+            overlay = ClassOverlay.Empty(className: className);
+        }
+        _classOverlays[className] = overlay;
+        return overlay;
+    }
+
+    /// <summary>
+    /// Locates <c>Knowledge/classes/&lt;class&gt;.json</c>: next to the exe, or
+    /// in the repo tree during development. Null when the class has no overlay.
+    /// </summary>
+    private static string? FindClassOverlayPath(string className)
+    {
+        var file = className + ".json";
+        var candidates = new List<string>
+        {
+            Path.Combine(AppContext.BaseDirectory, "Knowledge", "classes", file),
+        };
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        for (var i = 0; i < 8 && dir is not null; i++, dir = dir.Parent)
+        {
+            candidates.Add(Path.Combine(dir.FullName, "app", "MaxDpsCompanion", "Knowledge", "classes", file));
+            candidates.Add(Path.Combine(dir.FullName, "Knowledge", "classes", file));
+        }
+        foreach (var candidate in candidates)
+            if (File.Exists(candidate)) return candidate;
+        return null;
+    }
+
+    /// <summary>
+    /// The live why-held / why-ready verdict for a row, read from the engine's
+    /// published snapshot. No gate is evaluated here (the scheduler owns that).
+    /// </summary>
+    private string? LiveVerdictFor(AbilityDefinition ability)
+    {
+        if (_engine.Paused) return "held: paused";
+        var current = _engine.CurrentPlanHead;
+        if (current is not null && string.Equals(current.Action, ability.Name, StringComparison.OrdinalIgnoreCase))
+            return "next: " + VerdictReason(current);
+        var last = _engine.LastAction;
+        if (last is not null && string.Equals(last.Action, ability.Name, StringComparison.OrdinalIgnoreCase))
+            return "sent: " + VerdictReason(last);
+        return null;
+    }
+
+    private static string VerdictReason(LiveActionSnapshot snapshot)
+    {
+        var why = snapshot.Why.Count > 0 ? string.Join("; ", snapshot.Why) : snapshot.Reason;
+        return string.IsNullOrWhiteSpace(why) ? "no reasons recorded" : why;
     }
 
     private void WireAutoSave()
@@ -925,6 +1039,7 @@ internal sealed class MainForm : Form
             ApplyScaleRecursive(host, _scale);
         // The Class skills screen owns its own combo/legend type steps (S5).
         _classSkills?.ApplyScale(_scale);
+        _classBrowser.ApplyScale(_scale);
     }
 
     private static void ApplyScaleRecursive(Control root, UiScale scale)
@@ -1008,11 +1123,12 @@ internal sealed class MainForm : Form
 
     private Panel BuildAbilitiesOverlay()
     {
-        var (scrim, tabs, popup) = BuildPopup("Abilities", 900, onClose: HideAbilities);
+        var (scrim, tabs, popup) = BuildPopup("Class browser", 900, onClose: HideAbilities);
         _abilitiesTabs = tabs;
         _abilitiesPopup = popup;
-        AddTab(tabs, "Class skills", _classSkills!);
-        AddTab(tabs, "Explorer", _explorer);
+        // S6: one Class Browser replaces the separate Class skills + Explorer
+        // tabs (and the duplicate in-view header they carried).
+        AddTab(tabs, "Class browser", _classBrowser);
         return scrim;
     }
 
@@ -1152,13 +1268,12 @@ internal sealed class MainForm : Form
         _abilitiesTabs.SelectedIndex = 0;
         _abilitiesOverlay.Visible = true;
         _abilitiesOverlay.BringToFront();
-        _classSkills?.Open(
+        // S6: warm open (< 150 ms): the browser rebuilds rows only when the
+        // class/spec/mode/hp-floor selection changed since the last open.
+        _classBrowser.Open(
             _engine.TryGetLiveClass(out var cls) ? cls : null,
             _engine.TryGetLiveSpec(out var spec) ? spec : null);
-        // D6: no chained motion. The ClassSkillsView owns an exponential
-        // fade+slide+settle timer; the popup supplies the single bounded fade,
-        // so settle the screen instantly instead of stacking animations.
-        _classSkills?.SnapToShown();
+        _classBrowser.RefreshLive();
         _abilitiesOverlay.PerformLayout();
         _abilitiesOverlay.Focus();
         _lastPopupOpenMs = openClock.Elapsed.TotalMilliseconds;
@@ -1200,7 +1315,11 @@ internal sealed class MainForm : Form
     private void ShowAbilitiesWithPreset(string tag, string? className = null, string? specName = null)
     {
         ShowAbilities();
-        _abilitiesTabs.SelectedIndex = 1;
+        // S6: the Class Browser owns the tab now; the legacy Explorer/Class
+        // skills views stay in sync for their standalone test seams.
+        _classBrowser.ApplyPreset(tag, className, specName);
+        _classBrowser.RefreshLive();
+        _classBrowser.PerformLayout();
         _explorer.ApplyPreset(tag, className, specName);
         _explorer.PerformLayout();
         if (AbilityViewPresets.IsCategoryTag(tag))
@@ -2394,6 +2513,9 @@ internal sealed class MainForm : Form
 
         if (_statusLine.Text != _statusMessage) _statusLine.Text = _statusMessage;
         _statusLine.ForeColor = DesignTokens.StatusColor(_statusMessageTone);
+
+        // S6: funnel the engine's published verdicts into the open browser.
+        if (_classBrowser.Visible) _classBrowser.RefreshLive();
     }
 
     private void SetStatus(string message, Color color)
@@ -2601,8 +2723,9 @@ internal sealed class MainForm : Form
                 break;
             case "abilities-explorer":
                 ShowAbilities();
-                _abilitiesTabs.SelectedIndex = 1;
-                _explorer.PerformLayout();
+                _abilitiesTabs.SelectedIndex = 0;
+                _classBrowser.RefreshLive();
+                _classBrowser.PerformLayout();
                 break;
         }
         PerformLayout();
@@ -2640,18 +2763,20 @@ internal sealed class MainForm : Form
 
     internal void OpenClassSkillsForSnapshot(string className, string specName)
     {
-        if (_classSkills is null) return;
         ShowAbilities();
         _abilitiesTabs.SelectedIndex = 0;
-        _classSkills.Open(className, specName);
-        _classSkills.SnapToShown();
+        _classBrowser.Open(className, specName);
+        _classBrowser.RefreshLive();
         PerformLayout();
     }
 
     internal string ClassSkillsDebugState => _classSkills?.DebugState ?? "null";
+    internal string ClassBrowserDebugState => _classBrowser.DebugState;
 
     internal Control MainBodyForTest => _mainBody;
     internal AbilityExplorer ExplorerForTest => _explorer;
+    /// <summary>S6: the single Class Browser hosted in the Abilities popup.</summary>
+    internal ClassBrowserView ClassBrowserForTest => _classBrowser;
     /// <summary>v3.4.0 §4: the hero bubbles, so a test can raise their Click.</summary>
     internal IReadOnlyList<SettingRow> HeroSettingRowsForTest => _heroSettingRows;
     internal ClassSkillsView? ClassSkillsForTest => _classSkills;
