@@ -103,13 +103,39 @@ internal static class CandidateProviders
     {
         if (ability.Category == AbilityCategory.SelfHeal || slot == Slot.SelfHeal) return SelfSustain;
         if (ability.IsSurvival) return Defensive;
-        if (ability.Purpose is AbilityPurpose.Escape or AbilityPurpose.Movement) return Defensive;
+
+        // v3.5 movement routing (RC5). Every movement tool belongs to the
+        // Mobility provider, which only ever fires a target-reaching tool when
+        // the target is confirmed outside melee and the ability is in range.
+        // A plain Escape therefore routes to Mobility and holds (it does not
+        // close a gap). An Escape carrying the taxonomy overlay's
+        // emergencyEscape flag is an emergency survival button, so it routes to
+        // Defensive, whose escape gate is Red-only (emergency HP or Red
+        // urgency — never White/Yellow).
+        if (ability.Purpose == AbilityPurpose.GapCloser) return Mobility;
+        if (ability.Purpose == AbilityPurpose.Movement) return Mobility;
+        if (ability.Purpose == AbilityPurpose.Escape)
+        {
+            // A flagged emergencyEscape, or a curated manual-by-design escape
+            // (a true panic button such as Vanish — never a target-reaching
+            // tool), is an emergency survival button owned by Defensive's
+            // Red-only escape gate. Any other escape is a movement tool.
+            return ability.EmergencyEscape || ability.NeverAutomatic ? Defensive : Mobility;
+        }
+
+        // v3.5 CC slot reuse (RC2). The bridge reuses the interrupt slot (wire
+        // 6) as the crowd-control source when MaxDps names no usable
+        // interrupt, so a curated CC row offered there resolves to the CC
+        // provider. The provider re-checks the opt-in gate and every safety
+        // rule, so an ungated call can never fire; non-slot-6 CC rows keep the
+        // existing Vetoes call-site and the Utility fallback.
+        if (slot == Slot.Interrupt && ability.Purpose == AbilityPurpose.CrowdControl) return CrowdControl;
+
         if (ability.Purpose is AbilityPurpose.Dispel or AbilityPurpose.CrowdControl
             or AbilityPurpose.Purge or AbilityPurpose.Threat) return Utility;
         if (ability.Purpose == AbilityPurpose.Interrupt) return Interrupt;
         if (ability.Purpose is AbilityPurpose.MajorOffensive or AbilityPurpose.MinorOffensive) return Offensive;
         if (ability.Purpose is AbilityPurpose.Consumable or AbilityPurpose.Trinket) return MaxDpsRotation;
-        if (ability.Purpose == AbilityPurpose.GapCloser) return Mobility;
         return MaxDpsRotation;
     }
 }
@@ -642,6 +668,24 @@ internal sealed class CrowdControlCandidateProvider : ICandidateProvider
         var ability = p.Ability;
         var ctx = p.Context;
         var input = p.Input;
+
+        // v3.5: the provider is now reachable from CandidateProviders.For (the
+        // reused interrupt slot), so it enforces the opt-in itself. The
+        // CrowdControlVetoes call-site already checks this for its own path;
+        // re-checking is idempotent and keeps the two entry points safe.
+        if (!CrowdControlGate.Enabled)
+            return D(PolicyDecision.Hold("crowd control opt-in off; held"), "CC opt-in off");
+        if (ability.Status is IntelligenceStatus.Incomplete or IntelligenceStatus.Unknown
+            or IntelligenceStatus.UnsafeToAutomate)
+            return D(PolicyDecision.Hold("crowd control intelligence incomplete; held"), "CC intelligence incomplete");
+        if (input.Options.Abilities is { } ccPolicy)
+        {
+            var ccMode = ccPolicy.ModeOf(ability.SpellId);
+            if (ccMode is UserAbilityMode.Never or UserAbilityMode.Manual)
+                return D(PolicyDecision.Hold("user policy: crowd control held"), "user policy");
+            if (ccPolicy.OverrideOf(ability.SpellId) == false)
+                return D(PolicyDecision.Hold("user policy disabled"), "user policy");
+        }
 
         var entry = p.Catalog.CrowdControlFor(ctx.Class, ctx.Spec, ability.SpellId);
         if (entry is null || !entry.AutoEligible)

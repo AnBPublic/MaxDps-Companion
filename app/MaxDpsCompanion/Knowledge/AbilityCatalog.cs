@@ -906,6 +906,7 @@ internal sealed class AbilityCatalog
             MobilityKind = o?.MobilityKind is { Length: > 0 } mk
                 ? ParseEnum(mk, MobilityKind.Unknown)
                 : DeriveMobilityKind(def.Purpose),
+            EmergencyEscape = o?.EmergencyEscape ?? def.EmergencyEscape,
             Requires = DeriveRequirements(def, o),
             TalentNote = o?.Talent,
             HeroTalentNote = o?.HeroTalent,
@@ -1425,6 +1426,7 @@ internal sealed class AbilityCatalog
         public string? InterruptKind { get; set; }
         public string? OffensiveUsage { get; set; }
         public string? MobilityKind { get; set; }
+        public bool? EmergencyEscape { get; set; }
         public string[]? Requires { get; set; }
         public string[]? Classes { get; set; }
         public string[]? Specs { get; set; }
