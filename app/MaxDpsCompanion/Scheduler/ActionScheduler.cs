@@ -38,7 +38,10 @@ namespace MaxDpsCompanion;
 ///  * State transitions (target regained, state change, GCD falling edge)
 ///    clear OS-gate suppression so a held candidate is not punished after the
 ///    state heals; FAILURE suppression (`_failedUntil`) deliberately survives
-///    transitions — only a successful send resets it. MinKeyInterval and link
+///    transitions for the situational slots — only a successful send resets
+///    it. The MAIN slot is the exception: a new fight (a target or combat
+///    edge) drops the Main failure memory so a stuck rotation suggestion
+///    cannot carry its backoff into the next target. MinKeyInterval and link
 ///    state persist either way.
 ///
 /// The engine's existing per-slot send gates stay authoritative; the plan is
@@ -57,6 +60,20 @@ internal sealed class ActionScheduler
 
     /// <summary>Cap for the escalating failure backoff (consecutive windows).</summary>
     internal const int MaxFailedSuppressMs = 10_000;
+
+    /// <summary>
+    /// Hard cap for the Main-slot failure backoff (Arms stuck fix): the main
+    /// rotation may never be silenced for the full 10 s ladder — a key that
+    /// keeps failing is re-armed after at most 3 s (1.5/3/3/3).
+    /// </summary>
+    internal const int MaxMainSuppressMs = 3000;
+
+    /// <summary>
+    /// Silence since the last failure that restarts the escalation ladder: a
+    /// new failure after this quiet gap retries at the base window instead of
+    /// inheriting a stale streak.
+    /// </summary>
+    internal const int FailureDecayMs = 6000;
 
     /// <summary>Sliding window for the send-count backoff.</summary>
     internal const int AttemptWindowMs = 1500;
@@ -106,6 +123,11 @@ internal sealed class ActionScheduler
     // backoff: a permanent failure converges to a low retry rate instead of a
     // fixed 1.5 s loop).
     private readonly Dictionary<(Slot Slot, KeyStroke Stroke, int SpellId), int> _failureStreak = new();
+
+    // Last failure time per (slot, stroke, spellId): a silence longer than
+    // FailureDecayMs restarts the ladder (a stale streak must not push a new,
+    // unrelated failure straight to the cap).
+    private readonly Dictionary<(Slot Slot, KeyStroke Stroke, int SpellId), long> _lastFailureAt = new();
 
     // (slot, stroke, spellId) -> send count inside the rolling window
     // (retry/backoff). Keying on the spell identity (not just the physical
@@ -174,7 +196,18 @@ internal sealed class ActionScheduler
         var key = (slot, stroke, spellId);
         // A successful send proves the stroke works: reset the failure state.
         _failedUntil.Remove(key);
-        _failureStreak.Remove(key);
+        if (slot == Slot.Main)
+        {
+            // The Main rotation rotates a pool of sibling identities. A send
+            // on any one of them proves the rotation is alive, so EVERY Main
+            // identity drops its ladder — the stuck key is re-armed at the
+            // base 1.5 s window rather than inheriting a long backoff.
+            RemoveMainStreaks();
+        }
+        else
+        {
+            _failureStreak.Remove(key);
+        }
         if (_attempts.TryGetValue(key, out var attempt) && nowMs - attempt.WindowStartMs <= AttemptWindowMs)
             _attempts[key] = (attempt.Count + 1, attempt.WindowStartMs);
         else
@@ -233,6 +266,7 @@ internal sealed class ActionScheduler
         _blockedUntil.Clear();
         _failedUntil.Clear();
         _failureStreak.Clear();
+        _lastFailureAt.Clear();
         _attempts.Clear();
         _pendingConfirm = null;
         _policyMemory.Reset();
@@ -293,7 +327,17 @@ internal sealed class ActionScheduler
             // ability that failed against the previous target is not silenced
             // against the new one.
             if (targetChanged || combatChanged)
+            {
                 _attempts.Clear();
+                // A new fight state is a new Main rotation: drop the Main
+                // slot's failure memory (suppression + ladder + decay stamp)
+                // so a stuck suggestion from the previous target cannot keep
+                // the rotation silent. Situational slots keep their
+                // suppression: a failed cooldown stays failed.
+                RemoveMainEntries(_failedUntil);
+                RemoveMainEntries(_failureStreak);
+                RemoveMainEntries(_lastFailureAt);
+            }
         }
         _hasFrame = true;
         _lastState = frame.State;
@@ -792,9 +836,10 @@ internal sealed class ActionScheduler
 
     /// <summary>
     /// Records a failed press: escalating suppression window per consecutive
-    /// failure (1.5 s, 3 s, 6 s, 10 s cap), reset by the next successful send.
+    /// failure — Main 1.5/3/3/3 s (hard 3 s cap), every other slot
+    /// 1.5/3/6/10 s — reset by the next successful send or a &gt;6 s silence.
     /// </summary>
-    private void NoteFailure(Slot slot, KeyStroke stroke, long nowMs, int spellId = 0)
+    internal void NoteFailure(Slot slot, KeyStroke stroke, long nowMs, int spellId = 0)
     {
         var key = (slot, stroke, spellId);
         // R2 (sustain-cd): a SelfHeal press that failed for a TRANSIENT reason
@@ -809,13 +854,51 @@ internal sealed class ActionScheduler
         {
             _failedUntil[key] = nowMs + RejectedSuppressMs;
             _failureStreak.Remove(key);
+            _lastFailureAt.Remove(key);
             return;
         }
-        var streak = _failureStreak.GetValueOrDefault(key) + 1;
+        // A long silence since the last failure restarts the ladder: the
+        // diagnosis is stale, so this is a fresh failure at the base window.
+        var streak = nowMs - _lastFailureAt.GetValueOrDefault(key) > FailureDecayMs
+            ? 0
+            : _failureStreak.GetValueOrDefault(key);
+        _lastFailureAt[key] = nowMs;
+        streak++;
         _failureStreak[key] = streak;
-        var shift = Math.Min(Math.Max(0, streak - 1), 3);
-        _failedUntil[key] = nowMs + Math.Min(RejectedSuppressMs << shift, MaxFailedSuppressMs);
+        // Main (Arms stuck fix): 1.5 / 3 / 3 / 3 s — the rotation key is
+        // re-armed hard at 3 s. Every other slot keeps the escalating
+        // 1.5 / 3 / 6 / 10 s ladder.
+        long windowMs;
+        if (slot == Slot.Main)
+        {
+            windowMs = streak <= 1 ? RejectedSuppressMs : MaxMainSuppressMs;
+        }
+        else
+        {
+            var shift = Math.Min(Math.Max(0, streak - 1), 3);
+            windowMs = Math.Min(RejectedSuppressMs << shift, MaxFailedSuppressMs);
+        }
+        _failedUntil[key] = nowMs + windowMs;
     }
+
+    /// <summary>Drops every Main-slot ladder entry: a successful Main send re-arms the slot.</summary>
+    private void RemoveMainStreaks() => RemoveMainEntries(_failureStreak);
+
+    /// <summary>Removes every Main-slot key from a per-key failure map (target/combat edge).</summary>
+    private static void RemoveMainEntries<TValue>(
+        Dictionary<(Slot Slot, KeyStroke Stroke, int SpellId), TValue> map)
+    {
+        if (map.Count == 0) return;
+        List<(Slot, KeyStroke, int)>? dead = null;
+        foreach (var key in map.Keys)
+            if (key.Slot == Slot.Main) (dead ??= []).Add(key);
+        if (dead is null) return;
+        foreach (var key in dead) map.Remove(key);
+    }
+
+    /// <summary>Test/diagnostic seam: the failure-suppression window set for a key (0 = none).</summary>
+    internal long FailedUntilFor(Slot slot, KeyStroke stroke, int spellId = 0) =>
+        _failedUntil.GetValueOrDefault((slot, stroke, spellId));
 
     private void PruneAttempts(long nowMs)
     {

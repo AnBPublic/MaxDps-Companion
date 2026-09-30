@@ -745,7 +745,7 @@ internal sealed class RotationEngine : IDisposable
         State = frame.State,
         NowMs = nowMs,
         StaleAfterMs = Math.Max(250, _settings.IntelligenceStaleAfterMs),
-        Candidates = _candidateTracker.Snapshot(_settings.SlotEnabled, nowMs, CandidateTracker.DefaultTtlMs),
+        Candidates = _candidateTracker.Snapshot(_settings.SlotEnabled, nowMs, _candidateTracker.TtlMs),
     };
 
     /// <summary>Ability display name when the identity is known, else the stroke/slot.</summary>
@@ -817,7 +817,7 @@ internal sealed class RotationEngine : IDisposable
         var plan = _scheduler.Advance(new ScheduleInput
         {
             Frame = frame,
-            Candidates = _candidateTracker.Snapshot(_settings.SlotEnabled, now, CandidateTracker.DefaultTtlMs),
+            Candidates = _candidateTracker.Snapshot(_settings.SlotEnabled, now, _candidateTracker.TtlMs),
             NowMs = now,
             MinKeyIntervalMs = _settings.MinKeyIntervalMs,
             StaleAfterMs = Math.Max(250, _settings.IntelligenceStaleAfterMs),

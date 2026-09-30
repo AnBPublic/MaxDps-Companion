@@ -1,6 +1,6 @@
 # Ability Registry Audit
 
-Generated (UTC): 2026-09-30 17:42:14  
+Generated (UTC): 2026-09-30 19:05:37  
 Game patch: 12.1 (interface 120100)  
 MaxDps version: 11.3.49  
 Registry verified: 2026-09-28  

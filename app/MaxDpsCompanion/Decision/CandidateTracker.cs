@@ -22,14 +22,30 @@ internal sealed class CandidateTracker
     /// <summary>Rendered-tick length assumed by the bridge (UPDATE_INTERVAL 0.033 s).</summary>
     public const int RenderedTickMs = 33;
 
+    /// <summary>Floor for the candidate TTL: a just-rotated sibling stays eligible.</summary>
+    public const int MinTtlMs = 1000;
+
+    /// <summary>Ceiling for the candidate TTL: never hold a candidate longer than a rotation.</summary>
+    public const int MaxTtlMs = 2500;
+
+    /// <summary>TTL spans this many measured ticks (Arms stuck: 3x the real tick).</summary>
+    public const int TtlTickMultiplier = 3;
+
     /// <summary>
-    /// Candidate lifetime: <c>1.5 * N * dwell * tickMs</c>. A candidate seen at
-    /// least once per full rotation stays inside this window; one that the
-    /// bridge has stopped offering (the slot rotated to a different pool, the
-    /// ability went on cooldown) drops out and is never pressed again.
+    /// Candidate lifetime for a measured/assumed tick:
+    /// <c>Clamp(max(1000, 3 * tickMs), 1000, 2500)</c>. The floor keeps a
+    /// just-rotated sibling eligible across the bridge's rotation dwell; the
+    /// ceiling bounds a slow/stalled sampler. <paramref name="tickMs"/> &lt;= 0
+    /// falls back to the floor (1000).
     /// </summary>
-    public static long DefaultTtlMs =>
-        (long)Math.Ceiling(1.5 * RotationCandidates * RotationDwellTicks * RenderedTickMs);
+    public static long TtlMsFor(int tickMs) =>
+        Math.Clamp(Math.Max(MinTtlMs, (long)tickMs * TtlTickMultiplier), MinTtlMs, MaxTtlMs);
+
+    /// <summary>
+    /// Default TTL at the bridge's assumed rendered tick (33 ms → the 1000 ms
+    /// floor). The engine uses <see cref="TtlMs"/> (its measured tick) instead.
+    /// </summary>
+    public static long DefaultTtlMs => TtlMsFor(RenderedTickMs);
 
     /// <summary>Entries older than this are pruned outright (bounded memory).</summary>
     private const long PruneAfterMs = 60_000;
@@ -46,6 +62,19 @@ internal sealed class CandidateTracker
 
     private readonly Dictionary<(int Slot, int SpellId), Observation> _observed = new();
 
+    // Measured frame interval: an EMA of the gap between consecutive Update
+    // stamps (the engine calls Update once per decoded frame). Smallest
+    // plumbing: no engine/clock change, derived only from the NowMs already
+    // passed in — Advance and Snapshot stay pure.
+    private long _lastUpdateMs;
+    private long _measuredTickMs;
+
+    /// <summary>Smoothed measured frame interval; 0 before the second frame.</summary>
+    public long MeasuredTickMs => _measuredTickMs;
+
+    /// <summary>TTL for the currently measured tick (floor 1000, ceiling 2500).</summary>
+    public long TtlMs => TtlMsFor((int)Math.Clamp(_measuredTickMs, int.MinValue, int.MaxValue));
+
     /// <summary>
     /// Records one decoded frame. Every present <c>(slot, spellId)</c> pair is
     /// stamped now and marked present; pairs the frame no longer carries keep
@@ -55,6 +84,15 @@ internal sealed class CandidateTracker
     /// </summary>
     public void Update(BridgeFrame frame, long nowMs)
     {
+        // Measured tick: exponential moving average (alpha 1/4) of the gap
+        // between decoded frames. A skipped/idle gap clamps at the TTL ceiling.
+        if (_lastUpdateMs > 0 && nowMs > _lastUpdateMs)
+        {
+            var delta = nowMs - _lastUpdateMs;
+            _measuredTickMs = _measuredTickMs == 0 ? delta : (_measuredTickMs * 3 + delta) / 4;
+        }
+        _lastUpdateMs = nowMs;
+
         foreach (var observation in _observed.Values) observation.Present = false;
 
         for (var i = 0; i < PixelProtocol.SlotCount; i++)
@@ -170,5 +208,10 @@ internal sealed class CandidateTracker
     }
 
     /// <summary>Drops all history (engine Start; a fresh session must not inherit stale timestamps).</summary>
-    public void Reset() => _observed.Clear();
+    public void Reset()
+    {
+        _observed.Clear();
+        _lastUpdateMs = 0;
+        _measuredTickMs = 0;
+    }
 }

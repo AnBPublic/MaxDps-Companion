@@ -107,11 +107,15 @@ MaxDpsCompanion.exe — DIB BitBlt sample @ PollIntervalMs
        ▼
 Candidate tracker (Decision/CandidateTracker)
   v3.5 last-seen set keyed by (slot, spellId): stroke, first/last-seen,
-  pressed-since-change, TTL 1.5*N*dwell*tickMs (N=3, dwell=3, tick=33 →
-  446 ms). The bridge rotates a slot's ready/bound pool, so a per-slot
-  single stroke could never be stale; the set keeps an independent stamp per
-  candidate and the TTL snapshot drops any identity the bridge stopped
-  offering (stale is never pressed). Companion-only slots enter here exactly
+  pressed-since-change, TTL Clamp(max(1000, 3*tickMs), 1000, 2500) ms where
+  tickMs is the measured frame interval (EMA of consecutive Update stamps,
+  alpha 1/4; no clock read — derived only from the NowMs already passed in;
+  <0 falls back to the 1000 ms floor; the bridge's assumed 33 ms tick also
+  floors at 1000 ms). The floor keeps a just-rotated sibling eligible; the
+  ceiling bounds a stalled sampler. The bridge rotates a slot's ready/bound
+  pool, so a per-slot single stroke could never be stale; the set keeps an
+  independent stamp per candidate and the TTL snapshot drops any identity the
+  bridge stopped offering (stale is never pressed). Companion-only slots enter here exactly
   like MaxDps slots — one scheduler input, one send path, no second engine.
   Ext2 SelfHeal2 (v3.0.0) is the alternate self-sustain candidate: the
   scheduler evaluates it with its OWN range probe (cell 28 B) when the primary
@@ -230,9 +234,12 @@ PostMessage WM_KEYDOWN/WM_KEYUP → WoW window only
   (player-bound keys; mouse/interact gated on foreground)
   failure recovery: a GCD-riding press that never starts a GCD inside
   ~600 ms is marked failed and the stroke is suppressed with an escalating
-  window (1.5/3/6/10 s, reset by a success); failure suppression is NOT
-  cleared by state transitions, so a dead action cannot be re-armed by
-  every GCD pulse and can never block other ranks
+  window (situational 1.5/3/6/10 s; the Main rotation is hard-capped at
+  1.5/3/3/3 s so a stuck Arms suggestion can never silence it — reset by a
+  success); a >6 s silence restarts the ladder, and a target/combat edge drops
+  only the Main failure memory while situational slots stay held; failure
+  suppression is otherwise NOT cleared by state transitions, so a dead action
+  cannot be re-armed by every GCD pulse and can never block other ranks
 
 Local telemetry (opt-in: [Telemetry] Enabled, default 0)
   every Report tick → JSONL event (tick/send/link) with the plan head,
@@ -763,11 +770,15 @@ MaxDps-Companion/
   gap-closer/movement purposes.
 - **Failure recovery.** A failed action (no GCD after a press, or the same
   stroke sent too often in the window) is suppressed with an escalating
-  window (1.5 s → 3 s → 6 s → 10 s, reset by a successful send), never
-  retried forever, and never blocks the rest of the plan: failure
-  suppression lives in `_failedUntil`, is never cleared by state
-  transitions, and a pending non-main stroke is demoted behind fresh
-  actions while its confirmation is pending. The engine's per-slot OS
+  window (situational slots 1.5 s → 3 s → 6 s → 10 s, reset by a successful
+  send), never retried forever, and never blocks the rest of the plan. The
+  Main rotation is the Arms-stuck exception: its ladder is capped at
+  1.5/3/3/3 s, any Main send clears every Main ladder, and a target/combat
+  edge drops the Main failure memory (situational slots stay held); a >6 s
+  silence restarts the ladder. Failure suppression lives in `_failedUntil`,
+  is otherwise never cleared by state transitions, and a pending non-main
+  stroke is demoted behind fresh actions while its confirmation is pending.
+  The engine's per-slot OS
   gates (movement bind, physically held key, focus, background policy,
   window liveness) stay authoritative — the scheduler produces an order,
   never a bypass.

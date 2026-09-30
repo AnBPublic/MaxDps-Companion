@@ -113,7 +113,7 @@ public class T6RoutingSchedulerTests
     [Fact]
     public void Default_Ttl_Is_One_And_A_Half_Rotations()
     {
-        Assert.Equal(446, CandidateTracker.DefaultTtlMs); // ceil(1.5 * 3 * 3 * 33)
+        Assert.Equal(1000, CandidateTracker.DefaultTtlMs); // TtlMsFor(33)=max(1000,99) floor
     }
 
     [Fact]

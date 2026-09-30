@@ -1,5 +1,58 @@
 # Handover — MaxDps-Companion
 
+## 2026-09-30 SCHEDULER MAIN BACKOFF + TRACKER TTL FLOOR (this change)
+
+GOAL: fix the Arms "stuck" main rotation (architect-APPROVED D-route). A failed
+Main press could escalate to the full 10 s ladder and survive a target change,
+silencing the rotation. Tracker TTL was also too tight on a slow tick. No
+`PixelProtocol.cs` / `docs/PROTOCOL.md` / `KeySender.cs` / addon Lua / vendor /
+glow change.
+
+CHANGED (`Scheduler/ActionScheduler.cs`):
+- `MaxMainSuppressMs = 3000`; `FailureDecayMs = 6000`.
+- `NoteFailure` (now `internal`): the Main ladder is 1.5/3/3/3 s (hard 3 s
+  cap); every other slot keeps 1.5/3/6/10 s. New `_lastFailureAt[key]`: a
+  failure more than 6 s after the previous one restarts the streak at 0
+  before incrementing. SelfHeal still caps at the base window, no streak.
+- `NoteSent(Main)` clears `_failureStreak` for **every** Main key (a Main send
+  proves the slot is alive and re-arms the whole pool); other slots clear only
+  their own key.
+- Transition block (:targetChanged||combatChanged) also removes every Main
+  entry from `_failedUntil`/`_failureStreak`/`_lastFailureAt`; situational
+  slots keep their suppression.
+- `Reset()` clears `_lastFailureAt`. Header comment :38-42 documents the Main
+  exception. `FailedUntilFor` internal probe added for tests.
+- `Decision/CandidateTracker.cs`: TTL is now
+  `Clamp(max(1000, 3*tickMs), 1000, 2500)` (`TtlMsFor`). `tickMs` is the
+  measured frame interval — an EMA (alpha 1/4) of consecutive `Update` NowMs
+  stamps, the smallest plumbing (no clock/engine change; `Advance` and
+  `Snapshot` stay pure); `<=0` uses the 1000 ms floor. `DefaultTtlMs` =
+  `TtlMsFor(33)` = 1000 (was 446). `RotationEngine` passes
+  `_candidateTracker.TtlMs` at both snapshot call sites.
+- `RotationEngine.cs` (2 call sites) + `ARCHITECTURE.md` + this section.
+
+DEFERRED: glow logic untouched.
+
+TESTS (+12): `ActionSchedulerPolicyTests` — Main re-armed after target change;
+a sibling Main send resets the ladder; a target edge clears only Main (non-Main
+still held); Main ladder pinned 1.5/3/3/3 vs situational 1.5/3/6/10; a 7 s
+silence decays to 1.5 s. `CandidateTrackerTests` — TTL floor/ceiling theory
+(0/50→1000, 400→1200, 2000/33→2500/1000) + measured-tick EMA. `T6` default-TTL
+pin updated 446 → 1000.
+
+VALIDATED (this machine): app `dotnet build -c Release` 0 warnings / 0 errors;
+`dotnet test -c Release` **844/845** (845 total; the one failure is the
+pre-existing load-sensitive `ClassicUi_PopupOpen_Fast_StaticOpaqueScrim` timing
+flake at 549 ms > 500 ms, passes standalone); `lua tests/secret_harness.lua`
+**237/237**; `luac -p` all 8 bridge files clean; `pwsh tools/ability_audit.ps1`
+exit 0 (Violations 0 / Warnings 0 / Missing 0 / Stale 0, committed addon
+Catalog.lua matches generated). `docs/research/ABILITY_REGISTRY_AUDIT.md`
+regenerated (timestamp only).
+
+LIVE OWED (retail 12.1): an Arms main key that keeps failing must never stay
+suppressed past ~3 s and must re-arm on a target/combat change; a slow tick
+must hold a rotated Main sibling long enough to fire. Static ≠ automated ≠ live.
+
 ## 2026-09-30 v3.6 CC ALL-CLASS AUTO-FIRE (this change)
 
 GOAL: make every class's qualifying stun/silence a real slot-6 CC candidate
