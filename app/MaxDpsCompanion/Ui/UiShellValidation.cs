@@ -92,6 +92,9 @@ internal static class UiShellValidation
     private static void Check(Control control, string page, List<string> findings)
     {
         if (control is Form) return;
+        // Scrollbars are auto-sized by their host and legitimately collapse when
+        // there is nothing to scroll; the smoke test has never judged them.
+        if (control is VScrollBar or HScrollBar or ThemedScrollBar) return;
         if (control.Width <= 0 || control.Height <= 0)
         {
             findings.Add($"{page}: '{Describe(control)}' has zero size ({control.Width}x{control.Height})");
@@ -206,7 +209,8 @@ internal static class UiShellValidation
             {
                 var a = siblings[i];
                 var b = siblings[j];
-                if (a is VScrollBar or HScrollBar || b is VScrollBar or HScrollBar) continue;
+                if (a is VScrollBar or HScrollBar or ThemedScrollBar
+                    || b is VScrollBar or HScrollBar or ThemedScrollBar) continue;
                 // Tab pages are all sized to the display rect and overlap by
                 // design; only the selected one is visible.
                 if (a is TabPage || b is TabPage) continue;

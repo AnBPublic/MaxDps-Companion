@@ -570,12 +570,10 @@ internal sealed class SettingRow : Panel, IUiMeasured
         Invalidate();
     }
 
-    private static readonly ToolTip SharedTip = new()
-    {
-        AutoPopDelay = 20000,
-        InitialDelay = 350,
-        ReshowDelay = 100,
-    };
+    // S5: per-row owned tooltip. The old static shared ToolTip was a native
+    // control touched from several STA threads at once (and a native bubble
+    // over the themed surface); one owned tip per row is thread-safe and themed.
+    private readonly OwnedToolTip _tip = new();
 
     private string? _hint;
 
@@ -590,11 +588,17 @@ internal sealed class SettingRow : Panel, IUiMeasured
         {
             _hint = value;
             if (string.IsNullOrWhiteSpace(value)) return;
-            SharedTip.SetToolTip(this, value);
-            SharedTip.SetToolTip(titleLabel, value);
-            SharedTip.SetToolTip(subtitleLabel, value);
-            SharedTip.SetToolTip(toggle, value);
+            _tip.SetToolTip(this, value);
+            _tip.SetToolTip(titleLabel, value);
+            _tip.SetToolTip(subtitleLabel, value);
+            _tip.SetToolTip(toggle, value);
         }
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) _tip.Dispose();
+        base.Dispose(disposing);
     }
 
     private int TextWidthFor(int width)

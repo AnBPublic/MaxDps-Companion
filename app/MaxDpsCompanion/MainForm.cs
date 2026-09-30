@@ -22,6 +22,12 @@ internal sealed class MainForm : Form
     private readonly RotationEngine _engine;
     private readonly System.Windows.Forms.Timer _uiTimer = new() { Interval = 250 };
 
+    // v3.5 S1 toggle SSOT: the app-WINS mask push state machine. Mutated only on
+    // the UI thread; the blocking ChatCommander send is dispatched to the
+    // thread pool so a toggle change or Start never freezes the window.
+    private readonly ToggleSync _toggleSync = new();
+    private int _togglePushInFlight;
+
     private EngineStatus _status;
     private bool _hotkeyRegistered;
     private string _statusMessage = "Stopped";
@@ -114,11 +120,16 @@ internal sealed class MainForm : Form
     private Control _mainBody = null!;
     private Panel _advancedOverlay = null!;
     private Panel _abilitiesOverlay = null!;
-    private TabControl _advancedTabs = null!;
-    private TabControl _abilitiesTabs = null!;
+    private SegmentedTabs _advancedTabs = null!;
+    private SegmentedTabs _abilitiesTabs = null!;
+    // v3.5 S7: the console home (default view over the classic body).
+    private ConsoleHome _consoleHome = null!;
+    private ConsolePreset? _activePreset;
+    private string _consoleLastStatus = "";
     private readonly LinkLamp _linkLamp = new();
     private readonly Label _stateLabel = new();
     private readonly Label _liveValue = new();
+    private readonly OwnedToolTip _liveTip = new();
     private readonly Label _statusLine = new();
     private readonly ClassBadge _classBadge = new();
     private readonly StripView _stripView = new();
@@ -177,25 +188,14 @@ internal sealed class MainForm : Form
     private bool _forceHeight;
     private int _contentHeight;
 
-    // D6: popups open synchronously and then run exactly ONE bounded fade. The
-    // scrim alpha is animated by a single timer (never a chain of fades/slides),
-    // the fade finishes within PopupFadeDurationMs, and it is skipped entirely
-    // while the engine is running so a live rotation never competes for the UI
-    // thread. The UI thread is never blocked (no Sleep / no modal wait).
-    internal const int PopupFadeDurationMs = 120;
-    private const int PopupFadeStepMs = 15;
-    private const int PopupScrimAlpha = 228;
-    private static readonly Color PopupScrimOpaque = Color.FromArgb(PopupScrimAlpha, 7, 9, 11);
-    private static readonly Color PopupScrimClear = Color.FromArgb(0, 7, 9, 11);
-    private readonly System.Windows.Forms.Timer _popupFadeTimer = new() { Interval = PopupFadeStepMs };
-    private Panel? _popupFadeScrim;
-    private long _popupFadeStart;
+    // S5: popups use a STATIC OPAQUE scrim. The old animated alpha scrim
+    // (0xE4,7,9,11) was painted by WinForms' simulated-transparency hack over
+    // native TabControl/ComboBox children, which never composite — the garbled
+    // popup. One opaque layer, no fade over native children.
     private double _lastPopupOpenMs;
 
-    /// <summary>Test seam: behave as if the engine were running without starting it.</summary>
+    /// <summary>Test seam: kept for the engine-running gate; now a no-op since the scrim is static.</summary>
     internal bool EngineRunningForFadeGate { get; set; }
-
-    private bool FadeSuppressed => _engine.IsRunning || EngineRunningForFadeGate;
 
     private static Image? _appIcon;
     private bool _uiInitialised;
@@ -326,7 +326,6 @@ internal sealed class MainForm : Form
             if (!_userSizedHeight) { /* height is content-driven */ }
             ApplyScale(resetHeight: !_userSizedHeight);
         };
-        _popupFadeTimer.Tick += (_, _) => PopupFadeTick();
         _uiInitialised = true;
     }
 
@@ -599,6 +598,9 @@ internal sealed class MainForm : Form
         scroll.Controls.Add(layout);
         canvas.Controls.Add(scroll);
 
+        _consoleHome = BuildConsoleHome();
+        canvas.Controls.Add(_consoleHome);
+
         _advancedOverlay = BuildAdvancedOverlay();
         _abilitiesOverlay = BuildAbilitiesOverlay();
         canvas.Controls.Add(_advancedOverlay);
@@ -606,6 +608,88 @@ internal sealed class MainForm : Form
         _advancedOverlay.BringToFront();
         _abilitiesOverlay.BringToFront();
         return canvas;
+    }
+
+    // ----- v3.5 S7 console home wiring -----
+
+    private ConsoleHome BuildConsoleHome()
+    {
+        var console = new ConsoleHome();
+        console.PauseRequested += TogglePauseFromConsole;
+        console.FolderRequested += OpenAppFolder;
+        console.ConsoleToggleRequested += () => console.Visible = !console.Visible;
+        console.BindsRequested += () => OpenAdvancedTab(0);
+        console.SettingsRequested += () => OpenAdvancedTab(0);
+        console.RotationRequested += ShowRotationMenu;
+        console.DebugRequested += () => OpenAdvancedTab(1);
+        console.PresetRequested += ApplyPreset;
+        return console;
+    }
+
+    /// <summary>Opens the Advanced overlay on a tab without disturbing z-order.</summary>
+    private void OpenAdvancedTab(int index)
+    {
+        ShowAdvanced();
+        if (_advancedTabs is not null && index >= 0 && index < _advancedTabs.TabPages.Count)
+            _advancedTabs.SelectedIndex = index;
+    }
+
+    private void TogglePauseFromConsole()
+    {
+        if (!_engine.IsRunning)
+        {
+            StartEngine();
+            return;
+        }
+        _engine.Paused = !_engine.Paused;
+        _consoleHome.SetPaused(_engine.Paused);
+        SetStatus(_engine.Paused ? "Paused." : "Running.", _engine.Paused ? DesignTokens.Accent : DesignTokens.Success);
+    }
+
+    /// <summary>
+    /// Applies a named preset bundle by writing the SAME hero toggles the user
+    /// can flip, then records the change in the update log. The addon can still
+    /// only restrict further; nothing here changes the wire.
+    /// </summary>
+    private void ApplyPreset(ConsolePreset preset)
+    {
+        var bundle = ConsolePresets.Get(preset);
+        _main.Checked = bundle.Main;
+        _offensive.Checked = bundle.Offensive;
+        _defensives.Checked = bundle.Defensives;
+        _consumable.Checked = bundle.Consumable;
+        _trinket.Checked = bundle.Trinket;
+        _outOfCombat.Checked = bundle.OutOfCombat;
+        _autoTarget.Checked = bundle.AutoTarget;
+        _autoInteract.Checked = bundle.AutoInteract;
+        _timeToKill.Checked = bundle.TimeToKill;
+        _crowdControl.Checked = bundle.CrowdControl;
+        _interrupt.Checked = bundle.Interrupt;
+        _mobility.Checked = bundle.Mobility;
+        _selfHeal.Checked = bundle.SelfHeal;
+        _solo2.Checked = bundle.Solo;
+        _activePreset = preset;
+        _consoleHome.SetActivePreset(preset);
+        _consoleHome.AppendLog($"Preset \"{bundle.Name}\" applied.", ConsolePalette.Brass);
+        _consoleHome.NoteChange($"Preset \"{bundle.Name}\" applied. {bundle.Summary}");
+        SetStatus($"Preset: {bundle.Name}. {bundle.Summary}", DesignTokens.Accent);
+    }
+
+    private void ShowRotationMenu()
+    {
+        var menu = new ContextMenuStrip { ShowImageMargin = false };
+        menu.Items.Add(new ToolStripMenuItem("Rotation source: MaxDps (suggest-only)") { Enabled = false });
+        menu.Items.Add(new ToolStripSeparator());
+        foreach (var bundle in ConsolePresets.All)
+        {
+            var item = new ToolStripMenuItem($"Preset: {bundle.Name}") { ToolTipText = bundle.Summary };
+            var captured = bundle.Preset;
+            item.Click += (_, _) => ApplyPreset(captured);
+            menu.Items.Add(item);
+        }
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(new ToolStripMenuItem("Class skills\u2026", null, (_, _) => ShowAbilities()));
+        menu.Show(Cursor.Position);
     }
 
     private Control BuildHeroCard()
@@ -662,8 +746,7 @@ internal sealed class MainForm : Form
         _liveValue.BackColor = Color.Transparent;
         _liveValue.Text = "Now: -";
         _liveValue.AccessibleName = "Current suggestion";
-        var liveTip = new ToolTip { AutoPopDelay = 20000, InitialDelay = 300 };
-        liveTip.SetToolTip(_liveValue, "What the companion is about to send and why");
+        _liveTip.SetToolTip(_liveValue, "What the companion is about to send and why");
         _liveRow = _liveValue;
         layout.Controls.Add(_liveValue, 0, 1);
 
@@ -929,6 +1012,10 @@ internal sealed class MainForm : Form
         _abilitiesTabs.Font = DesignTokens.Type(_scale.BaseFont);
         foreach (var host in new Control[] { _config, _diagnostics, _intelligencePage, _explorer })
             ApplyScaleRecursive(host, _scale);
+        // The Class skills screen owns its own combo/legend type steps (S5).
+        _classSkills?.ApplyScale(_scale);
+        // v3.5 S7: the console home tracks the same width tiers.
+        _consoleHome?.ApplyScale(_scale);
     }
 
     private static void ApplyScaleRecursive(Control root, UiScale scale)
@@ -954,6 +1041,9 @@ internal sealed class MainForm : Form
                     break;
                 case NumericUpDown numeric:
                     ApplyFontStep(numeric, scale.FontStep);
+                    break;
+                case OwnedComboBox owned:
+                    owned.ApplyScale(scale);
                     break;
             }
             if (child.HasChildren) ApplyScaleRecursive(child, scale);
@@ -1017,9 +1107,9 @@ internal sealed class MainForm : Form
         return scrim;
     }
 
-    private static void AddTab(TabControl tabs, string title, Control content)
+    private static void AddTab(SegmentedTabs tabs, string title, Control content)
     {
-        var page = new TabPage(title)
+        var page = new SegmentedTabPage(title)
         {
             BackColor = DesignTokens.Background,
             Padding = Padding.Empty,
@@ -1030,15 +1120,17 @@ internal sealed class MainForm : Form
     }
 
     /// <summary>
-    /// Dimmed scrim + centred card (width min(client-40, <paramref name="maxWidth"/>),
-    /// height client-60) with a header (title + Back) and a tab host.
+    /// Opaque scrim + centred card (width min(client-40, <paramref name="maxWidth"/>),
+    /// height client-60) with the single popup header (title + Back) and a
+    /// segmented tab host.
     /// </summary>
-    private (Panel Scrim, TabControl Tabs, RoundedCard Popup) BuildPopup(string title, int maxWidth, Action onClose)
+    private (Panel Scrim, SegmentedTabs Tabs, RoundedCard Popup) BuildPopup(string title, int maxWidth, Action onClose)
     {
         var scrim = new Panel
         {
             Dock = DockStyle.Fill,
-            BackColor = Color.FromArgb(228, 7, 9, 11),
+            // S5: STATIC OPAQUE. Never alpha — it sits behind native children.
+            BackColor = DesignTokens.Scrim,
             Visible = false,
         };
         var popup = new RoundedCard
@@ -1085,7 +1177,7 @@ internal sealed class MainForm : Form
         header.Controls.Add(titleLabel);
         header.Controls.Add(back);
 
-        var tabs = new TabControl { Dock = DockStyle.Fill, Font = DesignTokens.Type(DesignTokens.BodySize) };
+        var tabs = new SegmentedTabs { Dock = DockStyle.Fill, Font = DesignTokens.Type(DesignTokens.BodySize) };
 
         shell.Controls.Add(header, 0, 0);
         shell.Controls.Add(tabs, 0, 1);
@@ -1172,42 +1264,21 @@ internal sealed class MainForm : Form
         if (_mainBody is not null) _mainBody.Visible = true;
     }
 
-    // ----- D6: one bounded popup fade (never while the engine runs) -----
+    // ----- S5: static opaque scrim (no animation over native children) -----
 
-    private void BeginPopupFade(Panel scrim)
+    /// <summary>
+    /// Ensures the scrim is the opaque S5 backdrop. There is deliberately no
+    /// fade: the scrim sits behind native controls and an animated alpha
+    /// BackColor garbles them. Kept as a seam so Show/Hide stay one call each.
+    /// </summary>
+    private static void BeginPopupFade(Panel scrim)
     {
-        EndPopupFade();
-        if (FadeSuppressed)
-        {
-            // Engine running: show at full scrim instantly, no timer at all.
-            scrim.BackColor = PopupScrimOpaque;
-            return;
-        }
-        _popupFadeScrim = scrim;
-        _popupFadeStart = System.Diagnostics.Stopwatch.GetTimestamp();
-        scrim.BackColor = PopupScrimClear;
-        _popupFadeTimer.Start();
+        scrim.BackColor = DesignTokens.Scrim;
     }
 
-    private void PopupFadeTick()
+    private static void EndPopupFade()
     {
-        if (_popupFadeScrim is null)
-        {
-            _popupFadeTimer.Stop();
-            return;
-        }
-        var elapsedMs = (System.Diagnostics.Stopwatch.GetTimestamp() - _popupFadeStart)
-            * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
-        var t = Math.Min(1.0, elapsedMs / PopupFadeDurationMs);
-        _popupFadeScrim.BackColor = Color.FromArgb((int)Math.Round(PopupScrimAlpha * t), 7, 9, 11);
-        if (t >= 1.0) EndPopupFade();
-    }
-
-    private void EndPopupFade()
-    {
-        _popupFadeTimer.Stop();
-        if (_popupFadeScrim is not null) _popupFadeScrim.BackColor = PopupScrimOpaque;
-        _popupFadeScrim = null;
+        // No timer, no alpha: nothing to unwind.
     }
 
     /// <summary>
@@ -2016,7 +2087,52 @@ internal sealed class MainForm : Form
         _start.Enabled = false;
         _stop.Enabled = true;
         if (_trayStartStop is not null) _trayStartStop.Text = "Stop";
+        // v3.5 S1: a fresh session re-pushes the toggle mask once out of combat.
+        _toggleSync.BeginSession(_settings);
         SetStatus("Engine started.", DesignTokens.Success);
+    }
+
+    // ----- v3.5 S1 toggle SSOT (app-wins mask push + mirror echo) -----
+
+    /// <summary>
+    /// Drives the mask sync once per UI tick: re-reads the app toggles, feeds the
+    /// engine's Ext3 mirror, and pushes <c>/mdb mask &lt;hhhh&gt; &lt;e&gt;</c>
+    /// at Start and on change — ONLY out of combat, with the retry ladder inside
+    /// <see cref="ToggleSync"/>. The blocking chat send runs on the thread pool.
+    /// </summary>
+    private void PumpToggleSync()
+    {
+        _toggleSync.ObserveSettings(_settings);
+
+        Ext3Block? mirror = null;
+        var inCombat = false;
+        if (_engine.IsRunning) _engine.TryGetToggleMirror(out mirror, out inCombat);
+        _toggleSync.ObserveMirror(_engine.ElapsedMs, mirror);
+
+        if (_toggleSync.NeedsPush && _engine.IsRunning && !inCombat && _togglePushInFlight == 0
+            && _toggleSync.BeginPush(_engine.ElapsedMs) is not null)
+        {
+            DispatchTogglePush();
+        }
+    }
+
+    private void DispatchTogglePush()
+    {
+        if (Interlocked.CompareExchange(ref _togglePushInFlight, 1, 0) != 0) return;
+        var mask = _toggleSync.PendingMask ?? ToggleSync.BuildMask(_settings);
+        var epoch = _toggleSync.PendingEpoch;
+        var processName = _settings.ProcessName;
+        ThreadPool.QueueUserWorkItem(_ =>
+        {
+            try
+            {
+                var game = new WowWindow();
+                if (game.Refresh(processName))
+                    ChatCommander.SendToggleMask(game, mask, epoch, settleMs: 450);
+            }
+            catch { /* best effort: a missing echo is retried by the ladder */ }
+            finally { Interlocked.Exchange(ref _togglePushInFlight, 0); }
+        });
     }
 
     private void StopEngine()
@@ -2234,6 +2350,7 @@ internal sealed class MainForm : Form
         if (_bridgeStateValue.Text != bridge) _bridgeStateValue.Text = bridge;
         if (_protocolValue.Text == "-") _protocolValue.Text = $"v{PixelProtocol.SupportedVersion} (supported)";
 
+        PumpToggleSync();
         UpdateBridgeBanner(status);
 
         UpdateHero();
@@ -2253,7 +2370,16 @@ internal sealed class MainForm : Form
             string title, detail;
             StatusTone tone;
 
-            if (!_engine.IsRunning)
+            if (_toggleSync.HasConflict)
+            {
+                // v3.5 S1 red badge: the addon never mirrored the pushed mask
+                // after the retry ladder. The app still runs on its own mask
+                // (fail-open) but the cross-surface sync is broken.
+                (title, tone, detail) = ("Toggle sync: blocked", StatusTone.Warning,
+                    "The in-game addon did not mirror the app's /mdb mask. " +
+                    "Run install-addon.ps1 + /reload, or change a toggle to retry.");
+            }
+            else if (!_engine.IsRunning)
             {
                 (title, tone, detail) = ("Bridge health: unknown", StatusTone.Info, "");
             }
@@ -2359,6 +2485,23 @@ internal sealed class MainForm : Form
 
         if (_statusLine.Text != _statusMessage) _statusLine.Text = _statusMessage;
         _statusLine.ForeColor = DesignTokens.StatusColor(_statusMessageTone);
+
+        // v3.5 S7: mirror the same values into the console home. Every call is
+        // value-only (text writes / invalidate), so the status timer still
+        // performs no layout anywhere.
+        if (_consoleHome is null) return;
+        _engine.TryGetLiveClass(out var consoleClass);
+        _engine.TryGetLiveSpec(out var consoleSpec);
+        _consoleHome.SetSpec(consoleClass, consoleSpec);
+        _consoleHome.SetState(stateText, stateColor);
+        _consoleHome.SetBridge(running ? $"Bridge: {status.State}" : "Bridge: stopped");
+        _consoleHome.SetNow(action, why);
+        _consoleHome.SetPaused(_engine.Paused);
+        if (_consoleLastStatus != _statusMessage)
+        {
+            _consoleLastStatus = _statusMessage;
+            _consoleHome.AppendLog(_statusMessage, DesignTokens.StatusColor(_statusMessageTone));
+        }
     }
 
     private void SetStatus(string message, Color color)
@@ -2511,7 +2654,6 @@ internal sealed class MainForm : Form
         _uiTimer.Stop();
         _saveDebounce.Stop();
         _resizeDebounce.Stop();
-        _popupFadeTimer.Stop();
         if (_tray is not null)
         {
             _tray.Visible = false;
@@ -2519,6 +2661,7 @@ internal sealed class MainForm : Form
             _tray = null;
         }
         if (_hotkeyRegistered) Native.UnregisterHotKey(Handle, PauseHotkeyId);
+        _liveTip.Dispose();
         _engine.Dispose();
         base.OnFormClosed(e);
     }
@@ -2617,13 +2760,18 @@ internal sealed class MainForm : Form
 
     internal Control MainBodyForTest => _mainBody;
     internal AbilityExplorer ExplorerForTest => _explorer;
+    // v3.5 S7 console-home seams.
+    internal ConsoleHome ConsoleForTest => _consoleHome;
+    internal bool ConsoleVisibleForTest => _consoleHome?.Visible ?? false;
+    internal void ApplyPresetForTest(ConsolePreset preset) => ApplyPreset(preset);
+    internal void ToggleConsoleForTest() => _consoleHome.Visible = !_consoleHome.Visible;
     /// <summary>v3.4.0 §4: the hero bubbles, so a test can raise their Click.</summary>
     internal IReadOnlyList<SettingRow> HeroSettingRowsForTest => _heroSettingRows;
     internal ClassSkillsView? ClassSkillsForTest => _classSkills;
     internal IntelligencePage IntelligenceForTest => _intelligencePage;
     internal ConfigurationPage ConfigurationForTest => _config;
-    internal TabControl AdvancedTabsForTest => _advancedTabs;
-    internal TabControl AbilitiesTabsForTest => _abilitiesTabs;
+    internal SegmentedTabs AdvancedTabsForTest => _advancedTabs;
+    internal SegmentedTabs AbilitiesTabsForTest => _abilitiesTabs;
     internal bool AnyPopupVisibleForTest => AnyPopupVisible;
     internal bool AbilitiesVisibleForTest => _abilitiesOverlay?.Visible ?? false;
     internal Size MinimumSizeForTest => MinimumSize;
@@ -2642,9 +2790,9 @@ internal sealed class MainForm : Form
     internal float AdvancedTabFontForTest => _advancedTabs.Font.SizeInPoints;
     internal float AbilitiesTabFontForTest => _abilitiesTabs.Font.SizeInPoints;
 
-    // D6 popup-open + fade seams.
+    // S5 popup seams: the scrim is static opaque, so no fade timer exists.
     internal double LastPopupOpenMsForTest => _lastPopupOpenMs;
-    internal bool PopupFadeActiveForTest => _popupFadeTimer.Enabled;
+    internal bool PopupFadeActiveForTest => false;
     internal Color AdvancedScrimColorForTest => _advancedOverlay?.BackColor ?? Color.Empty;
     internal IReadOnlyList<string> BottomButtonLabelsForTest => new[]
     {
@@ -2726,7 +2874,7 @@ internal sealed class MainForm : Form
         return findings;
     }
 
-    private static void ValidateTabs(TabControl tabs, string prefix, List<string> findings)
+    private static void ValidateTabs(SegmentedTabs tabs, string prefix, List<string> findings)
     {
         for (var i = 0; i < tabs.TabPages.Count; i++)
         {
@@ -2736,7 +2884,7 @@ internal sealed class MainForm : Form
             content?.PerformLayout();
             Application.DoEvents();
             if (content is not null)
-                findings.AddRange(UiShellValidation.Validate(content, $"{prefix}/{page.Text}"));
+                findings.AddRange(UiShellValidation.Validate(content, $"{prefix}/{page.Title}"));
         }
     }
 }
