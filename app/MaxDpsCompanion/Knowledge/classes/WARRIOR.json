@@ -1,0 +1,206 @@
+{
+  "schema": 1,
+  "class": "WARRIOR",
+  "abilities": [
+    {
+      "spellId": 871,
+      "role": "Major",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 4,
+      "notes": "Shield Wall: major damage reduction; Red."
+    },
+    {
+      "spellId": 118038,
+      "role": "Major",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 4,
+      "notes": "Die by the Sword: major avoidance defensive (Arms); Red."
+    },
+    {
+      "spellId": 97462,
+      "role": "Major",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 4,
+      "notes": "Rallying Cry: major group max-health buff; Red."
+    },
+    {
+      "spellId": 12975,
+      "role": "Major",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 4,
+      "notes": "Last Stand: major max-health defensive (Protection); Red."
+    },
+    {
+      "spellId": 23920,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Spell Reflection: minor reflect; held without a live cast, Yellow+."
+    },
+    {
+      "spellId": 2565,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Shield Block: active mitigation (Protection); Yellow+."
+    },
+    {
+      "spellId": 184364,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Enraged Regeneration: solo self-sustain + damage reduction at/below 65% HP (Fury)."
+    },
+    {
+      "spellId": 190456,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Auto",
+      "minUrgency": 3,
+      "notes": "Ignore Pain: absorb; solo self-sustain ladder, curated Orange (Protection)."
+    },
+    {
+      "spellId": 202168,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Impending Victory: solo self-sustain ladder at/below 65% HP (alias of Victory Rush 34428)."
+    },
+    {
+      "spellId": 34428,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Victory Rush: solo self-sustain ladder after a kill (alias of Impending Victory 202168)."
+    },
+    {
+      "spellId": 100,
+      "role": "Mobility",
+      "route": "Mobility",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Auto",
+      "minUrgency": 0,
+      "notes": "Charge: gap-closer; only when the target is confirmed out of melee and in range, never toward hazards/raid bosses."
+    },
+    {
+      "spellId": 385952,
+      "role": "Mobility",
+      "route": "Mobility",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Auto",
+      "minUrgency": 0,
+      "notes": "Shield Charge: gap-closer; only when the target is confirmed out of melee and in range, never toward hazards/raid bosses."
+    },
+    {
+      "spellId": 6544,
+      "role": "Mobility",
+      "route": "Mobility",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Heroic Leap: ground-targeted leap; not safely auto-aimable, manual repositioning only."
+    },
+    {
+      "spellId": 3411,
+      "role": "Mobility",
+      "route": "Mobility",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Intervene: charge to an ally; manual (ally state/positioning not observable)."
+    },
+    {
+      "spellId": 198304,
+      "role": "Mobility",
+      "route": "Mobility",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Never",
+      "minUrgency": 0,
+      "notes": "Intervene (legacy id): needs verification (id absent from spell-verification.json); external charge, ally state unobservable."
+    },
+    {
+      "spellId": 6552,
+      "role": "Utility",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 0,
+      "notes": "Pummel: melee interrupt; only on a live enemy cast."
+    },
+    {
+      "spellId": 107570,
+      "role": "CC",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Auto",
+      "minUrgency": 0,
+      "notes": "Storm Bolt: single-target stun; casting/fleeing non-boss targets only."
+    },
+    {
+      "spellId": 5246,
+      "role": "CC",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Intimidating Shout: AoE fear; manual in groups (can scatter mobs)."
+    },
+    {
+      "spellId": 46968,
+      "role": "CC",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Shockwave: frontal AoE stun; manual (cone/positioning not observable)."
+    },
+    {
+      "spellId": 355,
+      "role": "Utility",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Never",
+      "minUrgency": 0,
+      "notes": "Taunt: threat redirect; never automatic (threat state not observable)."
+    }
+  ]
+}

@@ -1,0 +1,146 @@
+{
+  "schema": 1,
+  "class": "WARLOCK",
+  "abilities": [
+    {
+      "spellId": 108416,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Dark Pact: minor absorb (sacrifices health); Yellow+."
+    },
+    {
+      "spellId": 234153,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Drain Life: solo self-sustain channeled drain at/below 65% HP."
+    },
+    {
+      "spellId": 6789,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Mortal Coil: solo self-sustain ladder at/below 65% HP (fears the target; may scatter mobs)."
+    },
+    {
+      "spellId": 104773,
+      "role": "Major",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 4,
+      "notes": "Unending Resolve: major damage reduction + interrupt immunity; Red."
+    },
+    {
+      "spellId": 119910,
+      "role": "Utility",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 0,
+      "notes": "Spell Lock: Felhunter pet interrupt/silence (30yd); only on a live enemy cast. Live id (19647 is absent from the client)."
+    },
+    {
+      "spellId": 19647,
+      "role": "Utility",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Never",
+      "minUrgency": 0,
+      "notes": "Spell Lock (legacy id): needs verification (id absent from spell-verification.json); the live id is 119910."
+    },
+    {
+      "spellId": 48020,
+      "role": "Mobility",
+      "route": "Mobility",
+      "emergencyEscape": true,
+      "offGcd": true,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Demonic Circle: Teleport: teleport to the pre-placed circle; manual escape."
+    },
+    {
+      "spellId": 111771,
+      "role": "Mobility",
+      "route": "Mobility",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Never",
+      "minUrgency": 0,
+      "notes": "Demonic Gateway: party gateway; never automatic (ally state/positioning not observable)."
+    },
+    {
+      "spellId": 5782,
+      "role": "CC",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Fear: single-target fear; manual in groups (can scatter mobs)."
+    },
+    {
+      "spellId": 5484,
+      "role": "CC",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Howl of Terror: AoE fear; manual in groups (can scatter mobs)."
+    },
+    {
+      "spellId": 30283,
+      "role": "CC",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Shadowfury: AoE stun; manual (positioning/cone not observable)."
+    },
+    {
+      "spellId": 710,
+      "role": "CC",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Never",
+      "minUrgency": 0,
+      "notes": "Banish: demon/elemental banish; never-automatic list."
+    },
+    {
+      "spellId": 1098,
+      "role": "CC",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Never",
+      "minUrgency": 0,
+      "notes": "Subjugate Demon: enslave demon; never-automatic list."
+    },
+    {
+      "spellId": 6262,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Never",
+      "minUrgency": 4,
+      "notes": "Healthstone: needs verification (item id 6262 absent from spell-verification.json); item use stays manual."
+    }
+  ]
+}
