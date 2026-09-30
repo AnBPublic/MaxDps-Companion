@@ -163,10 +163,23 @@ internal static class BlockLocator
     }
 
     /// <summary>
+    /// v5-family window widths, widest first: Ext3 (43), Ext2 (40) and the v5
+    /// core (35). All three share the core layout; a narrower stale addon
+    /// falls back to its own width, so the sweep still finds it.
+    /// </summary>
+    private static readonly int[] V5WindowWidths =
+    {
+        PixelProtocol.CellCountExt3,
+        PixelProtocol.CellCountExt2,
+        PixelProtocol.CellCount,
+    };
+
+    /// <summary>
     /// Confirms the candidate really is our strip by decoding all cells.
-    /// Tries v5 (35 cells) first, then v4 (9 cells) and v1 (8 cells, older
-    /// stale addon): the sweep must find a stale strip too, or recalibrate
-    /// can never repair the version skew it is meant to diagnose.
+    /// Tries the v5 family widest-first (Ext3 43, then Ext2 40, then core 35),
+    /// then v4 (9 cells) and v1 (8 cells, older stale addon): the sweep must
+    /// find a stale strip too, or recalibrate can never repair the version
+    /// skew it is meant to diagnose.
     /// </summary>
     private static unsafe bool Verify(byte* scan, int stride, Size area, int x, int y, int size, ColorProfile? profile)
     {
@@ -184,12 +197,18 @@ internal static class BlockLocator
             return cells;
         }
 
-        // v5/Ext2 window (current addon, 40 cells). Decode validates via magic
-        // + both checksums; a clipped read fails there. A 35-cell stale addon
-        // reads its extra cells as background and decodes through the same path.
-        var current = ReadWindow(PixelProtocol.CellCountExt2);
-        if (PixelProtocol.Decode(current, profile) is not null) return true;
-        if (ColorLearner.Classify(current, profile) >= 0) return true;
+        // v5 family, widest capture first: Ext3 (43), then the Ext2 (40) and
+        // v5 core (35) fallbacks. Decode validates via magic + checksums; a
+        // clipped read fails there. A 40-cell Ext2 or 35-cell stale addon
+        // reads its extra cells as background and decodes through the widest
+        // window too, but the explicit narrower attempts keep a torn tail from
+        // spoiling the sweep and recognise a stale addon on its own width.
+        foreach (var width in V5WindowWidths)
+        {
+            var window = ReadWindow(width);
+            if (PixelProtocol.Decode(window, profile) is not null) return true;
+            if (ColorLearner.Classify(window, profile) >= 0) return true;
+        }
 
         // v4 window (stale addon): 9 cells starting at the same magic cell.
         var v4 = ReadWindow(PixelProtocol.CellCountV4);
