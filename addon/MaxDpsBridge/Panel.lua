@@ -108,6 +108,7 @@ local SECTIONS = {
 
 -- Forward locals: helpers below close over these.
 local Panel, Overlay, MinimapButton;
+local AppBadge;
 local CheckboxByKey = {};
 local VetoCheckboxByKey = {};
 local OverlayButtonByKey = {};
@@ -129,8 +130,30 @@ end
 
 local function Store (Key, On)
   local T = MDB.Toggles;
+  -- v3.5 app-wins: while the app controls the mask the panel is a read-only
+  -- mirror; a click never rewrites the effective value.
+  if T and T.AppControlled and T.AppControlled() then
+    if T.Get then return T.Get(Key); end
+    return On ~= false;
+  end
   if T and T.Set then return T.Set(Key, On); end
   return On ~= false;
+end
+
+local function AppControlled ()
+  local T = MDB.Toggles;
+  return (T and T.AppControlled and T.AppControlled()) and true or false;
+end
+
+local function HasConflict ()
+  local T = MDB.Toggles;
+  if not (T and T.AppControlled and T.AppControlled()) then return false; end
+  if T.AppBlocked and bit.band(T.AppBlocked() or 0, (T.BLOCKED_APP or 2)) ~= 0 then return true; end
+  local KeysList = Keys();
+  for i = 1, #KeysList do
+    if T.Conflict and T.Conflict(KeysList[i]) then return true; end
+  end
+  return false;
 end
 
 local function VetoGet (Group)
@@ -183,8 +206,13 @@ local function ShowToggleTip (Owner, Key)
   GameTooltip:SetOwner(Owner, "ANCHOR_RIGHT");
   GameTooltip:SetText(Label(Key) .. " toggle", 1, 1, 1);
   GameTooltip:AddLine("OFF: " .. (OFF_EFFECT[Key] or "the slot is left blank."), 1.0, 0.55, 0.55, true);
-  GameTooltip:AddLine("effective = companion AND addon; an addon OFF wins.",
-    0.70, 0.70, 0.70, true);
+  if AppControlled and AppControlled() then
+    GameTooltip:AddLine("effective = app mask (read-only mirror; an app OFF wins).",
+      0.70, 0.70, 0.70, true);
+  else
+    GameTooltip:AddLine("effective = companion AND addon; an addon OFF wins.",
+      0.70, 0.70, 0.70, true);
+  end
   GameTooltip:Show();
 end
 
@@ -278,14 +306,38 @@ end
 local UiCheckboxes = {};
 
 RefreshPanel = function ()
+  local Controlled = AppControlled();
+  local Badge = AppBadge;
+  if Badge then
+    if Controlled then
+      if HasConflict() then
+        Badge:SetText("READ-ONLY: app-controlled - conflict/blocked (change it in the companion)");
+        Badge:SetTextColor(1.0, 0.30, 0.30);
+      else
+        Badge:SetText("READ-ONLY: app-controlled, in sync (epoch live)");
+        Badge:SetTextColor(0.35, 0.85, 1.0);
+      end
+      Badge:Show();
+    else
+      Badge:SetText("Local control (app mask epoch 0)");
+      Badge:SetTextColor(0.55, 0.55, 0.60);
+      Badge:Show();
+    end
+  end
   local KeysList = Keys();
   for i = 1, #KeysList do
     local C = CheckboxByKey[KeysList[i]];
-    if C then C:SetChecked(IsOn(KeysList[i]) and true or false); end
+    if C then
+      C:SetChecked(IsOn(KeysList[i]) and true or false);
+      if Controlled and C.Disable then C:Disable(); elseif C.Enable then C:Enable(); end
+    end
   end
   for i = 1, #VETO_GROUPS do
     local C = VetoCheckboxByKey[VETO_GROUPS[i]];
-    if C then C:SetChecked(VetoGet(VETO_GROUPS[i]) and true or false); end
+    if C then
+      C:SetChecked(VetoGet(VETO_GROUPS[i]) and true or false);
+      if Controlled and C.Disable then C:Disable(); elseif C.Enable then C:Enable(); end
+    end
   end
   for i = 1, #UiCheckboxes do
     local C = UiCheckboxes[i];
@@ -330,17 +382,23 @@ BuildPanel = function ()
 
   local Hint = P:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall");
   Hint:SetPoint("TOPLEFT", Title, "BOTTOMLEFT", 0, -4);
-  Hint:SetText("Addon OFF always wins. Missing key = ON.");
+  Hint:SetText("App mask wins while its epoch is live; otherwise addon OFF wins. Missing key = ON.");
   Hint:SetTextColor(0.65, 0.65, 0.65);
 
+  -- v3.5 app-mask badge: mirror state + red conflict/blocked warning.
+  AppBadge = P:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall");
+  AppBadge:SetPoint("TOPLEFT", P, "TOPLEFT", 16, -50);
+  AppBadge:SetText("Local control (app mask epoch 0)");
+  AppBadge:SetTextColor(0.55, 0.55, 0.60);
+
   -- All on / All off.
-  MakeButton(P, "All on", 80, 18, -58, function ()
+  MakeButton(P, "All on", 80, 18, -66, function ()
     local KeysList = Keys();
     for i = 1, #KeysList do Store(KeysList[i], true); end
     RefreshPanel();
     RefreshOverlayButtons();
   end);
-  MakeButton(P, "All off", 80, 104, -58, function ()
+  MakeButton(P, "All off", 80, 104, -66, function ()
     local KeysList = Keys();
     for i = 1, #KeysList do Store(KeysList[i], false); end
     RefreshPanel();

@@ -1,8 +1,11 @@
 --- ============================ HEADER ============================
--- In-game 13-toggle policy (bridge 3.3.0). Pure logic, no frames: the addon
--- only ever RESTRICTS what the companion already decided.
+-- In-game 13-toggle policy (bridge 3.3.0), app-mask aware (bridge 3.5.0).
+-- Pure logic, no frames: the addon only ever RESTRICTS what the companion
+-- already decided.
 --
---   effective = companion AND addon; an addon OFF always wins.
+--   epoch == 0: effective = companion AND addon; an addon OFF wins.
+--   epoch ~= 0: effective = the desktop app's pushed 14-bit mask (Ext3);
+--               the local booleans are a read-only mirror, not a veto.
 --
 -- Storage: MaxDpsBridgeDB.Toggles[<Key>] booleans. A missing key (fresh
 -- install, downgrade, crafted SavedVariables) reads as ON, so the bridge
@@ -82,9 +85,52 @@ local function Canon (Key)
   return KEY_BY_LOWER[Key:lower()];
 end
 
---- Resolved state of one toggle: ON unless explicitly stored false. Unknown
--- keys and a missing/unreadable DB fail open (ON).
-local function Get (Key)
+-- ---- App-controlled toggle truth (v3.5 / Ext3) --------------------------
+-- The desktop app pushes a 14-bit toggle mask over `/mdb mask <hhhh> <e>`
+-- (only out of combat). The bridge stores it and, while the epoch is
+-- non-zero, treats the APP mask as the single source of truth for every
+-- toggle: the addon's local booleans no longer veto an app ON (the old
+-- "addon OFF always wins" rule is removed). At epoch 0 the local booleans
+-- drive everything exactly as before, so a companion that never sends the
+-- command keeps byte-identical behaviour.
+--
+-- The 14 bits map to the 13 canonical keys (slot order first) plus the CC
+-- appendix key: bit0 Main ... bit7 SelfHeal, bit8 Solo, bit9 OOC,
+-- bit10 AutoTarget, bit11 AutoInteract, bit12 TTK, bit13 CC. All 14 ON =
+-- 0x3FFF. Everything fails open: a missing/malformed mask reads all-ON and
+-- a nil epoch reads 0 (local control).
+local BIT_BY_KEY = {
+  Main = 0, Offensive = 1, Defensive = 2, Consumable = 3,
+  Trinket = 4, Interrupt = 5, Mobility = 6, SelfHeal = 7,
+  Solo = 8, OOC = 9, AutoTarget = 10, AutoInteract = 11, TTK = 12, CC = 13,
+};
+local ALL_MASK = 0x3FFF;
+
+local function GetAppEpoch ()
+  local DB = _G.MaxDpsBridgeDB;
+  if type(DB) ~= "table" then return 0; end
+  local E = DB.AppEpoch;
+  if type(E) ~= "number" or E < 0 or E > 15 then return 0; end
+  return math.floor(E);
+end
+
+local function GetAppMask ()
+  local DB = _G.MaxDpsBridgeDB;
+  if type(DB) ~= "table" then return ALL_MASK; end
+  local M = DB.AppMask;
+  if type(M) ~= "number" or M < 0 or M > ALL_MASK then return ALL_MASK; end
+  return math.floor(M);
+end
+
+local function GetAppBlocked ()
+  local DB = _G.MaxDpsBridgeDB;
+  if type(DB) ~= "table" then return 0; end
+  local B = DB.AppBlocked;
+  if type(B) ~= "number" or B < 0 or B > 15 then return 0; end
+  return math.floor(B);
+end
+
+local function LocalGet (Key)
   local C = Canon(Key);
   if not C then return true; end
   local DB = _G.MaxDpsBridgeDB;
@@ -94,6 +140,21 @@ local function Get (Key)
   local Value = Toggles[C];
   if Value == nil then return true; end
   return Value ~= false;
+end
+
+local function AppControlled () return GetAppEpoch() ~= 0; end
+
+--- The resolved value of one toggle. While the app controls the mask
+-- (epoch ~= 0) the app's bit wins outright; otherwise the local boolean
+-- applies ("missing = ON"). Unknown keys always read ON.
+local function Get (Key)
+  local C = Canon(Key);
+  if not C then return true; end
+  if AppControlled() then
+    local Bit = BIT_BY_KEY[C];
+    if Bit then return bit.band(GetAppMask(), bit.lshift(1, Bit)) ~= 0; end;
+  end
+  return LocalGet(C);
 end
 
 --- Persist one toggle. Returns the stored boolean. nil/true store ON; only an
@@ -204,6 +265,16 @@ local function SlotAllowed (Slot, Ctx)
     -- previous tick never survives a later deny.
     if MDB._LastAllow then MDB._LastAllow[Slot] = nil; end
 
+    -- 0) App-controlled truth (v3.5 Ext3). While the app mask is live the
+    --    slot bit is authoritative and the local vetoes below are bypassed
+    --    (the old "addon OFF wins" rule is gone). Fail open: a missing mask
+    --    reads all-ON.
+    if AppControlled() then
+      if Get(Key) == false then return Deny(Slot, "app mask"); end
+      MDB._LastBlank[Slot] = nil;
+      return true;
+    end
+
     -- 1) The slot's own toggle. ON = no restriction.
     if Get(Key) == false then
       return Deny(Slot, Key .. " off");
@@ -264,6 +335,52 @@ local function SlotAllowed (Slot, Ctx)
   return true;   -- fail open on any gate error
 end
 
+-- Blocked nibble bit1 (value 2): the app mask command was refused (in
+-- combat, or a malformed/absent mask/epoch). Published in Ext3 cell 41 B.
+local BLOCKED_APP = 2;
+
+local function ClampN (V, Lo, Hi, Def)
+  if type(V) ~= "number" or V ~= V then return Def; end
+  V = math.floor(V);
+  if V < Lo then return Lo; end
+  if V > Hi then return Hi; end
+  return V;
+end
+
+--- Store the app mask/epoch pushed by the companion. Everything is clamped
+-- to its wire range; the reserved bit stays 0. Returns the stored triple.
+local function SetAppMask (Mask, Epoch, Blocked)
+  local DB = _G.MaxDpsBridgeDB;
+  if type(DB) ~= "table" then DB = {}; _G.MaxDpsBridgeDB = DB; end
+  DB.AppMask = ClampN(Mask, 0, ALL_MASK, ALL_MASK);
+  DB.AppEpoch = ClampN(Epoch, 0, 15, 0);
+  DB.AppBlocked = ClampN(Blocked, 0, 15, 0);
+  BumpVersion();
+  return DB.AppMask, DB.AppEpoch, DB.AppBlocked;
+end
+
+local function SetAppBlocked (Nibble)
+  local DB = _G.MaxDpsBridgeDB;
+  if type(DB) ~= "table" then DB = {}; _G.MaxDpsBridgeDB = DB; end
+  DB.AppBlocked = ClampN(Nibble, 0, 15, 0);
+  BumpVersion();
+  return DB.AppBlocked;
+end
+
+--- The 14-bit mask the bridge publishes on the wire. App-controlled: the app
+-- mask verbatim. Local: each toggle rebuilt from the local booleans (all-ON
+-- default), so the companion/panel can see the addon's effective state.
+local function EffectiveMask ()
+  if AppControlled() then return GetAppMask(); end
+  local M = 0;
+  for i = 1, #KEYS do
+    local Bit = BIT_BY_KEY[KEYS[i]];
+    if Bit and LocalGet(KEYS[i]) then M = bit.bor(M, bit.lshift(1, Bit)); end
+  end
+  if LocalGet("CC") then M = bit.bor(M, bit.lshift(1, BIT_BY_KEY.CC)); end
+  return M;
+end
+
 MDB.Toggles = {
   Get = Get,
   Set = Set,
@@ -272,6 +389,19 @@ MDB.Toggles = {
   Label = Label,
   Snapshot = Snapshot,
   SlotAllowed = SlotAllowed,
+  -- App mask / epoch (v3.5 Ext3): single source of truth while controlled.
+  AppMask = GetAppMask,
+  AppEpoch = GetAppEpoch,
+  AppBlocked = GetAppBlocked,
+  SetAppMask = SetAppMask,
+  SetAppBlocked = SetAppBlocked,
+  AppControlled = AppControlled,
+  EffectiveMask = EffectiveMask,
+  LocalGet = LocalGet,
+  BLOCKED_APP = BLOCKED_APP,
+  -- True when the app controls this key and the local value disagrees (the
+  -- panel paints a red badge; it never changes the effective value).
+  Conflict = function (Key) return AppControlled() and LocalGet(Key) ~= Get(Key); end,
   -- Group vetoes (Stream 1 §1.3): restrict-only, missing = ON. Version is the
   -- monotonic dirty counter consumers poll instead of diffing the table.
   Veto = GetVeto,
