@@ -784,6 +784,21 @@ function MDB.IsInterruptReady (SpellID)
   return true;
 end
 
+--- v3.5 (CC fix): the interrupt slot is pinned on MaxDps's own interrupt ONLY
+--- while the target sensor confirms a live cast; otherwise the slot rotates
+--- the curated CC pool. This is the bridge-side counterpart of the companion's
+--- casting-only CC gate (Q1). Unknown interruptibility (the UNIT_SPELLCAST_
+--- INTERRUPTIBLE event has not arrived) still fails OPEN and pins — only a
+--- definite "not casting" passes the slot to the CC pool; a definite
+--- "not interruptible" was already vetoed by IsInterruptReady. A client with
+--- no sensor events at all fails OPEN to the ordinary verdict, so this can
+--- only ever DEMOTE when the sensor gives a definite state.
+function MDB.IsInterruptPinReady (SpellID)
+  if not MDB.IsInterruptReady(SpellID) then return false; end
+  if not SensorEvents then return true; end
+  return TargetCasting and TargetCastInterruptible ~= false;
+end
+
 --- ======= SPELL VARIANTS (protocol Ext2 / v3.0.0) =======
 -- One curated ability can be known to the client under several ids: the
 -- base spell (FindBaseSpellByID), the talent override (FindSpellOverrideByID
@@ -1577,6 +1592,23 @@ function MDB.GetCrowdControlCandidate ()
   return ExtraSpellID("cc");
 end
 
+--- v3.5 CC fix: bosses are immune to the curated CC (stun/fear/root/…), so the
+--- slot-6 CC pool is not offered against a worldboss / boss-level target.
+--- UnitClassification returns a plain string and UnitLevel a plain number for
+--- the target; both are pcall-contained and ANY failure/unknown fails OPEN
+--- (not a boss → include the candidate).
+function MDB.IsBossTarget ()
+  if type(UnitClassification) == "function" then
+    local OkC, Class = pcall(UnitClassification, "target");
+    if OkC and Class == "worldboss" then return true; end
+  end
+  if type(UnitLevel) == "function" then
+    local OkL, Level = pcall(UnitLevel, "target");
+    if OkL and Level == -1 then return true; end
+  end
+  return false;
+end
+
 --- ======= MULTI-CANDIDATE ROTATION (v3.5, bridge 3.5.0) =======
 -- The single "first ready+bound entry wins" selection let one held candidate
 -- shadow every alternative (RC4: Charge > Heroic Leap). These helpers return
@@ -1613,9 +1645,12 @@ end
 
 -- Walk one curated list into the pool: ready + bound + known variant +
 -- not never-automatic, dedup by the ACTIVE variant id. Returns an array.
-local function WalkCurated (List, Count, Seen)
+-- SkipBoss (v3.5, slot 6): when true, the whole walk is skipped if the
+-- current target is a boss (immune to the curated CC); unknown fails open.
+local function WalkCurated (List, Count, Seen, SkipBoss)
   local Out = {};
   if type(List) ~= "table" then return Out; end
+  if SkipBoss and MDB.IsBossTarget and MDB.IsBossTarget() then return Out; end
   for i = 1, #List do
     local Entry = List[i];
     if type(Entry) == "number" and Entry > 0 then
@@ -1648,9 +1683,9 @@ function MDB.RotationCandidates (Slot, Count)
   if Count > 4 then Count = 4 end;
   if Count < 1 then return {}; end
   local Out, Seen = {}, {};
-  local function Append (List)
+  local function Append (List, SkipBoss)
     if #Out >= Count then return; end
-    local Found = WalkCurated(List, Count, Seen);
+    local Found = WalkCurated(List, Count, Seen, SkipBoss);
     for i = 1, #Found do
       Out[#Out + 1] = Found[i];
       if #Out >= Count then return; end
@@ -1673,12 +1708,14 @@ function MDB.RotationCandidates (Slot, Count)
     end
   elseif Slot == 6 then
     -- The interrupt candidate stays first-class in Bridge (a live cast is
-    -- unconditional); the pool here is the CC fall-through list.
+    -- unconditional); the pool here is the CC fall-through list. The addon CC
+    -- toggle gates it (restrict-only, missing = ON) and boss targets are
+    -- skipped (immune to the curated CC; unknown fails open/include).
     if not (MDB.Toggles and MDB.Toggles.IsCC and not MDB.Toggles.IsCC()) then
       local _, classFile, specName = ClassSpec();
       local Table = classFile and specName and MDB.Extras
         and MDB.Extras[classFile] and MDB.Extras[classFile][specName];
-      if type(Table) == "table" then Append(Table.cc); end
+      if type(Table) == "table" then Append(Table.cc, true); end
     end
   elseif Slot == 7 or Slot == 8 then
     local _, classFile, specName = ClassSpec();

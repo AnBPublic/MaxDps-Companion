@@ -24,12 +24,14 @@ internal enum CcDrCategory
 /// vendor/curated row. Unverified ids are deliberately absent — an empty list
 /// is an honest empty state, never a guessed id.
 ///
-/// <see cref="AutoEligible"/> is the safety flag: only companion-curated
-/// manual-CC rows (the <c>purpose:"CrowdControl"</c> Utility entries already in
-/// <c>abilities.json</c>) may ever be fired automatically while the CC toggle
-/// is ON. Stuns that already live on a MaxDps-owned rotation row (Storm Bolt,
-/// Shockwave, …) are recorded for coverage/DR documentation only and stay
-/// <c>AutoEligible=false</c>: MaxDps authority is preserved for them.
+/// <see cref="AutoEligible"/> is the safety flag: only rows the companion is
+/// allowed to offer as automatic crowd control while the CC toggle is ON. The
+/// v3.5 fix raises Storm Bolt (107570) and Shockwave (46968) to
+/// <c>AutoEligible=true</c>: they are MaxDps-owned rotation stuns, so the
+/// companion may only ever fire them as an interrupt substitute — the CC
+/// provider's casting-only gate (<see cref="CrowdControlCandidateProvider"/>)
+/// holds every <see cref="CcKind.Stun"/>/<see cref="CcKind.Silence"/> row
+/// unless the target is observably casting. A blind stun is never generated.
 /// </summary>
 internal sealed record CrowdControlEntry(
     int SpellId,
@@ -129,9 +131,13 @@ internal static class CrowdControlCatalog
         Cc(360806, "Sleep Walk", CcKind.Sleep, CcDrCategory.Disorient, true, false, 30000, true, "EVOKER", "Augmentation", "Devastation", "Preservation"),
         Cc(372048, "Oppressing Roar", CcKind.Disorient, CcDrCategory.Disorient, false, true, 60000, true, "EVOKER", "Augmentation", "Devastation", "Preservation"),
 
-        // ---- coverage only: MaxDps-owned rotation stuns (never auto-overridden) ----
-        Cc(107570, "Storm Bolt", CcKind.Stun, CcDrCategory.Stun, true, false, 30000, false, "WARRIOR", "Arms", "Fury", "Protection"),
-        Cc(46968, "Shockwave", CcKind.Stun, CcDrCategory.Stun, false, true, 40000, false, "WARRIOR", "Arms", "Fury", "Protection"),
+        // ---- v3.5: MaxDps-owned rotation stuns, casting-only CC (Q1) --------
+        // Storm Bolt / Shockwave are MaxDps rotation rows; the companion only
+        // offers them as a CC candidate and the provider holds them unless the
+        // target is observably casting (never a blind stun). AutoEligible=true
+        // so the bridge's per-spec cc list carries them.
+        Cc(107570, "Storm Bolt", CcKind.Stun, CcDrCategory.Stun, true, false, 30000, true, "WARRIOR", "Arms", "Fury", "Protection"),
+        Cc(46968, "Shockwave", CcKind.Stun, CcDrCategory.Stun, false, true, 40000, true, "WARRIOR", "Arms", "Fury", "Protection"),
         Cc(207167, "Blinding Sleet", CcKind.Disorient, CcDrCategory.Disorient, false, true, 60000, false, "DEATHKNIGHT", "Blood", "Frost", "Unholy"),
         Cc(5211, "Mighty Bash", CcKind.Stun, CcDrCategory.Stun, true, false, 50000, false, "DRUID", "Balance", "Feral", "Guardian", "Restoration"),
         Cc(102359, "Mass Entanglement", CcKind.Root, CcDrCategory.Root, false, true, 30000, false, "DRUID", "Balance", "Feral", "Guardian", "Restoration"),

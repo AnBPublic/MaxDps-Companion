@@ -1598,5 +1598,79 @@ local function RunExt3Tests ()
 end
 RunExt3Tests()
 
+-- =====================================================================
+-- Workstream: v3.5 CC fix (Storm Bolt 107570 / Shockwave 46968).
+-- =====================================================================
+local function RunCcFixTests ()
+  local TG = MDB.Toggles
+  local DB = MaxDpsBridgeDB
+
+  -- ---- IsCC delegates Get("CC") (local + app mask + fail-open) ----
+  local SavedToggles = DB.Toggles
+  local SavedMask, SavedEpoch = DB.AppMask, DB.AppEpoch
+  local SavedCc = SavedToggles and SavedToggles.CC
+  DB.Toggles = {}
+  DB.AppMask, DB.AppEpoch = nil, nil
+  check("CCF IsCC missing CC = ON (fail open)", TG.IsCC() == true)
+  DB.Toggles.CC = false
+  check("CCF IsCC local CC off = false", TG.IsCC() == false)
+  check("CCF Get('CC') resolves the local key", TG.Get("CC") == false)
+  DB.Toggles.CC = true
+  check("CCF local EffectiveMask sets CC bit 13",
+    bit.band(TG.EffectiveMask(), 8192) == 8192)
+  DB.Toggles.CC = false
+  check("CCF local EffectiveMask clears CC bit 13 when CC off",
+    bit.band(TG.EffectiveMask(), 8192) == 0)
+
+  TG.SetAppMask(8192, 5, 0)
+  check("CCF app mask bit13 ON wins -> IsCC true", TG.IsCC() == true)
+  TG.SetAppMask(0, 5, 0)
+  check("CCF app mask bit13 OFF wins -> IsCC false", TG.IsCC() == false)
+  DB.AppMask, DB.AppEpoch = SavedMask, SavedEpoch
+
+  -- ---- IsBossTarget fail-open + classification ----
+  local SavedCI, SavedUL = UnitClassification, UnitLevel
+  UnitClassification = function() return "worldboss" end
+  check("CCF IsBossTarget worldboss -> true", MDB.IsBossTarget() == true)
+  UnitClassification = function() error("secret") end
+  UnitLevel = function() error("secret") end
+  check("CCF IsBossTarget pcall failure -> fail open (false)",
+    MDB.IsBossTarget() == false)
+  UnitClassification = function() return "normal" end
+  UnitLevel = function() return 72 end
+  check("CCF IsBossTarget normal/72 -> false", MDB.IsBossTarget() == false)
+  UnitClassification, UnitLevel = SavedCI, SavedUL
+
+  -- ---- slot-6 CC pool skips a boss, includes otherwise ----
+  MaxDps.Spells = {
+    [5246]   = { { HotKey = { GetText = function() return "5" end } } },
+    [107570] = { { HotKey = { GetText = function() return "6" end } } },
+    [46968]  = { { HotKey = { GetText = function() return "7" end } } },
+  }
+  MaxDps.classInterrupts = { WARRIOR = { Arms = {} } }
+  MDB._BindCache = {}
+  DB.Toggles = DB.Toggles or {}
+  DB.Toggles.CC = true
+
+  local Pool = MDB.RotationCandidates(6, 4)
+  local HasCc = false
+  for i = 1, #Pool do
+    if Pool[i] == 5246 or Pool[i] == 107570 or Pool[i] == 46968 then HasCc = true end
+  end
+  check("CCF slot-6 pool includes curated CC when not a boss", HasCc)
+
+  UnitClassification = function() return "worldboss" end
+  MDB._BindCache = {}
+  local BossPool = MDB.RotationCandidates(6, 4)
+  check("CCF slot-6 pool empty for a worldboss target",
+    type(BossPool) == "table" and #BossPool == 0)
+  UnitClassification, UnitLevel = SavedCI, SavedUL
+
+  DB.Toggles = SavedToggles
+  if SavedToggles then SavedToggles.CC = SavedCc end
+  MaxDps.classInterrupts = nil
+end
+RunCcFixTests()
+
 print(string.format("RESULT: %d passed, %d failed", PASS, FAIL))
 if FAIL > 0 then os.exit(1) end

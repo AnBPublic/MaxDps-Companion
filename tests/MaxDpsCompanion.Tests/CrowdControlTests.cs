@@ -90,15 +90,35 @@ public class CrowdControlTests
     }
 
     [Fact]
-    public void Gate_On_Fires_SingleTarget_Stun_On_Confirmed_Target()
+    public void Gate_On_Fires_SingleTarget_Stun_On_Confirmed_Casting_Target()
     {
         CrowdControlGate.Enabled = true;
         try
         {
-            var result = Evaluate(Slot.Offensive, 853, Context("PALADIN", "Holy", range: Range(Slot.Offensive, TriState.Yes)));
+            // v3.5 Q1 casting-only: a Stun fires only while the target is
+            // observably casting (an interrupt substitute).
+            var result = Evaluate(Slot.Offensive, 853, Context("PALADIN", "Holy",
+                range: Range(Slot.Offensive, TriState.Yes), targetCasting: TriState.Yes));
             Assert.Equal(PolicyVerdict.Use, result.Verdict);
             Assert.Equal("CrowdControl", result.Provider);
             Assert.Equal(CandidateSourceKind.CompanionGapFill, result.Source);
+        }
+        finally { CrowdControlGate.Reset(); }
+    }
+
+    [Fact]
+    public void Casting_Only_Stun_Holds_When_No_Target_Cast_Observed()
+    {
+        CrowdControlGate.Enabled = true;
+        try
+        {
+            // Same confirmed target + range, but no observed cast: the blind
+            // stun must hold (v3.5 Q1).
+            var result = Evaluate(Slot.Offensive, 853, Context("PALADIN", "Holy",
+                range: Range(Slot.Offensive, TriState.Yes), targetCasting: TriState.No));
+            Assert.Equal(PolicyVerdict.Hold, result.Verdict);
+            Assert.Equal("CrowdControl", result.Provider);
+            Assert.Contains("casting-only", result.Reason);
         }
         finally { CrowdControlGate.Reset(); }
     }
@@ -188,7 +208,8 @@ public class CrowdControlTests
         try
         {
             var result = Evaluate(Slot.Interrupt, 853,
-                Context("PALADIN", "Holy", range: Range(Slot.Interrupt, TriState.Yes)));
+                Context("PALADIN", "Holy", range: Range(Slot.Interrupt, TriState.Yes),
+                    targetCasting: TriState.Yes));
             Assert.Equal(PolicyVerdict.Use, result.Verdict);
             Assert.Equal("CrowdControl", result.Provider);
             Assert.Equal(CandidateSourceKind.CompanionGapFill, result.Source);
@@ -197,17 +218,17 @@ public class CrowdControlTests
     }
 
     [Fact]
-    public void Slot6_Cc_Bypasses_Interrupt_Vetoes_When_No_Interrupt_Is_Pending()
+    public void Slot6_NonStun_Cc_Bypasses_Interrupt_Vetoes_When_No_Interrupt_Is_Pending()
     {
         CrowdControlGate.Enabled = true;
         try
         {
             // A computed-but-no-cast context: a real interrupt on slot 6 would be
-            // vetoed ("no live target cast"), but the CC path needs no cast and
-            // must still fire on a confirmed target (the bridge only offers CC
-            // after MaxDps names no usable interrupt).
-            var result = Evaluate(Slot.Interrupt, 853,
-                Context("PALADIN", "Holy",
+            // vetoed ("no live target cast"), but a non-Stun/Silence CC (Fear,
+            // 5246) is not casting-only and must still fire on a confirmed target
+            // (the bridge only offers CC after MaxDps names no usable interrupt).
+            var result = Evaluate(Slot.Interrupt, 5246, // Intimidating Shout (Fear)
+                Context("WARRIOR", "Arms",
                     range: Range(Slot.Interrupt, TriState.Yes),
                     targetCasting: TriState.No));
             Assert.Equal(PolicyVerdict.Use, result.Verdict);
@@ -226,18 +247,31 @@ public class CrowdControlTests
     }
 
     [Fact]
-    public void Slot6_MaxDps_Owned_Stun_Is_Never_A_Cc_Slot_Candidate()
+    public void Slot6_MaxDps_Owned_Stuns_Are_Casting_Only_Candidates()
     {
-        // Storm Bolt 107570 is a MaxDps rotation row (AutoEligible=false): even
-        // with the CC gate ON it must not be offered as a CC slot-6 candidate,
-        // and the generated per-spec cc list must not contain it.
-        Assert.DoesNotContain(107570, Catalog.CrowdControlGapFill("WARRIOR", "Arms"));
+        // v3.5: Storm Bolt 107570 and Shockwave 46968 are now auto-eligible and
+        // ride the generated per-spec cc list. They are MaxDps-owned rotation
+        // rows (registry Incomplete, Purpose Rotational), so the companion
+        // keeps them on the delegated interrupt path — which is casting-only by
+        // construction (InterruptVetoes holds when no cast is observed).
+        Assert.Contains(107570, Catalog.CrowdControlGapFill("WARRIOR", "Arms"));
+        Assert.Contains(46968, Catalog.CrowdControlGapFill("WARRIOR", "Arms"));
         CrowdControlGate.Enabled = true;
         try
         {
-            var result = Evaluate(Slot.Interrupt, 107570,
-                Context("WARRIOR", "Arms", range: Range(Slot.Interrupt, TriState.Yes)));
-            Assert.NotEqual("CrowdControl", result.Provider);
+            // No observed cast -> the stun does not fire (never a blind stun).
+            var held = Evaluate(Slot.Interrupt, 107570,
+                Context("WARRIOR", "Arms", range: Range(Slot.Interrupt, TriState.Yes),
+                    targetCasting: TriState.No));
+            Assert.NotEqual(PolicyVerdict.Use, held.Verdict);
+            Assert.Contains("cast", held.Reason);
+
+            // A confirmed cast lets the delegated interrupt path fire it.
+            var fired = Evaluate(Slot.Interrupt, 107570,
+                Context("WARRIOR", "Arms", range: Range(Slot.Interrupt, TriState.Yes),
+                    targetCasting: TriState.Yes));
+            Assert.Equal(PolicyVerdict.Use, fired.Verdict);
+            Assert.NotEqual("CrowdControl", fired.Provider);
         }
         finally { CrowdControlGate.Reset(); }
     }
@@ -279,7 +313,8 @@ public class CrowdControlTests
         try
         {
             memory.NoteUse(CcDrCategory.Stun, Now); // e.g. a stun was just applied
-            var result = Evaluate(Slot.Offensive, 853, Context("PALADIN", "Holy", range: Range(Slot.Offensive, TriState.Yes)));
+            var result = Evaluate(Slot.Offensive, 853, Context("PALADIN", "Holy",
+                range: Range(Slot.Offensive, TriState.Yes), targetCasting: TriState.Yes));
             Assert.Equal(PolicyVerdict.Hold, result.Verdict);
             Assert.Contains("DR", result.Reason);
         }
@@ -325,11 +360,17 @@ public class CrowdControlTests
     }
 
     [Fact]
-    public void MaxDps_Owned_Stuns_Are_Not_Auto_Eligible()
+    public void MaxDps_Owned_Stuns_Are_Auto_Eligible_Casting_Only()
     {
-        // Storm Bolt / Shockwave are rotation rows on MaxDps authority.
-        Assert.False(Catalog.CrowdControlFor("WARRIOR", "Arms", 107570)!.AutoEligible);
-        Assert.False(Catalog.CrowdControlFor("WARRIOR", "Arms", 46968)!.AutoEligible);
+        // v3.5: Storm Bolt / Shockwave are rotation rows on MaxDps authority
+        // but now ride the curated CC list; the casting-only gate (Stun kind)
+        // keeps them from ever firing as a blind stun.
+        var bolt = Catalog.CrowdControlFor("WARRIOR", "Arms", 107570)!;
+        var wave = Catalog.CrowdControlFor("WARRIOR", "Arms", 46968)!;
+        Assert.True(bolt.AutoEligible);
+        Assert.True(wave.AutoEligible);
+        Assert.Equal(CcKind.Stun, bolt.Kind);
+        Assert.Equal(CcKind.Stun, wave.Kind);
     }
 
     [Fact]

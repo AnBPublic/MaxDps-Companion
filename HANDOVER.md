@@ -1,5 +1,64 @@
 # Handover — MaxDps-Companion
 
+## 2026-09-30 v3.5 CC FIX — Storm Bolt 107570 + Shockwave 46968 (this change)
+
+GOAL: make the two MaxDps-owned warrior stuns real slot-6 CC candidates in the
+companion's opt-in appendix, but only ever as an interrupt substitute — Q1
+"casting-only" approved. No `PixelProtocol.cs` / `docs/PROTOCOL.md` /
+`ToggleSync.cs` / `vendor/` change (wire frozen, version nibble stays 5).
+
+CHANGED:
+- `Knowledge/CrowdControlCatalog.cs`: Storm Bolt (107570) and Shockwave (46968)
+  flipped `AutoEligible=true` (they now ride the generated per-spec `cc` list).
+  Their `CcKind` is `Stun`, so the new casting-only gate still governs firing.
+- `Knowledge/CandidateProviders.cs`: `CrowdControlCandidateProvider` holds any
+  `CcKind.Stun`/`CcKind.Silence` row unless `ctx.TargetCasting == TriState.Yes`
+  (v3.5 Q1). Placed after the no-target / range / melee checks so those keep
+  their own verdicts; fear/disorient/incap/root/sleep/banish/subjugate kinds are
+  unchanged. `CrowdControlGapFill` doc updated.
+- `addon/MaxDpsBridge/Catalog.lua` + `tests/…/fixtures/Catalog.lua`: regenerated
+  via `--gen-catalog`; WARRIOR `cc = { 5246, 107570, 46968 }` for all 3 specs.
+- `addon/MaxDpsBridge/Reader.lua`: `MDB.IsInterruptPinReady(SpellID)` — pins the
+  interrupt only while the target sensor confirms a live cast; no sensors /
+  unknown interruptibility fails OPEN, and IsInterruptReady still vetoes an
+  explicit NOT_INTERRUPTIBLE. `MDB.IsBossTarget()` — pcall UnitClassification
+  ("worldboss") / UnitLevel (−1), fail-open include. `WalkCurated` takes a
+  `SkipBoss` flag; the slot-6 CC walk passes it (IsCC still gates the walk).
+- `addon/MaxDpsBridge/Bridge.lua` slot 6: the pin now uses
+  `IsInterruptPinReady` (else rotate the CC pool).
+- `addon/MaxDpsBridge/Toggles.lua`: `Canon` resolves `"CC"`; `IsCC` delegates to
+  `Get("CC")` inside a pcall (fail open true), so the Ext3 bit 13 app mask and
+  the local `Toggles.CC` key resolve through the one path. `EffectiveMask`
+  walks the 14 `BIT_BY_KEY` entries (the old unconditional CC add line is gone,
+  so a local CC OFF now clears bit 13).
+- Tests: `CrowdControlTests.cs` flips the two MaxDps-owned-stun facts and adds
+  casting-only Stun facts + a non-Stun CC bypass fact; `secret_harness.lua`
+  gains a `CCF` block (IsCC delegation, EffectiveMask CC bit, IsBossTarget
+  fail-open, slot-6 boss skip).
+- `ARCHITECTURE.md` pipeline/file map + the CC-reuse section updated in this
+  pass (see the v3.5 CC-fix paragraphs).
+
+Q2 (ability_audit parity): run CLEAN — exit 0, Violations 0 / Warnings 0 /
+Missing 0 / Stale 0, catalog matches the generated output. The registry
+disposition of 107570/46968 is unchanged (still Incomplete / MaxDpsDelegated in
+`docs/research/ABILITY_COVERAGE.json`), so no research doc edit was needed; the
+CC appendix membership is what the new tests pin. The two stuns therefore stay
+on the delegated interrupt path (`InterruptVetoes`, itself casting-only); the
+provider's casting-only gate hardens the other reachable auto-eligible
+Stun/Silence rows (Hammer of Justice 853, Asphyxiate 221562, Ring of Peace
+116844).
+
+VALIDATED (this machine): `dotnet build app\MaxDpsCompanion\MaxDpsCompanion.csproj
+-c Release` 0 warnings / 0 errors; `dotnet test -c Release` **798/798**;
+`lua tests/secret_harness.lua` **237/237**; `luac -p` all 8 bridge files clean;
+`pwsh tools/ability_audit.ps1` exit 0 (Violations 0 / Warnings 0 / Missing 0 /
+Stale 0, committed addon Catalog.lua matches generated).
+
+LIVE OWED (retail 12.1): with `[CrowdControl] Enabled=1`, a Pummel-on-cooldown
+cast should surface Storm Bolt/Shockwave on slot 6 and fire only while the cast
+is live; a worldboss target should never offer the CC pool; a blind (non-cast)
+Stun must hold. Static ≠ automated ≠ live.
+
 ## 2026-09-30 v3.5 MERGE (this change)
 
 GOAL: merge all Wave-1/2/3 streams into `v3.5-class-browser`, close RC1–RC7,

@@ -651,6 +651,9 @@ internal sealed class UtilityCandidateProvider : ICandidateProvider
 /// Safety rules (architect guardrails):
 ///  * Never an opener: AoE CC requires InCombat + HasTarget; single-target CC
 ///    requires the current target (HasTarget).
+///  * Casting-only Stun/Silence (v3.5, Q1): a Stun/Silence row fires only
+///    while <see cref="CombatContext.TargetCasting"/> is Yes — it is an
+///    interrupt substitute, never a blind stun. Other kinds are unaffected.
 ///  * Target confirmed attackable/in-range via the existing SlotRange /
 ///    TargetInMelee observations, and the shared cast hold.
 ///  * No DR-state inference: the companion only blocks re-chaining the same
@@ -714,6 +717,17 @@ internal sealed class CrowdControlCandidateProvider : ICandidateProvider
             return D(PolicyDecision.Uncertain("ability range unknown"), "ability range unknown");
         if (ability.TargetRange == RangeRequirement.InMelee && ctx.TargetInMelee == TriState.No)
             return D(PolicyDecision.Unavailable("target outside melee range"), "target outside melee range");
+
+        // v3.5 casting-only gate (Q1 approved): a Stun/Silence row is only ever
+        // an interrupt substitute, so it may fire only while the target is
+        // observably casting. ANY other state — not casting, or cast state
+        // unknown — holds: a blind stun is never generated. Non-Stun/Silence
+        // kinds (fear / disorient / incapacitate / root / sleep / banish /
+        // subjugate) are unaffected. The gate sits after the target/range
+        // checks so no-target and out-of-range still report their own verdicts.
+        if (entry.Kind is CcKind.Stun or CcKind.Silence && ctx.TargetCasting != TriState.Yes)
+            return D(PolicyDecision.Hold($"casting-only crowd control {entry.Name}; no target cast observed"),
+                "casting-only: no target cast observed");
 
         // Conservative same-category anti-chain memory (self-only, fail open).
         if (entry.Dr != CcDrCategory.Unknown

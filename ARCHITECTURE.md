@@ -64,15 +64,20 @@ MaxDpsBridge addon — 43-cell pixel strip (bridge 3.5.0; v5 + Ext2 layout
            The whole path stays inside MaxDps's own `enableDefensives` /
            `enableCooldowns` switches, so muting them upstream also mutes
            the gap-fill.
-           CC slot-6 reuse (v3.4.0 Option A): the bridge walks the generated
-           per-spec `cc` list (auto-eligible curated CC rows) and writes the
-           first ready+bound candidate into the reused Interrupt slot 6 ONLY
-           when MaxDps names no flagged+ready+live-cast interrupt. The CC path
-           skips `IsInterruptReady` (no live cast needed) and is gated by the
-           addon CC toggle; the companion's `CrowdControlGate` remains the
-           authority. No new slot and no new source bit — the id rides the
-           existing slot-6 cells and the companion recognises it by curated CC
-           membership at the existing `CrowdControlVetoes.Evaluate` call-site.
+           CC slot-6 reuse (v3.4.0 Option A; v3.5 CC fix): the bridge walks the
+           generated per-spec `cc` list (auto-eligible curated CC rows) and
+           writes the first ready+bound candidate into the reused Interrupt
+           slot 6 ONLY when MaxDps names no interrupt that pins — and since
+           v3.5 the pin requires the target sensor to confirm a live cast
+           (`IsInterruptPinReady`), otherwise the slot rotates the CC pool. The
+           CC walk skips boss targets (`IsBossTarget`, fail-open) and is gated
+           by the addon CC toggle (`IsCC`, now a `Get("CC")` delegate); the
+           companion's `CrowdControlGate` remains the authority. The provider
+           holds any Stun/Silence row unless the target is observably casting
+           (Q1 casting-only). No new slot and no new source bit — the id rides
+           the existing slot-6 cells and the companion recognises it by curated
+           CC membership at the existing `CrowdControlVetoes.Evaluate`
+           call-site.
   gates (bridge 3.3.0): Toggles.lua is the single addon-side restriction
         point. `SlotAllowed(slot, ctx)` is consulted before every WriteSlot —
         a denied slot is written empty with the valid flag clear, i.e. the
@@ -375,10 +380,13 @@ MaxDps-Companion/
                              (base/override/alias resolution), SelfHeal2,
                              ExtraCandidates (mobility/selfHeal/defensive/cc),
                              MDB.GetCrowdControlCandidate (slot-6 CC source),
+                             v3.5 MDB.IsInterruptPinReady (casting-gated
+                             interrupt pin) + MDB.IsBossTarget (CC boss skip),
                              Ext2 HP-curve source
     Bridge.lua               strip rendering + 40-cell v5 + Ext2 encode
                              (urgency + HP curve + SelfHeal2 + Ext2 checksum);
-                             slot 6 = interrupt-first, else the v3.4.0 CC
+                             slot 6 = interrupt-first only while the target
+                             sensor confirms a live cast, else the v3.4.0 CC
                              candidate (wire frozen, no new slot);
                              per-tick toggle context + /mdb toggles|overlay|
                              <key>|all|why, deep Defaults merge
@@ -412,7 +420,12 @@ MaxDps-Companion/
                              (12.1 / 120100 / 11.3.49, CatalogVersion 4)
       CrowdControlCatalog.cs curated verified CC registry (v3.4.0): DR
                              category, Single/AoE, CD, AutoEligible; read by
-                             AbilityCatalog.CrowdControlFor / CrowdControlGapFill
+                             AbilityCatalog.CrowdControlFor / CrowdControlGapFill.
+                             v3.5 raises the MaxDps-owned warrior stuns
+                             (Storm Bolt 107570, Shockwave 46968) to
+                             AutoEligible=true — the provider's casting-only
+                             Stun/Silence gate keeps them from ever firing as a
+                             blind stun
       CrowdControlVetoes.cs  companion CC opt-in gate (CrowdControlGate,
                              default OFF), companion-only same-DR anti-chain
                              memory (fail open), and CrowdControlVetoes.Evaluate
@@ -810,19 +823,30 @@ MaxDps-Companion/
   Defensive majors gap-fill only at Red; short-CD (Minor/None) gap-fill opens at
   Orange; both stay inside MaxDps's own `enableDefensives` / `enableCooldowns`
   switches, so muting them upstream mutes the gap-fill too.
-- **CC reuses the Interrupt slot; the wire stays frozen (v3.4.0, Option A).**
+- **CC reuses the Interrupt slot; the wire stays frozen (v3.4.0, Option A;
+  v3.5 casting-only fix).**
   The bridge writes a curated ready+bound crowd-control candidate into wire
-  slot 6 only after MaxDps names no usable interrupt (`GetInterruptSpellID` +
-  `IsInterruptReady` run first), so a live interrupt always wins and CC is
-  never emitted while an interrupt is pending. The CC path deliberately skips
-  `IsInterruptReady` (a CC needs no live cast) and is gated by the addon CC
-  toggle (`Toggles.IsCC`, restrict-only, missing = ON). No new slot, no new
-  source bit, no `PixelProtocol.cs` / `docs/PROTOCOL.md` change: the id rides
-  the existing slot-6 cells, and the companion routes it through the existing
+  slot 6 only after MaxDps names no usable interrupt (`GetInterruptSpellID`
+  first), and since v3.5 the interrupt pins the slot only while the target
+  sensor confirms a live cast (`IsInterruptPinReady`; no sensors = fail open);
+  otherwise the slot rotates the CC pool, so a live interrupt always wins and
+  CC is never emitted while an interrupt is genuinely pending. The CC path
+  deliberately skips `IsInterruptReady` (a CC needs no live cast) and is gated
+  by the addon CC toggle (`Toggles.IsCC`, now a fail-open `Get("CC")` delegate
+  so the Ext3 bit 13 / local key resolve through the one Canon path). The
+  slot-6 CC walk skips worldboss/boss-level targets (`MDB.IsBossTarget`,
+  pcall, fail-open include). No new slot, no new source bit, no
+  `PixelProtocol.cs` / `docs/PROTOCOL.md` change: the id rides the existing
+  slot-6 cells, and the companion routes it through the existing
   `CrowdControlVetoes.Evaluate` call-site. `CrowdControlGate` (default OFF),
   the Never/Manual user vetoes, curated auto-eligibility, target/range/opener
-  checks and the same-DR anti-chain memory all still govern; MaxDps-owned stuns
-  (AutoEligible=false) are never emitted, so MaxDps authority is preserved.
+  checks and the same-DR anti-chain memory all still govern. Since v3.5 the CC
+  provider holds every **Stun/Silence** row unless `TargetCasting == Yes`
+  (Q1 casting-only — these rows are interrupt substitutes, never blind stuns);
+  MaxDps-owned warrior stuns (Storm Bolt / Shockwave) are now AutoEligible and
+  ride the generated `cc` list, but their registry status is Incomplete so the
+  companion keeps them on the delegated interrupt path (itself casting-gated
+  by `InterruptVetoes`), preserving MaxDps authority over blind stuns.
 - **Self-sustain is reset-aware (r2).** Self-heal readiness is re-read every
   tick and never cached; a ready SelfHeal is never stale- or pending-demoted;
   a transient failed press is capped at 1.5 s with no escalating backoff. A

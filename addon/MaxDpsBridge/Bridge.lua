@@ -957,18 +957,22 @@ local function Update (self, Delta)
     R[3], G[3], B[3], Id[3] = WriteSlot(3, DefId);
     R[4], G[4], B[4], Id[4] = ReadSlot(4, MDB.GetConsumableSpellID);
     R[5], G[5], B[5], Id[5] = ReadSlot(5, MDB.GetTrinketSpellID);
-    -- Interrupt (slot 6): a live, ready MaxDps interrupt is unconditional and
-    -- pins the slot; otherwise the slot rotates the curated CC pool.
+    -- Interrupt (slot 6): a live, ready MaxDps interrupt that the target
+    -- sensor confirms is a casting, interruptible cast pins the slot;
+    -- otherwise the slot rotates the curated CC pool. v3.5: the pin uses the
+    -- casting-only helper so a blind (non-casting) interrupt never pins, and
+    -- the CC pool is offered instead.
     do
       local IntId = nil;
       if Allowed(6) then
         IntId = SafeRead(MDB.GetInterruptSpellID);
-        local IntReady = false;
+        local PinReady = false;
         if IntId then
-          local OkInt, Ready = pcall(MDB.IsInterruptReady, IntId);
-          IntReady = OkInt and Ready == true;
+          local PinFn = MDB.IsInterruptPinReady or MDB.IsInterruptReady;
+          local OkInt, Ready = pcall(PinFn, IntId);
+          PinReady = OkInt and Ready == true;
         end
-        if IntReady then
+        if PinReady then
           MDB._RotCounts[6] = 1;
         else
           local Pool = (MDB.RotationCandidates and MDB.RotationCandidates(6, 4)) or {};

@@ -63,6 +63,11 @@ local SLOT_KEY = {
 -- the slash spellings; the canonical spelling is always what is stored.
 local KEY_BY_LOWER = {};
 for i = 1, #KEYS do KEY_BY_LOWER[KEYS[i]:lower()] = KEYS[i]; end
+-- The CC appendix key (Ext3 bit 13) is resolvable by the same Canon path as
+-- the 13 canonical keys, but is NOT added to KEYS: Keys() stays 13 (frozen
+-- toggle-count semantics / harness). It still needs LocalGet/Get/Set/Flip and
+-- the EffectiveMask walk to see it, so register the lowercase spelling only.
+KEY_BY_LOWER["cc"] = "CC";
 
 local LABELS = {
   Main = "Main",
@@ -373,11 +378,12 @@ end
 local function EffectiveMask ()
   if AppControlled() then return GetAppMask(); end
   local M = 0;
-  for i = 1, #KEYS do
-    local Bit = BIT_BY_KEY[KEYS[i]];
-    if Bit and LocalGet(KEYS[i]) then M = bit.bor(M, bit.lshift(1, Bit)); end
+  -- Walk the 14-bit key table (13 canonical + CC). Canon now resolves "CC",
+  -- so the local mask publishes bit 13 from the stored/addon value; the old
+  -- unconditional CC add line is gone (it read true even when CC was OFF).
+  for Key, Bit in pairs(BIT_BY_KEY) do
+    if LocalGet(Key) then M = bit.bor(M, bit.lshift(1, Bit)); end
   end
-  if LocalGet("CC") then M = bit.bor(M, bit.lshift(1, BIT_BY_KEY.CC)); end
   return M;
 end
 
@@ -420,26 +426,20 @@ function MDB.Toggles.IsAutoInteract () return Get("AutoInteract"); end
 
 -- ---- Crowd control (v3.4.0 CC appendix) -------------------------------
 -- A 14th toggle that is deliberately NOT part of the canonical 13 (Keys()
--- stays 13 so the frozen toggle-count semantics and the 186-check harness are
--- unchanged). It is restrict-only and missing = ON, exactly like the others:
--- an absent DB / absent Toggles table / absent key reads as ON, and only an
--- explicit false turns CC off. Every accessor fails open.
+-- stays 13 so the frozen toggle-count semantics and the harness are
+-- unchanged). It lives in BIT_BY_KEY (Ext3 bit 13) and, since v3.5, resolves
+-- through the ordinary Canon/Get path: while the app mask controls toggles
+-- (epoch ~= 0) the app's CC bit wins; at epoch 0 the local boolean applies.
+-- It is restrict-only and missing = ON, exactly like the others: an absent DB
+-- / absent Toggles table / absent key reads as ON, and only an explicit false
+-- turns CC off. Every accessor fails open — IsCC delegates to Get("CC") inside
+-- a pcall and returns true on any throw.
 --
--- effective = companion AND addon; an addon OFF wins. No wire field carries
--- this key, so the addon-side gate is published here for the bridge to consult
--- when it encodes CC candidates; that cross-surface wiring is OWED live. The
--- companion's own opt-in remains AppSettings.CrowdControlEnabled.
+-- effective = companion AND addon; an addon OFF wins. The companion's own
+-- opt-in remains AppSettings.CrowdControlEnabled.
 function MDB.Toggles.IsCC ()
-  local Ok, Allowed = pcall(function ()
-    local DB = _G.MaxDpsBridgeDB;
-    if type(DB) ~= "table" then return true; end
-    local Toggles = DB.Toggles;
-    if type(Toggles) ~= "table" then return true; end
-    local Value = Toggles.CC;
-    if Value == nil then return true; end
-    return Value ~= false;
-  end);
-  if Ok then return Allowed; end
+  local Ok, Allowed = pcall(Get, "CC");
+  if Ok then return Allowed ~= false; end
   return true;
 end
 

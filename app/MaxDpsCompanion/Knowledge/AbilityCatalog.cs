@@ -567,10 +567,12 @@ internal sealed class AbilityCatalog
     /// bridge offers the first ready+bound entry in the reused Interrupt slot
     /// ONLY when MaxDps names no usable interrupt; the companion's
     /// <see cref="CrowdControlGate"/> remains the authority on firing it.
-    /// MaxDps-owned stuns (Storm Bolt, Shockwave, …) stay AutoEligible=false
-    /// and are never emitted here, so MaxDps authority is preserved. Verified
-    /// ids only (see <see cref="CrowdControlCatalog"/>). Read-only — it does
-    /// not alter any existing catalog behaviour.
+    /// v3.5 raises the MaxDps-owned warrior stuns (Storm Bolt 107570, Shockwave
+    /// 46968) to AutoEligible=true so they ride this list; the provider's
+    /// casting-only gate holds any Stun/Silence row unless the target is
+    /// observably casting, so MaxDps authority over blind stuns is preserved.
+    /// Verified ids only (see <see cref="CrowdControlCatalog"/>). Read-only — it
+    /// does not alter any existing catalog behaviour.
     /// </summary>
     public int[] CrowdControlGapFill(string? className, string? specName)
     {
