@@ -560,6 +560,27 @@ internal sealed class AbilityCatalog
     public IReadOnlyList<CrowdControlEntry> CrowdControlFor(string? className, string? specName) =>
         CrowdControlCatalog.For(className, specName);
 
+    /// <summary>
+    /// v3.4.0 CC candidate read path (Option A): the AUTO-ELIGIBLE curated
+    /// crowd-control ids for a class+spec, in curated preference order, that
+    /// the generator emits as the bridge's per-spec <c>cc</c> extras list. The
+    /// bridge offers the first ready+bound entry in the reused Interrupt slot
+    /// ONLY when MaxDps names no usable interrupt; the companion's
+    /// <see cref="CrowdControlGate"/> remains the authority on firing it.
+    /// MaxDps-owned stuns (Storm Bolt, Shockwave, …) stay AutoEligible=false
+    /// and are never emitted here, so MaxDps authority is preserved. Verified
+    /// ids only (see <see cref="CrowdControlCatalog"/>). Read-only — it does
+    /// not alter any existing catalog behaviour.
+    /// </summary>
+    public int[] CrowdControlGapFill(string? className, string? specName)
+    {
+        if (className is null || specName is null) return [];
+        var ids = new List<int>();
+        foreach (var entry in CrowdControlCatalog.For(className, specName))
+            if (entry.AutoEligible) ids.Add(entry.SpellId);
+        return ids.ToArray();
+    }
+
     private static int TierRank(DefensiveTier tier) => tier switch
     {
         DefensiveTier.Major => 3,

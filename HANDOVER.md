@@ -1,6 +1,87 @@
 # Handover — MaxDps-Companion
 
-## Status: v3.4.0 — CC appendix (opt-in, DR-safe, all 13 classes) + surroundings awareness gates (melee/cast/range catalog-driven, LoS fails open) + wired UI publish (solo sliders, bridge-health banner, cast-audit grid) (650 xunit tests + 186 Lua harness checks, live validation owed)
+## Status: v3.4.0 — CC appendix (opt-in, DR-safe, all 13 classes) + surroundings awareness gates (melee/cast/range catalog-driven, LoS fails open) + wired UI publish (solo sliders, bridge-health banner, cast-audit grid) + CC slot-6 candidate source (Option A, wire frozen) (660 xunit tests + 186 Lua harness checks, live validation owed)
+
+## 2026-09-30 OVERLAY REGISTERCLICKS FIX (this change)
+
+GOAL: stop `BuildOverlay` aborting so `Overlay` no longer stays nil (it
+re-ran and errored on every `ADDON_LOADED`/`PLAYER_LOGIN`).
+
+WHAT CHANGED: `addon/MaxDpsBridge/Panel.lua` line 545 called
+`O:RegisterForClicks(...)` on a plain `Frame` — a Button-only method — which
+aborted `BuildOverlay` before `Overlay = O`. Deleted that call; the overlay's
+right-click reset moved from `OnClick` to `OnMouseUp` (a Frame never receives
+`OnClick` without RegisterForClicks), with a comment explaining Frame vs Button.
+Frame type, `SetMovable`, `ClampedToScreen`, `RegisterForDrag("LeftButton")`,
+the `OnDragStart`/`OnDragStop` position save, the toggle Buttons and minimap
+Button, the pixel bridge (Bridge/Bars/Reader/Toggles), and the wire are all
+untouched — no PROTOCOL change.
+
+VALIDATED (this machine): `luac -p addon/MaxDpsBridge/Panel.lua` exit 0.
+LIVE OWED (retail 12.1): `/reload`; `/mdb overlay on` shows with no error; drag
+persists; right-click resets; toggle Buttons blank/restore slots.
+
+## v3.4.0 CC SLOT-6 CANDIDATE SOURCE — Option A (this change)
+
+GOAL: give the companion's opt-in CC appendix a real in-game candidate path
+without touching the frozen wire. `Catalog.lua` now emits a per-spec `cc` list
+(from the auto-eligible `CrowdControlCatalog` rows), and the bridge reuses the
+**Interrupt slot (wire 6)** as the CC source: MaxDps's own flagged + ready +
+live-cast interrupt wins; only when it names none does a curated ready+bound CC
+candidate fill the same slot. No `PixelProtocol.cs` / `KeySender.cs` /
+`docs/PROTOCOL.md` change (version nibble stays 5; slot-6 cells already exist).
+
+WHAT WAS BUILT:
+- `Knowledge/AbilityCatalog.cs`: `CrowdControlGapFill(className, specName)` —
+  the auto-eligible curated CC ids (curated preference order) the generator
+  emits as `cc`. MaxDps-owned stuns (Storm Bolt, Shockwave, …) are
+  `AutoEligible=false` and never emitted, so MaxDps authority is preserved.
+- `Knowledge/CatalogLuaGenerator.cs`: emits `cc = { … }` per spec.
+  `addon/MaxDpsBridge/Catalog.lua` + `tests/…/fixtures/Catalog.lua` regenerated
+  via `--gen-catalog` (not hand-edited).
+- `addon/MaxDpsBridge/Reader.lua`: `ExtraCandidates` accepts `"cc"`; new
+  `MDB.GetCrowdControlCandidate` = `ExtraCandidates("cc", 1)[1]`, gated by the
+  addon CC toggle (`MDB.Toggles.IsCC`, restrict-only, missing = ON), via the
+  same ready+bound+`ActiveVariant` walk as the other extras. `MDB.FrameKey`
+  includes `Extra.cc` so the dirty-flag cache invalidates on a catalog change.
+- `addon/MaxDpsBridge/Bridge.lua` slot 6: interrupt-first
+  (`GetInterruptSpellID` + `IsInterruptReady`); on no interrupt, when
+  `Allowed(6)` (Interrupt toggle OFF-wins) a CC candidate is written through
+  `WriteSlot(6, CcId)` with the ordinary `IsSpellReady` gate — deliberately
+  **skipping `IsInterruptReady`** (a CC needs no live cast). Order is
+  interrupt-first, so CC is never emitted while a live interrupt is pending.
+- Companion authority unchanged: the CC id rides slot 6 but the app routes it
+  through the existing one-line `CrowdControlVetoes.Evaluate` call-site, so
+  `CrowdControlGate` (default OFF), the `Never/Manual` absolute user vetoes,
+  the curated auto-eligible membership, the target/range/opener checks and the
+  same-DR anti-chain memory all still govern. No new provider branch was needed.
+- Tests: `CrowdControlTests.cs` gains slot-6 reuse tests (fires on the reused
+  slot; bypasses interrupt vetoes when no cast is pending while a real
+  interrupt id stays held; MaxDps-owned stun never offered; `CrowdControlGapFill`
+  auto-eligible-only for all 13 classes). The suite is pinned to a
+  `DisableParallelization` collection because `AppSettings.Load` reconfigures
+  the process-global `CrowdControlGate` (pre-existing isolation race the new
+  cases exposed).
+
+SAFETY (all kept): no-target hold; AoE-CC-never-opener (provider-side, bridge
+cannot see combat, so the provider stays the gate); same-DR anti-chain memory;
+range-No unavailable; `CastHoldReason`; never emit CC while a live interrupt is
+pending (bridge interrupt-first order); companion `CrowdControlGate` +
+Never/Manual absolute.
+
+VALIDATED (this machine): `dotnet build app\MaxDpsCompanion\MaxDpsCompanion.csproj
+-c Release` 0 warnings / 0 errors; `dotnet test -c Release` (from
+`tests\MaxDpsCompanion.Tests`) **660/660**; `lua tests/secret_harness.lua`
+**186/186**; `luac -p` 8/8 bridge files clean; `pwsh tools/ability_audit.ps1`
+exit 0 — Violations 0 / Warnings 0 / Missing 0 / Stale 0, committed addon
+`Catalog.lua` matches the generated output. Not committed.
+
+LIVE OWED (retail 12.1): with the companion `[CrowdControl] Enabled=1` and the
+addon CC toggle ON, a spec with a curated CC row and no usable interrupt shows
+the CC candidate in the interrupt slot and fires it on a confirmed in-range
+target; an available interrupt always wins the slot; DR categories do not
+auto-chain; turn the addon CC toggle OFF (and/or the companion gate OFF) and the
+slot blanks/holds.
 
 ## v3.3.0 STREAM 4 — guardrails + cross-stream merge (this change)
 
@@ -62,8 +143,9 @@ WHAT WAS BUILT:
 - New `addon/MaxDpsBridge/Panel.lua` — plain-frame settings panel
   (`Settings.RegisterCanvasLayoutCategory`, `InterfaceOptions_AddCategory`
   fallback) with the 13 checkboxes + All on/off + overlay controls; draggable
-  overlay (`/mdb overlay`) with right-click reset and a pixel-strip overlap
-  guard; optional minimap launcher. Nothing here runs on the pixel path.
+  overlay (`/mdb overlay`) is a plain Frame (no `RegisterForClicks`) whose
+  right-click reset is `OnMouseUp`, plus a pixel-strip overlap guard; optional
+  minimap launcher. Nothing here runs on the pixel path.
 - `Bridge.lua` v3.3.0: per-tick toggle context from pcall'd game APIs; deep
   `MergeDefaults` (old SavedVariables stay valid; nested Toggles/Ui tables are
   copied, never aliased); `reset` deep-restores; `/mdb toggles|overlay|

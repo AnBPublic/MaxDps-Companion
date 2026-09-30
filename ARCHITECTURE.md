@@ -53,9 +53,18 @@ MaxDpsBridge addon — 40-cell pixel strip (bridge 3.3.0; v5 + Ext2 layout
             (shared burst first, spec-specific second, 1-4 entries) supplies
             the first ready+bound entry. No wire source bit exists, so the
             companion derives the source by id membership in the same list.
-            The whole path stays inside MaxDps's own `enableDefensives` /
-            `enableCooldowns` switches, so muting them upstream also mutes
-            the gap-fill.
+           The whole path stays inside MaxDps's own `enableDefensives` /
+           `enableCooldowns` switches, so muting them upstream also mutes
+           the gap-fill.
+           CC slot-6 reuse (v3.4.0 Option A): the bridge walks the generated
+           per-spec `cc` list (auto-eligible curated CC rows) and writes the
+           first ready+bound candidate into the reused Interrupt slot 6 ONLY
+           when MaxDps names no flagged+ready+live-cast interrupt. The CC path
+           skips `IsInterruptReady` (no live cast needed) and is gated by the
+           addon CC toggle; the companion's `CrowdControlGate` remains the
+           authority. No new slot and no new source bit — the id rides the
+           existing slot-6 cells and the companion recognises it by curated CC
+           membership at the existing `CrowdControlVetoes.Evaluate` call-site.
   gates (bridge 3.3.0): Toggles.lua is the single addon-side restriction
         point. `SlotAllowed(slot, ctx)` is consulted before every WriteSlot —
         a denied slot is written empty with the valid flag clear, i.e. the
@@ -66,7 +75,8 @@ MaxDpsBridge addon — 40-cell pixel strip (bridge 3.3.0; v5 + Ext2 layout
         RESTRICT: `effective = companion AND addon`, an addon OFF wins; a
         missing DB key = ON and every gate fails open. Panel.lua is the
         plain-frame settings panel + draggable overlay (`/mdb toggles`,
-        `/mdb overlay`) and never runs on the pixel-update path.
+        `/mdb overlay`; the overlay is a plain Frame — no RegisterForClicks,
+        right-click reset via OnMouseUp) and never runs on the pixel-update path.
        │  (flat colours, top-left corner overlay; every probe degrades to
        │   UNKNOWN — never throws, never compares a secret value)
        ▼
@@ -314,14 +324,20 @@ MaxDps-Companion/
     Catalog.lua              GENERATED class/spec ids + extras (--gen-catalog,
                              incl. per-spec offensive (curated), defensive
                              (Red) and defensiveMinor (Orange) gap-fill lists,
-                             and the aliases block emitted as MDB.SpellAliases)
+                             plus the v3.4.0 `cc` auto-eligible crowd-control
+                             list, and the aliases block emitted as
+                             MDB.SpellAliases)
     Keymap.lua               binding string -> virtual key
     Reader.lua               MaxDps readout, secret guards, v5 sensors,
                              defensive urgency + gap-fill, spell variants
                              (base/override/alias resolution), SelfHeal2,
+                             ExtraCandidates (mobility/selfHeal/defensive/cc),
+                             MDB.GetCrowdControlCandidate (slot-6 CC source),
                              Ext2 HP-curve source
     Bridge.lua               strip rendering + 40-cell v5 + Ext2 encode
                              (urgency + HP curve + SelfHeal2 + Ext2 checksum);
+                             slot 6 = interrupt-first, else the v3.4.0 CC
+                             candidate (wire frozen, no new slot);
                              per-tick toggle context + /mdb toggles|overlay|
                              <key>|all|why, deep Defaults merge
     Toggles.lua              in-game 13-toggle policy (pure logic, no frames):
@@ -330,7 +346,9 @@ MaxDps-Companion/
                              the single gate before WriteSlot (missing = ON,
                              fails open; addon can only restrict)
     Panel.lua                in-game settings panel + draggable overlay
-                             (plain frames; Settings.RegisterCanvasLayoutCategory
+                             (overlay = plain Frame, no RegisterForClicks,
+                             right-click reset via OnMouseUp; panel uses
+                             Settings.RegisterCanvasLayoutCategory
                              with InterfaceOptions_AddCategory fallback);
                              `/mdb toggles` opens it, `/mdb overlay on|off`
                              shows/hides the overlay, optional minimap button
@@ -347,8 +365,17 @@ MaxDps-Companion/
       AbilityCatalog.cs      loader: vendor base + curated overrides +
                              extras, wire ids, stable lookups, defensive
                              gap-fill derivation (DefensiveGapFill),
-                             registry derivation rules, patch guard
+                             CrowdControlGapFill (v3.4.0 slot-6 `cc` read
+                             path), registry derivation rules, patch guard
                              (12.1 / 120100 / 11.3.49, CatalogVersion 4)
+      CrowdControlCatalog.cs curated verified CC registry (v3.4.0): DR
+                             category, Single/AoE, CD, AutoEligible; read by
+                             AbilityCatalog.CrowdControlFor / CrowdControlGapFill
+      CrowdControlVetoes.cs  companion CC opt-in gate (CrowdControlGate,
+                             default OFF), companion-only same-DR anti-chain
+                             memory (fail open), and CrowdControlVetoes.Evaluate
+                             — the single evaluation call-site the slot-6 CC
+                             candidate flows through
       AbilityIntelligence.cs derived per-capability intelligence +
                              registry enforcement gate, the machine audit and
                              the inspector text
@@ -710,6 +737,19 @@ MaxDps-Companion/
   Defensive majors gap-fill only at Red; short-CD (Minor/None) gap-fill opens at
   Orange; both stay inside MaxDps's own `enableDefensives` / `enableCooldowns`
   switches, so muting them upstream mutes the gap-fill too.
+- **CC reuses the Interrupt slot; the wire stays frozen (v3.4.0, Option A).**
+  The bridge writes a curated ready+bound crowd-control candidate into wire
+  slot 6 only after MaxDps names no usable interrupt (`GetInterruptSpellID` +
+  `IsInterruptReady` run first), so a live interrupt always wins and CC is
+  never emitted while an interrupt is pending. The CC path deliberately skips
+  `IsInterruptReady` (a CC needs no live cast) and is gated by the addon CC
+  toggle (`Toggles.IsCC`, restrict-only, missing = ON). No new slot, no new
+  source bit, no `PixelProtocol.cs` / `docs/PROTOCOL.md` change: the id rides
+  the existing slot-6 cells, and the companion routes it through the existing
+  `CrowdControlVetoes.Evaluate` call-site. `CrowdControlGate` (default OFF),
+  the Never/Manual user vetoes, curated auto-eligibility, target/range/opener
+  checks and the same-DR anti-chain memory all still govern; MaxDps-owned stuns
+  (AutoEligible=false) are never emitted, so MaxDps authority is preserved.
 - **Self-sustain is reset-aware (r2).** Self-heal readiness is re-read every
   tick and never cached; a ready SelfHeal is never stale- or pending-demoted;
   a transient failed press is capped at 1.5 s with no escalating backoff. A

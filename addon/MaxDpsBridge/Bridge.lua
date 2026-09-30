@@ -824,7 +824,23 @@ local function Update (self, Delta)
     R[3], G[3], B[3], Id[3] = WriteSlot(3, DefId);
     R[4], G[4], B[4], Id[4] = ReadSlot(4, MDB.GetConsumableSpellID);
     R[5], G[5], B[5], Id[5] = ReadSlot(5, MDB.GetTrinketSpellID);
+    -- Interrupt (slot 6): MaxDps's own flagged + ready + live-cast interrupt
+    -- first (IsInterruptReady vetoes on no cast / explicit not-interruptible).
+    -- v3.4.0 CC appendix Option A: when MaxDps names no usable interrupt and
+    -- the slot is allowed, a curated ready+bound crowd-control candidate may
+    -- fill the SAME slot. The CC path deliberately skips IsInterruptReady (it
+    -- needs no live cast) — WriteSlot runs the ordinary IsSpellReady gate — and
+    -- MDB.GetCrowdControlCandidate already applies the addon CC toggle. The
+    -- companion's CrowdControlGate remains the authority on firing it. The
+    -- order is interrupt-first, so CC is never emitted while a live interrupt
+    -- is pending.
     R[6], G[6], B[6], Id[6] = ReadSlot(6, MDB.GetInterruptSpellID, true);
+    if not Id[6] and Allowed(6) and MDB.GetCrowdControlCandidate then
+      local OkCc, CcId = pcall(MDB.GetCrowdControlCandidate);
+      if OkCc and type(CcId) == "number" and CcId ~= 0 then
+        R[6], G[6], B[6], Id[6] = WriteSlot(6, CcId);
+      end
+    end
     R[7], G[7], B[7], Id[7] = ReadSlot(7, MDB.GetMobilitySpellID);
     -- Ext2: the two SelfHeal candidates are computed once here (the second is
     -- the next DISTINCT ready+bound entry); slot 8 encodes the first, the Ext2

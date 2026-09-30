@@ -1499,7 +1499,7 @@ end
   * @desc First Count DISTINCT entries of a curated extras list that are
   *       ready AND bound, each encoded as the variant the player actually
   *       knows (base / override / alias; see MDB.ActiveVariant).
-  * @param Kind string "mobility" | "selfHeal" | "defensive"
+  * @param Kind string "mobility" | "selfHeal" | "defensive" | "cc"
   * @param Count number
   * @return table array of variant ids (may be shorter than Count)
   *]]
@@ -1546,6 +1546,22 @@ end
 function MDB.GetSelfHeal2SpellID ()
   local Candidates = MDB.ExtraCandidates("selfHeal", 2);
   return Candidates[2];
+end
+
+-- ======= CROWD-CONTROL SLOT-6 REUSE (v3.4.0 Option A) =======
+-- The Interrupt slot (wire 6) is reused as the CC candidate source: the bridge
+-- prefers MaxDps's own flagged+live-cast interrupt (GetInterruptSpellID +
+-- IsInterruptReady) and only falls through to this when MaxDps names no usable
+-- interrupt. A CC row needs no live target cast, so it is offered through the
+-- SAME ready+bound+ActiveVariant walk as the other curated extras (no
+-- IsInterruptReady gate). The addon's own CC toggle (IsCC, restrict-only,
+-- missing = ON) is consulted here; the companion's CrowdControlGate remains the
+-- final authority on whether the candidate may actually fire. No wire change:
+-- the CC id simply rides the existing slot-6 id cells, and the companion
+-- recognises it by curated CC membership.
+function MDB.GetCrowdControlCandidate ()
+  if MDB.Toggles and MDB.Toggles.IsCC and not MDB.Toggles.IsCC() then return nil; end
+  return ExtraSpellID("cc");
 end
 
 --- ======= DEFENSIVE URGENCY + GAP-FILL (protocol v6) =======
@@ -1871,7 +1887,7 @@ function MDB.FrameKey ()
   P("x", Extra and (KeyList(Extra.mobility) .. KeyList(Extra.selfHeal)
     .. KeyList(Extra.offensive) .. KeyList(Extra.defensive)
     .. KeyList(Extra.defensiveMajor) .. KeyList(Extra.defensiveMinor)
-    .. KeyList(Extra.immunity)) or "nil");
+    .. KeyList(Extra.immunity) .. KeyList(Extra.cc)) or "nil");
 
   P("bind", KeyIdent(MDB._BindCache) .. "#" .. KeyCount(MDB._BindCache)
     .. "@" .. KeyIdent(MDB._BindRevision));

@@ -76,6 +76,11 @@ internal static class CatalogLuaGenerator
         sb.AppendLine("-- offensive: curated major offensive gap-fill candidates (shared burst");
         sb.AppendLine("--   first, spec-specific second); used only when MaxDps names no bound");
         sb.AppendLine("--   offensive. The companion detects this source by id membership.");
+        sb.AppendLine("-- cc: auto-eligible curated crowd-control candidates (v3.4.0). The");
+        sb.AppendLine("--   bridge reuses the Interrupt slot for these ONLY when MaxDps names");
+        sb.AppendLine("--   no ready+bound interrupt (never while a live interrupt is pending).");
+        sb.AppendLine("--   No wire source bit exists; the companion's CrowdControlGate is the");
+        sb.AppendLine("--   authority on USE/HOLD. MaxDps-owned stuns are never emitted here.");
         sb.AppendLine("MDB.Extras = {");
         foreach (var className in AbilityCatalog.ClassOrder)
         {
@@ -92,9 +97,11 @@ internal static class CatalogLuaGenerator
                 var defensiveMinor = catalog.DefensiveGapFillMinor(className, specs[i]);
                 var defensiveMajor = catalog.DefensiveGapFillMajor(className, specs[i]);
                 var immunity = catalog.ImmunityGapFill(className, specs[i]);
+                var cc = catalog.CrowdControlGapFill(className, specs[i]);
                 if (mobility.Length == 0 && selfHeal.Length == 0 && offensive.Length == 0
                     && defensive.Length == 0 && defensiveMinor.Length == 0
-                    && defensiveMajor.Length == 0 && immunity.Length == 0) continue;
+                    && defensiveMajor.Length == 0 && immunity.Length == 0
+                    && cc.Length == 0) continue;
                 any = true;
                 sb.Append($" [\"{Escape(specs[i])}\"] = {{");
                 if (mobility.Length > 0) sb.Append($" mobility = {{ {string.Join(", ", mobility)} }},");
@@ -104,6 +111,7 @@ internal static class CatalogLuaGenerator
                 if (defensiveMinor.Length > 0) sb.Append($" defensiveMinor = {{ {string.Join(", ", defensiveMinor)} }},");
                 if (defensiveMajor.Length > 0) sb.Append($" defensiveMajor = {{ {string.Join(", ", defensiveMajor)} }},");
                 if (immunity.Length > 0) sb.Append($" immunity = {{ {string.Join(", ", immunity)} }},");
+                if (cc.Length > 0) sb.Append($" cc = {{ {string.Join(", ", cc)} }},");
                 sb.Append(" },");
             }
             if (any) sb.AppendLine();

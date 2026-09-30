@@ -3,10 +3,22 @@ using Xunit;
 namespace MaxDpsCompanion.Tests;
 
 /// <summary>
+/// Serializes the CC suite: <see cref="CrowdControlGate"/> / Memory are
+/// process-global statics, and <c>AppSettings.Load</c> (applied by several
+/// other test classes) reconfigures the gate. Running this collection with
+/// parallelization disabled keeps those writers from flipping the gate mid-test.
+/// </summary>
+[CollectionDefinition("GlobalStaticState", DisableParallelization = true)]
+public sealed class GlobalStaticStateCollection
+{
+}
+
+/// <summary>
 /// v3.4.0 CC appendix: curated coverage, the opt-in gate, the conservative
 /// anti-chain memory, and the safety rules (never an opener, target required,
 /// MaxDps-owned stuns never overridden). Drives the real evaluator/catalog.
 /// </summary>
+[Collection("GlobalStaticState")]
 public class CrowdControlTests
 {
     private const long Now = 50_000;
@@ -25,12 +37,16 @@ public class CrowdControlTests
         string spec = "Arms",
         PlayerCastState cast = PlayerCastState.None,
         TriState targetInMelee = TriState.Unknown,
-        TriState[]? range = null) => new()
+        TriState[]? range = null,
+        TriState targetCasting = TriState.Unknown,
+        TriState targetCastInterruptible = TriState.Unknown) => new()
     {
         Class = className,
         Spec = spec,
         Cast = cast,
         TargetInMelee = targetInMelee,
+        TargetCasting = targetCasting,
+        TargetCastInterruptible = targetCastInterruptible,
         SlotRange = range ?? new TriState[PixelProtocol.SlotCount],
         SlotBuffActive = new TriState[PixelProtocol.SlotCount],
         ContextValid = true,
@@ -161,6 +177,94 @@ public class CrowdControlTests
             Assert.NotEqual("CrowdControl", result.Provider);
         }
         finally { CrowdControlGate.Reset(); }
+    }
+
+    // ---- slot-6 (Interrupt) CC reuse — Option A ----
+
+    [Fact]
+    public void Slot6_Cc_Fires_On_The_Reused_Interrupt_Slot()
+    {
+        CrowdControlGate.Enabled = true;
+        try
+        {
+            var result = Evaluate(Slot.Interrupt, 853,
+                Context("PALADIN", "Holy", range: Range(Slot.Interrupt, TriState.Yes)));
+            Assert.Equal(PolicyVerdict.Use, result.Verdict);
+            Assert.Equal("CrowdControl", result.Provider);
+            Assert.Equal(CandidateSourceKind.CompanionGapFill, result.Source);
+        }
+        finally { CrowdControlGate.Reset(); }
+    }
+
+    [Fact]
+    public void Slot6_Cc_Bypasses_Interrupt_Vetoes_When_No_Interrupt_Is_Pending()
+    {
+        CrowdControlGate.Enabled = true;
+        try
+        {
+            // A computed-but-no-cast context: a real interrupt on slot 6 would be
+            // vetoed ("no live target cast"), but the CC path needs no cast and
+            // must still fire on a confirmed target (the bridge only offers CC
+            // after MaxDps names no usable interrupt).
+            var result = Evaluate(Slot.Interrupt, 853,
+                Context("PALADIN", "Holy",
+                    range: Range(Slot.Interrupt, TriState.Yes),
+                    targetCasting: TriState.No));
+            Assert.Equal(PolicyVerdict.Use, result.Verdict);
+            Assert.Equal("CrowdControl", result.Provider);
+
+            // Sanity: a real interrupt id in the same context stays held by the
+            // Interrupt veto — the CC path must never widen the interrupt slot.
+            var kick = Evaluate(Slot.Interrupt, 96231, // Rebuke
+                Context("PALADIN", "Holy",
+                    range: Range(Slot.Interrupt, TriState.Yes),
+                    targetCasting: TriState.No));
+            Assert.NotEqual(PolicyVerdict.Use, kick.Verdict);
+            Assert.NotEqual("CrowdControl", kick.Provider);
+        }
+        finally { CrowdControlGate.Reset(); }
+    }
+
+    [Fact]
+    public void Slot6_MaxDps_Owned_Stun_Is_Never_A_Cc_Slot_Candidate()
+    {
+        // Storm Bolt 107570 is a MaxDps rotation row (AutoEligible=false): even
+        // with the CC gate ON it must not be offered as a CC slot-6 candidate,
+        // and the generated per-spec cc list must not contain it.
+        Assert.DoesNotContain(107570, Catalog.CrowdControlGapFill("WARRIOR", "Arms"));
+        CrowdControlGate.Enabled = true;
+        try
+        {
+            var result = Evaluate(Slot.Interrupt, 107570,
+                Context("WARRIOR", "Arms", range: Range(Slot.Interrupt, TriState.Yes)));
+            Assert.NotEqual("CrowdControl", result.Provider);
+        }
+        finally { CrowdControlGate.Reset(); }
+    }
+
+    [Fact]
+    public void Cc_GapFill_Emits_Only_AutoEligible_Ids_For_Every_Class()
+    {
+        (string Class, string Spec)[] classes =
+        [
+            ("DEATHKNIGHT", "Blood"), ("DEMONHUNTER", "Havoc"), ("DRUID", "Balance"),
+            ("EVOKER", "Devastation"), ("HUNTER", "Beast Mastery"), ("MAGE", "Fire"),
+            ("MONK", "Windwalker"), ("PALADIN", "Retribution"), ("PRIEST", "Shadow"),
+            ("ROGUE", "Assassination"), ("SHAMAN", "Elemental"), ("WARLOCK", "Affliction"),
+            ("WARRIOR", "Arms"),
+        ];
+        foreach (var (className, spec) in classes)
+        {
+            var ids = Catalog.CrowdControlGapFill(className, spec);
+            Assert.NotEmpty(ids);
+            Assert.Equal(ids.Length, ids.Distinct().Count());
+            foreach (var id in ids)
+            {
+                var entry = Catalog.CrowdControlFor(className, spec, id);
+                Assert.NotNull(entry);
+                Assert.True(entry!.AutoEligible);
+            }
+        }
     }
 
     // ---- DR / anti-chain memory ----

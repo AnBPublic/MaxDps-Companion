@@ -542,7 +542,6 @@ BuildOverlay = function ()
   O:SetFrameStrata("MEDIUM");
   O:EnableMouse(true);
   O:RegisterForDrag("LeftButton");
-  O:RegisterForClicks("LeftButtonUp", "RightButtonUp");
   O:SetScript("OnDragStart", function (self) self:StartMoving(); end);
   O:SetScript("OnDragStop", function (self)
     self:StopMovingOrSizing();
@@ -555,7 +554,8 @@ BuildOverlay = function ()
     end
     if not ClearOfStrip() then ResetOverlayPosition(); end
   end);
-  O:SetScript("OnClick", function (_, Mouse)
+  -- Frame (not Button): no RegisterForClicks; OnMouseUp handles right-click reset.
+  O:SetScript("OnMouseUp", function (_, Mouse)
     if Mouse == "RightButton" then ResetOverlayPosition(); end
   end);
 
