@@ -183,6 +183,8 @@ function GetActionInfo() return nil end
 function GetBindingKey() return nil end
 function GetSpellTexture() return nil end
 function CheckInteractDistance() return false end
+-- Default: out of combat, so the #nocombat CheckInteractDistance probe runs.
+function InCombatLockdown() return false end
 function UnitHealth() return 80 end
 function UnitHealthMax() return 100 end
 GetSpecialization = function() return 1 end
@@ -605,6 +607,77 @@ CheckInteractDistance = function() return S(true) end
 local secretMelee = select(1, MDB.GetTargetContext())
 CheckInteractDistance = function() return false end
 check("secret melee probe stays UNKNOWN", secretMelee == 2)
+
+-- v3.5: CheckInteractDistance is #nocombat-restricted; it must never be
+-- called while InCombatLockdown() is true (ADDON_ACTION_BLOCKED), and every
+-- reference in addon/ must sit next to an InCombatLockdown guard.
+do
+  local SavedCID = CheckInteractDistance
+  local SavedICL = InCombatLockdown
+
+  -- (a) counting stub: in combat -> zero calls, melee stays UNKNOWN (2).
+  local Calls = 0
+  InCombatLockdown = function() return true end
+  CheckInteractDistance = function() Calls = Calls + 1; return true end
+  local mA = select(1, MDB.GetTargetContext())
+  check("v3.5 (a) combat -> 0 calls, melee UNKNOWN", mA == 2 and Calls == 0)
+
+  -- (b) out of combat: true and false are both observed and reflected.
+  InCombatLockdown = function() return false end
+  Calls = 0
+  CheckInteractDistance = function() Calls = Calls + 1; return true end
+  local mTrue = select(1, MDB.GetTargetContext())
+  CheckInteractDistance = function() Calls = Calls + 1; return false end
+  local mFalse = select(1, MDB.GetTargetContext())
+  check("v3.5 (b) ooc true/false reflected", Calls == 2 and mTrue == 1 and mFalse == 0)
+
+  -- (c) nil global degrades to UNKNOWN without a call.
+  CheckInteractDistance = nil
+  local mC = select(1, MDB.GetTargetContext())
+  check("v3.5 (c) nil CheckInteractDistance -> UNKNOWN", mC == 2)
+
+  -- (d) a client without InCombatLockdown never probes at all.
+  Calls = 0
+  CheckInteractDistance = function() Calls = Calls + 1; return true end
+  InCombatLockdown = nil
+  local mD = select(1, MDB.GetTargetContext())
+  check("v3.5 (d) missing InCombatLockdown -> 0 calls, UNKNOWN", mD == 2 and Calls == 0)
+
+  -- (e) a throwing probe stays pcall-contained and fails to UNKNOWN.
+  InCombatLockdown = function() return false end
+  CheckInteractDistance = function() error("ADDON_ACTION_BLOCKED") end
+  local okE, mE = pcall(MDB.GetTargetContext)
+  check("v3.5 (e) throwing probe -> pcall UNKNOWN", okE and select(1, mE) == 2)
+
+  -- (f) source-grep: every non-comment CheckInteractDistance reference in
+  -- addon/ has InCombatLockdown within three lines (guard is adjacent).
+  local Files = { "addon/MaxDpsBridge/Reader.lua", "addon/MaxDpsBridge/Bridge.lua" }
+  local Guarded, Refs = true, 0
+  for _, Path in ipairs(Files) do
+    local Fh = io.open(Path, "r")
+    if Fh then
+      local Text = Fh:read("a"); Fh:close()
+      local Lines = {}
+      for L in Text:gmatch("[^\n]*") do Lines[#Lines + 1] = L end
+      for i, L in ipairs(Lines) do
+        local Code = L:gsub("%-%-.*$", "")
+        if Code:find("CheckInteractDistance", 1, true) then
+          Refs = Refs + 1
+          local Near = false
+          for j = math.max(1, i - 3), math.min(#Lines, i + 3) do
+            if Lines[j]:find("InCombatLockdown", 1, true) then Near = true; break end
+          end
+          if not Near then Guarded = false end
+        end
+      end
+    end
+  end
+  check("v3.5 (f) every addon CheckInteractDistance near InCombatLockdown",
+    Guarded and Refs >= 4)
+
+  CheckInteractDistance = SavedCID
+  InCombatLockdown = SavedICL
+end
 
 -- v2.1: the deprecated GetSpecialization chain is bypassed when the modern
 -- C_SpecializationInfo namespace exists; a client with neither degrades to

@@ -1363,6 +1363,26 @@ function MDB.GetCastState ()
   return 0;
 end
 
+-- File-local: CheckInteractDistance is #nocombat-restricted in 12.x; probing
+-- it while the client is in combat lockdown raises ADDON_ACTION_BLOCKED. Only
+-- probe when InCombatLockdown exists and reports out of combat. The pcall
+-- stays belt-and-braces so a throwing API fails to nil => UNKNOWN (2).
+-- Returns 1 in melee, 0 confirmed out of melee, nil unknown/not probed.
+local function ProbeTargetMelee ()
+  if type(InCombatLockdown) ~= "function" then return nil; end
+  if InCombatLockdown() then return nil; end
+  if type(CheckInteractDistance) ~= "function" then return nil; end
+  local Ok, Near = pcall(CheckInteractDistance, "target", 3);
+  if not Ok then return nil; end
+  -- Scrub first, then map ONLY the explicit booleans: a secret/failed probe
+  -- must stay UNKNOWN (2), never become a confirmed out-of-melee (0) that
+  -- would let a gap closer fire blind.
+  Near = Scrubbed(Near);
+  if Near == true then return 1
+  elseif Near == false then return 0 end;
+  return nil;
+end
+
 -- Returns meleeFlag (0 = confirmed out of melee, 1 = in melee,
 -- 2 = unknown), target hp band (0..14 = 0..~100% in steps, 15 unknown) and
 -- target cast flags:
@@ -1382,16 +1402,9 @@ function MDB.GetTargetContext ()
   end
 
   local Melee = 2;   -- unknown unless CheckInteractDistance answers
-  if HasTarget and type(CheckInteractDistance) == "function" then
-    local Ok, Near = pcall(CheckInteractDistance, "target", 3);
-    if Ok then
-      -- Scrub first, then map ONLY the explicit booleans: a secret/failed
-      -- probe must stay UNKNOWN (2), never become a confirmed out-of-melee
-      -- (0) that would let a gap closer fire blind.
-      Near = Scrubbed(Near);
-      if Near == true then Melee = 1
-      elseif Near == false then Melee = 0 end;
-    end
+  if HasTarget then
+    local Probe = ProbeTargetMelee();
+    if Probe ~= nil then Melee = Probe; end
   end
 
   local HpBand = 15;

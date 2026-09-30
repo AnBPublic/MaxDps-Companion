@@ -383,7 +383,8 @@ local function TargetState ()
   if type(UnitCanAttack) == "function" and not UnitCanAttack("player", "target") then
     return STATE_NEED_TARGET;
   end
-  if type(CheckInteractDistance) == "function" then
+  if type(InCombatLockdown) == "function" and not InCombatLockdown()
+     and type(CheckInteractDistance) == "function" then
     local Ok, Near = pcall(CheckInteractDistance, "target", 3);
     if Ok and Near then return STATE_NEED_INTERACT; end
   end
