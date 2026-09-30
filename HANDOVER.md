@@ -1,38 +1,37 @@
 # Handover — MaxDps-Companion
 
-## 2026-09-30 v3.5 T5 — TOGGLE SSOT (this change)
+## 2026-09-30 T6 ROUTING + SCHEDULER (this change)
 
-GOAL: app-wins toggle sync (S1 companion half). The 14 app toggles pack into the
-Ext3 14-bit mask; `<hh>` bit order is `Main Offensive Defensive Consumable
-Trinket Interrupt Mobility SelfHeal Solo OOC AutoTarget AutoInteract TTK CC`
-(OOC = `!CombatOnly`). The companion pushes `/mdb mask <hhhh> <e>` at engine
-Start and on any toggle change, out of combat only, and consumes the bridge's
-Ext3 echo as the effective mask.
+GOAL: consume the v3.5 bridge's rotating candidate pool and close RC2/RC4/RC5/RC6
+on the companion side only (no addon/Lua, no wire change). Cherry-picks T0 + S3a
++ T4 were already applied in the worktree; skipped as already-applied.
 
-WHAT CHANGED: `app/MaxDpsCompanion/ToggleSync.cs` (new) — pure state machine:
-`BuildMask`, `FormatCommand` (4 uppercase hex + decimal 0-15 epoch),
-`BeginPush`/`ObserveMirror` retry ladder (window 1500 ms, max 2 retries, then a
-red `HasConflict`), `EffectiveMask` = mirrored mask when Ext3 valid else app
-mask. `ChatCommander.SendToggleMask` formats + sends the silent command.
-`RotationEngine` gains `TryGetToggleMirror(out Ext3Block?, out bool inCombat)`
-(read-only Ext3 echo + combat flag, published per decoded frame).
-`MainForm` pumps the sync on the 250 ms UI timer and marks the Diagnostics
-banner "Toggle sync: blocked" on conflict. `AppSettings` gains `[Meta]
-ConfigVersion=1` and a one-time migration: a config with `[Spells]` but no
-`[Meta]` gets Mobility + `[CrowdControl] Enabled` turned ON (fixes RC1/RC2);
-Save stamps `[Meta]` so a later user OFF sticks. `settings.ini` and
-`dist\settings.ini` carry the new defaults.
+CHANGED:
+- `Knowledge/CandidateProviders.cs` `For`: GapCloser/Movement → Mobility; a
+  plain Escape → Mobility; an Escape carrying the taxonomy overlay's
+  `emergencyEscape` flag (or a curated manual-by-design escape such as Vanish)
+  → Defensive Red-only; a curated CC row on the reused interrupt slot (wire 6)
+  → the CrowdControl provider, which re-checks the opt-in / registry-status /
+  user-policy gate itself.
+- `Knowledge/AbilityModel.cs` + `AbilityCatalog.cs`: `AbilityDefinition.EmergencyEscape`
+  (init-only; curated override `emergencyEscape`).
+- `Decision/CandidateTracker.cs`: rewritten to the (slot, spellId) last-seen set
+  with TTL `1.5*N*dwell*tickMs` (N=3, dwell=3, tick=33 → 446 ms). The legacy
+  `Snapshot(bool[])` still returns only the present frame.
+- `Scheduler/ActionScheduler.cs`: GCD bypass extends Interrupt → Emergency
+  verdicts AND registry `OffGcd`; all backoff/suppression maps are keyed
+  `(slot, stroke, spellId)` so a rotated sibling is not punished for its
+  predecessor's failure; OS-gate + send-count suppression clears on a target
+  change or combat transition; multiple candidates per slot are all evaluated.
+  `Advance` stays pure/deterministic.
+- Tests: `tests/MaxDpsCompanion.Tests/T6RoutingSchedulerTests.cs` (19 facts).
 
-VALIDATED: `dotnet build -c Release` 0/0; non-UI `dotnet test` **660/660**
-(incl. 12 new ToggleSyncTests); the 21 headless STA timeouts are the known
-pre-existing ClassicUi/ClassSkillsView/UiShell environment failures (baseline
-log: 20; the extra `WidthTiers_Scale_Popups` passes standalone in 2 s).
+VALIDATED (this machine): `dotnet build app\MaxDpsCompanion\MaxDpsCompanion.csproj
+-c Release` 0/0; non-UI suite 740/740. The pre-existing headless
+ClassicUi/ClassSkillsView/UiShell STA timing flakes are unchanged under load.
+LIVE OWED: bridge rotation end-to-end in retail.
 
-LIVE OWED (retail 12.1): with the Ext3 addon, flip a hero toggle in combat and
-verify the push is deferred until combat ends, the Ext3 echo matches, and a
-deliberately unmirrored mask surfaces the red "Toggle sync: blocked" banner.
-
-## 2026-09-30 EXT3 T0 CONTRACTS (this change)
+## 2026-09-30 v3.5 T5 — TOGGLE SSOT
 
 GOAL: freeze the Ext3 wire contract (T0 only — constants + decode shell + tests,
 no addon/encoder work). Ext3 is ADDITIVE over the frozen v5/Ext2 wire: a 43-cell

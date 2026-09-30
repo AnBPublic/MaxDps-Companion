@@ -732,7 +732,7 @@ internal sealed class RotationEngine : IDisposable
         State = frame.State,
         NowMs = nowMs,
         StaleAfterMs = Math.Max(250, _settings.IntelligenceStaleAfterMs),
-        Candidates = _candidateTracker.Snapshot(_settings.SlotEnabled),
+        Candidates = _candidateTracker.Snapshot(_settings.SlotEnabled, nowMs, CandidateTracker.DefaultTtlMs),
     };
 
     /// <summary>Ability display name when the identity is known, else the stroke/slot.</summary>
@@ -804,7 +804,7 @@ internal sealed class RotationEngine : IDisposable
         var plan = _scheduler.Advance(new ScheduleInput
         {
             Frame = frame,
-            Candidates = _candidateTracker.Snapshot(_settings.SlotEnabled),
+            Candidates = _candidateTracker.Snapshot(_settings.SlotEnabled, now, CandidateTracker.DefaultTtlMs),
             NowMs = now,
             MinKeyIntervalMs = _settings.MinKeyIntervalMs,
             StaleAfterMs = Math.Max(250, _settings.IntelligenceStaleAfterMs),
@@ -837,7 +837,7 @@ internal sealed class RotationEngine : IDisposable
             if (MovementGuard.IsMovementStroke(stroke))
             {
                 _holdNote = $"slot {SlotName(action.Slot)} is bound to {stroke.Describe()}";
-                _scheduler.NoteAttempt(now, action.Slot, stroke, AttemptOutcome.MovementBound);
+                _scheduler.NoteAttempt(now, action.Slot, stroke, AttemptOutcome.MovementBound, action.SpellId);
                 continue;
             }
 
@@ -846,7 +846,7 @@ internal sealed class RotationEngine : IDisposable
             if (MovementGuard.IsPhysicallyDown(stroke.VirtualKey))
             {
                 held = stroke;
-                _scheduler.NoteAttempt(now, action.Slot, stroke, AttemptOutcome.PhysicalHold);
+                _scheduler.NoteAttempt(now, action.Slot, stroke, AttemptOutcome.PhysicalHold, action.SpellId);
                 continue;
             }
 
@@ -856,7 +856,7 @@ internal sealed class RotationEngine : IDisposable
                 if (!_window.IsForeground || !_window.IsGameWindow(gameHandle))
                 {
                     _holdNote = $"slot {SlotName(action.Slot)} needs focus (mouse input)";
-                    _scheduler.NoteAttempt(now, action.Slot, stroke, AttemptOutcome.FocusRequired);
+                    _scheduler.NoteAttempt(now, action.Slot, stroke, AttemptOutcome.FocusRequired, action.SpellId);
                     continue;
                 }
                 KeySender.Send(stroke, _settings.KeyPressMs);
@@ -868,19 +868,19 @@ internal sealed class RotationEngine : IDisposable
                 if (!_settings.AllowBackgroundKeys && !_window.IsForeground)
                 {
                     _holdNote = "game not focused";
-                    _scheduler.NoteAttempt(now, action.Slot, stroke, AttemptOutcome.FocusRequired);
+                    _scheduler.NoteAttempt(now, action.Slot, stroke, AttemptOutcome.FocusRequired, action.SpellId);
                     return false;
                 }
                 if (!KeySender.SendToWindow(gameHandle, gamePid, stroke, _settings.KeyPressMs))
                 {
                     _holdNote = "game window lost";
-                    _scheduler.NoteAttempt(now, action.Slot, stroke, AttemptOutcome.WindowLost);
+                    _scheduler.NoteAttempt(now, action.Slot, stroke, AttemptOutcome.WindowLost, action.SpellId);
                     return false;
                 }
             }
 
             _lastSlotPress[index] = now; // diagnostics only (see field note)
-            _candidateTracker.NotePressed(action.Slot, now);
+            _candidateTracker.NotePressed(action.Slot, now, action.SpellId);
             _scheduler.NoteSent(now, action.Slot, stroke, action.SpellId);
             var sendInterval = _lastAnyPress <= 0 ? 0 : now - _lastAnyPress; // v1.5.0 telemetry
             _lastAnyPress = now;

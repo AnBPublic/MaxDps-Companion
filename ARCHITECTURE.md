@@ -95,9 +95,13 @@ MaxDpsCompanion.exe — DIB BitBlt sample @ PollIntervalMs
        │
        ▼
 Candidate tracker (Decision/CandidateTracker)
-  per-slot observation history: stroke + spell id, first-seen/changed,
-  pressed-since-change. Companion-only slots enter here exactly like MaxDps
-  slots — one scheduler input, one send path, no second rotation engine.
+  v3.5 last-seen set keyed by (slot, spellId): stroke, first/last-seen,
+  pressed-since-change, TTL 1.5*N*dwell*tickMs (N=3, dwell=3, tick=33 →
+  446 ms). The bridge rotates a slot's ready/bound pool, so a per-slot
+  single stroke could never be stale; the set keeps an independent stamp per
+  candidate and the TTL snapshot drops any identity the bridge stopped
+  offering (stale is never pressed). Companion-only slots enter here exactly
+  like MaxDps slots — one scheduler input, one send path, no second engine.
   Ext2 SelfHeal2 (v3.0.0) is the alternate self-sustain candidate: the
   scheduler evaluates it with its OWN range probe (cell 28 B) when the primary
    SelfHeal verdict is not Use, and a Use from either wins the slot; rank,

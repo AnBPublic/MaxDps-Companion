@@ -679,6 +679,16 @@ internal sealed record AbilityDefinition(
     /// <summary>What a mobility ability does (Unknown otherwise).</summary>
     public MobilityKind MobilityKind { get; init; } = MobilityKind.Unknown;
 
+    /// <summary>
+    /// v3.5 taxonomy overlay: this escape is an <em>emergency</em> survival
+    /// button, not a target-reaching movement tool. Routing sends it to the
+    /// Defensive provider, whose escape gate only ever fires it at Red urgency
+    /// or at/below the emergency HP threshold — never White/Yellow. Plain
+    /// escapes (flag absent) route to Mobility and hold unless they actually
+    /// close a gap.
+    /// </summary>
+    public bool EmergencyEscape { get; init; }
+
     /// <summary>Contextual requirements beyond the dedicated flags (derived + curated union).</summary>
     public AbilityRequirement Requires { get; init; } = AbilityRequirement.None;
 
