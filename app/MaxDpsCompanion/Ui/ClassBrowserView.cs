@@ -154,11 +154,13 @@ internal sealed class ClassBrowserView : Panel
         _toolbar.RowCount = 2;
         _toolbar.BackColor = Color.Transparent;
         _toolbar.Margin = Padding.Empty;
-        _toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 52));
-        _toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 190));
-        _toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 42));
-        _toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 170));
-        _toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 42));
+        // Caption columns must fit "Class"/"Spec"/"Mode" at CaptionSize; 54 px
+        // (50 px after the 4 px right margin) clears the widest, "Mode".
+        _toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 54));
+        _toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 186));
+        _toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 54));
+        _toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 166));
+        _toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 54));
         _toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
         _toolbar.RowStyles.Add(new RowStyle(SizeType.Absolute, 40F));
         _toolbar.RowStyles.Add(new RowStyle(SizeType.Absolute, 38F));
