@@ -1,3 +1,11 @@
+3.5.2.1
+Date: 2026-10-01 — "Fullcover"
+Companion 3.5.2.1 "Fullcover" / bridge 3.5.2.1. Patch version bump only, no
+behaviour change; protocol UNCHANGED: v5 core (35 cells, nibble 5) + Ext2 (40)
++ Ext3 (43) stay byte-identical. The title bar reads
+"MaxDPS Companion v3.5.2.1 Fullcover"; the build hash/time stays on the
+Advanced Diagnostics install doctor card only.
+
 3.5.2
 Date: 2026-10-01 — "Fullcover"
 Companion 3.5.2 "Fullcover" / bridge 3.5.2. Protocol UNCHANGED: v5 core (35

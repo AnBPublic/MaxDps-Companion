@@ -1,3 +1,14 @@
+3.5.2.1
+date: 2026-10-01 "Fullcover"
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED from 3.5.2 - v5 core 35 cells + ADDITIVE Ext2 40-cell block
+          + ADDITIVE Ext3 43-cell block. The v5 version nibble stays 5 and every
+          cell is byte-identical; 3.5.2.1 is a patch version bump with no Lua
+          wire change. X-Codename: Fullcover in the TOC.
+v3.5.2.1: Patch version bump (companion + bridge identity). Bridge.lua
+          MDB.VERSION and the TOC now read 3.5.2.1 "Fullcover"; no Lua logic or
+          protocol change.
 3.5.2
 date: 2026-10-01 "Fullcover"
 git: <commit placeholder - fill at release>

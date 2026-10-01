@@ -277,8 +277,12 @@ internal static class Native
         {
             var v = typeof(Native).Assembly.GetName().Version;
             if (v is null) return "dev";
-            // 3-part display (1.3.4), dropping the always-zero Revision.
-            return $"{v.Major}.{v.Minor}.{v.Build}";
+            // 4-part display when a patch revision is set (3.5.2.1); the
+            // always-zero Revision is still dropped for the classic 3-part
+            // display (1.3.4).
+            return v.Revision > 0
+                ? $"{v.Major}.{v.Minor}.{v.Build}.{v.Revision}"
+                : $"{v.Major}.{v.Minor}.{v.Build}";
         }
     }
 
@@ -286,7 +290,7 @@ internal static class Native
     /// Release codename, SINGLE-SOURCED from csproj &lt;Codename&gt; via the
     /// AssemblyMetadata attribute (see the csproj). Falls back to the shipped
     /// "Fullcover" if the attribute is somehow absent (e.g. an old exe built
-    /// before the wiring), so the title can never render a bare "v3.5.2 ".
+    /// before the wiring), so the title can never render a bare "v3.5.2.1 ".
     /// </summary>
     internal static string Codename
     {
@@ -303,7 +307,7 @@ internal static class Native
     private const string CodenameFallback = "Fullcover";
 
     /// <summary>
-    /// Full display form used by the title bar: "v3.5.2 Fullcover" (the "v"
+    /// Full display form used by the title bar: "v3.5.2.1 Fullcover" (the "v"
     /// prefix plus the single-sourced version and codename). Never contains a
     /// build hash/time — those live in the Advanced Diagnostics install doctor.
     /// </summary>
