@@ -14,7 +14,7 @@ Vendor discovery (read-only): MaxDps:GlowDefensiveHPMidnight (Buttons.lua:1056)
   curve's own control points — see docs/research/ABILITY_RESEARCH.md §6.
        │
        ▼
-MaxDpsBridge addon — 43-cell pixel strip (bridge 3.5.0; v5 + Ext2 layout
+MaxDpsBridge addon — 43-cell pixel strip (bridge 3.5.1; v5 + Ext2 layout
   unchanged from 3.0.0, Ext3 shipped by T1/T2). Ext3: a 43-cell strip
   (cells 40-42 = 14-bit app toggle mask + epoch + blocked nibble + cell-42
   checksum/commit, presence cell 28 B bit2); a pre-3.5 companion ignores it
@@ -391,7 +391,7 @@ MainForm (borderless; 660-wide fixed frame; 2px ring red stopped / green
 
 ```
 MaxDps-Companion/
-  addon/MaxDpsBridge/        bridge addon 3.5.0 (v5 + Ext2 + additive Ext3
+  addon/MaxDpsBridge/        bridge addon 3.5.1 (v5 + Ext2 + additive Ext3
                              encoder, candidate rotation, in-game toggle UI,
                              /mdb commands)
     Catalog.lua              GENERATED class/spec ids + extras (--gen-catalog,
@@ -559,7 +559,8 @@ MaxDps-Companion/
                              events (pure; read-only report)
     Ui/CastAuditView.cs      v3.3.0 read-only audit grid (OWED: not mounted)
     Ui/SemanticBanner.cs     v3.3.0 status-tone banner control (OWED: not mounted)
-    ThisAssembly.Gen.cs      build stamp (git HEAD + date, title bar)
+    ThisAssembly.Gen.cs      build stamp (git HEAD + date; v3.5.1: shown on the
+                             install doctor card, not the title bar)
   tests/MaxDpsCompanion.Tests/ xunit suite (613 tests)
     ClassicUiTests.cs        classic shell: scroll survives refreshes, no Layout
                              events on value-only refreshes, default/min sizes,
@@ -860,7 +861,12 @@ MaxDps-Companion/
   writer for the `Enabled` / sticky `UserPaused` pair (`/mdb on|off|toggle` and
   the Options checkbox route through it), so a UI pause can never diverge the
   two flags. No wire/format change; the Ext3 layout is byte-identical and
-  `PROTOCOL_VERSION` stays 5.
+  `PROTOCOL_VERSION` stays 5. The semantics-only flip is a real release:
+  **3.5.1 "Holdfast"** (the earlier "no bump, ship inside 3.5.0" decision was
+  reversed by the 2026-10-01 release spec), so both app and bridge now read
+  3.5.1 and `InstallDoctor` stays in agreement. The window title renders
+  `Native.DisplayVersion` = `v3.5.1 Holdfast`; the build hash/time moved from
+  the title bar into the Advanced Diagnostics install doctor card.
 - **Cross-stream wiring owed (v3.3.0 Stream 4).** The three streams ship
   complete units but four connections are intentionally deferred (their target
   files are outside this merge pass): `Scheduler/BridgeHealth` consumed by

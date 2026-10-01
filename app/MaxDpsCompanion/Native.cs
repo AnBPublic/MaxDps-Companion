@@ -282,6 +282,33 @@ internal static class Native
         }
     }
 
+    /// <summary>
+    /// Release codename, SINGLE-SOURCED from csproj &lt;Codename&gt; via the
+    /// AssemblyMetadata attribute (see the csproj). Falls back to the shipped
+    /// "Holdfast" if the attribute is somehow absent (e.g. an old exe built
+    /// before the wiring), so the title can never render a bare "v3.5.1 ".
+    /// </summary>
+    internal static string Codename
+    {
+        get
+        {
+            var attr = typeof(Native).Assembly
+                .GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), inherit: false)
+                .OfType<System.Reflection.AssemblyMetadataAttribute>()
+                .FirstOrDefault(a => string.Equals(a.Key, "Codename", StringComparison.OrdinalIgnoreCase));
+            return string.IsNullOrWhiteSpace(attr?.Value) ? CodenameFallback : attr!.Value;
+        }
+    }
+
+    private const string CodenameFallback = "Holdfast";
+
+    /// <summary>
+    /// Full display form used by the title bar: "v3.5.1 Holdfast" (the "v"
+    /// prefix plus the single-sourced version and codename). Never contains a
+    /// build hash/time — those live in the Advanced Diagnostics install doctor.
+    /// </summary>
+    internal static string DisplayVersion => $"v{AppVersion} {Codename}";
+
     // ----- global hotkey -----
 
     [DllImport("user32.dll")]

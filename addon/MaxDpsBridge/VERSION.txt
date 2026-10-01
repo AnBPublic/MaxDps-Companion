@@ -1,3 +1,15 @@
+3.5.1
+date: 2026-10-01 "Holdfast"
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED from 3.5.0 - v5 core 35 cells + ADDITIVE Ext2 40-cell block
+          + ADDITIVE Ext3 43-cell block (cells 40-42: 14-bit app toggle mask +
+          epoch + blocked nibble, cell 42 checksum/commit; presence cell 28 B
+          bit2). The v5 version nibble stays 5 and every cell is byte-identical;
+          only the companion's reading of the Ext3 OOC mirror bit became
+          fail-closed. X-Codename: Holdfast in the TOC.
+v3.5.1:   Version bump only (semantics-only companion release). Bridge.lua
+          MDB.VERSION and the TOC now read 3.5.1 "Holdfast"; no Lua wire change.
 3.5.0
 date: 2026-09-30
 git: <commit placeholder - fill at release>

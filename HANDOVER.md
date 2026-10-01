@@ -1,5 +1,59 @@
 # Handover — MaxDps-Companion
 
+## 2026-10-01 3.5.1 "HOLDFAST" RELEASE (this change)
+
+GOAL: ship the semantics-only OOC-hold + addon-wins work as a real release
+(spec `docs/plans/2026-10-01-holdfast-release.md`). **This reverses the earlier
+no-bump decision**: 3.5.0 stays frozen without a codename and 3.5.1 "Holdfast"
+is the release. No `docs/PROTOCOL.md` / `PixelProtocol.cs` / `KeySender.cs` /
+`Scheduler/**` / `Decision/**` / `Knowledge/**` / vendor / tracked settings.ini
+/ `dist/` commit; `PROTOCOL_VERSION` stays 5 and the Ext3 layout is
+byte-identical.
+
+CHANGED:
+- `MaxDpsCompanion.csproj`: `<Version>3.5.1</Version>` +
+  `<Codename>Holdfast</Codename>` + `<AssemblyMetadata Include="Codename">`, so
+  `Native.Codename` / `DisplayVersion` are single-sourced from the csproj.
+- `Native.cs`: `Codename` (AssemblyMetadata, const fallback "Holdfast") and
+  `DisplayVersion` = `"v3.5.1 Holdfast"`; `AppVersion` still reads the assembly
+  identity; `BuildVersion` (hash/time) unchanged and now consumed by the
+  install doctor instead of the title bar.
+- `MainForm.cs`: title label is `$"MaxDPS Companion {Native.DisplayVersion}"`;
+  the separate `BuildVersion` title-bar label and its `Controls.Add` removed
+  (title label widened 240→360). A muted `Build <hash> (<time>)` line joins the
+  Advanced → Diagnostics **Install doctor** card. `MainForm.cs:223` (form
+  `Text`) and `:1911` (tray) intentionally untouched. New test seam
+  `HeaderTitleForTest`.
+- Version files: `addon/MaxDpsBridge/Bridge.lua:78` + `MaxDpsBridge.toc:5`
+  3.5.1 (TOC also `## X-Codename: Holdfast`); repo `VERSION.txt` and
+  `addon/MaxDpsBridge/VERSION.txt` line 1 bare 3.5.1 + codename/changelog;
+  `README.md`, `ARCHITECTURE.md`, `docs/UI.md` (title only).
+- Tests: `ReleaseIdentityTests.cs` — title equals
+  `"MaxDPS Companion v3.5.1 Holdfast"` with no hash, `Native.AppVersion ==
+  "3.5.1"`, `Native.DisplayVersion == "v3.5.1 Holdfast"`.
+
+TESTS: new `tests/MaxDpsCompanion.Tests/ReleaseIdentityTests.cs` (3 facts) —
+`Native.AppVersion == "3.5.1"`, `Native.DisplayVersion == "v3.5.1 Holdfast"`,
+and the header title equals `"MaxDPS Companion v3.5.1 Holdfast"` with no hash.
+
+VALIDATED (this machine): app `dotnet build -c Release` 0 warnings / 0 errors;
+`dotnet test -c Release` **871/871**; `lua tests/secret_harness.lua` **248/248**;
+`luac -p` all 8 bridge files clean; `pwsh tools/ability_audit.ps1` exit 0
+(Violations 0 / Warnings 0 / Missing 0 / Stale 0, committed addon Catalog.lua
+matches generated); `dist/` rebuilt via `build.ps1` (exe ProductVersion
+`3.5.1+913bcf4`, not committed — dist is gitignored). `rg 3.5.0` leaves only
+historical hits (README v3.5.0 section, ARCHITECTURE "no bump" history,
+Bridge.lua `CELL_COUNT`/Reader/Toggles legacy comments, one S8 test fixture
+string).
+
+LIVE OWED (retail 12.1): window title visually confirms
+`MaxDPS Companion v3.5.1 Holdfast`; `/mdb` reports 3.5.1. Static ≠ automated ≠
+live.
+
+DO NOT (held): PROTOCOL wire, PixelProtocol/KeySender/Scheduler/Decision/
+Knowledge, vendor/, tracked settings.ini, dist/ commit, codename in telemetry
+`Session`.
+
 ## 2026-09-30 REVIEW FIXES (OOC hold + overlay-wins) — this change
 
 GOAL: close the read-only reviewer findings on the OOC-hold + overlay-wins

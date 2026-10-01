@@ -1,3 +1,25 @@
+3.5.1
+Date: 2026-10-01 — "Holdfast"
+Companion 3.5.1 "Holdfast" / bridge 3.5.1. Protocol UNCHANGED: v5 core (35
+cells, nibble 5) + Ext2 (40) + Ext3 (43) stay byte-identical. 3.5.1 is the
+semantics-only release: the companion holds fail-closed out of combat unless
+the Ext3 OOC mirror echoes the toggle, and toggle authority is addon-wins (the
+in-game overlay is authoritative; the app never auto-pushes a mask). The
+no-bump decision recorded for 3.5.0 is hereby superseded. Visible change: the
+title bar shows "MaxDPS Companion v3.5.1 Holdfast" and the build hash/time
+moved into the Advanced Diagnostics install doctor card.
+
+v3.5.1 HOLDFAST (semantics-only, no wire change)
+
+- Fail-closed out-of-combat hold (CombatGate): the engine, the scheduler input
+  and the auto-target/interact movement guards all require the Ext3 OOC mirror
+  bit; an explicit [Targeting] CombatOnly=0 alone no longer permits OOC firing.
+- Addon-wins toggle authority: ToggleSync no longer auto-pushes; an explicit
+  local in-game value wins, a missing key reads ON, and EffectiveMask is the
+  Ext3 echo or 0 (fail-closed).
+- Title/version: Native.DisplayVersion = "v3.5.1 Holdfast"; build hash/time now
+  live on the install doctor card, not the title bar.
+
 3.5.0
 Date: 2026-09-30
 Companion 3.5.0 / bridge 3.5.0. Protocol ADDITIVE: v5 core (35 cells, nibble 5)

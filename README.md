@@ -1,4 +1,4 @@
-# MaxDPS Companion (Retail Midnight 12.1, v3.5.0)
+# MaxDPS Companion (Retail Midnight 12.1, v3.5.1 "Holdfast")
 
 Pixel bridge driver for [kaminaris MaxDps](https://www.curseforge.com/wow/addons/maxdps)
 (vendor pin: MaxDps v11.3.49). No memory read, no injection, no OCR, no LLM.
@@ -11,6 +11,17 @@ Two pieces:
  | :--- | :--- |
  | `MaxDpsBridge` (addon, `addon/MaxDpsBridge/`) | Queries the MaxDps rotation engine each frame and encodes suggestions, ability ids and combat context into a 40-cell strip of flat-coloured pixels (35-cell v5 core + additive Ext2 block). |
  | `MaxDpsCompanion.exe` (desktop app, `app/MaxDpsCompanion/`) | Samples those pixels, decodes the frame, evaluates every situational suggestion (USE / HOLD / SKIP / UNAVAILABLE / UNKNOWN) against an embedded ability intelligence registry + explicit candidate providers, schedules one action at a time, and replays the player's own keybinds into the attached game window. |
+
+## v3.5.1 "Holdfast" — semantics-only (no wire change)
+
+A companion **and** bridge version bump with **no protocol change**: `PROTOCOL`
+stays at 5 and the Ext3 layout stays byte-identical. It ships the semantic
+flips: the companion now holds **fail-closed out of combat** unless the bridge
+echoes the Ext3 OOC mirror bit, and toggle authority is **addon-wins** (the
+in-game overlay is authoritative; the app never auto-pushes a mask). The title
+bar reads `MaxDPS Companion v3.5.1 Holdfast`; the build hash/time moved from the
+title bar into the Advanced Diagnostics install doctor card. Both app and addon
+move together because `InstallDoctor` warns on a version mismatch.
 
 ## v3.5.0 — reliable coverage, Class Browser, Console home
 

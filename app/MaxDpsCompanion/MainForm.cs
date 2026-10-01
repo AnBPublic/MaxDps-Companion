@@ -132,6 +132,7 @@ internal sealed class MainForm : Form
     private readonly Label _liveValue = new();
     private readonly OwnedToolTip _liveTip = new();
     private readonly Label _statusLine = new();
+    private Label? _headerTitle;
     private readonly ClassBadge _classBadge = new();
     private readonly StripView _stripView = new();
     private ChamferButton? _advancedEntry;
@@ -702,36 +703,25 @@ internal sealed class MainForm : Form
         catch { /* loose art missing: title text carries the identity */ }
         var headerTitle = new Label
         {
-            Text = $"MaxDPS Companion v{Native.AppVersion}",
+            Text = $"MaxDPS Companion {Native.DisplayVersion}",
             AutoSize = false,
             Location = new Point(48, 0),
-            Size = new Size(240, 48),
+            Size = new Size(360, 48),
             TextAlign = ContentAlignment.MiddleLeft,
             Font = DesignTokens.Type(9.5F, FontStyle.Bold),
             ForeColor = DesignTokens.TextPrimary,
             BackColor = Color.Transparent,
         };
-        var version = new Label
-        {
-            Text = Native.BuildVersion,
-            AutoSize = false,
-            Location = new Point(292, 0),
-            Size = new Size(300, 48),
-            TextAlign = ContentAlignment.MiddleLeft,
-            Font = DesignTokens.Type(8F),
-            ForeColor = DesignTokens.TextMuted,
-            BackColor = Color.Transparent,
-        };
+        _headerTitle = headerTitle;
         var closeButton = new TitleBarButton { Text = "x", Dock = DockStyle.Right, HoverColor = DesignTokens.Danger };
         var minimizeButton = new TitleBarButton { Text = "-", Dock = DockStyle.Right, HoverColor = DesignTokens.SurfaceElevated };
         closeButton.Click += (_, _) => Close();
         minimizeButton.Click += (_, _) => WindowState = FormWindowState.Minimized;
         titleBar.Controls.Add(headerIcon);
         titleBar.Controls.Add(headerTitle);
-        titleBar.Controls.Add(version);
         titleBar.Controls.Add(minimizeButton);
         titleBar.Controls.Add(closeButton);
-        foreach (Control draggable in new Control[] { titleBar, headerIcon, headerTitle, version })
+        foreach (Control draggable in new Control[] { titleBar, headerIcon, headerTitle })
             draggable.MouseDown += (_, e) => { if (e.Button == MouseButtons.Left) WindowChrome.BeginDrag(Handle); };
         return titleBar;
     }
@@ -1673,9 +1663,15 @@ internal sealed class MainForm : Form
 
         _doctorRefresh.Click += (_, _) => RefreshInstallDoctor();
         StatusLabel(_doctorValue);
+        // The build hash/time moved off the title bar (v3.5.1) into the install
+        // doctor card as a muted identity line: the title carries only the
+        // human version + codename.
+        var buildIdentity = Hint($"Build {Native.BuildVersion}");
+        buildIdentity.ForeColor = DesignTokens.TextMuted;
         page.AddCard("Install doctor", "Version / wiring").Add(Stack(
             (ButtonsRow(40, _doctorRefresh), 40),
             (_doctorValue, 44),
+            (buildIdentity, 0),
             (Hint("Checks the exe build vs HEAD, configured vs emitted cell size, the app mask vs the Ext3 mirror and the addon version."), 0)));
         RefreshInstallDoctor();
 
@@ -3032,6 +3028,7 @@ internal sealed class MainForm : Form
     internal bool StartEnabledForTest => _start.Enabled;
     internal bool StopEnabledForTest => _stop.Enabled;
     internal string StatusLineForTest => _statusLine.Text;
+    internal string HeaderTitleForTest => _headerTitle?.Text ?? "";
     internal void InvokeLaunchForTest() => LaunchGame();
 
     // D5 popup-width-tier seams.
