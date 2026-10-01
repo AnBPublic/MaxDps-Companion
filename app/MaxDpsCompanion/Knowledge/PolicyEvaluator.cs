@@ -99,6 +99,29 @@ internal sealed class PolicyOptions
     /// </summary>
     public TtkFallback TimeToKillFallback { get; init; } = TtkPolicy.DefaultFallback;
 
+    /// <summary>
+    /// v3.7 adaptive-history tuning mirrored from <c>[TimeToKill]</c> so the
+    /// telemetry record carries the exact estimator configuration. Replay
+    /// rebuilds the estimator from these values; tests/legacy recordings keep
+    /// the approved defaults.
+    /// </summary>
+    public bool TtkHistory { get; init; } = true;
+
+    /// <summary>v3.7: rolling kill-window cap (<c>[TimeToKill] HistoryKills</c>).</summary>
+    public int TtkHistoryKills { get; init; } = 8;
+
+    /// <summary>v3.7: minimum kills before the window binds.</summary>
+    public int TtkHistoryMinKills { get; init; } = 3;
+
+    /// <summary>v3.7: window max age (seconds).</summary>
+    public int TtkHistoryMaxAgeSec { get; init; } = 240;
+
+    /// <summary>v3.7: pessimistic burn-rate percentile.</summary>
+    public int TtkHistoryQuantile { get; init; } = 75;
+
+    /// <summary>v3.7: adaptive-need duration factor.</summary>
+    public double TtkHistoryDurFactor { get; init; } = TtkPolicy.DefaultNeedDurFactor;
+
     public static PolicyOptions Standard { get; } = new();
 
     public static PolicyOptions FromSettings(AppSettings settings) => new()
@@ -115,6 +138,12 @@ internal sealed class PolicyOptions
         Preset = settings.ModePreset,
         TargetPreset = settings.TargetMode,
         TimeToKillFallback = settings.TimeToKillFallback,
+        TtkHistory = settings.TimeToKillHistory,
+        TtkHistoryKills = settings.TimeToKillHistoryKills,
+        TtkHistoryMinKills = settings.TimeToKillHistoryMinKills,
+        TtkHistoryMaxAgeSec = settings.TimeToKillHistoryMaxAgeSec,
+        TtkHistoryQuantile = settings.TimeToKillHistoryQuantile,
+        TtkHistoryDurFactor = settings.TimeToKillHistoryDurFactor,
     };
 
     /// <summary>

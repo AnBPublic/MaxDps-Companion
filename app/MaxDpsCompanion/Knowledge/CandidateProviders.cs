@@ -193,13 +193,25 @@ internal sealed class MaxDpsRotationProvider : ICandidateProvider
             // Stream 3 preset (restrict-only, default Full = no-op): Burst holds
             // consumables and on-use trinkets until the target's TTK is
             // measurable, so a burst window is not spent on dying trash.
-            // v3.6.0 wiring note: this preset hold is deliberately UNCHANGED —
-            // it still requires a *Valid* estimate only, and does NOT consume
-            // the provisional rate or the fast-pack grace hold. Only the T1
-            // offensive waste guard below uses Valid||Provisional + grace.
-            if (p.Options.Preset == RotationPreset.Burst && !ctx.TtkValid)
-                return D(PolicyDecision.Hold($"burst preset: holding {ability.Name} until a boss TTK is measurable"),
-                    "burst preset (no valid boss TTK)");
+            // v3.6.0: the provisional rate and the fast-pack grace hold are NOT
+            // consumed here. v3.7: when a binding history window predicts a
+            // fight longer than 5 s, the burst is released (the consumable is
+            // worth spending) even though the live estimate is still invalid; a
+            // history-only short target and "no binding window" keep the hold.
+            // A binding window with no usable value this tick (HistSec==0) must
+            // NOT claim "ttk-hist ~0.0s": it falls back to the legacy
+            // burst-preset reason, exactly like the offensive guard's HistSec>0
+            // gate, so the log never states a false target duration.
+            if (p.Options.Preset == RotationPreset.Burst && !ctx.TtkValid
+                && (!ctx.TtkHistBinding || ctx.TtkHistSec < 5.0))
+            {
+                return ctx.TtkHistBinding && ctx.TtkHistSec > 0
+                    ? D(PolicyDecision.Hold(
+                            $"ttk-hist: target ~{ctx.TtkHistSec:0.#}s to die; holding {ability.Name}"),
+                        "ttk-hist (history target < 5s)")
+                    : D(PolicyDecision.Hold($"burst preset: holding {ability.Name} until a boss TTK is measurable"),
+                        "burst preset (no valid boss TTK)");
+            }
             if (ability.HoldWhenBuffActive && ctx.SlotBuffActive[slot] == TriState.Yes)
                 return D(PolicyDecision.Skip("ability's own buff already active"), "own buff already active");
             if (ability.Purpose == AbilityPurpose.Trinket
@@ -281,9 +293,21 @@ internal sealed class OffensiveCandidateProvider : ICandidateProvider
         // MaxDps-sourced and companion gap-fill offensives; MaxDps simply
         // re-suggests next tick, so there is no lockout. An unknown TTK fails
         // open (never holds).
-        if (TtkPolicy.WasteGuardHolds(ability, ctx))
+        // activeDurSec is the provider's T2 value: the full second-use window
+        // (2·cooldown + duration). It feeds the v3.7 adaptive need so a long
+        // cooldown is held until the fight is expected to cover its own
+        // duration. Computed here because the ability carries both components.
+        var activeDurSec = (TtkPolicy.TwoUsesFactor * (double)ability.CooldownMs + ability.DurationMs) / 1000.0;
+        if (TtkPolicy.WasteGuardHolds(ability, ctx, activeDurSec, ctx.TtkHistDurFactor))
         {
             var need = TtkPolicy.MinTtkSec(ability);
+            if (TtkPolicy.HistoryWasteGuardHolds(ability, ctx, activeDurSec, ctx.TtkHistDurFactor))
+            {
+                var needAdapt = TtkPolicy.NeedAdaptive(need, activeDurSec, ctx.TtkHistDurFactor);
+                return D(PolicyDecision.Hold(
+                        $"ttk-hist: target ~{ctx.TtkHistSec:0.#}s to die; saving {ability.Name} (needs {needAdapt:0.#}s)"),
+                    src, $"ttk-hist {ctx.TtkHistSec:0.#}s below adaptive {needAdapt:0.#}s");
+            }
             return D(PolicyDecision.Hold(
                     $"target ~{ctx.TtkSec:0.#}s to die; saving {ability.Name} (needs {need:0.#}s)"),
                 src, $"TTK {ctx.TtkSec:0.#}s below minimum {need:0.#}s");

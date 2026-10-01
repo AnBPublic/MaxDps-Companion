@@ -109,6 +109,37 @@ internal sealed class CombatContext
     /// <summary>True when a valid OR provisional estimate exists — the gate the waste guard reads.</summary>
     public bool EffectiveTtkKnown => TtkValid || TtkProvisional;
 
+    /// <summary>
+    /// v3.7 adaptive TTK: true when the rolling kill window holds at least
+    /// <c>[TimeToKill] HistoryMinKills</c> kills, so the learned burn rate may
+    /// gate a cooldown. False on every legacy/replay frame and with History=0.
+    /// </summary>
+    public bool TtkHistBinding { get; init; }
+
+    /// <summary>v3.7: the window's pessimistic p-quantile burn-rate (frac/s); 0 when not binding.</summary>
+    public double TtkHistRate { get; init; }
+
+    /// <summary>
+    /// v3.7: the history-blended estimate in seconds (clamp 0..300); 0 when no
+    /// usable history value was produced this tick. The adaptive-need hold reads
+    /// this instead of <see cref="TtkSec"/> while the window is binding.
+    /// </summary>
+    public double TtkHistSec { get; init; }
+
+    /// <summary>v3.7: the history value is history-only (no trusted live rate yet).</summary>
+    public bool TtkHistProvisional { get; init; }
+
+    /// <summary>v3.7: number of kills currently in the rolling window (0 when not binding).</summary>
+    public int TtkHistKills { get; init; }
+
+    /// <summary>
+    /// v3.7: the configured adaptive-need duration factor
+    /// (<c>[TimeToKill] HistoryDurFactor</c>, clamp 0..1). The engine threads the
+    /// setting in; a manually-built context falls back to the estimate's own
+    /// value so tests/replays stay deterministic.
+    /// </summary>
+    public double TtkHistDurFactor { get; init; }
+
     /// <summary>Per-slot in-range tri-state from the bridge's IsSpellInRange probe.</summary>
     public TriState[] SlotRange { get; init; } = new TriState[PixelProtocol.SlotCount];
 
@@ -265,11 +296,24 @@ internal sealed class CombatContext
     /// estimator lives in <c>RotationEngine</c>; this is a pure passthrough so
     /// the policy/providers can read it without a scheduler signature change.
     /// </summary>
-    public CombatContext WithTtk(TtkEstimate estimate)
+    /// <param name="historyDurFactor">
+    /// Optional v3.7 override for the adaptive-need duration factor
+    /// (<c>[TimeToKill] HistoryDurFactor</c>). When null the estimator's own
+    /// <see cref="TtkEstimate.NeedDurFactor"/> is used, so the old one-argument
+    /// call keeps working unchanged (legacy/replay paths).
+    /// </param>
+    public CombatContext WithTtk(TtkEstimate estimate, double? historyDurFactor = null)
     {
+        var durFactor = historyDurFactor ?? estimate.NeedDurFactor;
         if (TtkValid == estimate.Valid && TtkSec.Equals(estimate.TtkSec)
             && TtkProvisional == estimate.Provisional && TargetAgeSec.Equals(estimate.AgeSec)
-            && FastPackLatch == estimate.FastPackLatch) return this;
+            && FastPackLatch == estimate.FastPackLatch
+            && TtkHistBinding == estimate.HistBinding
+            && TtkHistRate.Equals(estimate.HistRate)
+            && TtkHistSec.Equals(estimate.HistTtkSec)
+            && TtkHistProvisional == estimate.HistProvisional
+            && TtkHistKills == estimate.HistKills
+            && TtkHistDurFactor.Equals(durFactor)) return this;
         return new CombatContext
         {
             HpValid = HpValid,
@@ -298,6 +342,12 @@ internal sealed class CombatContext
             TtkProvisional = estimate.Provisional,
             TargetAgeSec = estimate.AgeSec,
             FastPackLatch = estimate.FastPackLatch,
+            TtkHistBinding = estimate.HistBinding,
+            TtkHistRate = estimate.HistRate,
+            TtkHistSec = estimate.HistTtkSec,
+            TtkHistProvisional = estimate.HistProvisional,
+            TtkHistKills = estimate.HistKills,
+            TtkHistDurFactor = durFactor,
         };
     }
 
@@ -339,6 +389,12 @@ internal sealed class CombatContext
             TtkProvisional = TtkProvisional,
             TargetAgeSec = TargetAgeSec,
             FastPackLatch = FastPackLatch,
+            TtkHistBinding = TtkHistBinding,
+            TtkHistRate = TtkHistRate,
+            TtkHistSec = TtkHistSec,
+            TtkHistProvisional = TtkHistProvisional,
+            TtkHistKills = TtkHistKills,
+            TtkHistDurFactor = TtkHistDurFactor,
         };
     }
 }

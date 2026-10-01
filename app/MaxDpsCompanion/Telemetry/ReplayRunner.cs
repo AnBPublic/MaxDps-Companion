@@ -20,6 +20,12 @@ internal sealed record ReplayResult
 
     /// <summary>Recomputed policy verdicts that differ from the recording.</summary>
     public int VerdictMismatches { get; init; }
+
+    /// <summary>
+    /// v3.7: recorded adaptive-history (hk/hs) values that differ from the
+    /// rebuilt estimator's (0 = the kill window reproduced deterministically).
+    /// </summary>
+    public int HistMismatches { get; init; }
 }
 
 /// <summary>
@@ -50,7 +56,7 @@ internal static class ReplayRunner
     {
         var body = new StringBuilder();
         int ticks = 0, decisions = 0, sends = 0, errors = 0, mismatches = 0, links = 0, sessions = 0;
-        int policyVerdicts = 0, policyVerdictMismatches = 0, legacyPolicyRecords = 0;
+        int policyVerdicts = 0, policyVerdictMismatches = 0, legacyPolicyRecords = 0, histMismatches = 0;
         var reasonCounts = new int[Enum.GetValues<DecisionReason>().Length];
         var sendCounts = new Dictionary<string, int>(StringComparer.Ordinal);
         var faultCounts = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -79,7 +85,21 @@ internal static class ReplayRunner
         // TTK-gated verdict recomputes with zero mismatches by construction.
         // The recorded ttkp/latch/age fields are informational only (see
         // TelemetryPolicy) and are deliberately not compared here.
-        var ttkEstimator = new TtkEstimator();
+        // v3.7: the estimator is built from the recorded [TimeToKill] history
+        // tuning (thist/thk/thm/tha/thq/thd) so a custom-config session replays
+        // with the same window. Legacy/default records omit those keys and get
+        // the approved defaults, i.e. the pre-v3.7 behaviour.
+        TtkEstimator? ttkEstimator = null;
+
+        static TtkOptions RecordedTtkOptions(TelemetryOptions? options) => options is null
+            ? TtkOptions.Default
+            : new TtkOptions(
+                History: options.TtkHistory ?? true,
+                Kills: options.TtkHistoryKills ?? 8,
+                MinKills: options.TtkHistoryMinKills ?? 3,
+                MaxAgeSec: options.TtkHistoryMaxAgeSec ?? 240,
+                Quantile: options.TtkHistoryQuantile ?? 75,
+                DurFactor: options.TtkHistoryDurFactor ?? 0.5);
         var pendingSends = new List<(Slot? Slot, int SpellId, long TMs)>();
         int? recordedCatalog = null;
         var catalogSkew = false;
@@ -192,8 +212,30 @@ internal static class ReplayRunner
                         // defaults to true, which is exactly the pre-v3.6 replay
                         // behaviour (the estimator defaulted inCombat=true), so
                         // legacy recordings keep their verdicts.
+                        ttkEstimator ??= new TtkEstimator(RecordedTtkOptions(evt.Policy?.Options));
                         ttkEstimator.Update(ttkFeedMs, evt.HasTarget ?? false, hpValid,
                             TtkEstimator.BandFromPercent(thp), evt.InCombat ?? true);
+                        // v3.7 determinism check: the rebuilt rolling kill window
+                        // must reproduce the recorded hk/hs (the policy's
+                        // adaptive-history holds already depend on them, but the
+                        // numeric readout catches drift explicitly). Skipped on
+                        // legacy records with no history fields.
+                        if (evt.Policy is { HistKills: { } recordedKills })
+                        {
+                            var rebuilt = ttkEstimator.Estimate;
+                            // hs is recorded rounded to one decimal; compare the
+                            // same rounding so a half-way value cannot false-mismatch.
+                            var hsOk = evt.Policy.HistTtkSec is not { } recordedHs
+                                || Math.Round(rebuilt.HistTtkSec, 1) == recordedHs;
+                            if (rebuilt.HistKills != recordedKills || !hsOk)
+                            {
+                                histMismatches++;
+                                body.Append(F("  HIST MISMATCH hk {0}->{1} hs {2}->{3}\n",
+                                    recordedKills, rebuilt.HistKills,
+                                    evt.Policy.HistTtkSec?.ToString("F1", CultureInfo.InvariantCulture) ?? "-",
+                                    rebuilt.HistTtkSec.ToString("F1", CultureInfo.InvariantCulture)));
+                            }
+                        }
                     }
                     if (evt.Policy is { Verdicts: { Length: > 0 } pendingVerdicts, Options: { } pendingOptions })
                     {
@@ -206,7 +248,13 @@ internal static class ReplayRunner
                         }
                         else
                         {
-                            var pendingCombat = ToCombat(evt.Policy!).WithTtk(ttkEstimator.Estimate);
+                            // v3.7: feed the rebuilt estimate AND the recorded
+                            // history dur-factor (the engine always threads the
+                            // configured factor, so replay must too; 0.5 for
+                            // legacy/default records).
+                            var pendingCombat = ToCombat(evt.Policy!).WithTtk(
+                                ttkEstimator?.Estimate ?? TtkEstimate.Invalid,
+                                pendingOptions.TtkHistoryDurFactor ?? 0.5);
                                 var pendingPolicyOptions = new PolicyOptions
                                 {
                                     SoloEnabled = pendingOptions.Solo,
@@ -363,6 +411,7 @@ internal static class ReplayRunner
             : "span       : -\n");
         report.Append($"decisions  : {decisions} recorded\n");
         report.Append($"verdicts   : {policyVerdicts} policy verdicts recomputed, {policyVerdictMismatches} mismatch(es)\n");
+        report.Append($"history    : adaptive-history reconstruction {histMismatches} mismatch(es)\n");
         if (legacyPolicyRecords > 0)
             report.Append($"             ({legacyPolicyRecords} legacy pre-v2.3 policy record(s) skipped: defensive urgency was not recorded)\n");
         if (recordedCatalog is { } catalogRev)
@@ -397,6 +446,7 @@ internal static class ReplayRunner
             BadLines = badLines,
             Verdicts = policyVerdicts,
             VerdictMismatches = policyVerdictMismatches,
+            HistMismatches = histMismatches,
         };
     }
 

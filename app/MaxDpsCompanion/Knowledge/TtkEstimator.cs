@@ -12,6 +12,17 @@ namespace MaxDpsCompanion;
 /// <see cref="AgeSec"/> is the lifetime of the current target (0 with no target),
 /// and <see cref="FastPackLatch"/> is a rolling warning that the last two targets
 /// died fast (a trash pack).
+///
+/// v3.7 additions (all optional, defaults keep existing callers and "no history"
+/// runs byte-identical): <see cref="HistBinding"/> is true only once the rolling
+/// kill window holds at least the configured minimum, <see cref="HistKills"/> is
+/// the live Count, <see cref="HistRate"/> is the pessimistic p-quantile burn rate
+/// (frac/s, 0 when not binding), <see cref="HistTtkSec"/> is the history-blended
+/// estimate clamped to 0..300 s (0 when not produced), <see cref="HistProvisional"/>
+/// marks a history-only rate (no live estimate yet), and
+/// <see cref="HistMedianLifeSec"/> is the window's median kill time.
+/// <see cref="NeedDurFactor"/> is the configured adaptive-need duration factor
+/// (0 when the history is not binding) for the policy's active-duration check.
 /// </summary>
 internal readonly record struct TtkEstimate(
     bool Valid,
@@ -19,13 +30,48 @@ internal readonly record struct TtkEstimate(
     double TargetHpFrac,
     bool Provisional = false,
     double AgeSec = 0,
-    bool FastPackLatch = false)
+    bool FastPackLatch = false,
+    bool HistBinding = false,
+    int HistKills = 0,
+    double HistRate = 0,
+    double HistTtkSec = 0,
+    bool HistProvisional = false,
+    double HistMedianLifeSec = 0,
+    double NeedDurFactor = 0)
 {
     /// <summary>The fail-safe "no estimate" value: invalid, clamped long, no flags.</summary>
     public static readonly TtkEstimate Invalid = new(false, TtkEstimator.MaxTtkSec, 0);
 
     /// <summary>Rounded seconds for reasons/telemetry (one decimal).</summary>
     public double RoundedSec => Math.Round(TtkSec, 1);
+}
+
+/// <summary>
+/// Adaptive-history tuning (v3.7). Defaults are the approved spec values and are
+/// the fail-open configuration: <see cref="History"/>=false reproduces the exact
+/// pre-history estimator. All are clamped by the caller
+/// (<see cref="AppSettings"/>), never here.
+/// </summary>
+internal readonly record struct TtkOptions(
+    bool History = true,
+    int Kills = 8,
+    int MinKills = 3,
+    int MaxAgeSec = 240,
+    int Quantile = 75,
+    double DurFactor = 0.5)
+{
+    /// <summary>
+    /// The approved spec defaults. A record struct's <c>default</c>/<c>new()</c>
+    /// zero-initialises (History=false, everything 0), so callers must use this
+    /// when they mean "the documented default configuration".
+    /// </summary>
+    public static TtkOptions Default => new(
+        History: true,
+        Kills: 8,
+        MinKills: 3,
+        MaxAgeSec: 240,
+        Quantile: 75,
+        DurFactor: 0.5);
 }
 
 /// <summary>
@@ -63,6 +109,15 @@ internal readonly record struct TtkEstimate(
 /// Unknown HP for a short flicker marks the output stale (invalid, provisional
 /// cleared) but does NOT reset the learned rate; a sustained unknown past 10 s
 /// resets. No-target/reset paths also clear provisional but keep the latch.
+///
+/// v3.7 adaptive history (§ of the approved spec): every valid kill (a departure
+/// at frac&lt;=0.25 whose target lived &gt;=2 s and lost &gt;=0.15 frac) is appended to a
+/// bounded rolling <see cref="KillHistory"/>. The history p-quantile burn rate
+/// blends with the live EWMA — <c>w = clamp((spanSec-2.5)/6, 0, 1)</c> — so a
+/// fresh pull starts at the trash-learned rate and the live rate takes over by
+/// ~8.5 s. With no live estimate but a target, an in-combat frac and a binding
+/// window, the history rate alone yields a provisional estimate. Window clears
+/// after 90 s with no target and out of combat; <c>History=false</c> is a no-op.
 /// </summary>
 internal sealed class TtkEstimator
 {
@@ -114,6 +169,32 @@ internal sealed class TtkEstimator
     /// <summary>Fast-drop provisional is only armed within this many seconds of first sight.</summary>
     private const double FastDropMaxAgeSec = 2.5;
 
+    // ---- v3.7 adaptive history -------------------------------------------------
+
+    /// <summary>A recorded kill's target must have lived at least this long.</summary>
+    public const double HistoryValidMinLifeSec = 2.0;
+
+    /// <summary>A recorded kill must have lost at least this fraction of HP.</summary>
+    public const double HistoryValidMinDeltaFrac = 0.15;
+
+    /// <summary>The history-only rate blends in over this span after the live minimum.</summary>
+    private const double HistoryBlendSpanSec = 6.0;
+
+    /// <summary>No target + out of combat for this long clears the kill window.</summary>
+    public const double HistoryClearAfterSec = 90.0;
+
+    private readonly TtkOptions _options;
+    private readonly KillHistory _history;
+
+    // First observed fraction of the current target (the kill record's StartFrac).
+    private double _firstFrac;
+
+    // When the no-target + out-of-combat condition began (long.MinValue = not counting).
+    private long _noTargetSinceMs = long.MinValue;
+
+    // Last-fed combat flag, so the history-only provisional path can require combat.
+    private bool _inCombat = true;
+
     private long _prevMs;
     private double _prevFrac;
     private bool _havePrev;
@@ -149,8 +230,25 @@ internal sealed class TtkEstimator
 
     private TtkEstimate _estimate = TtkEstimate.Invalid;
 
+    /// <summary>
+    /// Creates an estimator. The parameterless form keeps the approved defaults
+    /// (history ON, 8 kills / min 3 / 240 s / p75 / 0.5), so existing callers are
+    /// unchanged; the engine passes the clamped <c>[TimeToKill]</c> values in.
+    /// </summary>
+    public TtkEstimator(TtkOptions? options = null)
+    {
+        _options = options ?? TtkOptions.Default;
+        _history = new KillHistory(_options.Kills, _options.MaxAgeSec * 1000L);
+    }
+
     /// <summary>The last computed output (never null; invalid until a real decline).</summary>
     public TtkEstimate Estimate => _estimate;
+
+    /// <summary>The configured adaptive-history tuning (read-only; tests can pin defaults).</summary>
+    public TtkOptions Options => _options;
+
+    /// <summary>The rolling kill window (read-only seam for tests/telemetry).</summary>
+    public KillHistory History => _history;
 
     /// <summary>Learning epoch: increments on every reset, so callers can observe re-learns.</summary>
     public int Epoch => _epoch;
@@ -163,10 +261,16 @@ internal sealed class TtkEstimator
     public bool FastPackLatch =>
         _latchUntilMs != long.MinValue && _nowMs < _latchUntilMs;
 
-    /// <summary>Clears all learned target state (session start / kill-switch off). The latch is kept.</summary>
+    /// <summary>
+    /// Clears all learned target state (session start / kill-switch off) AND the
+    /// rolling kill window. The latch is kept. <see cref="RotationEngine.Start"/>
+    /// calls this, so a Stop/Start must not let a previous session's trash
+    /// history throttle a fresh pull (the safer opener).
+    /// </summary>
     public void Reset()
     {
         ClearTargetState();
+        _history.Clear();
         _prevMs = 0;
         _prevFrac = 0;
         _havePrev = false;
@@ -184,6 +288,7 @@ internal sealed class TtkEstimator
     public TtkEstimate Update(long nowMs, bool hasTarget, bool targetHpValid, int targetHpBand, bool inCombat = true)
     {
         _nowMs = nowMs;
+        _inCombat = inCombat;
 
         // No target: nothing to estimate. A kill (fast short-lived target) is
         // recorded first; a later target starts a fresh epoch.
@@ -195,9 +300,25 @@ internal sealed class TtkEstimator
             _prevMs = nowMs;
             _prevFrac = 0;
             _epoch++;
+
+            // v3.7: drop the learned window once the player has been idle (no
+            // target, out of combat) long enough that it no longer describes
+            // the current pack.
+            if (!inCombat)
+            {
+                if (_noTargetSinceMs == long.MinValue) _noTargetSinceMs = nowMs;
+                else if (nowMs - _noTargetSinceMs >= (long)(HistoryClearAfterSec * 1000.0))
+                    _history.Clear();
+            }
+            else
+            {
+                _noTargetSinceMs = long.MinValue;
+            }
+
             _estimate = ApplyLatch(new TtkEstimate(false, MaxTtkSec, 0), nowMs);
             return _estimate;
         }
+        _noTargetSinceMs = long.MinValue;
 
         // HP unknown: keep the learned rate for a short flicker, mark stale, and
         // reset once the gap exceeds the sustained-unknown window.
@@ -232,6 +353,7 @@ internal sealed class TtkEstimator
             _firstObsMs = nowMs;
             _refMs = nowMs;
             _refFrac = frac;
+            _firstFrac = frac;
             _lowSeed = targetHpBand <= LowFirstSightBand && inCombat;
             var ttk = _lowSeed ? frac * 15.0 : MaxTtkSec;
             _estimate = ApplyLatch(new TtkEstimate(false, ttk, frac, _lowSeed, 0), nowMs);
@@ -245,7 +367,10 @@ internal sealed class TtkEstimator
         // departing target is scored for the fast-pack latch before we reset.
         if (frac - _prevFrac > JumpResetFrac)
         {
-            RecordDeparture(nowMs);
+            // An upward jump is ambiguous: a new target OR a big heal. The
+            // v3.6 fast-pack latch still scores it, but the v3.7 kill history
+            // must not (a heal from low HP would otherwise be a false kill).
+            RecordDeparture(nowMs, healJump: true);
             ClearTargetState();
             _havePrev = true;
             _prevFrac = frac;
@@ -255,6 +380,7 @@ internal sealed class TtkEstimator
             _firstObsMs = nowMs;
             _refMs = nowMs;
             _refFrac = frac;
+            _firstFrac = frac;
             _epoch++;
             _lowSeed = targetHpBand <= LowFirstSightBand && inCombat;
             var ttk = _lowSeed ? frac * 15.0 : MaxTtkSec;
@@ -314,43 +440,117 @@ internal sealed class TtkEstimator
         var spanSec = AgeSec(nowMs);
         var valid = _samples >= MinSamples && spanSec >= MinSpanSec && _ewma >= MinRate;
 
+        TtkEstimate estimate;
         if (valid)
         {
             _lowSeed = false;
             _refMs = nowMs;
             _refFrac = frac;
             var ttk = Math.Clamp(frac / _ewma, 0.0, MaxTtkSec);
-            return ApplyLatch(new TtkEstimate(true, ttk, frac, false, spanSec), nowMs);
+            estimate = ApplyLatch(new TtkEstimate(true, ttk, frac, false, spanSec), nowMs);
         }
-
-        var dropSpanSec = _refMs == long.MinValue ? 0 : (nowMs - _refMs) / 1000.0;
-        var fastDrop = false;
-        var fastTtk = MaxTtkSec;
-        if (spanSec <= FastDropMaxAgeSec && dropSpanSec >= ProvisionalMinSpanSec)
+        else
         {
-            var dropFrac = _refFrac - frac;
-            if (dropFrac * 15.0 >= ProvisionalMinDropBands && dropFrac > 0)
+            var dropSpanSec = _refMs == long.MinValue ? 0 : (nowMs - _refMs) / 1000.0;
+            var fastDrop = false;
+            var fastTtk = MaxTtkSec;
+            if (spanSec <= FastDropMaxAgeSec && dropSpanSec >= ProvisionalMinSpanSec)
             {
-                fastDrop = true;
-                fastTtk = frac / (dropFrac / dropSpanSec);
+                var dropFrac = _refFrac - frac;
+                if (dropFrac * 15.0 >= ProvisionalMinDropBands && dropFrac > 0)
+                {
+                    fastDrop = true;
+                    fastTtk = frac / (dropFrac / dropSpanSec);
+                }
+            }
+            if (dropSpanSec >= ProvisionalMinSpanSec)
+            {
+                _refMs = nowMs;
+                _refFrac = frac;
+            }
+
+            if (fastDrop)
+            {
+                _lowSeed = false;
+                estimate = ApplyLatch(new TtkEstimate(false, fastTtk, frac, true, spanSec), nowMs);
+            }
+            else if (_lowSeed)
+            {
+                estimate = ApplyLatch(new TtkEstimate(false, frac * 15.0, frac, true, spanSec), nowMs);
+            }
+            else
+            {
+                estimate = ApplyLatch(new TtkEstimate(false, MaxTtkSec, frac, false, spanSec), nowMs);
             }
         }
-        if (dropSpanSec >= ProvisionalMinSpanSec)
+
+        return ApplyHistory(estimate, nowMs, frac, spanSec, valid);
+    }
+
+    /// <summary>
+    /// v3.7 adaptive-history blend. When the rolling window is binding
+    /// (History ON and Count &gt;= MinKills) the pessimistic p-quantile history
+    /// rate <c>rPq</c> is merged with the live EWMA:
+    /// <c>w = clamp((spanSec-2.5)/6, 0, 1)</c> and
+    /// <c>rateEff = ewma + (1-w)·max(0, rPq-ewma)</c> on a valid live estimate
+    /// (history lifts a too-slow live rate early; the live rate wins by ~8.5 s).
+    /// With no live estimate but a target, in combat and a usable frac, the
+    /// history rate alone produces a provisional estimate. Everything else is
+    /// left byte-identical to a no-history run (fail-open).
+    /// </summary>
+    private TtkEstimate ApplyHistory(TtkEstimate estimate, long nowMs, double frac, double spanSec, bool liveValid)
+    {
+        if (!_options.History || frac <= 0) return estimate;
+
+        _history.Prune(nowMs);
+        if (_history.Count < _options.MinKills) return estimate;
+
+        var rate = _history.RateQuantile(_options.Quantile);
+        var medianLife = _history.MedianLifeSec();
+        var kills = _history.Count;
+
+        if (liveValid && _ewma > 0)
         {
-            _refMs = nowMs;
-            _refFrac = frac;
+            var w = Math.Clamp((spanSec - MinSpanSec) / HistoryBlendSpanSec, 0.0, 1.0);
+            var rateEff = _ewma + (1.0 - w) * Math.Max(0.0, rate - _ewma);
+            var ttk = Math.Clamp(frac / rateEff, 0.0, MaxTtkSec);
+            return estimate with
+            {
+                HistBinding = true,
+                HistKills = kills,
+                HistRate = rate,
+                HistTtkSec = ttk,
+                HistProvisional = false,
+                HistMedianLifeSec = medianLife,
+                NeedDurFactor = _options.DurFactor,
+            };
         }
 
-        if (fastDrop)
+        if (_inCombat && rate > 0)
         {
-            _lowSeed = false;
-            return ApplyLatch(new TtkEstimate(false, fastTtk, frac, true, spanSec), nowMs);
+            var ttk = Math.Clamp(frac / rate, 0.0, MaxTtkSec);
+            return estimate with
+            {
+                HistBinding = true,
+                HistKills = kills,
+                HistRate = rate,
+                HistTtkSec = ttk,
+                HistProvisional = true,
+                HistMedianLifeSec = medianLife,
+                NeedDurFactor = _options.DurFactor,
+            };
         }
-        if (_lowSeed)
+
+        // Binding but no usable value this tick (no live rate, out of combat, or
+        // a zero rate): expose the window for telemetry, leave HistTtkSec at 0.
+        return estimate with
         {
-            return ApplyLatch(new TtkEstimate(false, frac * 15.0, frac, true, spanSec), nowMs);
-        }
-        return ApplyLatch(new TtkEstimate(false, MaxTtkSec, frac, false, spanSec), nowMs);
+            HistBinding = true,
+            HistKills = kills,
+            HistRate = rate,
+            HistMedianLifeSec = medianLife,
+            NeedDurFactor = _options.DurFactor,
+        };
     }
 
     /// <summary>Seconds since the first observation of the current target (0 when none).</summary>
@@ -378,19 +578,35 @@ internal sealed class TtkEstimator
     /// <summary>
     /// Scores the current target as a fast-pack "kill" if it departed after a
     /// short life at low HP, then rolls the latch window forward.
+    /// <paramref name="healJump"/> marks a departure caused by an upward HP jump
+    /// (new target or big heal) — the v3.6 latch still scores it, but the v3.7
+    /// kill history vetoes it so a heal is never recorded as a kill.
     /// </summary>
-    private void RecordDeparture(long nowMs)
+    private void RecordDeparture(long nowMs, bool healJump = false)
     {
         if (!_havePrev || _firstObsMs == long.MinValue) return;
-        var lifeSec = (nowMs - _firstObsMs) / 1000.0;
-        if (lifeSec > KillMaxLifeSec) return;
-        if (_prevFrac > KillMaxLastFrac) return;
 
-        _killTimes.Enqueue(nowMs);
-        while (_killTimes.Count > 0 && nowMs - _killTimes.Peek() > (long)(LatchWindowSec * 1000.0))
-            _killTimes.Dequeue();
-        if (_killTimes.Count >= LatchKills)
-            _latchUntilMs = nowMs + (long)(LatchHoldSec * 1000.0);
+        var lifeSec = (nowMs - _firstObsMs) / 1000.0;
+        var lastFrac = _prevFrac;
+
+        // Fast-pack latch (v3.6, unchanged): a short-lived low-HP target.
+        if (lifeSec <= KillMaxLifeSec && lastFrac <= KillMaxLastFrac)
+        {
+            _killTimes.Enqueue(nowMs);
+            while (_killTimes.Count > 0 && nowMs - _killTimes.Peek() > (long)(LatchWindowSec * 1000.0))
+                _killTimes.Dequeue();
+            if (_killTimes.Count >= LatchKills)
+                _latchUntilMs = nowMs + (long)(LatchHoldSec * 1000.0);
+        }
+
+        // Adaptive history (v3.7): a kill is a low-HP departure. This method is
+        // never reached from the sustained-unknown reset, so a target that
+        // merely vanished under unknown HP is not counted. A valid record also
+        // needs a real lifetime and a real HP loss (spawn-at-20% mobs dropped).
+        if (!_options.History || healJump || lastFrac > KillMaxLastFrac) return;
+        var delta = _firstFrac - lastFrac;
+        if (delta <= 0 || lifeSec < HistoryValidMinLifeSec || delta < HistoryValidMinDeltaFrac) return;
+        _history.Add(new KillRecord(nowMs, lifeSec, _firstFrac, lastFrac));
     }
 
     /// <summary>Clears learned target state and provisional flags; the latch and its window survive.</summary>
@@ -410,6 +626,7 @@ internal sealed class TtkEstimator
         _unknownSinceMs = long.MinValue;
         _feedFrac = 0;
         _feedMs = 0;
+        _firstFrac = 0;
     }
 
     /// <summary>

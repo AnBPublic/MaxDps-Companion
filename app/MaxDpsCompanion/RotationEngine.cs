@@ -95,7 +95,7 @@ internal sealed class RotationEngine : IDisposable
     // once per decoded frame (before the policy), exposed to the policy via
     // CombatContext.WithTtk. [TimeToKill] Enabled=0 leaves it invalid so every
     // TTK gate is skipped.
-    private readonly TtkEstimator _ttk = new();
+    private readonly TtkEstimator _ttk;
     private TtkEstimate _ttkEstimate = TtkEstimate.Invalid;
     private long? _ttkFeedMs;
 
@@ -152,7 +152,19 @@ internal sealed class RotationEngine : IDisposable
     private bool _targetBlocked;
     private bool _interactBlocked;
 
-    public RotationEngine(AppSettings settings) => _settings = settings;
+    public RotationEngine(AppSettings settings)
+    {
+        _settings = settings;
+        // v3.7: the estimator owns the adaptive kill-history window; the
+        // [TimeToKill] values are already clamped by AppSettings.
+        _ttk = new TtkEstimator(new TtkOptions(
+            History: settings.TimeToKillHistory,
+            Kills: settings.TimeToKillHistoryKills,
+            MinKills: settings.TimeToKillHistoryMinKills,
+            MaxAgeSec: settings.TimeToKillHistoryMaxAgeSec,
+            Quantile: settings.TimeToKillHistoryQuantile,
+            DurFactor: settings.TimeToKillHistoryDurFactor));
+    }
 
     /// <summary>Suspends input sending without tearing down the reader, for the pause hotkey.</summary>
     public volatile bool Paused;
@@ -828,7 +840,7 @@ internal sealed class RotationEngine : IDisposable
         // Build the combat context once: the scheduler consumes it (hard
         // execution-safety gate even with intelligence off), the policy
         // consumes it, and the telemetry tick records it (explainability).
-        var combat = CombatContext.FromFrame(frame, _settings.HpCurve).WithTtk(_ttkEstimate);
+        var combat = CombatContext.FromFrame(frame, _settings.HpCurve).WithTtk(_ttkEstimate, _settings.TimeToKillHistoryDurFactor);
         _lastCombatContext = combat;
         var plan = _scheduler.Advance(new ScheduleInput
         {
@@ -973,7 +985,7 @@ internal sealed class RotationEngine : IDisposable
         // below runs even on the double-off legacy path (it is not knowledge
         // filtering). A v4/v1 frame yields an all-UNKNOWN context, so a stale
         // in-game addon keeps the byte-identical legacy behaviour.
-        var combat = CombatContext.FromFrame(frame, _settings.HpCurve).WithTtk(_ttkEstimate);
+        var combat = CombatContext.FromFrame(frame, _settings.HpCurve).WithTtk(_ttkEstimate, _settings.TimeToKillHistoryDurFactor);
         _lastCombatContext = combat;
 
         // v1.3.3: scan the order EVERY tick (Main first by default). The

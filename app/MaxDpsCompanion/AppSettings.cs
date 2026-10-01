@@ -168,6 +168,22 @@ internal sealed class AppSettings
     // needing a fast-pack latch.
     public TtkFallback TimeToKillFallback { get; set; } = TtkFallback.FailOpen;
 
+    // [TimeToKill] adaptive real-data history (v3.7, approved spec
+    // docs/plans/2026-10-01-adaptive-ttk.md). History=0 disables the learned
+    // window and reproduces the pre-history estimator exactly. When ON, the
+    // rolling window keeps the last HistoryKills valid kills (clamp 3..20) no
+    // older than HistoryMaxAgeSec (clamp 30..900); the learned rate binds only
+    // once at least HistoryMinKills (clamp 2..10) are known, uses the
+    // HistoryQuantile percentile (clamp 50..95, pessimistic nearest-rank), and
+    // the adaptive need requires HistoryDurFactor (clamp 0..1) of an ability's
+    // active duration.
+    public bool TimeToKillHistory { get; set; } = true;
+    public int TimeToKillHistoryKills { get; set; } = 8;
+    public int TimeToKillHistoryMinKills { get; set; } = 3;
+    public int TimeToKillHistoryMaxAgeSec { get; set; } = 240;
+    public int TimeToKillHistoryQuantile { get; set; } = 75;
+    public double TimeToKillHistoryDurFactor { get; set; } = 0.5;
+
     // [CrowdControl] — companion-side CC appendix opt-in (v3.4.0). OFF by
     // default (CC is an explicit opt-in; Solo-like safety). ON makes curated,
     // auto-eligible crowd-control rows eligible while a target is confirmed and
@@ -408,6 +424,12 @@ internal sealed class AppSettings
             case ("intelligence", "hpcurve"): HpCurve = ParseBool(value, HpCurve); break;
             case ("timetokill", "enabled"): TimeToKillEnabled = ParseBool(value, TimeToKillEnabled); break;
             case ("timetokill", "fallback"): TimeToKillFallback = ParseTtkFallback(value); break;
+            case ("timetokill", "history"): TimeToKillHistory = ParseBool(value, TimeToKillHistory); break;
+            case ("timetokill", "historykills"): TimeToKillHistoryKills = Math.Clamp(ParseInt(value, TimeToKillHistoryKills), 3, 20); break;
+            case ("timetokill", "historyminkills"): TimeToKillHistoryMinKills = Math.Clamp(ParseInt(value, TimeToKillHistoryMinKills), 2, 10); break;
+            case ("timetokill", "historymaxagesec"): TimeToKillHistoryMaxAgeSec = Math.Clamp(ParseInt(value, TimeToKillHistoryMaxAgeSec), 30, 900); break;
+            case ("timetokill", "historyquantile"): TimeToKillHistoryQuantile = Math.Clamp(ParseInt(value, TimeToKillHistoryQuantile), 50, 95); break;
+            case ("timetokill", "historydurfactor"): TimeToKillHistoryDurFactor = Math.Clamp(ParseDouble(value, TimeToKillHistoryDurFactor), 0.0, 1.0); break;
             case ("crowdcontrol", "enabled"): CrowdControlEnabled = ParseBool(value, CrowdControlEnabled); break;
             case ("rotation", "mode"): ModePreset = ParseRotationPreset(value); break;
             case ("rotation", "targets"): TargetMode = ParseTargetPreset(value); break;
@@ -516,6 +538,16 @@ internal sealed class AppSettings
             .AppendLine("[TimeToKill]")
             .AppendLine($"Enabled={(TimeToKillEnabled ? 1 : 0)}")
             .AppendLine($"Fallback={(TimeToKillFallback == TtkFallback.ConserveMajors ? "ConserveMajors" : "FailOpen")}")
+            .AppendLine("; Adaptive real-data history (v3.7). 0 = pre-history behaviour.")
+            .AppendLine("; HistoryKills/MaxAgeSec bound the learned window; HistoryMinKills gates")
+            .AppendLine("; binding; HistoryQuantile is the pessimistic burn-rate percentile;")
+            .AppendLine("; HistoryDurFactor is the fraction of an active duration the fight must cover.")
+            .AppendLine($"History={(TimeToKillHistory ? 1 : 0)}")
+            .AppendLine($"HistoryKills={TimeToKillHistoryKills}")
+            .AppendLine($"HistoryMinKills={TimeToKillHistoryMinKills}")
+            .AppendLine($"HistoryMaxAgeSec={TimeToKillHistoryMaxAgeSec}")
+            .AppendLine($"HistoryQuantile={TimeToKillHistoryQuantile}")
+            .AppendLine($"HistoryDurFactor={TimeToKillHistoryDurFactor.ToString(CultureInfo.InvariantCulture)}")
             .AppendLine()
             .AppendLine("; Crowd-control appendix (opt-in, default off). ON makes curated")
             .AppendLine("; auto-eligible CC rows fire only on a confirmed target and never")
@@ -619,6 +651,15 @@ internal sealed class AppSettings
     };
 
     private static int ParseInt(string value, int fallback) =>        int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : fallback;
+
+    private static double ParseDouble(string value, double fallback) =>
+        // NaN/Infinity parse successfully but must never reach a Math.Clamp:
+        // Clamp(NaN) is NaN, which would propagate (e.g. NeedAdaptive=NaN). A
+        // non-finite token falls back exactly like an unparseable one.
+        double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
+        && double.IsFinite(parsed)
             ? parsed
             : fallback;
 

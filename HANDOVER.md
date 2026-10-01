@@ -1,5 +1,92 @@
 # Handover — MaxDps-Companion
 
+## 2026-10-01 v3.7 REVIEWER MUST-FIX (this change)
+
+GOAL: close the 6 reviewer must-fix items on the adaptive-TTK work. No wire
+change; `vendor/` untouched; generated churn reverted.
+
+CHANGED:
+- Reverted unrelated generated churn (no longer dirty): `ThisAssembly.Gen.cs`
+  (build.ps1 stamp, back to HEAD `9692c15`) and the
+  `docs/research/ABILITY_REGISTRY_AUDIT.md` timestamp.
+- `TtkEstimator.Reset()` now also `_history.Clear()`. `RotationEngine.Start`
+  calls `Reset`, so a Stop/Start must not carry a previous session's trash
+  window (documented as the safer opener; not persist-by-design).
+- `TtkEstimator.RecordDeparture(nowMs, healJump)`: the upward-jump path passes
+  `healJump: true`, so a big heal from low HP is scored by the v3.6 latch but
+  never appended to the v3.7 kill history (plus an explicit `delta <= 0` guard).
+- `AppSettings.ParseDouble` rejects non-finite tokens; `Math.Clamp(NaN)` would
+  otherwise propagate `NaN` into `NeedAdaptive`.
+- `CandidateProviders` consumable/trinket Burst: the `ttk-hist` reason is only
+  used when `HistTtkSec > 0`; a binding window with no usable value falls back
+  to the legacy burst-preset reason (no false "~0.0s" evidence).
+- Custom `[TimeToKill]` tuning is now recorded: `PolicyOptions` carries the six
+  history knobs (mirrored in `FromSettings`), `TelemetryOptions` records them
+  (`thist/thk/thm/tha/thq/thd`, omitted at defaults) and `ReplayRunner` rebuilds
+  the estimator + `WithTtk` dur-factor from the recorded values. Legacy/default
+  records decode to the approved defaults, byte-identical.
+- Tests: heal-jump false-kill, flat/first-tick absence, estimator MaxAge prune,
+  median-life/dur-factor propagation, `WithSlotRange` history copy, `hr`/`hprov`
+  export pin, zero-CD `activeDur=0` base-need pin, custom-tuning round-trip
+  replay (MinKills=2 would false-mismatch under defaults).
+
+VERIFY (this machine): app `dotnet build -c Release` 0 warnings / 0 errors;
+`dotnet test -c Release` **929/929**; `lua tests/secret_harness.lua` 248 passed
+/ 0 failed; `luac -p` 8/8 addon files; `pwsh tools/ability_audit.ps1` exit 0
+(violations 0 / warnings 0 / missing 0 / stale 0, catalog matches). LIVE OWED
+(retail 12.1) unchanged: trash→boss opener, dungeon trash hold check,
+`hk`/`hr`/`hs`/`hprov` export. Static ≠ automated ≠ live.
+
+## 2026-10-01 v3.7 ADAPTIVE REAL-DATA TTK — Task C + Task D (prior change)
+
+GOAL: land `docs/plans/2026-10-01-adaptive-ttk.md` Task C (context + policy +
+provider) and Task D (engine/telemetry/replay + docs). Task A+B (KillHistory.cs,
+TtkEstimator history + ApplyHistory blend, AppSettings 6 keys + settings.ini)
+were already present in the worktree. **No wire change**; `vendor/` untouched.
+
+CHANGED:
+- `Intelligence/CombatContext.cs`: `TtkHistBinding/TtkHistRate/TtkHistSec/
+  TtkHistProvisional/TtkHistKills/TtkHistDurFactor`; `WithTtk(estimate,
+  historyDurFactor?)` optional param (old 1-arg call still compiles), copied by
+  `WithSlotRange`; Unknown stays false/0.
+- `Knowledge/TtkPolicy.cs`: `NeedAdaptive(base, activeDur, durFactor) =
+  max(base, min(durFactor·activeDur, 20))`; `WasteGuardHolds(ability, ctx,
+  activeDurSec, durFactor)` overload = pre-history core OR
+  `HistoryWasteGuardHolds` (reason `ttk-hist`); ignores non-binding/zero-hist,
+  restrict invalid-live to `ProvisionalWasteEligible`; execute/kill-secure
+  carve-outs fail open.
+- `Knowledge/CandidateProviders.cs` (`Offensive`): computes
+  `activeDurSec = (2·CooldownMs + DurationMs)/1000` (the T2 value) at the hold
+  site — the spec's open question: **not a stored provider field**, so it is
+  derived from the ability's own cooldown/duration. Emits the `ttk-hist`
+  reason/evidence. Consumable/trinket Burst: invalid-live + binding now holds
+  only while `HistTtkSec < 5 s`, releasing a known-long fight.
+- `RotationEngine.cs`: `_ttk` constructed with `TtkOptions` from the clamped
+  `[TimeToKill]` settings; both `WithTtk` call sites pass
+  `TimeToKillHistoryDurFactor`.
+- `Telemetry/TelemetryEvent.cs`: `TelemetryPolicy` gains `hk` (HistKills), `hr`
+  (HistRate), `hs` (HistTtkSec) and `hprov` (HistProvisional; JSON `hprov`
+  because `hp` is already player HP), populated in `BuildPolicy`.
+- `Telemetry/ReplayRunner.cs`: the rebuilt kill window is compared against the
+  recorded `hk`/`hs` (`ReplayResult.HistMismatches`; report line
+  `adaptive-history reconstruction N mismatch(es)`).
+- `Knowledge/TtkEstimator.cs` (Task-A follow-up bug): a `record struct`'s
+  `new()`/`default` zero-initialises, so `new TtkOptions()` was History=false /
+  0s. Added `TtkOptions.Default` and used it in the estimator ctor so the
+  documented defaults (History=1/8/3/240/75/0.5) actually apply.
+- Tests: `tests/MaxDpsCompanion.Tests/TtkEstimatorHistoryTests.cs` (8 facts) +
+  `TtkPolicyHistoryTests.cs` (7 facts).
+- Docs: `ARCHITECTURE.md` (history stage + file/test map + telemetry),
+  `docs/TESTING.md` §3f history line, this section.
+
+VERIFY (this machine): app `dotnet build -c Release` 0 warnings / 0 errors;
+`dotnet test -c Release` **921/921**; new files 15/15. `lua`, `luac -p` and
+`pwsh tools/ability_audit.ps1` unchanged (no addon/catalog change).
+
+LIVE OWED (retail 12.1): trash→boss opener may be held up to ~8 s on the
+trash-learned rate (blend mitigates; `History=0` escape); dungeon trash hold
+check; `hk`/`hr`/`hs`/`hprov` telemetry export. Static ≠ automated ≠ live.
+
 ## 2026-10-01 RACIAL TOGGLES (this change)
 
 GOAL: land `docs/plans/2026-10-01-racial-toggles.md` — racials become catalog

@@ -135,12 +135,32 @@ internal static class TtkPolicy
         && (ctx.TtkSec >= 3.0 || !ctx.EffectiveTtkKnown);
 
     /// <summary>
+    /// Default adaptive-need duration factor (v3.7 spec §14): a cooldown is held
+    /// until the expected target life covers the configured fraction of its own
+    /// active duration.
+    /// </summary>
+    public const double DefaultNeedDurFactor = 0.5;
+
+    /// <summary>
+    /// v3.7 adaptive need: at least the ability's own policy minimum, raised to
+    /// <paramref name="durFactor"/> of its active duration and capped at 20 s —
+    /// <c>max(base, min(durFactor · activeDur, 20))</c>. So a 20 s active
+    /// duration at the 0.5 default needs ≥10 s of expected life.
+    /// </summary>
+    public static double NeedAdaptive(double baseNeedSec, double activeDurSec, double durFactor) =>
+        Math.Max(baseNeedSec, Math.Min(durFactor * activeDurSec, 20.0));
+
+    /// <summary>
     /// T1 waste guard (v3.6.0): a valid OR provisional TTK below the minimum
     /// means the cooldown will not pay off. Provisional only gates the majors
     /// (<see cref="ProvisionalWasteEligible"/>). The execute and kill-secure
     /// carve-outs are applied first and fail the rule open.
     /// </summary>
-    public static bool WasteGuardHolds(AbilityDefinition ability, CombatContext ctx)
+    public static bool WasteGuardHolds(AbilityDefinition ability, CombatContext ctx) =>
+        WasteGuardCore(ability, ctx);
+
+    /// <summary>Pre-history core of <see cref="WasteGuardHolds(AbilityDefinition, CombatContext)"/> (kept separate so the v3.7 overload can layer history on top).</summary>
+    private static bool WasteGuardCore(AbilityDefinition ability, CombatContext ctx)
     {
         if (ExecuteWasteBypass(ability, ctx)) return false;
         if (KillSecureBypass(ability, ctx)) return false;
@@ -149,6 +169,38 @@ internal static class TtkPolicy
         if (ctx.TtkValid && ctx.TtkSec < need) return true;
         if (ctx.TtkProvisional && ProvisionalWasteEligible(ability) && ctx.TtkSec < need) return true;
         return false;
+    }
+
+    /// <summary>
+    /// T1 waste guard with the v3.7 adaptive-history branch (spec §14). The
+    /// execute/kill-secure carve-outs fail open first; then the pre-history
+    /// Valid||Provisional gate runs; then, while the kill window is binding, the
+    /// *history-blended* estimate is compared against
+    /// <see cref="NeedAdaptive"/> instead of the flat minimum. A history hold
+    /// carries the reason <c>ttk-hist</c> (owned by the provider).
+    ///
+    /// While the live estimate is invalid, the history branch is restricted to
+    /// the provisional-eligible majors (<see cref="ProvisionalWasteEligible"/>);
+    /// a valid live estimate applies it to all T1 classes (spec §14).
+    /// </summary>
+    public static bool WasteGuardHolds(AbilityDefinition ability, CombatContext ctx, double activeDurSec, double durFactor) =>
+        WasteGuardCore(ability, ctx) || HistoryWasteGuardHolds(ability, ctx, activeDurSec, durFactor);
+
+    /// <summary>
+    /// The pure v3.7 history branch of the T1 waste guard: true only when the
+    /// window is binding, a usable history estimate exists, the live estimate is
+    /// valid (or the ability is provisional-eligible while it is not), and the
+    /// history estimate is below <see cref="NeedAdaptive"/>. Carve-outs stay
+    /// authoritative and fail the rule open.
+    /// </summary>
+    public static bool HistoryWasteGuardHolds(AbilityDefinition ability, CombatContext ctx, double activeDurSec, double durFactor)
+    {
+        if (ExecuteWasteBypass(ability, ctx)) return false;
+        if (KillSecureBypass(ability, ctx)) return false;
+        if (!ctx.TtkHistBinding || ctx.TtkHistSec <= 0) return false;
+        // Invalid live estimate: only the majors may be held on history.
+        if (!ctx.TtkValid && !ProvisionalWasteEligible(ability)) return false;
+        return ctx.TtkHistSec < NeedAdaptive(MinTtkSec(ability), activeDurSec, durFactor);
     }
 
     /// <summary>

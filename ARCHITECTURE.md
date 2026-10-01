@@ -164,6 +164,18 @@ TTK estimator (Knowledge/TtkEstimator) — v3.2.0, fed pre-policy
   target reaching age ≥12 s with frac >0.5 or TTK ≥30 s. The policy uses
   `EffectiveTtkKnown = TtkValid || TtkProvisional`; no-target/unknown-HP clears
   provisional but keeps the latch.
+  v3.7 adds an adaptive-history stage: every valid kill (a low-HP departure with
+  life ≥2 s and a ≥0.15 frac loss) is appended to a bounded rolling KillHistory
+  (last N=8 kills, 240 s max age, cleared after 90 s of no target + out of
+  combat). The window's nearest-rank p75 burn rate (frac/s, deliberately
+  pessimistic) blends with the live EWMA — `w = clamp((spanSec-2.5)/6, 0, 1)` —
+  so a fresh pull starts on the trash-learned rate and the live rate wins by
+  ~8.5 s. With no trusted live rate but a target, in combat and a usable frac,
+  the history rate alone yields a provisional estimate (`HistProvisional`).
+  The policy's `NeedAdaptive = max(MinTtkSec, min(DurFactor·activeDur, 20))`
+  then holds a T1 offensive while `HistTtkSec` is below it (reason `ttk-hist`),
+  restricted to the provisional-eligible majors while the live estimate is
+  invalid. `History=0` reproduces the pre-history estimator exactly.
         │
         ▼
 Execution safety (Knowledge/PolicyEvaluator.ExecutionSafety) — ALWAYS
@@ -290,15 +302,18 @@ PostMessage WM_KEYDOWN/WM_KEYUP → WoW window only
 Local telemetry (opt-in: [Telemetry] Enabled, default 0)
   every Report tick → JSONL event (tick/send/link) with the plan head,
   policy verdicts + reasons, combat context (range/buff/interruptible/
-  options) and candidate snapshot, plus the additive `ttk`/`thp`/`ttkMs`
-  fields (v3.2.0) → bounded in-memory ring (no disk until
+  options) and candidate snapshot, plus the additive `ttk`/`ttkp`/`age`/`latch`
+  fields (v3.6.0) and the v3.7 `hk`/`hr`/`hs`/`hprov` adaptive-history readout
+  → bounded in-memory ring (no disk until
   Export) ──► Export file ──► ReplayRunner: recorded DecisionContext →
   DecisionEngine.Evaluate AND every recorded policy verdict →
   PolicyEvaluator.Evaluate (memory rebuilt from send events in live order:
   a send precedes its own tick, so a tick never sees its own send; the TTK
   estimator is rebuilt by feeding the recorded (ttkMs, hasTarget, thp)
-  series in order) → diagnostic report (legacy decisions and policy verdicts
-  must both recompute with 0 mismatches)
+  series in order, which also rebuilds the v3.7 kill window) → diagnostic
+  report (legacy decisions and policy verdicts must both recompute with 0
+  mismatches; the recorded hk/hs are compared against the rebuilt window and
+  must reproduce exactly)
 ```
 
 No memory read, no injection, no OCR at any stage. The knowledge base is
@@ -515,18 +530,32 @@ MaxDps-Companion/
                              source identity + structured decision evidence;
                              v3.2.0 T1-T4 TTK gates; v3.3.0 Burst/AoE preset
                              holds + Solo HP-banded escalation (SoloBandLatch);
-                             v3.6 provisional waste guard + grace hold +
-                             kill-secure + execute carve-out + tiered defensive
-                             lookup
+                              v3.6 provisional waste guard + grace hold +
+                              kill-secure + execute carve-out + tiered defensive
+                              lookup; v3.7 ttk-hist adaptive branch (activeDur
+                              = T2 2·cd+dur) + consumable/trinket Burst release
+                              above a 5 s binding history
+      KillHistory.cs         v3.7 pure/fake-clock bounded rolling kill window
+                             (KillRecord AtMs/LifeSec/StartFrac/EndFrac;
+                             Add/Prune/Clear/Count, nearest-rank
+                             RateQuantile(q) and MedianLifeSec). Backs the
+                             adaptive-history blend; no clock, no I/O.
       TtkEstimator.cs        v3.2.0 pure/fake-clock per-target TTK estimator
                              (band -> frac, reset/feed-from-anchor/EWMA seed,
                              clamp 300 s; invalid fails open); v3.6 provisional
                              estimate + AgeSec + fast-pack latch (extended
-                             TtkEstimate record, additive defaults)
+                             TtkEstimate record, additive defaults); v3.7
+                             KillHistory hook + live/history blend + history-only
+                             provisional estimate (`TtkOptions` defaults
+                             History=1/Kills=8/MinKills=3/MaxAgeSec=240/
+                             Quantile=75/DurFactor=0.5; `History=0` = exact
+                             pre-history behaviour)
       TtkPolicy.cs           v3.2.0 MinTtkSec usage defaults + TTK field
                              forwarding for the T1-T4 gates; v3.6 tiered
                              thresholds, grace-hold/kill-secure helpers and the
-                             `[TimeToKill] Fallback` mode
+                             `[TimeToKill] Fallback` mode; v3.7 NeedAdaptive
+                             (max(base, min(DurFactor·activeDur, 20))) and the
+                             `ttk-hist` T1 branch
       SoloBandLatch.cs       v3.3.0 Solo HP-band hysteresis latch (enter band,
                              then stay eligible to enter+5 once engaged; with no
                              prior engagement it is the plain enter threshold)
@@ -686,6 +715,13 @@ MaxDps-Companion/
                              defensive lookup, Fallback mode
     TtkCurationTests.cs      raw-JSON TTK field schema conformance (defaults,
                              ranges, execute pairing, v3.6 killSecure)
+    TtkEstimatorHistoryTests.cs  v3.7 fake-clock history: kill filter, window
+                             cap/prune/idle-clear, nearest-rank quantile,
+                             below-MinKills fail-open identity, blend weights,
+                             history-only provisional
+    TtkPolicyHistoryTests.cs v3.7 NeedAdaptive, ttk-hist hold/use, invalid-live
+                             restriction, carve-outs, consumable Burst release,
+                             [TimeToKill] parse/clamp, replay hk/hs reproduce
     TtkReplayTests.cs        v3.2.0 recorded-series estimator rebuild (in-memory
                              + the checked-in ttk fixture, 0 mismatches)
     fixtures/ttk-warrior-burst.jsonl  canonical v3.2.0 TTK recording (18 policy

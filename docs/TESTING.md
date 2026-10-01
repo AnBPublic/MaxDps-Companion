@@ -330,6 +330,20 @@ with Intelligence ON, TTK guard ON (or observe the documented OFF collateral):
 5. Record + export + replay the run: 0 mismatches for decisions and policy
    verdicts (`ttkp`/latch fields included).
 
+### 3f. TTK v3.7 adaptive real-data history (live 12.1 retail, OWED)
+
+Offline evidence is `TtkEstimatorHistoryTests` (kill filter, window
+cap/prune/idle-clear, nearest-rank quantile, below-MinKills fail-open identity,
+blend weights, history-only provisional) and `TtkPolicyHistoryTests`
+(NeedAdaptive, `ttk-hist` hold/use, invalid-live restriction, carve-outs,
+consumable/trinket Burst release, `[TimeToKill]` parse/clamp, replay hk/hs
+reproduce) — never live proof. One history line: with Intelligence ON and
+`[TimeToKill] History=1`, clear a fast trash pack then pull a boss; the first
+~8.5 s of the boss may be held on the trash-learned rate (reason `ttk-hist`),
+then the live rate wins and the major fires. Telemetry carries `hk`/`hr`/`hs`/
+`hprov` and the replay report must read `adaptive-history reconstruction 0
+mismatch(es)`. `History=0` reproduces the pre-history behaviour exactly.
+
 ## Benchmarks / diagnostics (no game)
 
 ```powershell

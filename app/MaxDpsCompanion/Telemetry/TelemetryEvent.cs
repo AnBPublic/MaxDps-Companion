@@ -179,6 +179,39 @@ internal sealed record TelemetryOptions
     [JsonPropertyName("ttkfb")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? TtkFallback { get; init; }
+
+    /// <summary>
+    /// v3.7 additive: [TimeToKill] History off (false) when disabled; omitted
+    /// when ON (default) so legacy lines are unchanged.
+    /// </summary>
+    [JsonPropertyName("thist")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? TtkHistory { get; init; }
+
+    /// <summary>v3.7 additive: [TimeToKill] HistoryKills; omitted at the 8 default.</summary>
+    [JsonPropertyName("thk")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? TtkHistoryKills { get; init; }
+
+    /// <summary>v3.7 additive: [TimeToKill] HistoryMinKills; omitted at the 3 default.</summary>
+    [JsonPropertyName("thm")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? TtkHistoryMinKills { get; init; }
+
+    /// <summary>v3.7 additive: [TimeToKill] HistoryMaxAgeSec; omitted at the 240 default.</summary>
+    [JsonPropertyName("tha")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? TtkHistoryMaxAgeSec { get; init; }
+
+    /// <summary>v3.7 additive: [TimeToKill] HistoryQuantile; omitted at the 75 default.</summary>
+    [JsonPropertyName("thq")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? TtkHistoryQuantile { get; init; }
+
+    /// <summary>v3.7 additive: [TimeToKill] HistoryDurFactor; omitted at the 0.5 default.</summary>
+    [JsonPropertyName("thd")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? TtkHistoryDurFactor { get; init; }
 }
 
 /// <summary>
@@ -309,6 +342,40 @@ internal sealed record TelemetryPolicy
     [JsonPropertyName("latch")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? FastPackLatch { get; init; }
+
+    /// <summary>
+    /// v3.7 additive: kills in the adaptive history window for this tick (hk).
+    /// Omitted when the window is not binding (null = not recorded/not binding).
+    /// </summary>
+    [JsonPropertyName("hk")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? HistKills { get; init; }
+
+    /// <summary>
+    /// v3.7 additive: the window's pessimistic p-quantile burn rate in frac/s
+    /// (hr). Omitted when the window is not binding.
+    /// </summary>
+    [JsonPropertyName("hr")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? HistRate { get; init; }
+
+    /// <summary>
+    /// v3.7 additive: the history-blended estimate in seconds (hs). Omitted when
+    /// the window produced no usable value this tick.
+    /// </summary>
+    [JsonPropertyName("hs")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? HistTtkSec { get; init; }
+
+    /// <summary>
+    /// v3.7 additive: the history estimate is history-only, the live rate is not
+    /// yet trusted (hp in the spec table; emitted as <c>hprov</c> because
+    /// <c>hp</c> already means the player health percent on this record).
+    /// Omitted when false.
+    /// </summary>
+    [JsonPropertyName("hprov")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? HistProvisional { get; init; }
 
     /// <summary>
     /// R2 (sustain-cd): HP is in the sustain window and no ready self-heal
@@ -502,6 +569,11 @@ internal sealed record TelemetryEvent
             TtkProvisional = combat is { TtkProvisional: true } ? true : null,
             TargetAgeSec = combat is { TargetAgeSec: > 0 } ageCombat ? Math.Round(ageCombat.TargetAgeSec, 1) : null,
             FastPackLatch = combat is { FastPackLatch: true } ? true : null,
+            // v3.7 adaptive history: exported beside ttk/ttkp/age/latch.
+            HistKills = combat is { TtkHistBinding: true } ? combat.TtkHistKills : null,
+            HistRate = combat is { TtkHistBinding: true } ? Math.Round(combat.TtkHistRate, 4) : null,
+            HistTtkSec = combat is { TtkHistBinding: true, TtkHistSec: > 0 } ? Math.Round(combat.TtkHistSec, 1) : null,
+            HistProvisional = combat is { TtkHistProvisional: true } ? true : null,
             CdWait = plan.SelfHealCoolingDown,
             LastTriedMs = plan.SelfHealLastTriedMs > 0 ? plan.SelfHealLastTriedMs : null,
             Options = options is null ? null : new TelemetryOptions
@@ -521,6 +593,15 @@ internal sealed record TelemetryEvent
                 TtkFallback = options.TimeToKillFallback == TtkPolicy.DefaultFallback
                     ? null
                     : options.TimeToKillFallback.ToString(),
+                // v3.7: record the adaptive-history tuning so replay rebuilds the
+                // estimator with the SAME options. Omitted at the approved
+                // defaults, so a default-settings legacy line is byte-identical.
+                TtkHistory = options.TtkHistory ? null : false,
+                TtkHistoryKills = options.TtkHistoryKills == 8 ? null : options.TtkHistoryKills,
+                TtkHistoryMinKills = options.TtkHistoryMinKills == 3 ? null : options.TtkHistoryMinKills,
+                TtkHistoryMaxAgeSec = options.TtkHistoryMaxAgeSec == 240 ? null : options.TtkHistoryMaxAgeSec,
+                TtkHistoryQuantile = options.TtkHistoryQuantile == 75 ? null : options.TtkHistoryQuantile,
+                TtkHistoryDurFactor = options.TtkHistoryDurFactor == 0.5 ? null : options.TtkHistoryDurFactor,
             },
             Verdicts = verdicts,
         };
