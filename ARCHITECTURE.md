@@ -14,7 +14,7 @@ Vendor discovery (read-only): MaxDps:GlowDefensiveHPMidnight (Buttons.lua:1056)
   curve's own control points — see docs/research/ABILITY_RESEARCH.md §6.
        │
        ▼
-MaxDpsBridge addon — 43-cell pixel strip (bridge 3.5.1; v5 + Ext2 layout
+MaxDpsBridge addon — 43-cell pixel strip (bridge 3.5.2; v5 + Ext2 layout
   unchanged from 3.0.0, Ext3 shipped by T1/T2). Ext3: a 43-cell strip
   (cells 40-42 = 14-bit app toggle mask + epoch + blocked nibble + cell-42
   checksum/commit, presence cell 28 B bit2); a pre-3.5 companion ignores it
@@ -61,6 +61,16 @@ MaxDpsBridge addon — 43-cell pixel strip (bridge 3.5.1; v5 + Ext2 layout
             (shared burst first, spec-specific second, 1-4 entries) supplies
             the first ready+bound entry. No wire source bit exists, so the
             companion derives the source by id membership in the same list.
+            Racial-scope rows (v3.x, no wire change): catalog entries tagged
+            `Scope="Racial"` carry a normal Purpose and are appended to every
+            spec's `offensive`, `defensiveMinor` and `selfHeal` lists; the
+            bridge's known-spell filter selects the race the player actually is
+            (no `UnitRace`, no wire field). Self-heal racials ride `selfHeal`
+            (SelfHeal toggle), Defensive-category rows ride `defensiveMinor`
+            (covered by the `DefensiveCatalogSource` wire bit; only offensives
+            need `IsOffensiveGapFill` id membership). A `SourceConfidence=Low`,
+            live-unverified racial is forced `NeverAutomatic`. CC/mobility
+            racials stay Never/manual; passives are skipped.
            The whole path stays inside MaxDps's own `enableDefensives` /
            `enableCooldowns` switches, so muting them upstream also mutes
            the gap-fill.
@@ -87,7 +97,8 @@ MaxDpsBridge addon — 43-cell pixel strip (bridge 3.5.1; v5 + Ext2 layout
         a denied slot is written empty with the valid flag clear, i.e. the
         ordinary no-candidate state (no wire bit). It owns the per-slot rules
         plus OOC (blanks 1-8 out of combat) and Solo (blanks 3/8 while known
-        ungrouped, emergency HP excepted); TTK OFF forces target band 15 and
+        ungrouped, emergency HP excepted); TTK guard OFF forces target band 15
+        (collaterally blinding execute + Burst consumers, v3.6) and
         AutoTarget/AutoInteract silence states 3/4. The addon can only
         RESTRICT: `effective = companion AND addon`, an addon OFF wins; a
         missing DB key = ON and every gate fails open. Panel.lua is the
@@ -145,6 +156,14 @@ TTK estimator (Knowledge/TtkEstimator) — v3.2.0, fed pre-policy
   anchor into a 3 s EWMA (first sample seeds it). The result is attached via
   CombatContext.WithTtk (no scheduler signature change) and feeds the T1–T4
   gates; an invalid estimate fails open (every gate skipped).
+  v3.6 adds early paths so the guard still covers fast trash: a **provisional**
+  estimate (`Provisional=true`, `Valid` still false) from a fast drop (≥3 bands
+  over ≥0.5 s within 2.5 s) or a low first sight (band ≤3 in combat), plus
+  `AgeSec` (time on the current target) and a **fast-pack latch** set by two
+  quick kills (≤12 s life, last frac ≤0.25) within 20 s and cleared by any
+  target reaching age ≥12 s with frac >0.5 or TTK ≥30 s. The policy uses
+  `EffectiveTtkKnown = TtkValid || TtkProvisional`; no-target/unknown-HP clears
+  provisional but keeps the latch.
         │
         ▼
 Execution safety (Knowledge/PolicyEvaluator.ExecutionSafety) — ALWAYS
@@ -189,10 +208,18 @@ Situational policy (Knowledge/PolicyEvaluator) — [Intelligence] Enabled=1
   · offensives: no casts/channels, no curated pairing window, own-buff skip,
     melee/range gates, curated EnemyCountMin for companion-backed rows
     (MaxDps-backed rows delegate); "ready never means use now"
-    · TTK gates (v3.2.0): T1 holds an offensive when valid TTK < minTtkSec
-      (usage default or curated); T2 bypasses the pairing hold when valid TTK
+    · TTK gates (v3.2.0, extended v3.6): T1 holds an offensive when
+      valid/provisional TTK < minTtkSec (usage default or curated; the
+      provisional guard holds only MajorBurst/Transformation/Summon/
+      WindowDriven, never minors); T2 bypasses the pairing hold when valid TTK
       ≥ 2·cd+dur (absent cd skips); T3 bypasses it when executeFavored and target
-      HP ≤ executeBelowPct. Invalid TTK skips all three (fail open)
+      HP ≤ executeBelowPct. Invalid TTK skips all three (fail open) **except**
+      the v3.6 grace hold — MajorBurst/Transformation/Summon with no estimate,
+      the fast-pack latch set and age <4 s holds `"fast pack, waiting for TTK"`
+      (never without the latch). A v3.6 kill-secure bypass fires either
+      MajorBurst/Summon or a curated `killSecure:true` major when the estimate
+      is valid, age ≥20 s, target ≤35% and TTK 3–20 s; execute range also
+      bypasses the guard when TTK ≥3 s or unknown
     · mobility: gap closers need a confirmed out-of-melee target + in-range
       ability; escapes/movement are never automatic
     · self-heals: emergency self-heal (HP <= EmergencyHpPct, default 35) is a
@@ -207,9 +234,13 @@ Situational policy (Knowledge/PolicyEvaluator) — [Intelligence] Enabled=1
       White-urgency hold (HP-substitution); out-of-band holds; immunity needs
       no active immunity; MaxDps-flagged + all group verdicts unchanged;
       T4 dying-target hold + overheal guard + escalate rule still apply
-    · defensives T4 (v3.2.0): in Solo only and not emergency, a valid TTK < 6 s
-      holds the defensive ("target dies in ~Xs; saving <mitigation>"); emergency
-      HP always overrides, and Normal mode is unaffected
+    · defensives T4 (v3.2.0, tiered v3.6): emergency HP always overrides.
+      Solo holds Minor at TTK <6 s, Major at <10 s, Immunity at <15 s; the
+      Solo ladder-band carve-out lets a Major bypass the hold at/below
+      `SoloMajorHpPct` and Immunity at/below `SoloImmunityHpPct`. Group holds a
+      Minor only when the estimate is valid <4 s, urgency is below Orange and
+      the fast-pack latch is set; group Major/Immunity are never gated (enemy
+      count is unobservable and the tank may be dying to other mobs)
     · audit/inspector: `--ability-audit=<path>` + `tools/ability_audit.ps1`
       (Violations 0 / Warnings 0 / Missing 0 / Stale 0 enforced; exit 3 when
       non-clean, 2 on addon Catalog.lua drift); `--ability-info=<spellId>` app
@@ -328,6 +359,9 @@ MainForm.ApplyPreset → writes the SAME 14 hero ToggleSwitch.Checked values
 `ConsolePresets.cs` expresses the five bundles as the same 14 toggles plus a
 `ConsoleRole` spec-name role inference. Every `ConsoleHome` update method is
 value-only (text writes / invalidate), so the status timer performs no layout.
+The console home is the default view but is hidden while an Advanced/Abilities
+popup is open, so only one full-window overlay shows at a time; the popup
+restores it on close only if the popup hid it.
 The **Install doctor** (`Diagnostics/InstallDoctor.cs`, S8, mounted on the
 Advanced → Diagnostics page with a ~2 s throttle) is a pure `Audit` over
 best-effort file reads: exe build commit vs repo HEAD, configured vs emitted
@@ -338,9 +372,8 @@ scheduler verdict, candidate staleness) and is rendered owner-drawn.
 ## Classic UI shell (v3.0.0; replaces the v2.8 rail/pages shell)
 
 ```
-MainForm (borderless; 660-wide fixed frame; 2px ring red stopped / green
-          running; tray; pause hotkey; remembered size only when
-          [Window] Layout=classic3)
+MainForm (borderless; 660-wide fixed frame; no frame ring; tray; pause
+          hotkey; remembered size only when [Window] Layout=classic3)
   ├─ title bar 48px
   └─ GradientCanvas
        ├─ classic body (TableLayoutPanel, fixed absolute rows; NO AutoScroll on
@@ -349,17 +382,24 @@ MainForm (borderless; 660-wide fixed frame; 2px ring red stopped / green
        │     hero RoundedCard: status 42 (LinkLamp + state + ClassBadge)
        │       · live 42 ("Now: <action> — <why>", ellipsis + tooltip)
        │       · strip 40 (StripView, live sampled cells)
-       │       · "Spells" header + 4 two-toggle rows (Main|Offensive,
+       │       · "Rotation" header + 4 two-toggle rows (Main|Offensive,
        │         Defensive|Interrupt, Self-heal|Mobility, Consumable|Trinket)
-       │       · "Modes" header + 2 two-toggle rows (Solo|Out of combat,
-       │         Auto-target|Auto-interact)
+       │       · "Automation" header + 3 two-toggle rows (Solo|Out of combat,
+       │         Auto-target|Auto-interact, Time-to-kill|Crowd control)
        │     button row 1 (52): Start | Stop | Launch Game
        │     button row 2 (46): Recalibrate | Abilities… | Advanced… | Open Folder
        │     status line (26)
        ├─ Advanced scrim + centred card (tabs Configuration | Diagnostics |
        │   Intelligence), built lazily once, one AutoScroll panel of fixed
        │   RuleSections per tab
-        └─ Abilities scrim + centred card (one "Class browser" tab, S6)
+         └─ Abilities scrim + centred card (one "Class browser" tab, S6)
+    One full-window overlay at a time: opening Advanced/Abilities hides the S7
+    console home and the other scrim (RestoreConsoleAfterPopup only if a popup
+    hid it). v3.5.2: the scrims are parented to the top-level Form (not the
+    canvas) and track Form.ClientRectangle, and Form.Padding is empty, so ONE
+    opaque mask covers the entire window; the 24/10/24/12 inset lives on the
+    classic body scroll and the console home stretches to the full body canvas —
+    no background menu/ring peeks behind.
 
   Default client 660 × min(content, working area); MinimumSize 520×560; Esc
   closes the topmost popup. Width tiers (UiScale, D5): client width picks
@@ -391,7 +431,7 @@ MainForm (borderless; 660-wide fixed frame; 2px ring red stopped / green
 
 ```
 MaxDps-Companion/
-  addon/MaxDpsBridge/        bridge addon 3.5.1 (v5 + Ext2 + additive Ext3
+  addon/MaxDpsBridge/        bridge addon 3.5.2 (v5 + Ext2 + additive Ext3
                              encoder, candidate rotation, in-game toggle UI,
                              /mdb commands)
     Catalog.lua              GENERATED class/spec ids + extras (--gen-catalog,
@@ -399,7 +439,9 @@ MaxDps-Companion/
                              (Red) and defensiveMinor (Orange) gap-fill lists,
                              plus the v3.4.0 `cc` auto-eligible crowd-control
                              list, and the aliases block emitted as
-                             MDB.SpellAliases)
+                             MDB.SpellAliases). v3.x appends scope=Racial ids
+                             to every spec's offensive/defensiveMinor lists
+                             (race implicit via the known-spell filter)
     Keymap.lua               binding string -> virtual key
     Reader.lua               MaxDps readout, secret guards, v5 sensors,
                              defensive urgency + gap-fill, spell variants
@@ -431,6 +473,8 @@ MaxDps-Companion/
   app/MaxDpsCompanion/       WinForms companion (sampler → PostMessage)
     Knowledge/               ability knowledge base (v2.0; defensive v2.3; registry v2.6)
       AbilityModel.cs        enums + AbilityDefinition + slot mapping,
+                             `Scope` ("Racial" = race-carried, carried by every
+                             class/spec; null = class-bound),
                              DefensiveUrgency + MinimumUrgency + UrgencySource
                              + registry fields (AbilityKind,
                              IntelligenceStatus, AutomationContext,
@@ -442,7 +486,9 @@ MaxDps-Companion/
                              extras, wire ids, stable lookups, defensive
                              gap-fill derivation (DefensiveGapFill),
                              CrowdControlGapFill (v3.4.0 slot-6 `cc` read
-                             path), registry derivation rules, patch guard
+                             path), RacialScope/RacialIds + racial-aware
+                             IsOffensiveGapFill (v3.x, class-bound arrays
+                             unchanged), registry derivation rules, patch guard
                              (12.1 / 120100 / 11.3.49, CatalogVersion 4)
       CrowdControlCatalog.cs curated verified CC registry (v3.4.0): DR
                              category, Single/AoE, CD, AutoEligible; read by
@@ -468,12 +514,19 @@ MaxDps-Companion/
       CandidateProviders.cs  v2.7 explicit candidate providers + candidate
                              source identity + structured decision evidence;
                              v3.2.0 T1-T4 TTK gates; v3.3.0 Burst/AoE preset
-                             holds + Solo HP-banded escalation (SoloBandLatch)
+                             holds + Solo HP-banded escalation (SoloBandLatch);
+                             v3.6 provisional waste guard + grace hold +
+                             kill-secure + execute carve-out + tiered defensive
+                             lookup
       TtkEstimator.cs        v3.2.0 pure/fake-clock per-target TTK estimator
                              (band -> frac, reset/feed-from-anchor/EWMA seed,
-                             clamp 300 s; invalid fails open)
+                             clamp 300 s; invalid fails open); v3.6 provisional
+                             estimate + AgeSec + fast-pack latch (extended
+                             TtkEstimate record, additive defaults)
       TtkPolicy.cs           v3.2.0 MinTtkSec usage defaults + TTK field
-                             forwarding for the T1-T4 gates
+                             forwarding for the T1-T4 gates; v3.6 tiered
+                             thresholds, grace-hold/kill-secure helpers and the
+                             `[TimeToKill] Fallback` mode
       SoloBandLatch.cs       v3.3.0 Solo HP-band hysteresis latch (enter band,
                              then stay eligible to enter+5 once engaged; with no
                              prior engagement it is the plain enter threshold)
@@ -485,6 +538,9 @@ MaxDps-Companion/
       ClassSpellBook.cs      loads class-spells.json, applies the live-client
                              verification (official name/icon, removed ids
                              dropped), decodes tokens, flags junk/passive rows
+                             (v3.x no longer filters the catalogued racial
+                             actives BloodFury/ArcaneTorrent/GiftOfTheNaaru/
+                             Berserking/Stoneform; racial passives stay junk)
       ClassSkillTree.cs      membership model: shared vs per-spec, section
                              grouping for the Class skills screen
       vendor-abilities.json  GENERATED from vendor/ (extraction script)
@@ -532,11 +588,11 @@ MaxDps-Companion/
                              RuleSection, GradientCanvas, LinkLamp, StripView,
                              ClassBadge, WheelSafeNumeric
     MainForm.cs              borderless classic 660-wide fixed main window
-                             (no AutoScroll on the timer path): 2px state ring
-                             (red stopped / green running), hero + Spells/Modes
-                             toggles + button rows, Advanced…/Abilities… scrim
-                             popups; remembered size only when
-                             [Window] Layout=classic3
+                             (no AutoScroll on the timer path, no frame ring):
+                             hero + Rotation/Automation toggles + button rows,
+                             Advanced…/Abilities… scrim popups (one overlay at
+                             a time, console home hidden behind); remembered
+                             size only when [Window] Layout=classic3
     Intelligence/CombatContext.cs  tri-state context from the frame; HpSource
                              {Plain, Curve, Unknown} + HpPct/HpPctUpper with
                              precedence plain > curve > unknown
@@ -559,7 +615,7 @@ MaxDps-Companion/
                              events (pure; read-only report)
     Ui/CastAuditView.cs      v3.3.0 read-only audit grid (OWED: not mounted)
     Ui/SemanticBanner.cs     v3.3.0 status-tone banner control (OWED: not mounted)
-    ThisAssembly.Gen.cs      build stamp (git HEAD + date; v3.5.1: shown on the
+    ThisAssembly.Gen.cs      build stamp (git HEAD + date; v3.5.2: shown on the
                              install doctor card, not the title bar)
   tests/MaxDpsCompanion.Tests/ xunit suite (613 tests)
     ClassicUiTests.cs        classic shell: scroll survives refreshes, no Layout
@@ -596,6 +652,9 @@ MaxDps-Companion/
                              render, wrapping-label re-measure
     AbilityRegistryTests.cs  registry counts, derivation rules, patch guard,
                              zero-violation audit (25 tests)
+    RacialTogglesTests.cs    v3.x scope=Racial rows: scope carried, multi-id,
+                             purpose routing, gap-fill recognition, CC/mobility
+                             manual, passives absent, catalog emission
     RegistryDecisionScenarioTests.cs  registry-driven policy scenarios (18 tests)
     OffensiveInterruptReplayTests.cs  offensive-interrupt fixture replay (3 tests)
     fixtures/offensive-interrupt-warrior.jsonl  canonical offensive-interrupt
@@ -618,14 +677,21 @@ MaxDps-Companion/
     fixtures/defensive-warrior-urgency.jsonl  canonical defensive session
     TtkEstimatorTests.cs     v3.2.0 estimator: convergence, reset on switch/
                              heal/no-target/sustained-unknown, coarse-band
-                             staircase, noise, clamp, determinism
+                             staircase, noise, clamp, determinism; v3.6
+                             provisional paths, AgeSec and fast-pack latch
     TtkPolicyTests.cs        v3.2.0 T1-T4 gate matrix (waste hold, two-uses,
                              execute, Solo T4 + emergency override, unknown
-                             fail-open, kill-switch)
+                             fail-open, kill-switch); v3.6 provisional/grace
+                             hold, kill-secure, execute carve-out, tiered
+                             defensive lookup, Fallback mode
+    TtkCurationTests.cs      raw-JSON TTK field schema conformance (defaults,
+                             ranges, execute pairing, v3.6 killSecure)
     TtkReplayTests.cs        v3.2.0 recorded-series estimator rebuild (in-memory
                              + the checked-in ttk fixture, 0 mismatches)
     fixtures/ttk-warrior-burst.jsonl  canonical v3.2.0 TTK recording (18 policy
                              verdicts, 0 mismatches; trash hold / boss fire)
+    fixtures/ttk-trash-pack.jsonl     v3.6 dying-trash recording (6 mobs each
+                             <5 s; 0 mismatches; latch / grace hold)
     SoloEscalationTests.cs   v3.3.0 Solo HP-band escalation: ValidateSoloBands
                              ordering, Minor/Major/Immunity ladder verdicts,
                              group behaviour unchanged
@@ -765,8 +831,9 @@ MaxDps-Companion/
   the cache survives rebuilds. Opening the screen is the opt-in. Telemetry
   and every other path stay network-free.
 - **The window state is visible at a glance.** The borderless main window
-  paints a 2px frame ring (form padding 2 + `OnPaint`): red (202,64,68)
-  while stopped, green (58,196,125) while running; the invisible resize
+  surfaces the state in the hero status row (LinkLamp + state label), the
+  console-home status block and the tray icon; the frame draws no border ring
+  (the former 2px red/green `OnPaint` ring was removed). The invisible resize
   grip is unaffected. The client size is remembered in `[Window] Width=`
   / `Height=`, written on resize-end and close and restored on start
   (clamped to the working area; `CollapsedWantHeight` is the 960 default).
@@ -774,13 +841,22 @@ MaxDps-Companion/
   frame, the send history and settings — fake-clock testable, no clock/OS
   reads inside. Telemetry replay recomputes the decision layer with 0
   mismatches; policy verdicts are recorded with reasons.
-- **TTK knowledge is advisory and fails open (v3.2.0).** The estimator is pure
-  and fake-clock (built only from decoded fields), **no wire field and no Lua
-  change** — it reuses the target HP band already on the wire. An invalid/
-  unknown estimate skips every T1–T4 gate, because holding a cooldown on an
-  unknown target is the DPS loss the feature exists to avoid. T1 is a hold,
-  never a lockout: MaxDps re-suggests next tick. The `[TimeToKill]` kill-switch
-  disables the estimator and all gates without touching any other path.
+- **TTK knowledge is advisory; v3.6 guards dying trash without failing open.**
+  The estimator is pure and fake-clock (built only from decoded fields), **no
+  wire field and no Lua change** — it reuses the target HP band already on the
+  wire. v3.2.0 skipped every T1–T4 gate on an invalid estimate (fast trash was
+  never valid, so the guard never applied); v3.6 adds provisional estimates and
+  the fast-pack latch so the waste guard covers fast trash, with the grace hold
+  as the **only** fail-open exception (latch + age <4 s, majors only). A long
+  fight still fires: the latch clears on age ≥12 s/frac >0.5 or TTK ≥30 s, and
+  the kill-secure exception covers a long fight ending. T1 is a hold, never a
+  lockout: MaxDps re-suggests next tick. The `[TimeToKill]` kill-switch (labelled
+  **"TTK guard"**) disables the estimator and all gates; OFF forces band 15
+  (UNKNOWN) and therefore also blinds the execute gate and Burst consumers, not
+  just the TTK gates (documented collateral). `[TimeToKill]
+  Fallback=ConserveMajors` holds any unknown-TTK major even without a latch.
+  Live retail remains OWED (M+ trash→boss no-hold check; dungeon tank Minor
+  check).
 - **Execution safety before intelligence.** Cast/channel protection is not
   knowledge filtering: it runs in every mode (policy on/off, scheduler
   on/off, v5 frames) and is the *only* thing allowed to hold the main
@@ -826,7 +902,9 @@ MaxDps-Companion/
   gate fails open on unknown/secret context. OOC OFF blanks slots 1-8; Solo
   OFF blanks only Defensive/SelfHeal while known ungrouped (emergency HP
   excepted); AutoTarget/AutoInteract silence states 3/4 without touching the
-  status flags; TTK OFF forces target band 15. No layout/version change.
+  status flags; TTK guard OFF forces target band 15, which also blinds the
+  execute + Burst consumers (v3.6, documented collateral). No layout/version
+  change.
 - **Toggle authority is ADDON-WINS (2026-09-30 flip; supersedes v3.5 T5 app-wins).**
   The in-game overlay owns the effective toggle mask. The bridge publishes its
   local 14 toggles in the additive Ext3 cells 40-42 and the companion consumes
@@ -867,6 +945,17 @@ MaxDps-Companion/
   3.5.1 and `InstallDoctor` stays in agreement. The window title renders
   `Native.DisplayVersion` = `v3.5.1 Holdfast`; the build hash/time moved from
   the title bar into the Advanced Diagnostics install doctor card.
+- **Single full-window mask (v3.5.2, UI only).** The Advanced / Class-browser
+  scrims are parented to the top-level `Form` (added after the window layout in
+  `BuildLayout`) and each tracks `Form.ClientRectangle`, so one opaque layer
+  covers the whole window; `Form.Padding(2)` is removed and the
+  `GradientCanvas` padding is emptied, with the 24/10/24/12 inset moved onto
+  the classic body scroll. The console home already stretched to the full body
+  canvas, so it stays the default opaque view over the classic body — no
+  background menu or ring peeks at any edge. No wire/format change;
+  `PROTOCOL_VERSION` stays 5 and the Ext3 layout is byte-identical.
+  **3.5.2 "Fullcover"** is the release; the title renders
+  `v3.5.2 Fullcover` and `InstallDoctor` agrees with the bridge 3.5.2.
 - **Cross-stream wiring owed (v3.3.0 Stream 4).** The three streams ship
   complete units but four connections are intentionally deferred (their target
   files are outside this merge pass): `Scheduler/BridgeHealth` consumed by

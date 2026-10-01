@@ -1,3 +1,25 @@
+3.5.2
+Date: 2026-10-01 — "Fullcover"
+Companion 3.5.2 "Fullcover" / bridge 3.5.2. Protocol UNCHANGED: v5 core (35
+cells, nibble 5) + Ext2 (40) + Ext3 (43) stay byte-identical. 3.5.2 is a
+UI-only release: the Advanced / Class-browser mask is parented to the
+top-level Form and tracks its client rectangle, and the old Form.Padding(2) is
+removed, so ONE opaque layer covers the entire window; the 24/10/24/12 inset
+moved from the GradientCanvas onto the classic body scroll so the gradient ring
+sits around the toggle card, never around the window. Visible change: the title
+bar reads "MaxDPS Companion v3.5.2 Fullcover"; the build hash/time stays on the
+Advanced Diagnostics install doctor card only.
+
+v3.5.2 FULLCOVER (UI-only, no wire change)
+
+- Single full-window mask: Advanced/Class-browser scrims are parented to the
+  top-level Form (Bounds = form client rectangle) and the two-pixel Form
+  padding is gone, so no background ring or menu peeks at any edge. The
+  console home already stretched to the full body canvas and remains the
+  default view, so the classic body never shows through it.
+- Version/identity: Native.DisplayVersion = "v3.5.2 Fullcover"; the title bar
+  carries only version + codename (hash/time Advanced-only, unchanged).
+
 3.5.1
 Date: 2026-10-01 — "Holdfast"
 Companion 3.5.1 "Holdfast" / bridge 3.5.1. Protocol UNCHANGED: v5 core (35

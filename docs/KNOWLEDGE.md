@@ -352,27 +352,82 @@ band already on the wire (cell 29) plus the frame clock.
   never used for anything but the estimator; the plain percent is reconstructed
   from the band for the execute gate.
 - **Defaults (`Knowledge/TtkPolicy.cs`).** When `abilities.json` has no curated
-  `minTtkSec`, the usage default applies: MajorBurst 12 s, Transformation/Summon
-  20 s, WindowDriven 10 s, ShortCooldown/ProcDriven/AoeOnly/SingleTargetOnly/
-  ResourceDriven/Execute 5 s, DefensiveOffensiveHybrid 0 (never gate), unknown
-  10 s.
+  `minTtkSec`, the usage default applies (v3.6): MajorBurst 15 s (was 12),
+  Transformation/Summon 20 s, WindowDriven 10 s, ShortCooldown/ProcDriven/
+  ResourceDriven/SingleTargetOnly 5 s, Execute 3 s, AoeOnly 0 (primary-target
+  TTK says nothing about the pack), DefensiveOffensiveHybrid 0 (never gate),
+  unknown 10 s. A ShortCooldown with `cdMs <= 45 s` uses `min(threshold, 3)`.
+  Curated `minTtkSec` still wins.
 - **Gates (`CandidateProviders`).**
   - **T1 waste guard (Offensive, all sources):** valid TTK below the ability's
-    minimum ⇒ Hold `"target ~Xs to die; saving <name> (needs Ns)"`. MaxDps
+    minimum ⇒ Hold `"target ~Xs to die; saving <name> (needs Ns)"`. v3.6 also
+    applies it to a provisional estimate (majors only; see below). MaxDps
     re-suggests next tick — no lockout.
   - **T2 two-uses (Offensive):** valid TTK ≥ `2·cd + dur` (curated cooldown;
     absent cooldown skips the rule) ⇒ bypass the pairing hold and fire.
   - **T3 execute (Offensive):** `executeFavored` and valid target HP ≤
     `executeBelowPct` ⇒ bypass the pairing hold and fire. `executeBelowPct`
     without `executeFavored` is inert documentation.
-  - **T4 dying target (Defensive, Solo only):** not emergency and valid TTK
-    below 6 s ⇒ Hold `"target dies in ~Xs; saving <mitigation>"`. Emergency HP
-    always overrides; group scope is a follow-up because other enemies are
-    unobservable.
+  - **T4 dying target (Defensive):** emergency HP always overrides. v3.6
+    replaces the old "Solo only, TTK < 6 s" hold with the tiered defensive
+    lookup below; group Major/Immunity are never gated.
 - **Schema.** `minTtkSec` (number, optional), `executeBelowPct` (0–100,
-  optional) and `executeFavored` (bool, optional) are parsed by
-  `AbilityCatalog` into `AbilityDefinition`. Curation is owned by the T-B
-  workstream; T-A only parses.
+  optional), `executeFavored` (bool, optional) and v3.6 `killSecure` (bool,
+  optional) are parsed by `AbilityCatalog` into `AbilityDefinition`. Curation is
+  owned by the T-B workstream; T-A only parses.
+
+### v3.6 dying-trash guard (2026-10-01, provisional estimates + latch)
+
+The v3.2.0 estimator is only **valid** after ≥2 fed declines over a ≥2.5 s span.
+Trash dies faster, so the estimate never becomes valid, every gate fails open,
+and cooldowns fire into mobs we wanted to protect. v3.6 keeps the estimator and
+gates but adds an early **provisional** path and a **fast-pack latch** so the
+guard still applies to fast trash without ever locking out a long fight.
+
+- **Provisional estimate.** `TtkEstimate` gains additive `Provisional`,
+  `AgeSec`, `FastPackLatch` (`Valid`/`TtkSec`/`TargetHpFrac` unchanged). The
+  estimator flags `Provisional=true` when a fast drop (band falls ≥3 over
+  ≥0.5 s within the first 2.5 s) gives an early rate, or on a low first sight
+  (band ≤3 in combat, seeded at 1/15 per second). `Valid` stays false until the
+  normal rule is met; the policy's `EffectiveTtkKnown = TtkValid ||
+  TtkProvisional`. `AgeSec` is time since the current target's first
+  observation (0 with no target).
+- **Fast-pack latch.** A kill is a departure (no target, or an upward jump
+  >0.12) where the previous target lived ≤12 s and last frac ≤0.25. Two kills
+  within 20 s set `FastPackLatch` for 20 s; it clears early when any target
+  reaches age ≥12 s with frac >0.5, or TTK ≥30 s. No-target/unknown-HP clears
+  provisional but keeps the latch, so it survives target swaps.
+- **Waste guard** applies to `Valid || Provisional`; the provisional guard
+  holds only MajorBurst/Transformation/Summon/WindowDriven and never holds
+  minors.
+- **Grace hold (the only fail-open exception).** MajorBurst / Transformation /
+  Summon, neither valid nor provisional, `FastPackLatch` true, `AgeSec < 4` ⇒
+  Hold `"fast pack, waiting for TTK"`. It never fires without the latch.
+- **Kill-secure exception.** Bypasses the waste guard when the ability is
+  MajorBurst/Summon or curated `killSecure:true`, **and** the estimate is valid,
+  `AgeSec >= 20`, `TargetHpFrac <= 0.35` and TTK is 3–20 s — a long fight ending
+  is not trash, and age separates the two.
+- **Execute carve-out.** Execute range also bypasses the waste guard, provided
+  TTK ≥3 s or is unknown.
+- **Defensive tiers (T4 v3.6).** Solo: Minor TTK <6 s, Major TTK <10 s,
+  Immunity TTK <15 s. Group: Minor only when TTK is valid <4 s, urgency below
+  Orange **and** the latch is set; group Major/Immunity are never gated.
+  Emergency always overrides. The Solo ladder-band carve-out lets a Major
+  bypass the hold at/below `SoloMajorHpPct` and Immunity at/below
+  `SoloImmunityHpPct`. Group is conservative because enemy count is
+  unobservable and the tank may be dying to other mobs.
+- **`[TimeToKill] Fallback`.** New companion setting `FailOpen` (default) or
+  `ConserveMajors`. `ConserveMajors` applies the grace hold to any unknown-TTK
+  major even with no latch (`FailOpen` = current fail-open behaviour).
+- **Toggle semantics.** The toggle is renamed **"TTK guard"** (hero toggle,
+  `/mdb` help, tooltip). OFF still forces target band 15 (UNKNOWN) — it is
+  **not** inverted (OFF = automation off everywhere else), but it is documented
+  as *"cooldowns fire without dying-target protection; target HP band hidden
+  from companion"*, because band 15 collaterally blinds the execute gate and
+  Burst consumers, not just the TTK gates. See `docs/PROTOCOL.md` §201.
+- **Phase 2 (separate task, not this change):** an optional wire change encoding
+  target class (cell 29 R bits 2–3) is a separate L-route spec; Phase 1 uses
+  only the existing band + frame clock.
 
 ## User ability policy (`[Abilities]`)
 
@@ -605,12 +660,16 @@ no addon/Lua behaviour depends on them.
 | `minTtkSec` | number 0..300 | hold this offensive when a valid target TTK is shorter than this (waste guard) |
 | `executeBelowPct` | number 0..100 | target-HP% at/below which this burst is favored (execute) |
 | `executeFavored` | bool | arms the execute-bypass rule; without it `executeBelowPct` is inert documentation |
+| `killSecure` (v3.6) | bool | bypass the waste guard to secure a kill when the fight is long and ending (valid TTK 3–20 s, age ≥20 s, target ≤35% HP) |
 
-**Tier defaults when absent** (T-A, plan §3.3): MajorBurst 12, Transformation
-20, Summon 20, WindowDriven 10, ShortCooldown / ProcDriven / AoeOnly /
-SingleTargetOnly / ResourceDriven 5, DefensiveOffensiveHybrid n/a (defensive
-path), unknown usage 10. Curation starts from these defaults and only states
-explicit values where a class/spec guide justifies a deviation.
+**Tier defaults when absent** (T-A, plan §3.3; v3.6 values): MajorBurst 15,
+Transformation 20, Summon 20, WindowDriven 10, ShortCooldown / ProcDriven /
+SingleTargetOnly / ResourceDriven 5, `Execute 3`, `AoeOnly 0`,
+DefensiveOffensiveHybrid n/a (defensive path), unknown usage 10. `minTtkSec` is
+a floor, so `Execute` at 3 s and `AoeOnly` at 0 hold less than the v3.2.0
+defaults deliberately. Curation starts from these defaults and only states
+explicit values where a class/spec guide justifies a deviation. The v3.6
+`killSecure` flag is curated on confirmed majors only.
 
 Curated deviations (v3.2.0):
 

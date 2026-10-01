@@ -81,7 +81,27 @@ internal static class CatalogLuaGenerator
         sb.AppendLine("--   no ready+bound interrupt (never while a live interrupt is pending).");
         sb.AppendLine("--   No wire source bit exists; the companion's CrowdControlGate is the");
         sb.AppendLine("--   authority on USE/HOLD. MaxDps-owned stuns are never emitted here.");
+        sb.AppendLine("-- Racial-scope rows (scope=Racial) are appended to every spec's");
+        sb.AppendLine("--   offensive/defensiveMinor/selfHeal lists. Race is implicit: the");
+        sb.AppendLine("--   bridge's known-spell filter only finds a keybind for the race the");
+        sb.AppendLine("--   player actually is, so a non-matching race simply skips the entry.");
         sb.AppendLine("MDB.Extras = {");
+
+        // v3.x racial toggles: scope=Racial rows are carried for EVERY
+        // class/spec (the bridge's known-spell filter selects the player's
+        // race). Appended AFTER the class-bound entries so a class cooldown is
+        // never preempted; the class-bound gap-fill arrays stay byte-identical.
+        // Self-heal racials (Gift of the Naaru, Regeneratin', H.O.L.O.) ride
+        // the selfHeal list, NOT defensiveMinor: routing them through the
+        // Defensive slot bypassed the SelfHeal toggle (review fix #4). Racial
+        // Defensive-category rows (Stoneform/Shadowmeld) ride defensiveMinor;
+        // the bridge marks that slot with the dedicated DefensiveCatalogSource
+        // wire bit, so no id-membership shadow list is needed for them (only
+        // offensives, which have no source bit, need IsOffensiveGapFill).
+        var racialOffensive = catalog.RacialIds(AbilityCategory.Offensive);
+        var racialDefensive = catalog.RacialIds(AbilityCategory.Defensive);
+        var racialSelfHeal = catalog.RacialIds(AbilityCategory.SelfHeal);
+
         foreach (var className in AbilityCatalog.ClassOrder)
         {
             if (className.Length == 0) continue;
@@ -91,10 +111,11 @@ internal static class CatalogLuaGenerator
             for (var i = 1; i < specs.Length; i++)
             {
                 var mobility = catalog.Extras(className, specs[i], AbilityCategory.Mobility);
-                var selfHeal = catalog.Extras(className, specs[i], AbilityCategory.SelfHeal);
-                var offensive = catalog.OffensiveGapFill(className, specs[i]);
+                var selfHeal = catalog.Extras(className, specs[i], AbilityCategory.SelfHeal)
+                    .Concat(racialSelfHeal).ToArray();
+                var offensive = catalog.OffensiveGapFill(className, specs[i]).Concat(racialOffensive).ToArray();
                 var defensive = catalog.DefensiveGapFill(className, specs[i]);
-                var defensiveMinor = catalog.DefensiveGapFillMinor(className, specs[i]);
+                var defensiveMinor = catalog.DefensiveGapFillMinor(className, specs[i]).Concat(racialDefensive).ToArray();
                 var defensiveMajor = catalog.DefensiveGapFillMajor(className, specs[i]);
                 var immunity = catalog.ImmunityGapFill(className, specs[i]);
                 var cc = catalog.CrowdControlGapFill(className, specs[i]);

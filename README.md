@@ -1,4 +1,4 @@
-# MaxDPS Companion (Retail Midnight 12.1, v3.5.1 "Holdfast")
+# MaxDPS Companion (Retail Midnight 12.1, v3.5.2 "Fullcover")
 
 Pixel bridge driver for [kaminaris MaxDps](https://www.curseforge.com/wow/addons/maxdps)
 (vendor pin: MaxDps v11.3.49). No memory read, no injection, no OCR, no LLM.
@@ -11,6 +11,19 @@ Two pieces:
  | :--- | :--- |
  | `MaxDpsBridge` (addon, `addon/MaxDpsBridge/`) | Queries the MaxDps rotation engine each frame and encodes suggestions, ability ids and combat context into a 40-cell strip of flat-coloured pixels (35-cell v5 core + additive Ext2 block). |
  | `MaxDpsCompanion.exe` (desktop app, `app/MaxDpsCompanion/`) | Samples those pixels, decodes the frame, evaluates every situational suggestion (USE / HOLD / SKIP / UNAVAILABLE / UNKNOWN) against an embedded ability intelligence registry + explicit candidate providers, schedules one action at a time, and replays the player's own keybinds into the attached game window. |
+
+## v3.5.2 "Fullcover" — single full-window mask (UI only, no wire change)
+
+A UI-only release with **no protocol change**: `PROTOCOL` stays at 5 and the
+Ext3 layout stays byte-identical. The Advanced and Class-browser masks are now
+parented to the top-level window and track its client rectangle, and the old
+two-pixel form padding is gone, so **one opaque layer covers the entire
+window** — no background ring or menu peeks at any edge. The 24/10/24/12 inset
+moved from the gradient canvas onto the classic body scroll, so the gradient
+ring surrounds the toggle card rather than the window. The title bar reads
+`MaxDPS Companion v3.5.2 Fullcover`; the build hash/time remains on the
+Advanced Diagnostics install doctor card only. Both app and addon move together
+because `InstallDoctor` warns on a version mismatch.
 
 ## v3.5.1 "Holdfast" — semantics-only (no wire change)
 

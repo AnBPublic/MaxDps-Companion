@@ -212,7 +212,7 @@ public class ClassicUiTests
 
         Assert.Null(error);
         Assert.Equal(
-            new[] { "Auto-interact", "Auto-target", "Consumable", "Crowd control", "Defensive", "Interrupt", "Main", "Mobility", "Offensive", "Out of combat", "Self-heal", "Solo", "Time-to-kill", "Trinket" },
+            new[] { "Auto-interact", "Auto-target", "Consumable", "Crowd control", "Defensive", "Interrupt", "Main", "Mobility", "Offensive", "Out of combat", "Self-heal", "Solo", "TTK guard", "Trinket" },
             result.toggles);
         Assert.Equal(
             new[] { "Abilities\u2026", "Advanced\u2026", "Launch Game", "Open Folder", "Recalibrate", "Start", "Stop" },

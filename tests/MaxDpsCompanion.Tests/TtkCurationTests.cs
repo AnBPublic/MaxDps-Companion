@@ -7,8 +7,8 @@ namespace MaxDpsCompanion.Tests;
 /// T-B: schema-conformance tests for the curated TTK fields in
 /// <c>Knowledge/abilities.json</c> (v3.2.0 TTK intelligence, §5 B3).
 ///
-/// The fields (<c>minTtkSec</c>, <c>executeBelowPct</c>, <c>executeFavored</c>)
-/// are consumed by T-A's <c>AbilityCatalog</c>/<c>CandidateProviders</c>
+/// The fields (<c>minTtkSec</c>, <c>executeBelowPct</c>, <c>executeFavored</c>,
+/// <c>killSecure</c>) are consumed by T-A's <c>AbilityCatalog</c>/<c>CandidateProviders</c>
 /// parsing. This suite deliberately reads the RAW embedded JSON so it stays
 /// valid on the T-B branch before T-A's model fields exist (merge order
 /// T-B -> T-A), and so it keeps validating the data even if the schema later
@@ -26,8 +26,10 @@ namespace MaxDpsCompanion.Tests;
 ///    <c>spell-verification.json</c>, and every curated major offensive is
 ///    live-verified there.
 /// </summary>
-public class TtkCurationTests
+    public class TtkCurationTests
 {
+    private static AbilityCatalog Catalog => AbilityCatalog.Default;
+
     /// <summary>
     /// §3.3 tier defaults (T-A; when the curated field is absent the ability's
     /// <c>OffensiveUsage</c> selects the default). <c>null</c> = the defensive
@@ -35,19 +37,19 @@ public class TtkCurationTests
     /// </summary>
     private static readonly Dictionary<string, int?> DocumentedTierDefaults = new()
     {
-        ["MajorBurst"] = 12,
+        ["MajorBurst"] = 15,
         ["Transformation"] = 20,
         ["Summon"] = 20,
         ["WindowDriven"] = 10,
         ["ShortCooldown"] = 5,
         ["ProcDriven"] = 5,
-        ["AoeOnly"] = 5,
+        ["AoeOnly"] = 0,
         ["SingleTargetOnly"] = 5,
         ["ResourceDriven"] = 5,
         ["DefensiveOffensiveHybrid"] = null, // defensive path, no offensive TTK gate
-        ["MinorBurst"] = 10,                 // not enumerated in §3.3 -> unknown default
-        ["Execute"] = 10,                    // not enumerated in §3.3 -> unknown default
-        ["Manual"] = 10,                     // not enumerated in §3.3 -> unknown default
+        ["MinorBurst"] = 10,                 // not enumerated in §2 -> unknown default
+        ["Execute"] = 3,
+        ["Manual"] = 10,                     // not enumerated in §2 -> unknown default
         ["Unknown"] = 10,
     };
 
@@ -123,17 +125,18 @@ public class TtkCurationTests
     }
 
     [Fact]
-    public void Documented_Default_Table_Matches_Section_3_3()
+    public void Documented_Default_Table_Matches_Section_2()
     {
-        Assert.Equal(12, DocumentedTierDefaults["MajorBurst"]);
+        Assert.Equal(15, DocumentedTierDefaults["MajorBurst"]);
         Assert.Equal(20, DocumentedTierDefaults["Transformation"]);
         Assert.Equal(20, DocumentedTierDefaults["Summon"]);
         Assert.Equal(10, DocumentedTierDefaults["WindowDriven"]);
         Assert.Equal(5, DocumentedTierDefaults["ShortCooldown"]);
         Assert.Equal(5, DocumentedTierDefaults["ProcDriven"]);
-        Assert.Equal(5, DocumentedTierDefaults["AoeOnly"]);
+        Assert.Equal(0, DocumentedTierDefaults["AoeOnly"]);
         Assert.Equal(5, DocumentedTierDefaults["SingleTargetOnly"]);
         Assert.Equal(5, DocumentedTierDefaults["ResourceDriven"]);
+        Assert.Equal(3, DocumentedTierDefaults["Execute"]);
         Assert.Null(DocumentedTierDefaults["DefensiveOffensiveHybrid"]);
         Assert.Equal(10, DocumentedTierDefaults["Unknown"]);
     }
@@ -191,9 +194,32 @@ public class TtkCurationTests
             var id = Int(row, "id")!.Value;
             var hasTtk = Int(row, "minTtkSec") is not null
                 || Int(row, "executeBelowPct") is not null
-                || Bool(row, "executeFavored") is not null;
+                || Bool(row, "executeFavored") is not null
+                || Bool(row, "killSecure") is not null;
             if (hasTtk)
                 Assert.True(IsMajor(row), $"{id} ({Str(row, "name")}): TTK fields on a non-major entry");
+        }
+    }
+
+    [Fact]
+    public void KillSecure_Is_Curated_On_Eight_Confirmed_Majors()
+    {
+        var killSecure = CuratedAbilities().Where(r => Bool(r, "killSecure") == true).ToList();
+        Assert.Equal(8, killSecure.Count);
+        var expected = new HashSet<int> { 1122, 12472, 13750, 190319, 288613, 365350, 375087, 391109 };
+        Assert.Equal(expected, killSecure.Select(r => Int(r, "id")!.Value).ToHashSet());
+        foreach (var row in killSecure)
+            Assert.True(IsMajor(row), $"{Int(row, "id")} ({Str(row, "name")}): killSecure on a non-major entry");
+    }
+
+    [Fact]
+    public void KillSecure_Parses_Into_The_Catalog()
+    {
+        foreach (var id in new[] { 1122, 12472, 13750, 190319, 288613, 365350, 375087, 391109 })
+        {
+            var ability = Catalog.TryGet(id);
+            Assert.True(ability is not null, $"catalog missing killSecure major {id}");
+            Assert.True(ability!.KillSecure, $"{id}: curated killSecure:true did not parse");
         }
     }
 
@@ -209,7 +235,11 @@ public class TtkCurationTests
             if (names.TryGetValue(id, out var live))
                 Assert.True(string.Equals(curatedName, live, StringComparison.Ordinal),
                     $"{id}: curated name '{curatedName}' != spell-verification '{live}'");
-            else if (IsMajor(row))
+            // Racial-scope rows are intentionally absent from spell-verification
+            // (that export only covers the vendor classSpellData block); they
+            // carry their own source URL + unverified note instead.
+            else if (IsMajor(row)
+                && !string.Equals(Str(row, "scope"), "Racial", StringComparison.OrdinalIgnoreCase))
                 Assert.Fail($"{id} ({curatedName}): curated major offensive is absent from spell-verification.json");
         }
     }

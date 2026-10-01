@@ -88,6 +88,27 @@ internal sealed class CombatContext
     /// <summary>Last observed target-HP fraction (band midpoint); engine-owned, read-only here.</summary>
     public double TargetHpFrac { get; init; }
 
+    /// <summary>
+    /// v3.6.0 dying-trash guard: true when the estimator has only an early
+    /// (provisional) rate for the current target while <see cref="TtkValid"/>
+    /// is still false. Provisional never holds minors — the policy gates it
+    /// like a valid estimate only for the majors named in the spec.
+    /// </summary>
+    public bool TtkProvisional { get; init; }
+
+    /// <summary>Seconds since the first observation of the current target (0 with no target).</summary>
+    public double TargetAgeSec { get; init; }
+
+    /// <summary>
+    /// True while the fast-pack latch is set (two fast kills inside the latch
+    /// window). Survives target swaps; the policy's documented fail-open
+    /// exception reads it for the age&lt;4s grace hold.
+    /// </summary>
+    public bool FastPackLatch { get; init; }
+
+    /// <summary>True when a valid OR provisional estimate exists — the gate the waste guard reads.</summary>
+    public bool EffectiveTtkKnown => TtkValid || TtkProvisional;
+
     /// <summary>Per-slot in-range tri-state from the bridge's IsSpellInRange probe.</summary>
     public TriState[] SlotRange { get; init; } = new TriState[PixelProtocol.SlotCount];
 
@@ -246,7 +267,9 @@ internal sealed class CombatContext
     /// </summary>
     public CombatContext WithTtk(TtkEstimate estimate)
     {
-        if (TtkValid == estimate.Valid && TtkSec.Equals(estimate.TtkSec)) return this;
+        if (TtkValid == estimate.Valid && TtkSec.Equals(estimate.TtkSec)
+            && TtkProvisional == estimate.Provisional && TargetAgeSec.Equals(estimate.AgeSec)
+            && FastPackLatch == estimate.FastPackLatch) return this;
         return new CombatContext
         {
             HpValid = HpValid,
@@ -272,6 +295,9 @@ internal sealed class CombatContext
             TtkValid = estimate.Valid,
             TtkSec = estimate.TtkSec,
             TargetHpFrac = estimate.TargetHpFrac,
+            TtkProvisional = estimate.Provisional,
+            TargetAgeSec = estimate.AgeSec,
+            FastPackLatch = estimate.FastPackLatch,
         };
     }
 
@@ -310,6 +336,9 @@ internal sealed class CombatContext
             TtkValid = TtkValid,
             TtkSec = TtkSec,
             TargetHpFrac = TargetHpFrac,
+            TtkProvisional = TtkProvisional,
+            TargetAgeSec = TargetAgeSec,
+            FastPackLatch = FastPackLatch,
         };
     }
 }

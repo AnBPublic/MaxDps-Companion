@@ -108,6 +108,7 @@ internal static class CrowdControlVetoes
             Ability = ability,
             Catalog = catalog,
             Range = input.Context.SlotRange[(int)input.Slot],
+            Fallback = input.Options.TimeToKillFallback,
         };
         return CandidateProviders.CrowdControl.Evaluate(pinput);
     }

@@ -653,6 +653,16 @@ internal sealed record AbilityDefinition(
     /// <summary>Which knowledge layer supplied this ability (tooltip/test provenance).</summary>
     public AbilityProvenance Provenance { get; init; } = AbilityProvenance.Vendor;
 
+    /// <summary>
+    /// Origin scope of the ability. Null for the normal class-bound catalog;
+    /// <c>"Racial"</c> for a playable-race ability that is carried for every
+    /// class/spec and selected in-game by the bridge's known-spell filter (a
+    /// race the player is not never has a resolvable keybind, so the entry is
+    /// simply skipped). Race is never encoded on the wire — scope is a
+    /// catalog/audit marker only and never changes a policy verdict.
+    /// </summary>
+    public string? Scope { get; init; }
+
     // ---- v2.6 ability intelligence registry (all init-only; ctor unchanged) ----
 
     /// <summary>What the entry is. The catalog carries active combat abilities; kinds beyond that exist for audit honesty.</summary>
@@ -733,6 +743,14 @@ internal sealed record AbilityDefinition(
     /// enables the execute bypass of the pairing hold.
     /// </summary>
     public bool ExecuteFavored { get; init; }
+
+    /// <summary>
+    /// Offensives: a curated major/summon confirmed to secure a kill when the
+    /// target is genuinely dying (long fight, low HP, short TTK). Enables the
+    /// kill-secure exception that bypasses the waste guard (spec §2); default
+    /// false, parsed like <see cref="ExecuteFavored"/>.
+    /// </summary>
+    public bool KillSecure { get; init; }
 
     /// <summary>
     /// Minimum MaxDps defensive urgency at which this ability may fire

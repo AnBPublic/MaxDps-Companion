@@ -138,6 +138,9 @@ internal sealed class MainForm : Form
     private ChamferButton? _advancedEntry;
     private ChamferButton? _abilitiesEntry;
     private bool _advancedContentBuilt;
+    // Tracks whether a popup hid the console home, so closing the popup only
+    // restores it when the user had not hidden it themselves.
+    private bool _consoleHomeHiddenByPopup;
     private readonly AbilityExplorer _explorer;
     private readonly IntelligencePage _intelligencePage = new();
     private readonly ConfigurationPage _config = new();
@@ -229,7 +232,10 @@ internal sealed class MainForm : Form
         AutoScaleMode = AutoScaleMode.Dpi;
         BackColor = DesignTokens.Background;
         ForeColor = DesignTokens.TextPrimary;
-        Padding = new Padding(2);
+        // No frame padding: the body canvas fills the whole client and the
+        // popup scrims are parented to this Form so ONE mask covers the entire
+        // window (the old Padding(2) left a 2 px background ring).
+        Padding = Padding.Empty;
         Font = DesignTokens.Type(DesignTokens.BodySize);
         NameInputs();
         FitToScreen();
@@ -674,6 +680,13 @@ internal sealed class MainForm : Form
         windowLayout.Controls.Add(BuildTitleBar(), 0, 0);
         windowLayout.Controls.Add(BuildBody(), 0, 1);
         Controls.Add(windowLayout);
+        // The popup masks live on the top-level Form (not the body canvas) and
+        // track the form's client rectangle, so ONE opaque layer covers the
+        // whole window inclusive of the canvas padding and the old Form ring.
+        Controls.Add(_advancedOverlay);
+        Controls.Add(_abilitiesOverlay);
+        _advancedOverlay.BringToFront();
+        _abilitiesOverlay.BringToFront();
     }
 
     private Control BuildTitleBar()
@@ -728,11 +741,14 @@ internal sealed class MainForm : Form
 
     private Control BuildBody()
     {
-        var canvas = new GradientCanvas { Dock = DockStyle.Fill, Padding = new Padding(24, 10, 24, 12) };
+        // The canvas is the full-window body surface (no padding); the classic
+        // body scroll carries the 24/10/24/12 inset so the gradient ring sits
+        // around the toggle card, never around the window.
+        var canvas = new GradientCanvas { Dock = DockStyle.Fill, Padding = Padding.Empty };
         // The main body scrolls: a taller window keeps its extra room and, when
         // the measured content outgrows the viewport (tier change, small
         // screen), every row stays reachable instead of being clipped.
-        var scroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Color.Transparent };
+        var scroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Color.Transparent, Padding = new Padding(24, 10, 24, 12) };
         var layout = new TableLayoutPanel
         {
             Dock = DockStyle.Top,
@@ -760,12 +776,10 @@ internal sealed class MainForm : Form
         _consoleHome = BuildConsoleHome();
         canvas.Controls.Add(_consoleHome);
 
+        // Overlays are created here but parented to the Form in BuildLayout,
+        // after the window layout exists, so they paint above it.
         _advancedOverlay = BuildAdvancedOverlay();
         _abilitiesOverlay = BuildAbilitiesOverlay();
-        canvas.Controls.Add(_advancedOverlay);
-        canvas.Controls.Add(_abilitiesOverlay);
-        _advancedOverlay.BringToFront();
-        _abilitiesOverlay.BringToFront();
         return canvas;
     }
 
@@ -911,7 +925,7 @@ internal sealed class MainForm : Form
 
         // The decoded bridge strip moved out of the hero to the Diagnostics
         // page ("Bridge strip" card) so the hero stays suggestion-focused.
-        var spellsHeader = GroupHeaderFor("Spells");
+        var spellsHeader = GroupHeaderFor("Rotation");
         _heroHeaders.Add(spellsHeader);
         layout.Controls.Add(spellsHeader, 0, 2);
         layout.Controls.Add(TwoToggleRow("Main", "Core rotation", _main, "Offensive", "Burst cooldowns", _offensive, alt: false,
@@ -923,7 +937,7 @@ internal sealed class MainForm : Form
         layout.Controls.Add(TwoToggleRow("Consumable", "Potions", _consumable, "Trinket", "On-use trinkets", _trinket, alt: true,
             "Burst window.", "Burst window."), 0, 6);
 
-        var modesHeader = GroupHeaderFor("Modes");
+        var modesHeader = GroupHeaderFor("Automation");
         _heroHeaders.Add(modesHeader);
         layout.Controls.Add(modesHeader, 0, 7);
         layout.Controls.Add(TwoToggleRow("Solo", "Self-sustain mode", _solo2, "Out of combat", "Run outside combat", _outOfCombat, alt: false,
@@ -931,8 +945,8 @@ internal sealed class MainForm : Form
         layout.Controls.Add(TwoToggleRow("Auto-target", "Target when needed", _autoTarget, "Auto-interact", "Interact when needed", _autoInteract, alt: true,
             "Targets the nearest valid enemy when needed.", "Interacts with quest/loot targets when needed."), 0, 9);
         // v3.2.0 TTK + v3.4.0 CC: one shared Modes row (add-only).
-        layout.Controls.Add(TwoToggleRow("Time-to-kill", "Estimate target kill time", _timeToKill, "Crowd control", "Stuns a confirmed target", _crowdControl, alt: false,
-            "Estimates target time-to-kill to gate burst windows.", "Opt-in DR-safe control: stuns a confirmed target."), 0, 10);
+        layout.Controls.Add(TwoToggleRow("TTK guard", "Estimate target kill time", _timeToKill, "Crowd control", "Stuns a confirmed target", _crowdControl, alt: false,
+            "OFF = cooldowns fire without dying-target protection; target HP band is hidden from the companion.", "Opt-in DR-safe control: stuns a confirmed target."), 0, 10);
 
         // Row order must match the RowStyles declared above.
         _heroRows.Add(_statusRow);
@@ -1289,10 +1303,24 @@ internal sealed class MainForm : Form
     {
         var scrim = new Panel
         {
-            Dock = DockStyle.Fill,
             // S5: STATIC OPAQUE. Never alpha — it sits behind native children.
             BackColor = DesignTokens.Scrim,
             Visible = false,
+        };
+        // The popup is parented to the top-level Form (BuildLayout), so this
+        // mask tracks the form's client rectangle and covers the WHOLE window —
+        // the classic body padding and the old Form.Padding(2) ring included.
+        scrim.ParentChanged += (_, _) =>
+        {
+            if (scrim.Parent is not Control host) return;
+            void Fit(object? _, EventArgs __)
+            {
+                var rect = host.ClientRectangle;
+                if (scrim.Bounds != rect) scrim.Bounds = rect;
+            }
+            host.Resize += Fit;
+            host.Layout += Fit;
+            Fit(null, EventArgs.Empty);
         };
         var popup = new RoundedCard
         {
@@ -1379,6 +1407,8 @@ internal sealed class MainForm : Form
         }
         _intelligencePage.EnsureBuilt();
         if (_mainBody is not null) _mainBody.Visible = false;
+        _abilitiesOverlay.Visible = false;
+        HideConsoleBehindPopup();
         _advancedTabs.SelectedIndex = 0;
         _advancedOverlay.Visible = true;
         _advancedOverlay.BringToFront();
@@ -1395,12 +1425,15 @@ internal sealed class MainForm : Form
         _advancedOverlay.Visible = false;
         _engine.WantDiagnostics = false;
         if (_mainBody is not null) _mainBody.Visible = true;
+        RestoreConsoleAfterPopup();
     }
 
     private void ShowAbilities()
     {
         var openClock = System.Diagnostics.Stopwatch.StartNew();
         if (_mainBody is not null) _mainBody.Visible = false;
+        _advancedOverlay.Visible = false;
+        HideConsoleBehindPopup();
         _abilitiesTabs.SelectedIndex = 0;
         _abilitiesOverlay.Visible = true;
         _abilitiesOverlay.BringToFront();
@@ -1422,6 +1455,29 @@ internal sealed class MainForm : Form
         EndPopupFade();
         _abilitiesOverlay.Visible = false;
         if (_mainBody is not null) _mainBody.Visible = true;
+        RestoreConsoleAfterPopup();
+    }
+
+    /// <summary>
+    /// Exactly one full-window overlay may be visible at a time. The console
+    /// home (S7) stretches over the whole canvas, so a popup must hide it or the
+    /// background menu peeks through the popup's padded edges; the other scrim
+    /// is hidden too so two overlays never stack.
+    /// </summary>
+    private void HideConsoleBehindPopup()
+    {
+        if (_consoleHome is { Visible: true })
+        {
+            _consoleHomeHiddenByPopup = true;
+            _consoleHome.Visible = false;
+        }
+    }
+
+    private void RestoreConsoleAfterPopup()
+    {
+        if (!_consoleHomeHiddenByPopup) return;
+        _consoleHomeHiddenByPopup = false;
+        if (_consoleHome is not null) _consoleHome.Visible = true;
     }
 
     // ----- S5: static opaque scrim (no animation over native children) -----
@@ -2544,8 +2600,6 @@ internal sealed class MainForm : Form
 
     private void RefreshStatus()
     {
-        UpdateWindowBorder();
-
         // Rule, enforced for life: no AutoScrollPosition writes on any timer
         // path. The v2.8.1 NormalizeScroll reset a user's scroll offset on
         // every refresh (A1 regression: ClassicUiTests.ClassicUi_ScrollSurvivesRefresh).
@@ -2832,24 +2886,6 @@ internal sealed class MainForm : Form
         // The user chose a size: stop forcing the measured content height.
         _userSizedHeight = true;
         SaveWindowSize();
-    }
-
-    private void UpdateWindowBorder()
-    {
-        var color = _engine.IsRunning ? DesignTokens.Success : DesignTokens.Danger;
-        if (_borderColor == color) return;
-        _borderColor = color;
-        Invalidate();
-    }
-
-    private Color _borderColor = DesignTokens.Danger;
-
-    protected override void OnPaint(PaintEventArgs e)
-    {
-        using var pen = new Pen(_borderColor, 2F);
-        e.Graphics.DrawRectangle(pen, 1, 1,
-            Math.Max(1, ClientSize.Width - 3), Math.Max(1, ClientSize.Height - 3));
-        base.OnPaint(e);
     }
 
     /// <summary>Esc closes the topmost popup (classic single-view shell).</summary>

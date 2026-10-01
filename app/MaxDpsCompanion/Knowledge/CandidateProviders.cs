@@ -40,6 +40,14 @@ internal sealed class ProviderInput
     public Slot Slot => Input.Slot;
     public int SpellId => Input.SpellId;
     public bool HasTarget => Input.HasTarget;
+
+    /// <summary>
+    /// [TimeToKill] Fallback threaded from settings (spec §4). Defaults to the
+    /// documented fail-open so manually-built inputs (tests / legacy replays)
+    /// keep their verdicts; callers thread the real setting once
+    /// <see cref="PolicyOptions"/> exposes it.
+    /// </summary>
+    public TtkFallback Fallback { get; init; } = TtkPolicy.DefaultFallback;
 }
 
 /// <summary>
@@ -101,6 +109,12 @@ internal static class CandidateProviders
 
     public static ICandidateProvider For(Slot slot, AbilityDefinition ability)
     {
+        // Racial-scope rows (AbilityDefinition.Scope == "Racial") need NO
+        // special routing: they carry a normal Purpose, so they resolve through
+        // the same providers as class abilities (Offensive -> Offensive,
+        // DefensiveMinor/Absorb -> Defensive, SelfHeal -> SelfSustain,
+        // CrowdControl -> Utility). The bridge's known-spell filter means a
+        // non-matching race never offers the candidate in the first place.
         if (ability.Category == AbilityCategory.SelfHeal || slot == Slot.SelfHeal) return SelfSustain;
         if (ability.IsSurvival) return Defensive;
 
@@ -179,6 +193,10 @@ internal sealed class MaxDpsRotationProvider : ICandidateProvider
             // Stream 3 preset (restrict-only, default Full = no-op): Burst holds
             // consumables and on-use trinkets until the target's TTK is
             // measurable, so a burst window is not spent on dying trash.
+            // v3.6.0 wiring note: this preset hold is deliberately UNCHANGED —
+            // it still requires a *Valid* estimate only, and does NOT consume
+            // the provisional rate or the fast-pack grace hold. Only the T1
+            // offensive waste guard below uses Valid||Provisional + grace.
             if (p.Options.Preset == RotationPreset.Burst && !ctx.TtkValid)
                 return D(PolicyDecision.Hold($"burst preset: holding {ability.Name} until a boss TTK is measurable"),
                     "burst preset (no valid boss TTK)");
@@ -235,7 +253,10 @@ internal sealed class OffensiveCandidateProvider : ICandidateProvider
         // Stream 3 preset (restrict-only, default Full = no-op): Burst conserves
         // major offensive cooldowns until the target's TTK is measurable. The
         // preset only ever HOLDs; an invalid TTK (including TimeToKill off) is
-        // exactly the "not a boss" case it protects against.
+        // exactly the "not a boss" case it protects against. v3.6.0 wiring note:
+        // this preset hold stays UNCHANGED — it still requires a *Valid*
+        // estimate only and does not read the provisional rate or the fast-pack
+        // grace hold (those belong to the T1 waste guard below).
         if (p.Options.Preset == RotationPreset.Burst
             && ability.Purpose == AbilityPurpose.MajorOffensive
             && !ctx.TtkValid)
@@ -250,10 +271,15 @@ internal sealed class OffensiveCandidateProvider : ICandidateProvider
             return D(PolicyDecision.Hold($"AoE preset: conserving single-target {ability.Name}"),
                 src, "AoE preset (single-target conserved)");
 
-        // T1 (v3.2.0) waste guard: a valid TTK shorter than the ability's
-        // minimum means the cooldown cannot pay for itself on this target. Holds
-        // BOTH MaxDps-sourced and companion gap-fill offensives; MaxDps simply
-        // re-suggests next tick, so there is no lockout. An invalid TTK fails
+        // T1 (v3.6.0) waste guard: a Valid OR provisional TTK shorter than the
+        // ability's minimum means the cooldown cannot pay for itself on this
+        // target. <see cref="TtkPolicy.WasteGuardHolds"/> applies the
+        // Valid||Provisional gate (provisional only for MajorBurst /
+        // Transformation / Summon / WindowDriven — never a minor) and the
+        // execute carve-out (ExecuteRange bypasses with TtkSec>=3 or unknown)
+        // plus the kill-secure bypass, both failing the rule open. Holds BOTH
+        // MaxDps-sourced and companion gap-fill offensives; MaxDps simply
+        // re-suggests next tick, so there is no lockout. An unknown TTK fails
         // open (never holds).
         if (TtkPolicy.WasteGuardHolds(ability, ctx))
         {
@@ -262,6 +288,18 @@ internal sealed class OffensiveCandidateProvider : ICandidateProvider
                     $"target ~{ctx.TtkSec:0.#}s to die; saving {ability.Name} (needs {need:0.#}s)"),
                 src, $"TTK {ctx.TtkSec:0.#}s below minimum {need:0.#}s");
         }
+
+        // Grace hold (v3.6.0, spec §2): the only fail-open exception to the
+        // unknown-TTK rule. No estimate exists (valid or provisional), but the
+        // fast-pack latch says the last two targets died inside 20 s and this
+        // one is younger than 4 s — hold a major rather than spend it on what is
+        // probably the next trash mob. Never fires without the latch under the
+        // default FailOpen fallback; [TimeToKill] Fallback=ConserveMajors
+        // applies it to any unknown-TTK major with no latch needed. Minors are
+        // never held here (GraceHoldHolds restricts the usages itself).
+        if (TtkPolicy.GraceHoldHolds(ability, ctx, p.Fallback))
+            return D(PolicyDecision.Hold(TtkPolicy.GraceHoldReason),
+                src, "fast pack (unknown TTK, latch set, age < 4s)");
 
         // A companion offensive gap-fill never fires out of combat in Normal
         // mode — Solo mode is the only out-of-combat path (mirrors the
@@ -347,14 +385,22 @@ internal sealed class DefensiveCandidateProvider : ICandidateProvider
 
         var emergency = hp is { } ehp && ehp <= opts.EmergencyHpPct;
 
-        // T4 (v3.2.0) dying-target hold: Solo mode only, non-emergency, and the
-        // current target dies sooner than the rule window — the defensive would
-        // protect nothing. Emergency HP always overrides (checked above/after);
-        // group scope is a documented follow-up (other enemies are unobservable).
-        if (ability.IsDefensive && TtkPolicy.DyingTargetHolds(ctx, opts.SoloEnabled, emergency))
+        // T4 (v3.6.0) dying-target hold, now a per-tier / scope lookup. Solo:
+        // Minor 6 s, Major 10 s, Immunity 15 s. Group: only Minor is gated, and
+        // only on a Valid rate below 4 s with the fast-pack latch and urgency
+        // below Orange — enemy count is unobservable so Major/Immunity are never
+        // conserved. Emergency HP always overrides (checked above/after and
+        // inside the helper). Ladder-band carve-out: inside the Solo Major /
+        // Immunity escalation band the defensive is needed now and is not held.
+        if (ability.IsDefensive && TtkPolicy.DyingTargetHolds(
+                ability, ctx, opts.SoloEnabled, emergency,
+                opts.SoloMajorHpPct, opts.SoloImmunityHpPct))
+        {
+            var scope = opts.SoloEnabled ? "solo" : "group";
             return D(PolicyDecision.Hold(
                     $"target dies in ~{ctx.TtkSec:0.#}s; saving {MitigationName(ability)}"),
-                src, $"TTK {ctx.TtkSec:0.#}s (solo dying target)");
+                src, $"TTK {ctx.TtkSec:0.#}s ({scope} dying target)");
+        }
 
         // ---- Solo HP-banded escalation (v3.3.0, additive) --------------------
         // In Solo with escalation on and a valid HP reading, the ladder bands

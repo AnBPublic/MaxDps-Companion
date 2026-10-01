@@ -30,6 +30,18 @@ internal enum TargetPreset
 }
 
 /// <summary>
+/// [TimeToKill] Fallback — what the TTK guard does when no estimate is
+/// available (spec §4). FailOpen is the historical/permissive behaviour: an
+/// unknown TTK never holds a cooldown. ConserveMajors holds any unknown-TTK
+/// major offensive defensive-style without needing a fast-pack latch.
+/// </summary>
+internal enum TtkFallback
+{
+    FailOpen = 0,
+    ConserveMajors = 1,
+}
+
+/// <summary>
 /// INI-backed settings, kept hand-editable in the same shape as settings.ini.
 /// </summary>
 internal sealed class AppSettings
@@ -149,6 +161,12 @@ internal sealed class AppSettings
     // every TTK gate (the pre-TTK behaviour). Invalid estimates fail open in
     // either case.
     public bool TimeToKillEnabled { get; set; } = true;
+
+    // [TimeToKill] Fallback — behaviour when no TTK estimate is available
+    // (spec §4). FailOpen (default) = unknown TTK never holds a cooldown;
+    // ConserveMajors = apply the grace-hold to any unknown-TTK major without
+    // needing a fast-pack latch.
+    public TtkFallback TimeToKillFallback { get; set; } = TtkFallback.FailOpen;
 
     // [CrowdControl] — companion-side CC appendix opt-in (v3.4.0). OFF by
     // default (CC is an explicit opt-in; Solo-like safety). ON makes curated,
@@ -389,6 +407,7 @@ internal sealed class AppSettings
             case ("intelligence", "staleafterms"): IntelligenceStaleAfterMs = ParseInt(value, IntelligenceStaleAfterMs); break;
             case ("intelligence", "hpcurve"): HpCurve = ParseBool(value, HpCurve); break;
             case ("timetokill", "enabled"): TimeToKillEnabled = ParseBool(value, TimeToKillEnabled); break;
+            case ("timetokill", "fallback"): TimeToKillFallback = ParseTtkFallback(value); break;
             case ("crowdcontrol", "enabled"): CrowdControlEnabled = ParseBool(value, CrowdControlEnabled); break;
             case ("rotation", "mode"): ModePreset = ParseRotationPreset(value); break;
             case ("rotation", "targets"): TargetMode = ParseTargetPreset(value); break;
@@ -492,8 +511,11 @@ internal sealed class AppSettings
             .AppendLine()
             .AppendLine("; Per-target time-to-kill estimation (default on). 0 = no estimator;")
             .AppendLine("; every TTK gate is skipped. Invalid estimates always fail open.")
+            .AppendLine("; Fallback: FailOpen (default) = unknown TTK never holds; ConserveMajors")
+            .AppendLine("; = hold any unknown-TTK major without a fast-pack latch.")
             .AppendLine("[TimeToKill]")
             .AppendLine($"Enabled={(TimeToKillEnabled ? 1 : 0)}")
+            .AppendLine($"Fallback={(TimeToKillFallback == TtkFallback.ConserveMajors ? "ConserveMajors" : "FailOpen")}")
             .AppendLine()
             .AppendLine("; Crowd-control appendix (opt-in, default off). ON makes curated")
             .AppendLine("; auto-eligible CC rows fire only on a confirmed target and never")
@@ -588,6 +610,12 @@ internal sealed class AppSettings
     {
         "aoe" or "ae" or "multi" => TargetPreset.Aoe,
         _ => TargetPreset.SingleTarget,
+    };
+
+    private static TtkFallback ParseTtkFallback(string value) => value.Trim().ToLowerInvariant() switch
+    {
+        "conservemajors" or "conserve" => TtkFallback.ConserveMajors,
+        _ => TtkFallback.FailOpen,
     };
 
     private static int ParseInt(string value, int fallback) =>        int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)

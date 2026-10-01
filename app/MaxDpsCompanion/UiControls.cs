@@ -547,6 +547,11 @@ internal sealed class SettingRow : Panel, IUiMeasured
         Controls.Add(titleLabel);
         Controls.Add(subtitleLabel);
         Controls.Add(toggle);
+        // The labels ellipsise at narrow tiers; always expose their full text on
+        // hover. A later Hint assignment overrides this with the longer
+        // condition description.
+        _tip.SetToolTip(titleLabel, title);
+        _tip.SetToolTip(subtitleLabel, subtitle);
     }
 
     /// <summary>Measured height: fits title + up to three wrapped subtitle lines.</summary>
@@ -669,7 +674,7 @@ internal sealed class SettingRow : Panel, IUiMeasured
 }
 
 /// <summary>
-/// One "Spells"/"Modes" row: two <see cref="SettingRow"/>s side by side. It is
+/// One "Rotation"/"Automation" row: two <see cref="SettingRow"/>s side by side. It is
 /// <see cref="IUiMeasured"/>, so the hero card sizes the row to the real
 /// wrapped text (D3) instead of a fixed 66 px literal that clipped subtitles.
 /// </summary>

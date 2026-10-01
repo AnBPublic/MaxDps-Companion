@@ -835,8 +835,9 @@ MDB.SoloLadderBands = nil
 MaxDps.Flags = {}
 
 -- ================= 13. extras diagnostics =================
--- Warrior/Arms catalog (v3 regenerated): mobility {100,6544} = 2,
--- selfHeal {202168,34428} = 2,
+-- Warrior/Arms catalog (v3 racial fix regenerated): mobility {100,6544} = 2,
+-- selfHeal {202168,34428} + 10 scope=Racial self-heals (Gift variants,
+-- Regeneratin', H.O.L.O.) = 12,
 -- defensive {871,97462,118038,23920,34428,202168} = 6.
 MDB.BeginTick()
 local extrasDiag = MDB.GetExtrasDiag()
@@ -844,7 +845,7 @@ check("v6 extras diag prints def count (Arms def=6)", extrasDiag:match("def=6") 
 check("v6 extras diag prints cls/spec and mob/heal counts",
   extrasDiag:match("cls=13 spec=1") ~= nil
   and extrasDiag:match("mob=2") ~= nil
-  and extrasDiag:match("heal=2") ~= nil)
+  and extrasDiag:match("heal=12") ~= nil)
 
 -- ================= 14. protocol v6 frame encode =================
 -- Drive a real Bridge.Update with a flagged+ready+bound defensive and stub

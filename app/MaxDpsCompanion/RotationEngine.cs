@@ -782,7 +782,9 @@ internal sealed class RotationEngine : IDisposable
             return;
         }
         var band = TtkEstimator.BandFromPercent(frame.TargetHpPct);
-        _ttkEstimate = _ttk.Update(_lastFrameMs, frame.HasTarget, band >= 0, band);
+        // v3.6.0: pass the decoded combat flag — the low-first-sight provisional
+        // seed is only trusted in combat (spec §2/§3).
+        _ttkEstimate = _ttk.Update(_lastFrameMs, frame.HasTarget, band >= 0, band, frame.InCombat);
         _ttkFeedMs = _lastFrameMs;
     }
 

@@ -544,7 +544,41 @@ internal sealed class AbilityCatalog
         if (spellId <= 0) return false;
         foreach (var id in OffensiveGapFill(className, specName))
             if (id == spellId) return true;
+        // Racial-scope offensives are emitted into EVERY spec's bridge
+        // `offensive` list (the bridge's known-spell filter picks the one the
+        // player's race actually knows), so the companion must recognise them
+        // here even though OffensiveGapFill's class-bound arrays stay unchanged.
+        if (TryGet(spellId) is { } racial
+            && string.Equals(racial.Scope, RacialScope, StringComparison.OrdinalIgnoreCase)
+            && racial.Category == AbilityCategory.Offensive)
+            return true;
         return false;
+    }
+
+    /// <summary>The <see cref="AbilityDefinition.Scope"/> value for race-carried rows.</summary>
+    public const string RacialScope = "Racial";
+
+    /// <summary>
+    /// Catalogued racial ids for one category, in curated <see cref="AbilityDefinition.Priority"/>
+    /// order then ascending id. The generator appends these to every class/spec
+    /// bridge list; the in-game known-spell filter selects the entry matching the
+    /// player's race (a non-matching race never has a resolvable keybind).
+    /// Deliberately separate from the class-bound gap-fill arrays so those stay
+    /// byte-identical. Read-only.
+    /// </summary>
+    public int[] RacialIds(AbilityCategory category)
+    {
+        var rows = new List<AbilityDefinition>();
+        foreach (var ability in _byId.Values)
+            if (string.Equals(ability.Scope, RacialScope, StringComparison.OrdinalIgnoreCase)
+                && ability.Category == category)
+                rows.Add(ability);
+        rows.Sort((a, b) =>
+        {
+            var priority = b.Priority.CompareTo(a.Priority);
+            return priority != 0 ? priority : a.SpellId.CompareTo(b.SpellId);
+        });
+        return rows.Select(a => a.SpellId).ToArray();
     }
 
     /// <summary>
@@ -824,6 +858,19 @@ internal sealed class AbilityCatalog
         if (!IsSurvivalPurpose(purpose)) tier = DefensiveTier.None;
         var neverAutomatic = o.NeverAutomatic ?? def.NeverAutomatic;
         if (purpose == AbilityPurpose.GapCloser) neverAutomatic = false;
+
+        // v3.x racial safety: a race-scoped row whose id rests only on
+        // Low-confidence research (and was never confirmed in a live retail
+        // pass) is flagged never-automatic. The activatable-vs-aura id split
+        // and race keybind resolution are exactly what offline research gets
+        // wrong; curating sourceConfidence Medium+ asserts the id was checked,
+        // and the row then automates under its normal gates. LiveVerified stays
+        // false for every racial until a retail run records it.
+        if (string.Equals(o.Scope, RacialScope, StringComparison.OrdinalIgnoreCase)
+            && o.LiveVerified != true
+            && IsLowConfidence(o.SourceConfidence))
+            neverAutomatic = true;
+
         var minimumUrgency = MinimumUrgencyFor(purpose, tier);
 
         def = def with
@@ -914,12 +961,14 @@ internal sealed class AbilityCatalog
             HeroTalentNote = o?.HeroTalent,
             PatchVerified = o?.PatchVerified ?? verifiedDate,
             Relations = ParseRelations(o?.Relations),
+            Scope = string.IsNullOrWhiteSpace(o?.Scope) ? def.Scope : o!.Scope,
             CapabilityTags = o?.Capabilities ?? [],
             EnemyCountMin = o?.EnemyCountMin,
             HoldForBurst = o?.HoldForBurst ?? false,
             MinTtkSec = ttk.MinTtkSec,
             ExecuteBelowPct = ttk.ExecuteBelowPct,
             ExecuteFavored = ttk.ExecuteFavored,
+            KillSecure = ttk.KillSecure,
             // v2.7 coverage registry (§4-§7): ownership + completeness are
             // independent axes; every MaxDps-owned entry carries a derived or
             // curated delegation reason; every manual entry carries a manual
@@ -942,8 +991,8 @@ internal sealed class AbilityCatalog
         };
     }
 
-    /// <summary>The optional v3.2.0 TTK curation fields, parsed from one override.</summary>
-    internal readonly record struct TtkCuration(double? MinTtkSec, int? ExecuteBelowPct, bool ExecuteFavored);
+    /// <summary>The optional v3.2.0/v3.6 TTK curation fields, parsed from one override.</summary>
+    internal readonly record struct TtkCuration(double? MinTtkSec, int? ExecuteBelowPct, bool ExecuteFavored, bool KillSecure);
 
     /// <summary>
     /// Parses the optional TTK curation fields. Split out from the materializer
@@ -951,7 +1000,7 @@ internal sealed class AbilityCatalog
     /// curated-file edit (abilities.json is owned by workstream T-B).
     /// </summary>
     internal static TtkCuration ParseTtkCuration(AbilityOverride? o) =>
-        new(o?.MinTtkSec, o?.ExecuteBelowPct, o?.ExecuteFavored ?? false);
+        new(o?.MinTtkSec, o?.ExecuteBelowPct, o?.ExecuteFavored ?? false, o?.KillSecure ?? false);
 
     /// <summary>
     /// Who owns the when-to-use decision (v2.7 §4). Deterministic:
@@ -1332,6 +1381,11 @@ internal sealed class AbilityCatalog
     private static T ParseEnum<T>(string value, T fallback) where T : struct, Enum =>
         Enum.TryParse<T>(value, ignoreCase: true, out var parsed) ? parsed : fallback;
 
+    private static bool IsLowConfidence(string? value) =>
+        value is { Length: > 0 }
+        && Enum.TryParse<SourceConfidence>(value, ignoreCase: true, out var parsed)
+        && parsed == SourceConfidence.Low;
+
     // ---- JSON DTOs --------------------------------------------------------
 
     private sealed class VendorFile
@@ -1432,6 +1486,9 @@ internal sealed class AbilityCatalog
         public string[]? Requires { get; set; }
         public string[]? Classes { get; set; }
         public string[]? Specs { get; set; }
+
+        /// <summary>Origin scope ("Racial") for race-carried catalog rows; null = class-bound.</summary>
+        public string? Scope { get; set; }
         public string? Talent { get; set; }
         public string? HeroTalent { get; set; }
         public string? PatchVerified { get; set; }
@@ -1444,6 +1501,9 @@ internal sealed class AbilityCatalog
         public double? MinTtkSec { get; set; }
         public int? ExecuteBelowPct { get; set; }
         public bool? ExecuteFavored { get; set; }
+
+        // v3.6 TTK kill-secure flag (optional; absent = false).
+        public bool? KillSecure { get; set; }
 
         // v2.7 coverage registry fields (all optional; derivations are documented
         // in AbilityCatalog.DeriveOwnership / DeriveCompleteness / ...).

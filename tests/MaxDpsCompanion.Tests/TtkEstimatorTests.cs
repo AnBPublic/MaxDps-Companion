@@ -175,4 +175,137 @@ public class TtkEstimatorTests
         Assert.False(est.Estimate.Valid);
         Assert.Equal(MaxTtk, est.Estimate.TtkSec);
     }
+
+    // ----- v3.6 provisional rate + fast-pack latch (§2 of the TTK spec) -----
+
+    [Fact]
+    public void Fast_Drop_Sets_Provisional_Rate()
+    {
+        // Band 14 -> 10 in 1.0 s: a >=3-band fall over >=0.5 s is provisional.
+        var est = new TtkEstimator();
+        est.Update(0, hasTarget: true, targetHpValid: true, targetHpBand: 14);
+        var e = est.Update(1000, hasTarget: true, targetHpValid: true, targetHpBand: 10);
+
+        Assert.False(e.Valid);
+        Assert.True(e.Provisional);
+        // frac=0.7, drop=0.2667 over 1.0 s -> 0.7 / 0.2667 ~= 2.63 s.
+        Assert.InRange(e.TtkSec, 2.4, 2.8);
+        Assert.False(e.FastPackLatch);
+    }
+
+    [Fact]
+    public void Low_First_Sight_In_Combat_Seeds_Provisional()
+    {
+        var est = new TtkEstimator();
+        var e = est.Update(0, hasTarget: true, targetHpValid: true, targetHpBand: 2, inCombat: true);
+
+        Assert.False(e.Valid);
+        Assert.True(e.Provisional);
+        // Seed rate 1/15 per second -> frac * 15 = band + 0.5 ~= 2.5 s.
+        Assert.InRange(e.TtkSec, 2.0, 2.6);
+    }
+
+    [Fact]
+    public void Low_First_Sight_Out_Of_Combat_Does_Not_Seed()
+    {
+        var est = new TtkEstimator();
+        var e = est.Update(0, hasTarget: true, targetHpValid: true, targetHpBand: 2, inCombat: false);
+        Assert.False(e.Valid);
+        Assert.False(e.Provisional);
+    }
+
+    [Fact]
+    public void Two_Fast_Kills_Set_The_Fast_Pack_Latch()
+    {
+        var est = new TtkEstimator();
+        est.Update(0, hasTarget: true, targetHpValid: true, targetHpBand: 3);
+        est.Update(1000, hasTarget: false, targetHpValid: false, targetHpBand: 15);   // kill 1
+        est.Update(1500, hasTarget: true, targetHpValid: true, targetHpBand: 3);
+        est.Update(2500, hasTarget: false, targetHpValid: false, targetHpBand: 15);   // kill 2 -> latch
+
+        Assert.True(est.FastPackLatch);
+        // The latch survives the target swap and is exposed on the estimate.
+        var e = est.Update(3000, hasTarget: true, targetHpValid: true, targetHpBand: 14);
+        Assert.True(e.FastPackLatch);
+    }
+
+    [Fact]
+    public void Latch_Clears_On_A_Long_High_Hp_Target()
+    {
+        var est = new TtkEstimator();
+        est.Update(0, true, true, 3);
+        est.Update(1000, false, false, 15);
+        est.Update(1500, true, true, 3);
+        est.Update(2500, false, false, 15);
+        Assert.True(est.FastPackLatch);
+
+        // Same target, high HP, alive past AgeSec>=12 -> the pack was not trash.
+        est.Update(3000, true, true, 14);
+        for (var t = 4000L; t <= 16000; t += 1000)
+            est.Update(t, true, true, 14);
+
+        Assert.True(est.Estimate.TargetHpFrac > 0.5);
+        Assert.False(est.FastPackLatch);
+    }
+
+    [Fact]
+    public void Latch_Clears_On_A_Valid_Long_Ttk()
+    {
+        var est = new TtkEstimator();
+        est.Update(0, true, true, 3);
+        est.Update(1000, false, false, 15);
+        est.Update(1500, true, true, 3);
+        est.Update(2500, false, false, 15);
+        Assert.True(est.FastPackLatch);
+
+        // A fresh target declining slowly enough to become valid with TTK >= 30 s.
+        est.Update(2600, true, true, 14);
+        est.Update(5100, true, true, 13);
+        est.Update(7600, true, true, 12);
+
+        Assert.True(est.Estimate.Valid);
+        Assert.True(est.Estimate.TtkSec >= 30);
+        Assert.False(est.Estimate.FastPackLatch);
+    }
+
+    [Fact]
+    public void Early_Latch_Clear_Drops_The_Kill_Window()
+    {
+        var est = new TtkEstimator();
+        est.Update(0, true, true, 3);
+        est.Update(1000, false, false, 15);   // kill 1
+        est.Update(1500, true, true, 3);
+        est.Update(2500, false, false, 15);   // kill 2 -> latch
+        Assert.True(est.FastPackLatch);
+
+        // A long high-HP target clears the latch early (age >= 12 s, frac > 0.5).
+        est.Update(3000, true, true, 14);
+        for (var t = 4000L; t <= 16000; t += 1000)
+            est.Update(t, true, true, 14);
+        Assert.False(est.FastPackLatch);
+
+        // One later fast kill must NOT re-latch: the stale kill window is gone.
+        est.Update(16500, false, false, 15);
+        est.Update(17000, true, true, 3);
+        var after = est.Update(17500, false, false, 15);
+        Assert.False(after.FastPackLatch);
+        Assert.False(est.FastPackLatch);
+    }
+
+    [Fact]
+    public void Provisional_And_Latch_Series_Is_Deterministic()
+    {
+        static TtkEstimate Run()
+        {
+            var est = new TtkEstimator();
+            est.Update(0, true, true, 14);
+            est.Update(1000, true, true, 10);
+            est.Update(1500, false, false, 15);
+            est.Update(2000, true, true, 3);
+            est.Update(3000, false, false, 15);
+            return est.Estimate;
+        }
+
+        Assert.Equal(Run(), Run());
+    }
 }

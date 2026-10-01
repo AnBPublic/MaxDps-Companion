@@ -299,6 +299,37 @@ Stale 0; addon Catalog.lua matches).
 22. Complete the §55 coverage report (`--ability-coverage`) after the run and
     record which class/spec lines were exercised.
 
+### 3e. TTK v3.6 dying-trash guard acceptance (live 12.1 retail, OWED)
+
+Offline evidence is the estimator/policy/curation tests plus the
+`ttk-trash-pack.jsonl` replay (6 mobs, each <5 s) and the unchanged legacy
+replays at 0 mismatches; that is never live proof. Observe in a real client
+with Intelligence ON, TTK guard ON (or observe the documented OFF collateral):
+
+1. **M+ trash → boss (no-hold check).** Clear a trash pack where individual
+   mobs die in <5 s, then pull the boss. During trash the major burst must be
+   **held** (`"fast pack, waiting for TTK"` after the second quick kill, or the
+   provisional waste hold); against the boss it must **fire normally** — the
+   latch must clear on the long fight (telemetry: no Major held vs the boss,
+   estimate valid and TTK ≥30 s). Confirm a kill-secure major still fires late
+   in a long fight (age ≥20 s, target ≤35%, TTK 3–20 s).
+2. **Dungeon tank Minor check.** As a tank with a short-CD Minor defensive,
+   confirm group-scope gating is conservative: a group Minor may only be held
+   when the estimate is valid <4 s, urgency is below Orange and the fast-pack
+   latch is set; group Major/Immunity must **never** be gated, and emergency HP
+   always overrides. (Rationale: enemy count is unobservable; the tank may be
+   dying to other mobs.)
+3. **Toggle semantics.** Confirm the hero/`/mdb` label reads **"TTK guard"**
+   and the tooltip says *OFF = cooldowns fire without dying-target protection*.
+   With it OFF, band 15 blanks the execute gate and Burst consumers as well as
+   the TTK gates (documented collateral); `[TimeToKill] Fallback=ConserveMajors`
+   holds an unknown-TTK major even with no latch.
+4. **No false holds.** Confirm a normal single-target boss pull (long, slow
+   decline) is never held by the grace hold/provisional path, and that the
+   kill-secure exception cannot fire before age 20 s.
+5. Record + export + replay the run: 0 mismatches for decisions and policy
+   verdicts (`ttkp`/latch fields included).
+
 ## Benchmarks / diagnostics (no game)
 
 ```powershell
@@ -320,6 +351,8 @@ MaxDpsCompanion.exe --replay=<file.jsonl>        # deterministic decision replay
                                                  # --replay=tests\MaxDpsCompanion.Tests\fixtures\offensive-gapfill-warrior.jsonl
                                                  # TTK fixture (v3.2.0):
                                                  # --replay=tests\MaxDpsCompanion.Tests\fixtures\ttk-warrior-burst.jsonl
+                                                 # TTK dying-trash fixture (v3.6):
+                                                 # --replay=tests\MaxDpsCompanion.Tests\fixtures\ttk-trash-pack.jsonl
 MaxDpsCompanion.exe --ability-audit=<path>         # registry audit report (Violations 0 / Warnings 0 / Missing 0 / Stale 0 enforced by tools/ability_audit.ps1, exit 3 when non-clean)
 MaxDpsCompanion.exe --ability-coverage=<path>      # v2.7 machine-readable coverage manifest (default ABILITY_COVERAGE.json)
 MaxDpsCompanion.exe --ability-info=<spellId>       # inspect one ability (writes ability-info.txt + stdout)

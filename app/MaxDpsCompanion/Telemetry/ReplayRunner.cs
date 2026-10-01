@@ -72,10 +72,13 @@ internal static class ReplayRunner
         AbilityCatalog? replayCatalog = null;
 
         // v3.2.0: the TTK estimator is stateful, so replay reconstructs it by
-        // feeding the RECORDED (ttkMs, hasTarget, targetHpPct) series in order.
-        // The feed timestamp is the exact engine value, so the rebuilt estimate
-        // is identical to the live one and every TTK-gated verdict recomputes
-        // with zero mismatches by construction.
+        // feeding the RECORDED (ts, hasTarget, valid, band) series in order.
+        // v3.6.0: the same feed also reproduces the provisional rate and the
+        // fast-pack latch — both derive only from that series plus the frame
+        // clock, so the rebuilt estimate is identical to the live one and every
+        // TTK-gated verdict recomputes with zero mismatches by construction.
+        // The recorded ttkp/latch/age fields are informational only (see
+        // TelemetryPolicy) and are deliberately not compared here.
         var ttkEstimator = new TtkEstimator();
         var pendingSends = new List<(Slot? Slot, int SpellId, long TMs)>();
         int? recordedCatalog = null;
@@ -183,8 +186,14 @@ internal static class ReplayRunner
                     if (evt.TtkFeedMs is { } ttkFeedMs)
                     {
                         var thp = evt.TargetHpPct ?? -1;
-                        ttkEstimator.Update(ttkFeedMs, evt.HasTarget ?? false, thp >= 0,
-                            TtkEstimator.BandFromPercent(thp));
+                        var hpValid = thp >= 0;
+                        // v3.6.0: reproduce the live in-combat gate. A record
+                        // written before the inCombat field (or one missing it)
+                        // defaults to true, which is exactly the pre-v3.6 replay
+                        // behaviour (the estimator defaulted inCombat=true), so
+                        // legacy recordings keep their verdicts.
+                        ttkEstimator.Update(ttkFeedMs, evt.HasTarget ?? false, hpValid,
+                            TtkEstimator.BandFromPercent(thp), evt.InCombat ?? true);
                     }
                     if (evt.Policy is { Verdicts: { Length: > 0 } pendingVerdicts, Options: { } pendingOptions })
                     {
@@ -211,6 +220,9 @@ internal static class ReplayRunner
                                     Abilities = AbilityPolicy.FromIds(pendingOptions.AbilitiesOn, pendingOptions.AbilitiesOff),
                                     Preset = ParseEnum(pendingOptions.Preset, RotationPreset.Full),
                                     TargetPreset = ParseEnum(pendingOptions.TargetPreset, TargetPreset.SingleTarget),
+                                    // v3.6.0 additive: absent on legacy records ->
+                                    // FailOpen, the behaviour they were recorded with.
+                                    TimeToKillFallback = ParseEnum(pendingOptions.TtkFallback, TtkPolicy.DefaultFallback),
                                 };
                             var pendingCatalog = replayCatalog ??= AbilityCatalog.Default;
                             foreach (var recordedVerdict in pendingVerdicts)

@@ -255,14 +255,22 @@ internal sealed class OwnedComboBox : ComboBox
 }
 
 /// <summary>
-/// Owner-drawn tooltip replacing a bare <see cref="ToolTip"/>. It wraps long
-/// hints at a fixed character width before handing them to the native tooltip
-/// host, so a long "Click for skill list" suffix can no longer run off the
-/// screen edge, and it paints the themed surface instead of the system bubble.
+/// Owner-drawn tooltip replacing a bare <see cref="ToolTip"/>. The full,
+/// unwrapped sentence is handed to the native host and the bubble is sized to
+/// the measured text in the <see cref="ToolTip.Popup"/> handler, so a long hint
+/// can never be clipped at a fixed character width. It paints the themed
+/// surface instead of the system bubble.
 /// </summary>
 internal sealed class OwnedToolTip : IDisposable
 {
-    private const int MaxLineChars = 62;
+    // Padding reserved inside the custom paint frame; the Popup handler adds
+    // exactly this much to the measured text so the last line never clips.
+    private const int PadX = 9;
+    private const int PadY = 7;
+
+    // Cap the text column so a very long hint stays readable. The bubble grows
+    // vertically (multi-line) instead of running off the screen edge.
+    private const int MaxTextWidth = 380;
 
     private readonly ToolTip _tip = new()
     {
@@ -275,44 +283,34 @@ internal sealed class OwnedToolTip : IDisposable
     public OwnedToolTip()
     {
         _tip.Draw += OnDraw;
+        _tip.Popup += OnPopup;
     }
 
     public void SetToolTip(Control control, string text)
     {
         // Keep the full, unwrapped sentence for accessibility and tests; the
-        // drawn bubble uses the wrapped form.
+        // bubble is sized to it in OnPopup (no hard wrap).
         control.AccessibleDescription = text;
-        _tip.SetToolTip(control, Wrap(text, MaxLineChars));
+        _tip.SetToolTip(control, text);
     }
 
     public void Dispose() => _tip.Dispose();
 
-    private static string Wrap(string text, int width)
+    private void OnPopup(object? sender, PopupEventArgs e)
     {
-        if (string.IsNullOrEmpty(text) || text.Length <= width) return text;
-        var sb = new System.Text.StringBuilder(text.Length + 32);
-        foreach (var paragraph in text.Split('\n'))
-        {
-            var start = 0;
-            while (start < paragraph.Length)
-            {
-                var remaining = paragraph.Length - start;
-                if (remaining <= width) { sb.Append(paragraph, start, remaining); break; }
-                var end = start + width;
-                var space = paragraph.LastIndexOf(' ', end - 1, end - start);
-                if (space <= start) space = end;
-                sb.Append(paragraph, start, space - start).Append('\n');
-                start = space;
-                while (start < paragraph.Length && paragraph[start] == ' ') start++;
-            }
-            sb.Append('\n');
-        }
-        return sb.ToString().TrimEnd('\n');
+        if (e.AssociatedControl is null) return;
+        var text = _tip.GetToolTip(e.AssociatedControl);
+        if (string.IsNullOrEmpty(text)) return;
+        var measured = TextRenderer.MeasureText(text, DesignTokens.Meta,
+            new Size(MaxTextWidth, int.MaxValue),
+            TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix | TextFormatFlags.TextBoxControl);
+        e.ToolTipSize = new Size(
+            measured.Width + PadX * 2,
+            measured.Height + PadY * 2);
     }
 
     private void OnDraw(object? sender, DrawToolTipEventArgs e)
     {
-        e.DrawBackground();
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
         using var fill = new SolidBrush(DesignTokens.SurfaceElevated);
@@ -320,9 +318,12 @@ internal sealed class OwnedToolTip : IDisposable
         using var border = new Pen(DesignTokens.Accent, 1F);
         g.DrawRectangle(border, 0, 0, Math.Max(1, e.Bounds.Width - 1), Math.Max(1, e.Bounds.Height - 1));
         TextRenderer.DrawText(g, e.ToolTipText, DesignTokens.Meta,
-            new Rectangle(8, 6, Math.Max(10, e.Bounds.Width - 16), Math.Max(10, e.Bounds.Height - 12)),
+            new Rectangle(PadX, PadY,
+                Math.Max(10, e.Bounds.Width - PadX * 2),
+                Math.Max(10, e.Bounds.Height - PadY * 2)),
             DesignTokens.TextPrimary,
-            TextFormatFlags.Left | TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix);
+            TextFormatFlags.Left | TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix
+                | TextFormatFlags.TextBoxControl);
     }
 }
 

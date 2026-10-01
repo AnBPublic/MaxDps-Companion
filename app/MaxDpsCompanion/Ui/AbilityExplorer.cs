@@ -61,7 +61,9 @@ internal sealed class VirtualAbilityList : Control
     /// </summary>
     public IReadOnlyDictionary<int, string> Verdicts { get; set; } = new Dictionary<int, string>();
 
-    private readonly ToolTip _tip = new() { AutoPopDelay = 20000, InitialDelay = 400, ReshowDelay = 100 };
+    // S5: one owned, autosizing themed bubble app-wide (was a bare ToolTip that
+    // clipped long "why held" reasons).
+    private readonly OwnedToolTip _tip = new();
 
     public void SetItems(List<AbilityDefinition> items)
     {

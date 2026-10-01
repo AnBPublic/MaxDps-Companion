@@ -93,7 +93,7 @@ local LABELS = {
   OOC = "Out of combat",
   AutoTarget = "Auto-target",
   AutoInteract = "Auto-interact",
-  TTK = "Time to kill",
+  TTK = "TTK guard",
 };
 
 local function Canon (Key)

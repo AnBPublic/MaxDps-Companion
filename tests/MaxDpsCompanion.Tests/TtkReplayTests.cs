@@ -18,7 +18,7 @@ namespace MaxDpsCompanion.Tests;
 /// </summary>
 public class TtkReplayTests
 {
-    private const int Avatar = 107574;      // Warrior MajorBurst, default min TTK 12 s
+    private const int Avatar = 107574;      // Warrior MajorBurst, default min TTK 15 s
     private const int ShieldWall = 871;     // Warrior defensive
     private static readonly KeyStroke KeyR = new(0x52, false, false, false);
     private static readonly KeyStroke KeyF = new(0x46, false, false, false);
@@ -158,5 +158,35 @@ public class TtkReplayTests
         using var writer = new StreamWriter(path, append: false, new UTF8Encoding(false));
         foreach (var evt in CanonicalRecording())
             writer.WriteLine(Encoding.UTF8.GetString(TelemetryJson.Serialize(evt)));
+    }
+
+    // ----- v3.6 trash-pack replay fixture (6 mobs, each <5 s) -----
+
+    private static string TrashPackSourceFixturePath() =>
+        Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
+            "..", "..", "..", "..", "..", "tests", "MaxDpsCompanion.Tests", "fixtures",
+            "ttk-trash-pack.jsonl"));
+
+    private static string TrashPackOutputFixturePath() =>
+        Path.Combine(AppContext.BaseDirectory, "fixtures", "ttk-trash-pack.jsonl");
+
+    [Fact]
+    public void Trash_Pack_Fixture_Replays_With_Zero_Mismatches()
+    {
+        var output = TrashPackOutputFixturePath();
+        if (!File.Exists(output))
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(output)!);
+            File.Copy(TrashPackSourceFixturePath(), output, overwrite: true);
+        }
+
+        var (events, badLines) = TelemetryReader.Read(output);
+        var result = ReplayRunner.Run(events, badLines, source: output);
+
+        Assert.Equal(0, badLines);
+        Assert.Equal(0, result.Errors);
+        Assert.Equal(0, result.Mismatches);
+        Assert.Equal(0, result.VerdictMismatches);
+        Assert.Equal(24, result.Ticks);
     }
 }

@@ -169,6 +169,16 @@ internal sealed record TelemetryOptions
     [JsonPropertyName("tpreset")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? TargetPreset { get; init; }
+
+    /// <summary>
+    /// v3.6.0 additive: [TimeToKill] Fallback the policy ran with
+    /// ("ConserveMajors"); omitted when the default FailOpen so legacy records
+    /// replay unchanged (the replay parser defaults an absent value to
+    /// FailOpen). Informational: the fallback is not part of the estimate.
+    /// </summary>
+    [JsonPropertyName("ttkfb")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TtkFallback { get; init; }
 }
 
 /// <summary>
@@ -272,6 +282,33 @@ internal sealed record TelemetryPolicy
     [JsonPropertyName("ttk")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public double? Ttk { get; init; }
+
+    /// <summary>
+    /// v3.6.0 additive: the estimator's early (untrusted) rate was available for
+    /// this tick even though <see cref="Ttk"/> is invalid. Informational only —
+    /// replay rebuilds the estimator from the raw target-HP series and does not
+    /// compare this field. Omitted on legacy records (null = not recorded).
+    /// </summary>
+    [JsonPropertyName("ttkp")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? TtkProvisional { get; init; }
+
+    /// <summary>
+    /// v3.6.0 additive: lifetime of the current target in seconds (0 with no
+    /// target). Informational/diagnostic; omitted on legacy records.
+    /// </summary>
+    [JsonPropertyName("age")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? TargetAgeSec { get; init; }
+
+    /// <summary>
+    /// v3.6.0 additive: the fast-pack latch was active for this tick (two fast
+    /// trash kills inside the window). Informational/diagnostic; omitted on
+    /// legacy records (null = not recorded).
+    /// </summary>
+    [JsonPropertyName("latch")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? FastPackLatch { get; init; }
 
     /// <summary>
     /// R2 (sustain-cd): HP is in the sustain window and no ready self-heal
@@ -462,6 +499,9 @@ internal sealed record TelemetryEvent
             Class = combat?.Class,
             Spec = combat?.Spec,
             Ttk = combat is { TtkValid: true } ttkCombat ? Math.Round(ttkCombat.TtkSec, 1) : null,
+            TtkProvisional = combat is { TtkProvisional: true } ? true : null,
+            TargetAgeSec = combat is { TargetAgeSec: > 0 } ageCombat ? Math.Round(ageCombat.TargetAgeSec, 1) : null,
+            FastPackLatch = combat is { FastPackLatch: true } ? true : null,
             CdWait = plan.SelfHealCoolingDown,
             LastTriedMs = plan.SelfHealLastTriedMs > 0 ? plan.SelfHealLastTriedMs : null,
             Options = options is null ? null : new TelemetryOptions
@@ -478,6 +518,9 @@ internal sealed record TelemetryEvent
                 AbilitiesOff = EncodeOverrides(options.Abilities?.EncodeOff()),
                 Preset = options.Preset == RotationPreset.Full ? null : options.Preset.ToString(),
                 TargetPreset = options.TargetPreset == TargetPreset.SingleTarget ? null : options.TargetPreset.ToString(),
+                TtkFallback = options.TimeToKillFallback == TtkPolicy.DefaultFallback
+                    ? null
+                    : options.TimeToKillFallback.ToString(),
             },
             Verdicts = verdicts,
         };

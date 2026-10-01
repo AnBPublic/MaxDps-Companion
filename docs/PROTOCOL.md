@@ -177,8 +177,9 @@ No cell, count, or version nibble changed.
 
 Bridge 3.3.0 adds the companion hero's 13 toggles to the addon
 (`addon/MaxDpsBridge/Toggles.lua` + `Panel.lua`): 8 per-slot toggles (slots
-1-8) plus Solo / Out-of-combat / Auto-target / Auto-interact / TTK. The addon
-only ever **restricts** what the companion already decided —
+1-8) plus Solo / Out-of-combat / Auto-target / Auto-interact / TTK (the `ttk`
+key is labelled **"TTK guard"** from v3.6; see §201 for its OFF semantics). The
+addon only ever **restricts** what the companion already decided —
 `effective = companion AND addon`, an addon OFF always wins. The wire version
 nibble stays `5`: no cell, nibble lane or checksum changed, and a companion
 that does not know about toggles decodes the frame exactly as before.
@@ -198,14 +199,41 @@ that does not know about toggles decodes the frame exactly as before.
 - **Auto-target / Auto-interact OFF** force cell 9 R to state `0` (idle)
   instead of `3`/`4`. The status-flag nibble is untouched, so the real target
   and combat facts are still reported.
-- **TTK OFF** forces the target HP band (cell 29 G) to `15` = UNKNOWN; the
-  melee flag and cast/interrupt flags are unchanged. Collateral: the
-  companion's execute and other target-band consumers (including the v3.2.0
-  TTK gates) go blind exactly as they do for a hidden band.
+- **TTK guard OFF (v3.6 rename)** forces the target HP band (cell 29 G) to
+  `15` = UNKNOWN; the melee flag and cast/interrupt flags are unchanged. This is
+  **not** an inversion of the toggle (OFF is automation-off everywhere else,
+  and flipping it would make ON = fire everything): OFF explicitly means
+  *"cooldowns fire without dying-target protection; target HP band hidden from
+  the companion"*. Collateral, and the reason the toggle is easy to
+  misunderstand: band 15 blinds not only the v3.2.0/v3.6 TTK gates but also
+  the execute gate and every other target-band consumer (Burst presets), which
+  go blind exactly as they do for a genuinely hidden band. The companion's
+  `[TimeToKill] Fallback=FailOpen|ConserveMajors` setting (default `FailOpen`)
+  governs what an *unknown* TTK does when the feature is otherwise ON; it is
+  companion-side, not a wire field. **Phase 2 (separate L-route spec, not this
+  change)** may add a target-class encoding (cell 29 R bits 2–3); it is not
+  required for the v3.6 guard and does not alter this OFF semantics.
 
 `/mdb toggles`, `/mdb <key> on|off`, `/mdb all on|off`, `/mdb overlay on|off`
 and `/mdb why heal` are command-surface only; `/mdb status` gains a trailing
 `toggles=N/13 ON; OFF: ...` field.
+
+#### v3.x racial toggles (no wire change)
+
+Racial abilities are **ordinary catalog rows tagged `scope: "Racial"`**, not a
+new wire concept: there is no race field, no new cell and no version bump.
+Each row carries a normal Purpose, so the existing providers route it exactly
+like a class ability — Offensive (`MajorOffensive`/`MinorOffensive` → the
+Offensive toggle/slot), Defensive (`DefensiveMinor`/`Absorb` → the Defensive
+toggle/slot), SelfHeal (`purpose: SelfHeal` → the SelfHeal toggle) or Utility
+(CrowdControl → manual/Never). The generator appends the racial ids to **every**
+class/spec's `offensive` and `defensiveMinor` `MDB.Extras` lists, and the
+bridge's existing **known-spell filter** is the race selector: a character that
+is not that race has no resolvable keybind/spell for the id, so the walk simply
+skips it. No client race detection is performed and `UnitRace` is never read.
+CC/mobility racials (War Stomp, Quaking Palm, Wing Buffet, Haymaker, Bull Rush)
+stay `neverAutomatic`/Manual; passives and travel-only racials are not
+catalogued. Toggles remain slot-based and unchanged.
 
 ### Flags (slot cells 1-8)
 

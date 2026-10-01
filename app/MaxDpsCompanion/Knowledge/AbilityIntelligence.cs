@@ -146,7 +146,11 @@ internal static class AbilityIntelligence
             findings.Add(new AuditFinding("spell-id", AuditSeverity.Violation, "spell id must be positive"));
         if (string.IsNullOrWhiteSpace(ability.Name))
             findings.Add(new AuditFinding("name", AuditSeverity.Violation, "name must not be empty"));
-        if (ability.Classes.Count == 0 && ability.Specs.Count == 0)
+        // Racial-scope rows are carried by EVERY class/spec (race is selected
+        // in-game by the known-spell filter), so absent class/spec membership is
+        // expected, not a coverage gap.
+        if (ability.Classes.Count == 0 && ability.Specs.Count == 0
+            && !string.Equals(ability.Scope, AbilityCatalog.RacialScope, StringComparison.OrdinalIgnoreCase))
             findings.Add(new AuditFinding("class-spec", AuditSeverity.Warning, "no class or spec membership"));
         if (ability.Status == IntelligenceStatus.Unknown)
             findings.Add(new AuditFinding("status", AuditSeverity.Violation, "intelligence status is Unknown (no silent generic default)"));

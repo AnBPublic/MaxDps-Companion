@@ -91,6 +91,14 @@ internal sealed class PolicyOptions
     /// </summary>
     public TargetPreset TargetPreset { get; init; } = TargetPreset.SingleTarget;
 
+    /// <summary>
+    /// [TimeToKill] Fallback (v3.6.0, spec §4): what the TTK guard does when no
+    /// estimate is available. Threaded by the evaluator into
+    /// <see cref="ProviderInput.Fallback"/> so <c>ConserveMajors</c> reaches the
+    /// offensive grace hold; default is the documented fail-open.
+    /// </summary>
+    public TtkFallback TimeToKillFallback { get; init; } = TtkPolicy.DefaultFallback;
+
     public static PolicyOptions Standard { get; } = new();
 
     public static PolicyOptions FromSettings(AppSettings settings) => new()
@@ -106,6 +114,7 @@ internal sealed class PolicyOptions
         Abilities = settings.Abilities,
         Preset = settings.ModePreset,
         TargetPreset = settings.TargetMode,
+        TimeToKillFallback = settings.TimeToKillFallback,
     };
 
     /// <summary>
@@ -477,7 +486,14 @@ internal static class PolicyEvaluator
         if (CrowdControlVetoes.Evaluate(input, ability, catalog) is { } cc) return cc;
 
         var provider = CandidateProviders.For(input.Slot, ability);
-        var pinput = new ProviderInput { Input = input, Ability = ability, Catalog = catalog, Range = range };
+        var pinput = new ProviderInput
+        {
+            Input = input,
+            Ability = ability,
+            Catalog = catalog,
+            Range = range,
+            Fallback = opts.TimeToKillFallback,
+        };
 
         // ---- User ability policy (absolute, checked before everything) -----
         // OFF is a hard automatic-use prohibition: no urgency, MaxDps
