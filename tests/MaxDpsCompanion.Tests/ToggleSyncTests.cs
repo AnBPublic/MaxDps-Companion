@@ -3,9 +3,11 @@ using Xunit;
 namespace MaxDpsCompanion.Tests;
 
 /// <summary>
-/// v3.5 S1 toggle SSOT: the 14-bit mask pack, the <c>/mdb mask</c> push format,
-/// the out-of-combat retry ladder (max 2, then conflict), the mirror-echo
-/// consumer and the one-time settings migration that fixes RC1/RC2. Serialized
+/// Toggle authority. ADDON-WINS (2026-09-30 flip): the 14-bit mask pack, the
+/// fail-closed mirror consumer (no echo = mask 0) and the fact that a settings
+/// change never auto-pushes. The <c>/mdb mask</c> format, out-of-combat retry
+/// ladder (max 2, then conflict) and the one-time settings migration that fixes
+/// RC1/RC2 are retained for the explicit-push path and covered here. Serialized
 /// with the other global-static suites because the migration republishes
 /// <see cref="CrowdControlGate"/>.
 /// </summary>
@@ -81,15 +83,18 @@ public class ToggleSyncTests
     }
 
     [Fact]
-    public void EffectiveMask_Falls_Back_To_The_App_Mask_When_No_Valid_Echo()
+    public void EffectiveMask_Is_Zero_When_No_Valid_Echo_AddonWins()
     {
+        // ADDON-WINS: without a bridge echo there is no addon truth, so the
+        // companion fails closed instead of resurrecting its own mask.
         var sync = new ToggleSync();
         sync.BeginSession(Settings());
-        Assert.Equal(sync.AppMask, sync.EffectiveMask);
+        Assert.True(sync.AppMask != 0);
+        Assert.Equal(0, sync.EffectiveMask);
         Assert.False(sync.EffectiveFromMirror);
 
         sync.ObserveMirror(Now, null);
-        Assert.Equal(sync.AppMask, sync.EffectiveMask);
+        Assert.Equal(0, sync.EffectiveMask);
         Assert.False(sync.EffectiveFromMirror);
     }
 
@@ -108,23 +113,32 @@ public class ToggleSyncTests
     }
 
     [Fact]
-    public void ObserveSettings_Marks_Dirty_Only_When_The_Mask_Changes()
+    public void ObserveSettings_Never_Requests_A_Push_AddonWins()
     {
+        // ADDON-WINS: a companion settings change only refreshes the diagnostic
+        // AppMask; it must never queue a push that would overwrite the overlay.
         var sync = new ToggleSync();
         var s = Settings();
         sync.BeginSession(s);
         var first = sync.AppMask;
-        sync.BeginPush(Now);
-        sync.ObserveMirror(Now, new Ext3Block(sync.PendingMask!.Value, sync.PendingEpoch, 0));
-        Assert.Equal(ToggleSync.SyncState.Synced, sync.State);
-
-        sync.ObserveSettings(s);                 // unchanged
         Assert.False(sync.NeedsPush);
 
         s.SlotEnabled[6] = false;                // Mobility off
         sync.ObserveSettings(s);
-        Assert.True(sync.NeedsPush);
+
+        Assert.False(sync.NeedsPush);
         Assert.NotEqual(first, sync.AppMask);
+    }
+
+    [Fact]
+    public void RequestExplicitPush_Marks_The_Only_Dirty_State()
+    {
+        var sync = new ToggleSync();
+        sync.BeginSession(Settings());
+        Assert.False(sync.NeedsPush);
+
+        sync.RequestExplicitPush();
+        Assert.True(sync.NeedsPush);
     }
 
     [Fact]
@@ -132,6 +146,7 @@ public class ToggleSyncTests
     {
         var sync = new ToggleSync();
         sync.BeginSession(Settings());
+        sync.RequestExplicitPush();
 
         var first = sync.BeginPush(Now);
         Assert.Equal("mdb mask " + (ToggleSync.BuildMask(Settings())).ToString("X4") + " 1", first);
@@ -144,10 +159,11 @@ public class ToggleSyncTests
         sync.ObserveMirror(Now, new Ext3Block(sync.PendingMask!.Value, sync.PendingEpoch, 0));
         Assert.Equal(ToggleSync.SyncState.Synced, sync.State);
 
-        // A later change rotates the epoch again (2).
+        // A later explicit change rotates the epoch again (2).
         var s = Settings();
         s.SlotEnabled[6] = false;
         sync.ObserveSettings(s);
+        sync.RequestExplicitPush();
         var second = sync.BeginPush(Now + 100);
         Assert.EndsWith(" 2", second);
     }
@@ -158,6 +174,7 @@ public class ToggleSyncTests
         var sync = new ToggleSync();
         sync.BeginSession(Settings());
         var mask = ToggleSync.BuildMask(Settings());
+        sync.RequestExplicitPush();
 
         sync.BeginPush(Now);
         // A wrong echo inside the window is ignored (the addon needs a frame).
@@ -190,6 +207,7 @@ public class ToggleSyncTests
     {
         var sync = new ToggleSync();
         sync.BeginSession(Settings());
+        sync.RequestExplicitPush();
         sync.BeginPush(Now);
 
         sync.ObserveMirror(Now + 50, new Ext3Block(sync.PendingMask!.Value, sync.PendingEpoch, 0));

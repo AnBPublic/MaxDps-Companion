@@ -1262,10 +1262,19 @@ local function RunToggleTests ()
   -- --- API surface + defaults all ON (missing key = ON) ---
   local Keys = TG.Keys()
   check("T21 Keys() returns 13 canonical keys", #Keys == 13 and Keys[13] == "TTK")
+  -- OVERLAY-WINS default: every key reads ON except OOC, which is fail-closed
+  -- OFF while no companion is live and the player has not set it (2026-09-30).
   local Snap = TG.Snapshot()
   local SnapOn = true
-  for i = 1, #ORDER do if Snap[ORDER[i]] ~= true then SnapOn = false end end
-  check("T21 Snapshot() all 13 ON by default", SnapOn)
+  for i = 1, #ORDER do
+    if ORDER[i] == "OOC" then
+      if Snap.OOC ~= false then SnapOn = false end
+    elseif Snap[ORDER[i]] ~= true then
+      SnapOn = false
+    end
+  end
+  check("T21 Snapshot() 12 ON + OOC fail-closed OFF by default", SnapOn)
+  check("T21 OOC getter is fail-closed when unset", TG.IsOOC() == false)
 
   SetAll(true)
   local AllAllow = true
@@ -1471,8 +1480,17 @@ local function RunExt3Tests ()
   check("T35 Ext3 encode Update: no throw", okEx3)
   local _, _, c28b = Nib(28)
   check("T35 cell28 B bit2 Ext3 present", bit.band(c28b, 4) == 4)
-  check("T35 epoch 0 publishes the local effective mask (all ON 0x3FFF)",
-    MaskAt() == 0x3FFF)
+  -- OVERLAY-WINS: with no explicit in-game value, the Ext3 mirror is all ON
+  -- except OOC, which is fail-closed OFF (hold) while no companion default
+  -- exists. 0x3FFF minus bit9.
+  check("T35 epoch 0 publishes the fail-closed effective mask (0x3DFF)",
+    MaskAt() == 0x3DFF)
+  -- An explicit in-game OOC ON flips the mirror bit back on immediately.
+  DB.Toggles.OOC = true
+  pcall(Update, Strip, 0.06)
+  check("T35 explicit in-game OOC ON republishes 0x3FFF", MaskAt() == 0x3FFF)
+  DB.Toggles.OOC = nil
+  pcall(Update, Strip, 0.06)
   local m40r, m40g, m40b = Nib(40)
   local m41r, m41g, m41b = Nib(41)
   local _, e3cs, e3commit = Nib(42)
@@ -1482,33 +1500,43 @@ local function RunExt3Tests ()
   check("T35 Ext3 commit == heartbeat", e3commit == hb3)
   check("T35 epoch 0 encodes epoch nibble 0", m41g == 0)
 
-  -- --- app mask wins when epoch ~= 0 ---
+  -- --- overlay-wins while the app epoch is live ---
   TG.SetAppMask(0x0001, 5, 0)
   check("T35 AppControlled at epoch 5",
     TG.AppControlled() == true and TG.AppEpoch() == 5)
-  check("T35 app bit ON for Main / OFF for Mobility",
+  check("T35 app bit ON for Main / unset Mobility falls back to the app OFF",
     TG.Get("Main") == true and TG.Get("Mobility") == false)
   MDB._LastBlank[7] = nil
-  check("T35 SlotAllowed gates on the app mask (slot 7 denied)",
+  check("T35 unset key takes the app default (slot 7 denied, reason local)",
     TG.SlotAllowed(7, { InCombat = true, HpPct = 80, Grouped = true }) == false
-    and MDB._LastBlank[7] == "app mask")
-  DB.Toggles.Mobility = true   -- local ON must NOT override an app OFF
-  check("T35 app mask removes the addon-OFF-wins veto",
-    TG.SlotAllowed(7, { InCombat = true, HpPct = 80, Grouped = true }) == false)
-  check("T35 EffectiveMask returns the app mask verbatim", TG.EffectiveMask() == 0x0001)
-  check("T35 Conflict detects the local mismatch", TG.Conflict("Mobility") == true)
+    and MDB._LastBlank[7] == "Mobility off")
+  DB.Toggles.Mobility = true   -- explicit in-game ON is authoritative
+  check("T35 explicit in-game ON beats the app OFF (overlay-wins)",
+    TG.SlotAllowed(7, { InCombat = true, HpPct = 80, Grouped = true }) == true)
+  check("T35 EffectiveMask reflects the in-game overlay (app Main + local Mobility)",
+    TG.EffectiveMask() == 0x0041)
+  check("T35 Conflict detects the explicit local vs app disagreement",
+    TG.Conflict("Mobility") == true)
+  -- An explicit in-game OFF must beat an app ON (the old masked veto is gone).
+  DB.Toggles.Main = false
+  check("T35 explicit in-game OFF beats the app ON",
+    TG.Get("Main") == false
+    and TG.SlotAllowed(1, { InCombat = true, HpPct = 80, Grouped = true }) == false)
+  DB.Toggles.Main = true
 
-  -- Wire while controlled: mask + epoch + blocked, app OFF blanks the slot.
+  -- Wire while the app epoch is live: the mirror is the EFFECTIVE mask, and
+  -- the explicit in-game Mobility ON keeps the mobility slot alive.
   MDB.ResetRotation()
   pcall(Update, Strip, 0.06)
-  check("T35 wire publishes app mask 0x0001", MaskAt() == 0x0001)
+  check("T35 wire publishes the effective mask 0x0041", MaskAt() == 0x0041)
   local f41r, f41g, f41b = Nib(41)
   check("T35 wire publishes epoch 5 + blocked 0",
     f41g == 5 and f41b == 0 and bit.band(f41r, 3) == 0)
   local _, _, slot7flags = Nib(7)
-  check("T35 app OFF blanks the mobility slot", bit.band(slot7flags, 8) == 0)
+  check("T35 explicit in-game ON keeps the mobility slot alive",
+    bit.band(slot7flags, 8) == 8)
   local _, _, slot1flags = Nib(1)
-  check("T35 app ON keeps the main slot alive", bit.band(slot1flags, 8) == 8)
+  check("T35 app default ON keeps the main slot alive", bit.band(slot1flags, 8) == 8)
 
   -- --- /mdb mask refusals raise blocked bit1, valid push clears it ---
   local Cmd = SlashCmdList["MAXDPSBRIDGE"]
@@ -1531,12 +1559,21 @@ local function RunExt3Tests ()
   check("T35 /mdb mask valid clears the blocked bit",
     TG.AppEpoch() == 0 and TG.AppMask() == 0x0002 and TG.AppBlocked() == 0)
   DB.AppEpoch = 3
+  DB.Toggles.Mobility = true
   ClearChat()
-  Cmd("mobility")
-  check("T35 /mdb key prints app-controlled",
-    (ChatLog[#ChatLog] or ""):find("app-controlled", 1, true) ~= nil)
+  Cmd("mobility off")
+  check("T35 /mdb key writes the in-game value even while app epoch live",
+    DB.Toggles.Mobility == false
+    and (ChatLog[#ChatLog] or ""):find("off", 1, true) ~= nil)
+  Cmd("mobility on")
+  check("T35 /mdb key flips the in-game value back on",
+    DB.Toggles.Mobility == true
+    and (ChatLog[#ChatLog] or ""):find("on", 1, true) ~= nil)
   DB.AppEpoch = 0
   DB.AppMask = nil
+  -- The rotation tests below run out of combat (UnitAffectingCombat=false), so
+  -- the fail-closed OOC gate needs an explicit in-game ON to allow slots.
+  DB.Toggles.OOC = true
 
   -- --- rotation: cap 4 + never-automatic filter ---
   local SavedMobility = MDB.Extras.WARRIOR.Arms.mobility
@@ -1594,6 +1631,39 @@ local function RunExt3Tests ()
   check("T35 /mdb dwell clamps to 1", MaxDpsBridgeDB.RotationDwell == 1)
   MaxDpsBridgeDB.RotationDwell = 3
   MDB.ResetRotation()
+
+  -- --- user pause + fail-closed OOC hold (2026-09-30) ---
+  -- `/mdb off` is sticky: even a re-enabled DB holds with state 2 (Paused).
+  Cmd("off")
+  check("T35 /mdb off sets the sticky user pause",
+    MDB.IsUserPaused() == true and MaxDpsBridgeDB.UserPaused == true)
+  MaxDpsBridgeDB.Enabled = true   -- simulate another writer forcing it on
+  pcall(Update, Strip, 0.06)
+  check("T35 user pause outranks Enabled (Paused frame)", (Nib(9)) == 2)
+  local PauseSlots = true
+  for i = 1, 8 do
+    local _, _, F = Nib(i)
+    if bit.band(F, 8) == 8 then PauseSlots = false end
+  end
+  check("T35 user pause leaves every slot empty", PauseSlots)
+  Cmd("on")
+  check("T35 /mdb on clears the sticky user pause",
+    MDB.IsUserPaused() == false and MaxDpsBridgeDB.UserPaused == false)
+
+  -- An explicit in-game OOC OFF while out of combat holds: every slot blank
+  -- and the Ext3 OOC mirror bit (bit 9) clear, so the companion also holds.
+  DB.Toggles.OOC = false
+  pcall(Update, Strip, 0.06)
+  local OocHold = true
+  for i = 1, 8 do
+    local _, _, F = Nib(i)
+    if bit.band(F, 8) == 8 then OocHold = false end
+  end
+  check("T35 in-game OOC OFF blanks every slot out of combat", OocHold)
+  check("T35 OOC OFF clears the Ext3 OOC mirror bit 9",
+    bit.band(MaskAt(), 512) == 0)
+  DB.Toggles.OOC = true
+
   UnitAffectingCombat = nil
 end
 RunExt3Tests()
@@ -1622,10 +1692,15 @@ local function RunCcFixTests ()
   check("CCF local EffectiveMask clears CC bit 13 when CC off",
     bit.band(TG.EffectiveMask(), 8192) == 0)
 
+  -- OVERLAY-WINS: an explicit in-game CC OFF beats an app bit13 ON...
   TG.SetAppMask(8192, 5, 0)
-  check("CCF app mask bit13 ON wins -> IsCC true", TG.IsCC() == true)
+  check("CCF explicit in-game CC off beats the app ON (overlay-wins)",
+    DB.Toggles.CC == false and TG.IsCC() == false)
+  -- ...and an unset CC key falls back to the live app bit (defaults).
+  DB.Toggles.CC = nil
+  check("CCF unset CC falls back to the app bit13 ON", TG.IsCC() == true)
   TG.SetAppMask(0, 5, 0)
-  check("CCF app mask bit13 OFF wins -> IsCC false", TG.IsCC() == false)
+  check("CCF unset CC falls back to the app bit13 OFF", TG.IsCC() == false)
   DB.AppMask, DB.AppEpoch = SavedMask, SavedEpoch
 
   -- ---- IsBossTarget fail-open + classification ----

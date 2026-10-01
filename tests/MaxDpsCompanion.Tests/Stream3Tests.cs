@@ -182,6 +182,7 @@ public class Stream3OffensiveParityTests
         var plan = scheduler.Advance(new ScheduleInput
         {
             Frame = FuryFrame(),
+            OutOfCombatPermitted = true,
             Candidates = tracker.Snapshot([true, true, true, true, true, true, true, true]),
             NowMs = 1000,
             MinKeyIntervalMs = 120,

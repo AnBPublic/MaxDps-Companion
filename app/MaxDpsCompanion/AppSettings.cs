@@ -36,6 +36,19 @@ internal sealed class AppSettings
 {
     public string Path { get; private set; } = "settings.ini";
 
+    private readonly List<string> _loadWarnings = [];
+
+    /// <summary>
+    /// Non-fatal findings recorded at load time (2026-09-30 OOC hold fix,
+    /// extended for ADDON-WINS). A config that sets
+    /// <c>[Targeting] CombatOnly=0</c> is honoured exactly as written — never
+    /// silently overridden to 1 — and a warning explains that out-of-combat
+    /// automation now follows the in-game overlay: the companion is permissive
+    /// and the bridge's Ext3 OOC bit is authoritative, so an overlay OFF (or an
+    /// absent/stale Ext3 block) still holds. <see cref="CombatGate"/>.
+    /// </summary>
+    public IReadOnlyList<string> LoadWarnings => _loadWarnings;
+
     // [Bridge] — must match the addon's /mdb offset and /mdb cellsize.
     // Aethys-proven default 8: BlockLocator measures the real size off the
     // screen, so a stale default self-corrects on first Start.
@@ -77,15 +90,25 @@ internal sealed class AppSettings
     public int KeyPressMs { get; set; } = 25;
 
     // [Targeting] — Tab fallback via the user's own TargetKey when the
-    // bridge reports need-target. Kill-switch default OFF. The OFF/COMBAT/
-    // ALL mode lives on the in-game T button; CombatOnly narrows the
-    // companion side too (hold after a long stretch without Active).
+    // bridge reports need-target. Kill-switch default OFF (the addon-wins
+    // workflow turns it ON, meaning "let the overlay decide"). Even when ON the
+    // in-game overlay's AutoTarget mirror bit is authoritative: overlay OFF (or
+    // an absent Ext3 block) holds. CombatOnly narrows the companion side too.
     public bool AutoTargetEnabled { get; set; } = false;
+
+    // Companion-side out-of-combat kill-switch, default true (fail-closed).
+    // ADDON-WINS workflow: the user sets CombatOnly=0 to hand out-of-combat
+    // authority to the in-game overlay; the companion then permits OOC only
+    // when the bridge echoes the Ext3 OOC bit AND the frame is Active with a
+    // target. CombatOnly=1 always holds out of combat regardless of the
+    // overlay. A load warning explains an explicit 0 (see LoadWarnings) but the
+    // value is never silently overridden.
     public bool CombatOnly { get; set; } = true;
     public string TargetKey { get; set; } = "Tab";
 
     // [Interact] — interact-key fallback when the bridge reports need-interact
-    // (state 4). Kill-switch default OFF; default key F (retail interact).
+    // (state 4). Kill-switch default OFF (turn ON in the addon-wins workflow);
+    // gated by the overlay's AutoInteract mirror bit. Default key F.
     public bool InteractEnabled { get; set; } = false;
     public string InteractKey { get; set; } = "F";
 
@@ -342,7 +365,20 @@ internal sealed class AppSettings
             case ("timing", "minkeyintervalms"): MinKeyIntervalMs = ParseInt(value, MinKeyIntervalMs); break;
             case ("timing", "keypressms"): KeyPressMs = ParseInt(value, KeyPressMs); break;
             case ("targeting", "autotargetenabled"): AutoTargetEnabled = ParseBool(value, AutoTargetEnabled); break;
-            case ("targeting", "combatonly"): CombatOnly = ParseBool(value, CombatOnly); break;
+            case ("targeting", "combatonly"):
+                CombatOnly = ParseBool(value, CombatOnly);
+                // 2026-09-30 ADDON-WINS: keep the value (no silent override)
+                // but explain the authority model. The overlay owns OOC; the
+                // companion is permissive and still fails closed without the
+                // Ext3 OOC mirror bit.
+                if (!CombatOnly)
+                    _loadWarnings.Add(
+                        "CombatOnly=0: out-of-combat authority follows the in-game overlay — the companion is " +
+                        "permissive and permits OOC only while the addon echoes the OOC toggle bit. The addon's " +
+                        "Out-of-combat toggle is NOT seeded: a fresh install reads OFF (hold) until you turn it ON " +
+                        "in the in-game MaxDps Bridge panel/overlay (an overlay OFF or no Ext3 block = hold); " +
+                        "set CombatOnly=1 to always hold out of combat.");
+                break;
             case ("targeting", "targetkey"): TargetKey = string.IsNullOrWhiteSpace(value) ? TargetKey : value.Trim(); break;
             case ("interact", "interactenabled"): InteractEnabled = ParseBool(value, InteractEnabled); break;
             case ("interact", "interactkey"): InteractKey = string.IsNullOrWhiteSpace(value) ? InteractKey : value.Trim(); break;

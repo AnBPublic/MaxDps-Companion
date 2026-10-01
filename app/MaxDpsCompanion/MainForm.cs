@@ -22,11 +22,12 @@ internal sealed class MainForm : Form
     private readonly RotationEngine _engine;
     private readonly System.Windows.Forms.Timer _uiTimer = new() { Interval = 250 };
 
-    // v3.5 S1 toggle SSOT: the app-WINS mask push state machine. Mutated only on
-    // the UI thread; the blocking ChatCommander send is dispatched to the
-    // thread pool so a toggle change or Start never freezes the window.
+    // ADDON-WINS toggle authority: the in-game overlay owns the effective mask
+    // and the companion consumes the Ext3 mirror. Auto-push is REMOVED — this
+    // state machine no longer sends /mdb mask on Start or on a settings change,
+    // so the bridge stays at epoch 0 and its local toggles win. (An explicit
+    // ToggleSync.RequestExplicitPush path exists but has no call site.)
     private readonly ToggleSync _toggleSync = new();
-    private int _togglePushInFlight;
 
     private EngineStatus _status;
     private bool _hotkeyRegistered;
@@ -2344,52 +2345,30 @@ internal sealed class MainForm : Form
         _start.Enabled = false;
         _stop.Enabled = true;
         if (_trayStartStop is not null) _trayStartStop.Text = "Stop";
-        // v3.5 S1: a fresh session re-pushes the toggle mask once out of combat.
+        // ADDON-WINS: a fresh session just resets the mirror bookkeeping — no
+        // mask is pushed, so the in-game overlay keeps authority.
         _toggleSync.BeginSession(_settings);
         SetStatus("Engine started.", DesignTokens.Success);
     }
 
-    // ----- v3.5 S1 toggle SSOT (app-wins mask push + mirror echo) -----
+    // ----- ADDON-WINS toggle authority (mirror echo only; no auto-push) -----
 
     /// <summary>
-    /// Drives the mask sync once per UI tick: re-reads the app toggles, feeds the
-    /// engine's Ext3 mirror, and pushes <c>/mdb mask &lt;hhhh&gt; &lt;e&gt;</c>
-    /// at Start and on change — ONLY out of combat, with the retry ladder inside
-    /// <see cref="ToggleSync"/>. The blocking chat send runs on the thread pool.
+    /// Drives the toggle observer once per UI tick: re-reads the companion's
+    /// configured toggles (diagnostics only) and feeds the engine's Ext3 mirror
+    /// so <see cref="ToggleSync"/> tracks the overlay's authoritative state.
+    /// ADDON-WINS: the companion no longer auto-pushes <c>/mdb mask</c> at Start
+    /// or on a settings change, so the in-game toggles are never overwritten.
+    /// The push ladder is reachable only via an explicit user-initiated
+    /// <see cref="ToggleSync.RequestExplicitPush"/>, which has no call site.
     /// </summary>
     private void PumpToggleSync()
     {
         _toggleSync.ObserveSettings(_settings);
 
         Ext3Block? mirror = null;
-        var inCombat = false;
-        if (_engine.IsRunning) _engine.TryGetToggleMirror(out mirror, out inCombat);
+        if (_engine.IsRunning) _engine.TryGetToggleMirror(out mirror, out _);
         _toggleSync.ObserveMirror(_engine.ElapsedMs, mirror);
-
-        if (_toggleSync.NeedsPush && _engine.IsRunning && !inCombat && _togglePushInFlight == 0
-            && _toggleSync.BeginPush(_engine.ElapsedMs) is not null)
-        {
-            DispatchTogglePush();
-        }
-    }
-
-    private void DispatchTogglePush()
-    {
-        if (Interlocked.CompareExchange(ref _togglePushInFlight, 1, 0) != 0) return;
-        var mask = _toggleSync.PendingMask ?? ToggleSync.BuildMask(_settings);
-        var epoch = _toggleSync.PendingEpoch;
-        var processName = _settings.ProcessName;
-        ThreadPool.QueueUserWorkItem(_ =>
-        {
-            try
-            {
-                var game = new WowWindow();
-                if (game.Refresh(processName))
-                    ChatCommander.SendToggleMask(game, mask, epoch, settleMs: 450);
-            }
-            catch { /* best effort: a missing echo is retried by the ladder */ }
-            finally { Interlocked.Exchange(ref _togglePushInFlight, 0); }
-        });
     }
 
     private void StopEngine()
@@ -2638,12 +2617,12 @@ internal sealed class MainForm : Form
 
             if (_toggleSync.HasConflict)
             {
-                // v3.5 S1 red badge: the addon never mirrored the pushed mask
-                // after the retry ladder. The app still runs on its own mask
-                // (fail-open) but the cross-surface sync is broken.
+                // ADDON-WINS: this badge can only fire after an explicit
+                // RequestExplicitPush (auto-push is removed), i.e. a deliberate
+                // hand-off to the app that the addon never mirrored.
                 (title, tone, detail) = ("Toggle sync: blocked", StatusTone.Warning,
-                    "The in-game addon did not mirror the app's /mdb mask. " +
-                    "Run install-addon.ps1 + /reload, or change a toggle to retry.");
+                    "An explicit toggle push was not mirrored by the in-game addon. " +
+                    "Run install-addon.ps1 + /reload, then retry.");
             }
             else if (!_engine.IsRunning)
             {

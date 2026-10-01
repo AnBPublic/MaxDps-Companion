@@ -44,6 +44,7 @@ public class SelfSustainAlternateTests
         return scheduler.Advance(new ScheduleInput
         {
             Frame = frame,
+            OutOfCombatPermitted = true,
             Candidates = tracker.Snapshot(AllSlots),
             NowMs = now,
             MinKeyIntervalMs = 120,

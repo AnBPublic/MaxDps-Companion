@@ -40,6 +40,7 @@ internal enum ScheduleReason
     // value of every existing reason (and the --bench-scheduler plan hash,
     // which hashes (int)Reason) never moves.
     SelfHealCoolingDown, // HP in the sustain window, no self-heal is ready yet
+    OutOfCombat,         // 2026-09-30: fail-closed OOC gate (no explicit OOC permission)
 }
 
 /// <summary>Why an attempt could not be turned into a send (engine OS gates).</summary>
@@ -79,6 +80,17 @@ internal sealed class ScheduleInput
 
     /// <summary>Collect per-candidate policy verdicts for telemetry (costs one array when set).</summary>
     public bool CollectPolicyVerdicts { get; init; }
+
+    /// <summary>
+    /// Fail-closed out-of-combat permission computed by the engine with
+    /// <see cref="CombatGate.OutOfCombatPermitted"/> (2026-09-30 OOC hold fix).
+    /// False = out of combat without the OOC toggle + Ext3 mirror permission →
+    /// the plan holds (<see cref="ScheduleReason.OutOfCombat"/>). Required: the
+    /// scheduler no longer treats an omitted value as "gate not applied" (that
+    /// was fail-open); every construction site must supply it, and the
+    /// production engine computes it from the decoded frame.
+    /// </summary>
+    public required bool OutOfCombatPermitted { get; init; }
 }
 
 /// <summary>One recorded situational decision (telemetry/explainability).</summary>

@@ -1,14 +1,26 @@
 namespace MaxDpsCompanion;
 
 /// <summary>
-/// Toggle single-source-of-truth sync (v3.5 S1). The companion owns the
-/// effective toggle state ("app wins"): it packs its 14 toggles into the
-/// additive Ext3 14-bit mask and pushes them to the in-game bridge with
-/// <c>/mdb mask &lt;hhhh&gt; &lt;e&gt;</c> — at Start and whenever a toggle
-/// changes, but ONLY out of combat. The bridge echoes the mask it accepted in
-/// its Ext3 cells (40-42), and the companion treats that echo as the effective
-/// mask while it is valid; if the echo is absent or stale the app mask is used
-/// as the fail-open fallback (behaviour never regresses before a sync lands).
+/// Toggle authority, ADDON-WINS (2026-09-30 authority flip). The in-game
+/// overlay owns the effective toggle state: the bridge publishes its local
+/// 14 toggles in the additive Ext3 cells (40-42) and the companion treats that
+/// mirror as the single authority. The companion is deliberately permissive —
+/// the user turns everything ON to mean "let the overlay drive" — and it never
+/// overwrites the overlay with its own mask.
+///
+/// The old v3.5 S1 model was "app wins": the companion packed its 14 toggles
+/// and auto-pushed <c>/mdb mask &lt;hhhh&gt; &lt;e&gt;</c> at Start and on every
+/// settings change, which forced the bridge into app-controlled epoch ≠ 0 and
+/// clobbered the in-game toggles. That auto-push is GONE: the companion does
+/// not push CombatOnly/OOC, AutoTarget, AutoInteract or any slot toggle, so the
+/// bridge stays at epoch 0 and its local toggles win. A push is only possible
+/// through an explicit user-initiated <see cref="RequestExplicitPush"/> and has
+/// no call site in the addon-wins workflow.
+///
+/// The mirror is fail-closed: <see cref="EffectiveMask"/> is the bridge echo
+/// while valid and <c>0</c> otherwise (no Ext3 block = no addon truth = no
+/// permission), never the app's own mask. <see cref="CombatGate"/> reads the
+/// mirror bits directly for the out-of-combat / movement gates.
 ///
 /// This type is a pure state machine: it never touches the game, the network or
 /// the UI, and it takes the wall clock as a parameter so every transition is
@@ -107,8 +119,11 @@ internal sealed class ToggleSync
     private static int Bit(int index, bool on) => on ? 1 << index : 0;
 
     /// <summary>
-    /// Packs the 14 app toggles into the Ext3 mask. OOC is the app's
-    /// out-of-combat hero toggle = <c>!CombatOnly</c>, matching the addon key.
+    /// Packs the 14 companion toggles into the canonical Ext3 bit layout. OOC is
+    /// <c>!CombatOnly</c>, matching the addon key. ADDON-WINS: this mask is now
+    /// purely the diagnostic "what the companion would choose" view consumed by
+    /// <see cref="Diagnostics.InstallDoctor"/>'s drift report — it is never
+    /// pushed to the bridge.
     /// </summary>
     public static int BuildMask(AppSettings settings)
     {
@@ -135,16 +150,17 @@ internal sealed class ToggleSync
     public static bool IsSet(int mask, int bit) => (mask & (1 << bit)) != 0;
 
     /// <summary>
-    /// Re-reads the settings. A changed mask marks the sync dirty (a push is
-    /// owed at the next out-of-combat opportunity); a conflict clears so a new
-    /// user action always gets a fresh chance.
+    /// Re-reads the companion's configured toggles. ADDON-WINS: this only
+    /// refreshes <see cref="AppMask"/> for diagnostics (the InstallDoctor
+    /// app-vs-mirror drift report) and clears a stale conflict; it never marks
+    /// a push owed, because the overlay owns the effective mask. A settings
+    /// change can therefore never overwrite the in-game toggles.
     /// </summary>
     public void ObserveSettings(AppSettings settings)
     {
         var mask = BuildMask(settings);
         if (mask == AppMask) return;
         AppMask = mask;
-        NeedsPush = true;
         if (State == SyncState.Conflict)
         {
             State = SyncState.Idle;
@@ -153,18 +169,28 @@ internal sealed class ToggleSync
     }
 
     /// <summary>
-    /// Engine Start: begin a fresh session. The next push rotates the epoch and
-    /// (re)sends the current mask, so a bridge restart is re-synced.
+    /// Engine Start: begin a fresh session and observe the settings. ADDON-WINS:
+    /// no push is queued — the bridge keeps (and re-publishes) its own toggles.
+    /// The retry/echo bookkeeping is only reset.
     /// </summary>
     public void BeginSession(AppSettings settings)
     {
         ObserveSettings(settings);
-        NeedsPush = true;
+        NeedsPush = false;
         RetryCount = 0;
         PendingMask = null;
         State = SyncState.Idle;
         _awaitSinceMs = long.MinValue;
     }
+
+    /// <summary>
+    /// Explicit user-initiated push request. This is the ONLY path that marks a
+    /// push owed; the addon-wins workflow never calls it (the companion UI is
+    /// permissive and the overlay is authoritative). Retained so a future
+    /// "hand authority to the app" affordance can reuse the v3.5 push ladder
+    /// without restoring the automatic push.
+    /// </summary>
+    public void RequestExplicitPush() => NeedsPush = true;
 
     /// <summary>
     /// Formats the push command body (ChatCommander prepends the leading '/').
@@ -231,12 +257,21 @@ internal sealed class ToggleSync
     }
 
     /// <summary>
-    /// The mask the rotation actually runs under: the bridge's Ext3 echo while
-    /// it is valid, else the app's own mask (fail-open — a stale addon or an
-    /// Ext3-less install never loses its toggles).
+    /// The authoritative mask: the bridge's Ext3 echo while it is valid, else
+    /// <c>0</c>. ADDON-WINS means the companion never substitutes its own mask —
+    /// a missing/stale Ext3 block is no addon truth, so it fails closed (no
+    /// toggle is assumed ON) rather than resurrecting app authority.
+    ///
+    /// Diagnostics-only: the sole production reader is
+    /// <see cref="Diagnostics.InstallDoctor"/>'s app-vs-mirror drift report
+    /// (plus <c>MainForm</c> forwarding <see cref="MirrorMask"/> to it). The
+    /// send path keys off <see cref="CombatGate.MirrorOutOfCombatSet"/> and the
+    /// per-toggle helpers, and an in-combat frame always passes the OOC gate, so
+    /// this <c>0</c> (an old 40-cell addon / pre-first-mirror session) can never
+    /// blank the rotation in combat.
     /// </summary>
     public int EffectiveMask =>
-        MirrorValid && MirrorMask is { } mirrored ? mirrored & MaskField : AppMask;
+        MirrorValid && MirrorMask is { } mirrored ? mirrored & MaskField : 0;
 
     /// <summary>True when the effective value comes from the bridge echo.</summary>
     public bool EffectiveFromMirror => MirrorValid && MirrorMask.HasValue;

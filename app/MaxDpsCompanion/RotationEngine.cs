@@ -514,6 +514,32 @@ internal sealed class RotationEngine : IDisposable
             }
         }
 
+        // 2026-09-30 FAIL-CLOSED OUT-OF-COMBAT GATE. Out of combat the
+        // companion holds unless the app's out-of-combat toggle is ON
+        // (CombatOnly=false) AND the in-game bridge echoed the Ext3 OOC toggle
+        // bit (mirror proves the addon accepted the permission). An Active
+        // frame must also carry a target; the NeedTarget / NeedInteract asks
+        // are exempt from the Active/target requirement (they ARE the
+        // auto-target / auto-interact states) and are gated per-toggle in
+        // MovementGuard. An in-combat frame always passes. Placed right after
+        // the link gate and before the paused / target / auto-target /
+        // auto-interact / send paths, so a disabled config gate or an
+        // old/unsynced (40-cell) addon can never fire out of combat.
+        // This is the SAME predicate the scheduler applies (CombatGate).
+        // ADDON-WINS: the overlay's mirror bits are authoritative for OOC as
+        // well as the AutoTarget / AutoInteract movement toggles; CombatOnly
+        // stays a companion-side kill-switch only.
+        var mirrorOoc = CombatGate.MirrorOutOfCombatSet(_mirrorValid, _mirrorMask);
+        var mirrorAutoTarget = CombatGate.MirrorAutoTargetSet(_mirrorValid, _mirrorMask);
+        var mirrorAutoInteract = CombatGate.MirrorAutoInteractSet(_mirrorValid, _mirrorMask);
+        if (!CombatGate.OutOfCombatPermitted(
+                frame.InCombat, _settings.CombatOnly, mirrorOoc, frame.State, frame.HasTarget))
+        {
+            Report("holding (out of combat)", true, frame.State, summary);
+            _idle = true;
+            return;
+        }
+
         // Adaptive cadence: idle unless there is a target-bearing frame.
         _idle = frame.State == BridgeState.Idle && !frame.HasTarget;
 
@@ -532,18 +558,6 @@ internal sealed class RotationEngine : IDisposable
         if (Paused)
         {
             Report("paused", true, frame.State, summary, "-");
-            return;
-        }
-
-        // v1.3.5/1.3.6 COMBAT GATE: "Out of combat" toggle OFF (CombatOnly)
-        // ⇒ HARD PAUSE until the game reports combat. Nothing fires — no
-        // rotation, no auto-target, no auto-interact. The toggle ON opts
-        // out of this gate (out-of-combat attack allowed, subject to the
-        // target gate below).
-        if (_settings.CombatOnly && !frame.InCombat)
-        {
-            Report("holding (out of combat)", true, frame.State, summary);
-            _idle = true;
             return;
         }
 
@@ -569,7 +583,7 @@ internal sealed class RotationEngine : IDisposable
         {
             if (MovementGuard.ShouldAutoTarget(
                     BridgeState.NeedTarget, _settings.AutoTargetEnabled, _settings.CombatOnly,
-                    _clock.ElapsedMilliseconds, _lastActiveMs))
+                    mirrorOoc, mirrorAutoTarget, _clock.ElapsedMilliseconds, _lastActiveMs))
             {
                 _targetBlocked = false;
                 if (TrySendTargetKey(gameHandle, gamePid)) Report("targeting", true, frame.State, summary, _lastKeySent);
@@ -613,7 +627,7 @@ internal sealed class RotationEngine : IDisposable
             AuditBindings(frame);
             if (MovementGuard.ShouldAutoTarget(
                     frame.State, _settings.AutoTargetEnabled, _settings.CombatOnly,
-                    _clock.ElapsedMilliseconds, _lastActiveMs))
+                    mirrorOoc, mirrorAutoTarget, _clock.ElapsedMilliseconds, _lastActiveMs))
             {
                 _targetBlocked = false;
                 if (TrySendTargetKey(gameHandle, gamePid)) Report("targeting", true, frame.State, summary, _lastKeySent);
@@ -638,7 +652,7 @@ internal sealed class RotationEngine : IDisposable
             }
             else if (MovementGuard.ShouldAutoInteract(
                     frame.State, _settings.InteractEnabled, _settings.CombatOnly,
-                    _clock.ElapsedMilliseconds, _lastActiveMs))
+                    mirrorOoc, mirrorAutoInteract, _clock.ElapsedMilliseconds, _lastActiveMs))
             {
                 _interactBlocked = false;
                 if (TrySendInteractKey(gameHandle, gamePid, frame)) Report("interacting", true, frame.State, summary, _lastKeySent);
@@ -827,6 +841,13 @@ internal sealed class RotationEngine : IDisposable
             Options = _settings.IntelligenceEnabled ? PolicyOptions.FromSettings(_settings) : null,
             Catalog = _catalog,
             CollectPolicyVerdicts = _telemetry is not null,
+            // 2026-09-30: the SAME fail-closed OOC predicate the engine gate
+            // uses, so the scheduler is complete for tests and a belt-and-
+            // braces backstop on the engine path.
+            OutOfCombatPermitted = CombatGate.OutOfCombatPermitted(
+                frame.InCombat, _settings.CombatOnly,
+                CombatGate.MirrorOutOfCombatSet(_mirrorValid, _mirrorMask),
+                frame.State, frame.HasTarget),
         });
         _lastPlan = plan;
         _planFreshThisTick = true;

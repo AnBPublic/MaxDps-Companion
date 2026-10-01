@@ -14,7 +14,9 @@
 --     ClampedToScreen), 13 compact buttons that are RED when the toggle is
 --     OFF, position saved in DB.Ui, right-click resets, default hidden and
 --     never allowed to overlap the pixel strip. Honors DB.Ui.Overlay on login.
---   * Toggle authority stays in Toggles.lua; a missing key reads as ON. Every
+--   * Toggle authority stays in Toggles.lua and is OVERLAY-WINS (2026-09-30):
+--     every checkbox/overlay button is writable even while the app epoch is
+--     live. A missing key reads as ON except OOC (fail-closed hold). Every
 --     game-facing call is pcall-guarded and a failure degrades to "leave it
 --     alone" -- the panel can never mute the rotation by itself.
 
@@ -71,7 +73,7 @@ local OFF_EFFECT = {
   Mobility = "the mobility slot is left blank.",
   SelfHeal = "the self-heal slot and the SelfHeal2 block are blanked.",
   Solo = "defensive + self-heal are blanked while ungrouped (emergency HP <= 35% is still allowed).",
-  OOC = "all 8 slots are blanked while out of combat.",
+  OOC = "all 8 slots are blanked while out of combat. NOT seeded: a fresh install reads OFF (hold) until you enable it here.",
   AutoTarget = "the companion is never asked to acquire a target.",
   AutoInteract = "the companion is never asked to interact.",
   TTK = "target HP band is forced UNKNOWN; execute/band consumers go blind.",
@@ -130,12 +132,9 @@ end
 
 local function Store (Key, On)
   local T = MDB.Toggles;
-  -- v3.5 app-wins: while the app controls the mask the panel is a read-only
-  -- mirror; a click never rewrites the effective value.
-  if T and T.AppControlled and T.AppControlled() then
-    if T.Get then return T.Get(Key); end
-    return On ~= false;
-  end
+  -- OVERLAY-WINS (2026-09-30): the in-game click is always authoritative, even
+  -- while the app epoch is live. The app mask only supplies defaults for keys
+  -- the player has not touched.
   if T and T.Set then return T.Set(Key, On); end
   return On ~= false;
 end
@@ -206,11 +205,15 @@ local function ShowToggleTip (Owner, Key)
   GameTooltip:SetOwner(Owner, "ANCHOR_RIGHT");
   GameTooltip:SetText(Label(Key) .. " toggle", 1, 1, 1);
   GameTooltip:AddLine("OFF: " .. (OFF_EFFECT[Key] or "the slot is left blank."), 1.0, 0.55, 0.55, true);
-  if AppControlled and AppControlled() then
-    GameTooltip:AddLine("effective = app mask (read-only mirror; an app OFF wins).",
+  if Key == "OOC" then
+    GameTooltip:AddLine("Out-of-combat is fail-closed and unset by default: turn it ON here to permit out-of-combat automation (the companion must also allow it).",
+      0.85, 0.85, 0.45, true);
+  end
+  if AppControlled() then
+    GameTooltip:AddLine("overlay-wins: your click is authoritative; this value is echoed to the companion.",
       0.70, 0.70, 0.70, true);
   else
-    GameTooltip:AddLine("effective = companion AND addon; an addon OFF wins.",
+    GameTooltip:AddLine("overlay-wins: your click is authoritative (no companion mask live).",
       0.70, 0.70, 0.70, true);
   end
   GameTooltip:Show();
@@ -221,7 +224,7 @@ local function ShowVetoTip (Owner, Group)
   GameTooltip:SetOwner(Owner, "ANCHOR_RIGHT");
   GameTooltip:SetText((VETO_LABELS[Group] or Group) .. " toggle", 1, 1, 1);
   GameTooltip:AddLine("OFF: " .. (VETO_EFFECT[Group] or "every candidate in the group is blanked."), 1.0, 0.55, 0.55, true);
-  GameTooltip:AddLine("effective = companion AND addon; an addon OFF wins. Missing key = ON.",
+  GameTooltip:AddLine("overlay-wins: an explicit in-game OFF restricts; missing key = ON.",
     0.70, 0.70, 0.70, true);
   GameTooltip:Show();
 end
@@ -310,33 +313,27 @@ RefreshPanel = function ()
   local Badge = AppBadge;
   if Badge then
     if Controlled then
-      if HasConflict() then
-        Badge:SetText("READ-ONLY: app-controlled - conflict/blocked (change it in the companion)");
-        Badge:SetTextColor(1.0, 0.30, 0.30);
-      else
-        Badge:SetText("READ-ONLY: app-controlled, in sync (epoch live)");
-        Badge:SetTextColor(0.35, 0.85, 1.0);
-      end
-      Badge:Show();
+      Badge:SetText("Overlay-wins: your toggles are authoritative (companion mask echoed as defaults)");
+      Badge:SetTextColor(0.35, 0.85, 1.0);
     else
-      Badge:SetText("Local control (app mask epoch 0)");
+      Badge:SetText("Overlay-wins: local control (no companion mask live)");
       Badge:SetTextColor(0.55, 0.55, 0.60);
-      Badge:Show();
     end
+    Badge:Show();
   end
   local KeysList = Keys();
   for i = 1, #KeysList do
     local C = CheckboxByKey[KeysList[i]];
     if C then
       C:SetChecked(IsOn(KeysList[i]) and true or false);
-      if Controlled and C.Disable then C:Disable(); elseif C.Enable then C:Enable(); end
+      if C.Enable then C:Enable(); end
     end
   end
   for i = 1, #VETO_GROUPS do
     local C = VetoCheckboxByKey[VETO_GROUPS[i]];
     if C then
       C:SetChecked(VetoGet(VETO_GROUPS[i]) and true or false);
-      if Controlled and C.Disable then C:Disable(); elseif C.Enable then C:Enable(); end
+      if C.Enable then C:Enable(); end
     end
   end
   for i = 1, #UiCheckboxes do
@@ -382,13 +379,13 @@ BuildPanel = function ()
 
   local Hint = P:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall");
   Hint:SetPoint("TOPLEFT", Title, "BOTTOMLEFT", 0, -4);
-  Hint:SetText("App mask wins while its epoch is live; otherwise addon OFF wins. Missing key = ON.");
+  Hint:SetText("Overlay-wins: your toggles are authoritative; the companion mask only fills in unset keys. Missing key = ON, except OOC = hold.");
   Hint:SetTextColor(0.65, 0.65, 0.65);
 
   -- v3.5 app-mask badge: mirror state + red conflict/blocked warning.
   AppBadge = P:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall");
   AppBadge:SetPoint("TOPLEFT", P, "TOPLEFT", 16, -50);
-  AppBadge:SetText("Local control (app mask epoch 0)");
+  AppBadge:SetText("Overlay-wins: local control (no companion mask live)");
   AppBadge:SetTextColor(0.55, 0.55, 0.60);
 
   -- All on / All off.
@@ -417,7 +414,7 @@ BuildPanel = function ()
     Y = Y - 8;
   end
 
-  -- Group vetoes (restrict-only; same effective = companion AND addon rule).
+  -- Group vetoes (restrict-only; explicit in-game OFF restricts, overlay-wins).
   SectionHeader(P, "Group veto (restrict-only)", Y);
   Y = Y - 26;
   for i = 1, #VETO_GROUPS do
@@ -427,8 +424,8 @@ BuildPanel = function ()
   Y = Y - 8;
 
   -- Crowd control (v3.4.0 CC appendix). A 14th restrict-only toggle that is
-  -- NOT part of the 13 canonical Keys(); missing = ON, addon OFF wins. Off the
-  -- pixel path: it only writes MaxDpsBridgeDB.Toggles.CC.
+  -- NOT part of the 13 canonical Keys(); missing = ON, explicit OFF wins
+  -- (overlay-wins). Off the pixel path: it only writes MaxDpsBridgeDB.Toggles.CC.
   SectionHeader(P, "Crowd control (opt-in, restrict-only)", Y);
   Y = Y - 26;
   local CCCheck = MakeUiCheckbox(P, "Allow crowd control (addon side)",

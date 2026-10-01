@@ -59,6 +59,10 @@ internal static class SchedulerBench
             var plan = scheduler.Advance(new ScheduleInput
             {
                 Frame = frame,
+                // Pure measurement harness: the OOC gate is not what the bench
+                // measures, and the pinned plan hash / p95 baseline predate the
+                // gate, so supply the permissive value (pre-gate behaviour).
+                OutOfCombatPermitted = true,
                 Candidates = tracker.Snapshot(AllEnabled),
                 NowMs = now,
                 MinKeyIntervalMs = 120,

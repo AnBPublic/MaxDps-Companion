@@ -350,6 +350,14 @@ internal sealed class ActionScheduler
         //    and belt-and-braces on the engine path).
         if (frame.State == BridgeState.Paused)
             return SchedulePlan.Hold(ScheduleReason.Paused);
+        // 4b. Fail-closed out-of-combat gate (2026-09-30): the engine computes
+        //     the same predicate as the RotationEngine gate; a false value (out
+        //     of combat with no OOC toggle + Ext3 mirror permission) holds
+        //     before any candidate is scheduled. Required input, so a caller
+        //     can never omit the gate and fail open. Placed after Paused so a
+        //     paused bridge keeps its reason.
+        if (!input.OutOfCombatPermitted)
+            return SchedulePlan.Hold(ScheduleReason.OutOfCombat);
         // v4+ encode a target flag. A v1 frame has no such flag, so its
         // absence is UNKNOWN rather than "no target": fail open there (exactly
         // the legacy loop's behaviour). The policy still gates target-requiring

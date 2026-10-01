@@ -321,4 +321,28 @@ public class AppSettingsTests : IDisposable
         Assert.Empty(toggled.ExplicitOff);
         Assert.Null(toggled.OverrideOf(871));
     }
+
+    [Fact]
+    public void CombatOnly_Default_True_Has_No_Warning()
+    {
+        var settings = AppSettings.Load(_path);
+
+        Assert.True(settings.CombatOnly);
+        Assert.Empty(settings.LoadWarnings);
+    }
+
+    [Fact]
+    public void CombatOnly_Zero_Is_Honoured_And_Warned_Not_Silently_Overridden()
+    {
+        File.WriteAllText(_path, "[Targeting]\nCombatOnly=0\n");
+
+        var settings = AppSettings.Load(_path);
+
+        // The value is kept exactly as written (no silent override)...
+        Assert.False(settings.CombatOnly);
+        // ...and the load-time warning explains that authority follows the
+        // in-game overlay (ADDON-WINS) while still failing closed without it.
+        Assert.Contains(settings.LoadWarnings, w => w.Contains("CombatOnly=0"));
+        Assert.Contains(settings.LoadWarnings, w => w.Contains("overlay", StringComparison.OrdinalIgnoreCase));
+    }
 }

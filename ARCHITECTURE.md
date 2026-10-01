@@ -105,6 +105,19 @@ MaxDpsCompanion.exe — DIB BitBlt sample @ PollIntervalMs
    plain cell 27 > Ext2 curve > unknown; `[Intelligence] HpCurve=0` ignores the curve.
        │
        ▼
+Out-of-combat gate (CombatGate) — 2026-09-30, fail-closed
+  after the link gate and before the paused/target/auto-target/auto-interact/
+  send paths, the engine holds out of combat unless the app's OOC toggle is on
+  (CombatOnly=false) AND the bridge echoed the Ext3 OOC mirror bit (bit 9) AND
+  (the frame is Active with a target OR the state is NeedTarget/NeedInteract —
+  the auto-target/interact asks, gated per-toggle); an in-combat frame always
+  passes. An
+  explicit `[Targeting] CombatOnly=0` is honoured but only warns
+  (`AppSettings.LoadWarnings`). The SAME predicate rides the scheduler input
+  (`ScheduleReason.OutOfCombat`) and the MovementGuard auto-target/auto-interact
+  gates require the mirror bit too.
+       │
+       ▼
 Candidate tracker (Decision/CandidateTracker)
   v3.5 last-seen set keyed by (slot, spellId): stroke, first/last-seen,
   pressed-since-change, TTL Clamp(max(1000, 3*tickMs), 1000, 2500) ms where
@@ -218,7 +231,9 @@ Candidate providers (Knowledge/CandidateProviders.cs) — v2.7
         │
         ▼
 Action scheduler (Scheduler/ActionScheduler) — deterministic state machine
-  link/protocol gate → hard cast/channel gate (policy-off) → five-state
+  link/protocol gate → fail-closed out-of-combat gate (2026-09-30:
+  `CombatGate.OutOfCombatPermitted`, holds with `ScheduleReason.OutOfCombat`)
+  → hard cast/channel gate (policy-off) → five-state
   policy verdicts (Use / Hold / Skip / Unavailable / Unknown; Hold+Unknown =
   held, Skip+Unavailable = skipped, only Use scheduled)
   → rank (interrupt > emergency > defensive > self-sustain > main > mobility
@@ -527,6 +542,9 @@ MaxDps-Companion/
                              precedence plain > curve > unknown
     Intelligence/SpellIconCache.cs  opt-in skill icons from the WoW CDN,
                              cached in assets/icons, offline placeholder
+    CombatGate.cs            2026-09-30 fail-closed out-of-combat predicate
+                             (engine gate + scheduler input + auto-target/
+                             auto-interact movement guards)
     Scheduler/               deterministic action scheduler
       SchedulerModel.cs      input/plan/reason/verdict models
       ActionScheduler.cs     pure state machine: link, policy, rank, pacing,
@@ -768,6 +786,18 @@ MaxDps-Companion/
   rotation besides out-of-range. Off-GCD exemption requires `GcdVerified`
   (curated, or an intrinsically off-GCD category) and never applies to
   gap-closer/movement purposes.
+- **Out of combat is fail-closed (2026-09-30).** The companion holds out of
+  combat unless the app's OOC toggle is on (`CombatOnly=false`) **and** the
+  bridge echoed the Ext3 OOC mirror bit **and** either the frame is Active with
+  a target or the state is `NeedTarget`/`NeedInteract` (the auto-target /
+  auto-interact asks, which have no target yet and are gated per-toggle); in
+  combat always passes. A disabled config gate (`CombatOnly=0`) or an
+  old/unsynced 40-cell addon is never permission on its own. One shared pure
+  predicate (`CombatGate`) drives the engine gate, the scheduler gate
+  (`ScheduleReason.OutOfCombat`) and the auto-target/auto-interact movement
+  guards, so no path can disagree. The scheduler gate is a **required** input
+  (`ScheduleInput.OutOfCombatPermitted`, no null default), so a caller can never
+  omit it and fail open.
 - **Failure recovery.** A failed action (no GCD after a press, or the same
   stroke sent too often in the window) is suppressed with an escalating
   window (situational slots 1.5 s → 3 s → 6 s → 10 s, reset by a successful
@@ -796,16 +826,41 @@ MaxDps-Companion/
   OFF blanks only Defensive/SelfHeal while known ungrouped (emergency HP
   excepted); AutoTarget/AutoInteract silence states 3/4 without touching the
   status flags; TTK OFF forces target band 15. No layout/version change.
-- **Toggle SSOT: the app wins (v3.5 T5).** The companion packs its 14 toggles
-  into the additive Ext3 14-bit mask and pushes `/mdb mask <hhhh> <e>` at engine
-  Start and on every toggle change — out of combat only — with a retry ladder
-  (1.5 s window, 2 retries, then a red badge). The bridge echoes the accepted
-  mask in Ext3 cells 40-42; `ToggleSync.EffectiveMask` uses that echo while it
-  is valid and falls back to the app mask otherwise (fail-open). `ToggleSync.cs`
-  is a pure state machine; `ChatCommander.SendToggleMask` does the silent send;
+- **Toggle authority is ADDON-WINS (2026-09-30 flip; supersedes v3.5 T5 app-wins).**
+  The in-game overlay owns the effective toggle mask. The bridge publishes its
+  local 14 toggles in the additive Ext3 cells 40-42 and the companion consumes
+  that mirror as the single authority. The companion is deliberately permissive
+  (the user turns everything ON in the companion to mean "let the overlay
+  drive") and **never auto-pushes** `/mdb mask <hhhh> <e>` at Start or on a
+  settings change, so the bridge stays at epoch 0 and its local toggles win; the
+  v3.5 push ladder is retained only behind an explicit, call-site-free
+  `ToggleSync.RequestExplicitPush`. `ToggleSync.EffectiveMask` is the echo while
+  valid and **0** otherwise (no echo = no addon truth = fail-closed, never the
+  app mask); `AppMask` is diagnostics-only (`InstallDoctor` drift report).
   `RotationEngine.TryGetToggleMirror` publishes the read-only echo + combat flag.
-  The `[Meta] ConfigVersion` migration turns the new Mobility / CrowdControl
-  defaults ON once for a pre-3.5 `[Spells]` config (fixes RC1/RC2).
+  `CombatGate` reads the mirror bits directly: with companion `CombatOnly=0`,
+  OOC requires the mirror OOC bit + Active + target (`CombatOnly=1` is a hard
+  companion-side hold); `MovementGuard` additionally requires the overlay's
+  AutoTarget / AutoInteract mirror bits, so an overlay OFF always holds. The
+  `[Meta] ConfigVersion` migration turning Mobility / CrowdControl ON once for a
+  pre-3.5 `[Spells]` config (fixes RC1/RC2) is unchanged.
+- **Addon-side overlay-wins resolution (2026-09-30).** `Toggles.Get` returns the
+  stored in-game boolean as the effective value; with the companion not pushing
+  (epoch 0) that is the whole truth, and a missing key is ON except OOC, which
+  is fail-closed OFF (hold) until the player sets it. If a build ever pushes a
+  mask (epoch ~= 0), an explicit local value still wins and the app bit only
+  fills in for unset keys — the app mask never vetoes (the old `AppControlled`
+  early-return in `SlotAllowed` is gone). `EffectiveMask` republishes all 14
+  resolved bits in Ext3 every frame, so the mirror's OOC / AutoTarget /
+  AutoInteract bits track the overlay for `CombatGate`; `/mdb <key>` and the
+  in-game panel stay writable during a live epoch. `Defaults.Toggles.OOC` is
+  intentionally unseeded; the panel hint / OOC tooltip and the
+  `AppSettings.LoadWarnings` text both tell the user a fresh install reads OOC
+  OFF (hold) until they enable it in the overlay. `MDB.SetEnabled` is the single
+  writer for the `Enabled` / sticky `UserPaused` pair (`/mdb on|off|toggle` and
+  the Options checkbox route through it), so a UI pause can never diverge the
+  two flags. No wire/format change; the Ext3 layout is byte-identical and
+  `PROTOCOL_VERSION` stays 5.
 - **Cross-stream wiring owed (v3.3.0 Stream 4).** The three streams ship
   complete units but four connections are intentionally deferred (their target
   files are outside this merge pass): `Scheduler/BridgeHealth` consumed by

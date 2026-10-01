@@ -1,5 +1,173 @@
 # Handover — MaxDps-Companion
 
+## 2026-09-30 REVIEW FIXES (OOC hold + overlay-wins) — this change
+
+GOAL: close the read-only reviewer findings on the OOC-hold + overlay-wins
+diff. No `docs/PROTOCOL.md` / `PixelProtocol.cs` / `KeySender.cs` / vendor /
+tracked `settings.ini` / `dist/` change (verified with `git status`).
+
+CHANGED:
+- F1 MAJOR dead OOC auto-target/interact: `CombatGate.OutOfCombatPermitted`
+  now exempts `NeedTarget`/`NeedInteract` from the `Active && hasTarget`
+  requirement (delegating to `MovementOutOfCombatPermitted`); the engine gate
+  (`RotationEngine.cs`) and the scheduler input both call the same predicate,
+  so the overlay's AutoTarget/AutoInteract are reachable out of combat.
+- F2 MAJOR fail-open scheduler gate: `ScheduleInput.OutOfCombatPermitted` is
+  now `required bool` (was `bool?`; null skipped the gate). Every construction
+  site supplies it; `SchedulerBench` uses `true`, tests `true` except the OOC
+  suite. The "not supplied preserves legacy" test is removed.
+- F3 MINOR EffectiveMask=0 blanking: confirmed diagnostics-only (sole reader
+  `InstallDoctor`); in-combat always passes the gate, so an old 40-cell addon
+  cannot blank an in-combat rotation. Documented on `EffectiveMask` and pinned
+  by a new in-combat fail-closed regression test.
+- F4 MINOR OOC unseeded doc: OOC is still intentionally unseeded (fail-closed);
+  the panel hint / OOC tooltip and the `AppSettings.LoadWarnings` text now tell
+  the user a fresh install reads OOC OFF (hold) until enabled in the overlay.
+- F5 MINOR direct `DB.Enabled` writes: new `MDB.SetEnabled` single writer keeps
+  `Enabled` and sticky `UserPaused` in lockstep; `/mdb on|off|toggle`, the
+  Options checkbox (StdUi + fallback) route through it; `reset` clears the
+  in-memory pause.
+- F6 version: DECISION — no bump. The Ext3 wire layout is byte-identical, so
+  `PROTOCOL_VERSION` stays 5 and the bridge stays 3.5.0 (app 3.5.0); the
+  semantics-only flip ships in the same release. Stray "3.6.0" label in
+  `Toggles.lua` corrected.
+
+TESTS: `OocHoldTests` predicate matrix split (NeedTarget/NeedInteract permit;
+still hold without OOC mirror/CombatOnly), OOC auto-target reachability,
+scheduler in-combat legacy regression, scheduler NeedTarget gate. Required gate
+compiler-enforced across all `ScheduleInput` sites.
+
+LIVE OWED (retail 12.1): unchanged from the sections below.
+
+## 2026-09-30 TOGGLE AUTHORITY FLIP → ADDON-WINS (this change)
+
+GOAL: flip toggle authority from app-wins to ADDON-WINS. The user toggles
+everything ON in the companion (permissive), and the in-game overlay toggles
+ON/OFF authoritatively. No `docs/PROTOCOL.md` / `PixelProtocol.cs` /
+`KeySender.cs` / addon Lua / vendor / `dist/settings.ini` change (wire frozen;
+the addon side is a separate worker).
+
+CHANGED:
+- `ToggleSync.cs`: auto-push REMOVED. `ObserveSettings` / `BeginSession` no
+  longer set `NeedsPush`, so the companion never sends `/mdb mask` at Start or
+  on a settings change and the bridge stays at epoch 0 (local toggles win).
+  `RequestExplicitPush()` is the only path that can queue a push (no production
+  call site). `EffectiveMask` is the Ext3 echo when valid and **0** otherwise —
+  no echo = no addon truth = fail-closed, never the app mask.
+- `CombatGate.cs`: added `MirrorAutoTargetSet` / `MirrorAutoInteractSet`; the
+  OOC predicate is unchanged in shape (CombatOnly=1 is a hard companion-side
+  hold; `CombatOnly=0` defers to the mirror OOC bit + Active + target).
+- `MovementGuard.cs`: `ShouldAutoTarget` / `ShouldAutoInteract` gain a
+  `mirrorAutoTargetSet` / `mirrorAutoInteractSet` parameter; the overlay bit is
+  authoritative, so an overlay OFF (or absent mirror) holds even with the
+  companion kill-switch ON.
+- `RotationEngine.cs`: reads the AutoTarget / AutoInteract mirror bits next to
+  the OOC bit and passes them to the movement guards. Scheduler input unchanged.
+- `MainForm.cs`: dropped the toggle auto-push dispatch (`PumpToggleSync` now
+  only feeds the mirror; `_togglePushInFlight` / `DispatchTogglePush` removed).
+- `AppSettings.cs`: docs updated; `CombatOnly` default stays true and an
+  explicit `CombatOnly=0` is still honoured (no silent override) with a
+  `LoadWarnings` entry now explaining that the overlay is authoritative.
+- `tests`: `ToggleSyncTests` (no auto-push on settings change, explicit push
+  seam, fail-closed effective mask), `OocHoldTests` (mirror AutoTarget /
+  AutoInteract OFF holds), `AppSettingsTests` (warning mentions the overlay).
+
+VALIDATED (this machine): see the verification block at the end of the OOC
+section below; build + full test run + harness re-run for this change.
+
+LIVE OWED (retail 12.1): start the companion with all toggles ON
+(CombatOnly=0, AutoTarget/Interact ON), toggle Out-of-combat / Auto-target /
+Auto-interact OFF in the in-game overlay and confirm the companion holds
+immediately; toggle them ON and confirm it fires. Static ≠ automated ≠ live.
+
+## 2026-09-30 OVERLAY-WINS ADDON SIDE (this change)
+
+GOAL: the addon half of the toggle-authority flip (owner: this worker). The
+companion is permissive and no longer pushes, so the in-game overlay is
+authoritative. No wire / `docs/PROTOCOL.md` format change; the Ext3 14-bit
+mask layout is unchanged, only its meaning becomes "effective in-game state".
+
+CHANGED (addon only; app/ C# untouched):
+- `Toggles.lua`: `Get` is overlay-wins — an explicit DB boolean wins with or
+  without a live app epoch (the old `AppControlled` early-return in
+  `SlotAllowed` is deleted; the app mask no longer vetoes). With no local value
+  the live app mask fills in; with no companion, OOC is fail-closed OFF (hold)
+  and every other missing key stays ON. `EffectiveMask` now rebuilds all 14
+  bits from `Get` every frame (was: app mask verbatim), so the Ext3 mirror's
+  OOC bit tracks the in-game toggle for `CombatGate`. Added `LocalSet`;
+  `Conflict` now means an explicit local value disagreeing with the app bit.
+- `Bridge.lua`: removed the `/mdb <key>` refusal while the app epoch is live
+  (`Set` persists, `FrameKey` includes the toggles, so cells repaint and the
+  mirror updates on the next frame). `Defaults.Toggles.OOC` is no longer
+  seeded, so OOC is genuinely unset/fail-closed. UserPaused (prior pass:
+  `/mdb off` sticky, blocks auto-revive, state 2) is unchanged.
+- `Panel.lua`: every checkbox/overlay button is writable while epoch-live (no
+  more read-only mirror); copy updated to overlay-wins.
+
+VERIFY (this machine): `luac -p addon/MaxDpsBridge/*.lua` clean;
+`lua tests/secret_harness.lua` **248 passed, 0 failed** (harness updated to the
+overlay-wins contract: explicit local OFF beats an app ON, OOC fail-closed
+0x3DFF, explicit OOC ON 0x3FFF, wire publishes effective 0x0041, user-pause
+Paused + empty slots, OOC-OFF clears mirror bit 9).
+
+LIVE OWED (retail 12.1): with the companion running permissive, toggle a
+category OFF in the in-game overlay and confirm the slot blanks immediately and
+the Ext3 mirror bit clears; turn the in-game OOC toggle OFF out of combat and
+confirm the companion holds.
+
+## 2026-09-30 FAIL-CLOSED OUT-OF-COMBAT HOLD
+
+GOAL: make the companion fail closed out of combat (spec
+`docs/plans/2026-09-30-ooc-hold-fix.md`, architect-triggered L-route). An
+explicit `[Targeting] CombatOnly=0` no longer lets the rotation / auto-target /
+auto-interact fire out of combat on its own: out-of-combat automation also
+requires the in-game bridge to echo the Ext3 OOC toggle bit. No
+`docs/PROTOCOL.md` / `PixelProtocol.cs` / `KeySender.cs` / addon Lua / vendor
+change (wire frozen); Toggles stay app-wins.
+
+CHANGED:
+- `CombatGate.cs` (new): the shared pure predicate.
+  `OutOfCombatPermitted(inCombat, combatOnly, mirrorOocSet, state, hasTarget)`
+  = in combat OR (OOC toggle on AND Ext3 OOC mirror bit set AND Active AND
+  target); `MovementOutOfCombatPermitted` for auto-target/interact;
+  `MirrorOutOfCombatSet(mirrorValid, mask)` reads Ext3 bit 9.
+- `RotationEngine.cs`: replaced the v1.3.5 `CombatOnly && !InCombat` gate with
+  the fail-closed gate, inserted after the link gate and before the paused /
+  target / auto-target / auto-interact / send paths; reports
+  `holding (out of combat)`. The scheduler input carries the same predicate as
+  a belt-and-braces backstop.
+- `MovementGuard.cs`: `ShouldAutoTarget` / `ShouldAutoInteract` gain a
+  `mirrorOutOfCombatSet` parameter; with CombatOnly OFF they now return the
+  mirror bit instead of unconditional true (CombatOnly alone is not permission).
+- `Scheduler/ActionScheduler.cs` + `SchedulerModel.cs`: `ScheduleInput
+  .OutOfCombatPermitted` (bool?; null = caller did not supply the gate) holds
+  with the new appended `ScheduleReason.OutOfCombat` (enum value appended, so
+  existing values and the `--bench-scheduler` plan hash are unchanged).
+- `AppSettings.cs`: `CombatOnly` default stays true; an explicit `CombatOnly=0`
+  is honoured (no silent override) and records a `LoadWarnings` entry.
+
+TESTS (+15): `OocHoldTests.cs` — predicate matrix (in-combat always; OOC with
+CombatOnly true holds; OOC CombatOnly=false + mirror clear holds; OOC
+CombatOnly=false + Active + target + mirror set permits; no-target/non-Active
+holds; mirror valid+set), movement-guard OOC matrix, and the four scheduler
+rows (OOC+Paused, OOC+no frame, OOC+CombatOnly=false+mirror clear, OOC+
+CombatOnly=false+Active+target+mirror set fires) plus the null-gate legacy row.
+`AppSettingsTests` — default true has no warning; CombatOnly=0 is honoured and
+warned.
+
+VALIDATED (this machine): app `dotnet build -c Release` 0 warnings / 0 errors;
+test project builds (only the 2 pre-existing ClassicUiTests CS8604);
+`dotnet test -c Release` **860/860** (845 + 15 new, no flake this run);
+`lua tests/secret_harness.lua` **237/237**; `luac -p` all 8 bridge files clean;
+`pwsh tools/ability_audit.ps1` exit 0 (Violations 0 / Warnings 0 / Missing 0 /
+Stale 0, committed addon Catalog.lua matches generated).
+
+LIVE OWED (retail 12.1): with CombatOnly=1 / auto-target OFF, stand out of
+combat with a live MaxDps suggestion → nothing fires ("holding (out of
+combat)"); flip the in-game Out-of-combat toggle ON (CombatOnly=0), confirm
+the Ext3 OOC echo lands, then an out-of-combat Active+target suggestion fires
+while an unsynced / old (40-cell) addon holds. Static ≠ automated ≠ live.
+
 ## 2026-09-30 SCHEDULER MAIN BACKOFF + TRACKER TTL FLOOR (this change)
 
 GOAL: fix the Arms "stuck" main rotation (architect-APPROVED D-route). A failed

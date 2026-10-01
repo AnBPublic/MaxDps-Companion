@@ -61,6 +61,7 @@ public class ActionSchedulerPolicyTests
         params ActionCandidate[] candidates) => new()
     {
         Frame = frame,
+        OutOfCombatPermitted = true,
         Candidates = candidates,
         NowMs = now,
         MinKeyIntervalMs = 120,

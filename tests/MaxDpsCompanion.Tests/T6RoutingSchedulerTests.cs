@@ -215,6 +215,7 @@ public class T6RoutingSchedulerTests
         new()
         {
             Frame = frame,
+            OutOfCombatPermitted = true,
             Candidates = candidates,
             NowMs = now,
             MinKeyIntervalMs = 120,

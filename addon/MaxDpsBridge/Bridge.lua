@@ -75,7 +75,7 @@
 
 local addonName, MDB = ...;
 
-MDB.VERSION = "3.5.0";
+MDB.VERSION = "3.5.1";
 
 -- Chat print, defined FIRST: AutoCalibrate (below) and the Update watchdog
 -- both call it, and Lua resolves locals lexically -- a later `local
@@ -168,6 +168,10 @@ local CAST_STATE_UNKNOWN = 15;
 
 local Defaults = {
   Enabled = true,
+  -- Fail-closed pause memory. Set with `/mdb off`, cleared only by `/mdb on`:
+  -- while true the strip stays a Paused frame and the auto-revive nudge is
+  -- suppressed, so nothing can silently resume the rotation after a pause.
+  UserPaused = false,
   OffsetX = 0,
   OffsetY = 0,
   -- Aethys-proven 8px cells: ±1px misalignment tolerance by construction.
@@ -182,18 +186,21 @@ local Defaults = {
   -- rendered ticks (the frame heartbeat) before the weighted sequence
   -- [top, next, top, next2] advances to the following one.
   RotationDwell = 3,
-  -- v3.5 app mask (Ext3). Epoch 0 = the local addon toggles control; a
-  -- non-zero epoch means the desktop app's 14-bit mask is the truth.
+  -- v3.5 app mask (Ext3). Epoch 0 = no companion defaults; a non-zero epoch
+  -- means the desktop app's 14-bit mask fills in for unset in-game toggles.
+  -- OVERLAY-WINS: an explicit in-game value always beats this mask.
   AppMask = 0x3FFF,
   AppEpoch = 0,
   AppBlocked = 0,
-  -- 3.3.0 in-game 13-toggle policy (Toggles.lua). All ON = no restriction;
-  -- the companion's own baseline also defaults all-ON. `effective = app AND
-  -- addon`, an addon OFF always wins.
+  -- 3.3.0 in-game 13-toggle policy (Toggles.lua). OVERLAY-WINS (2026-09-30):
+  -- an explicit in-game value is authoritative; the live app mask only fills
+  -- in for unset keys. OOC is deliberately NOT seeded: out-of-combat is
+  -- fail-closed (missing OOC = hold) until the player sets it or the live
+  -- companion pushes an OOC bit ON. Every other unset key reads ON.
   Toggles = {
     Main = true, Offensive = true, Defensive = true, Consumable = true,
     Trinket = true, Interrupt = true, Mobility = true, SelfHeal = true,
-    Solo = true, OOC = true, AutoTarget = true, AutoInteract = true, TTK = true,
+    Solo = true, AutoTarget = true, AutoInteract = true, TTK = true,
   },
   -- 3.3.0 overlay/panel geometry (Panel.lua consumes this). Missing keys read
   -- as the defaults; Bridge.lua persists the state, Panel.lua owns the frame.
@@ -223,6 +230,33 @@ local CalStep = 0;
 local CalTick = 0;
 local HpCurveBase = false;     -- cell 35 base (white) painted for vertex colour
 local EnsureEngineElapsed = 0; -- B7: 1/s EnsureEngine throttle for a cold login
+
+-- Explicit user pause (`/mdb off`). Sticky until `/mdb on` (or a same-session
+-- `Enabled=true` from another writer is overridden by fail-closed hold below).
+-- Distinct from transient `Enabled` so an auto-revive can never resume play.
+local UserPaused = false;
+
+function MDB.IsUserPaused () return UserPaused == true; end
+
+-- Single writer for the sticky flag: `/mdb on|off` and the Options checkbox
+-- both route through here so no UI path can bypass the fail-closed hold.
+function MDB.SetUserPaused (Flag)
+  UserPaused = (Flag == true);
+  if type(MaxDpsBridgeDB) == "table" then MaxDpsBridgeDB.UserPaused = UserPaused; end
+  return UserPaused;
+end
+
+-- Single writer for the Enabled/UserPaused PAIR. `/mdb on|off|toggle` and the
+-- Options checkbox route here so the two can never diverge: a bare
+-- `DB.Enabled = false` would be re-seeded as a sticky pause on the next login,
+-- and a bare `DB.Enabled = true` would not clear an existing pause. Keeping the
+-- write here is what makes Options.lua + Panel.lua pause-safe (review finding 5).
+function MDB.SetEnabled (Flag)
+  local On = (Flag ~= false);
+  if type(MaxDpsBridgeDB) == "table" then MaxDpsBridgeDB.Enabled = On; end
+  MDB.SetUserPaused(not On);
+  return On;
+end
 
 --- ======= PIXEL PLUMBING =======
 
@@ -792,7 +826,9 @@ local function Update (self, Delta)
     return;
   end
 
-  if not MaxDpsBridgeDB.Enabled then
+  -- A user pause outranks a transient `Enabled` write: keep emitting the
+  -- Paused frame (state = 2) so the companion holds instead of firing.
+  if not MaxDpsBridgeDB.Enabled or UserPaused then
     WriteEmptyFrame(STATE_PAUSED);
     return;
   end
@@ -853,6 +889,7 @@ local function Update (self, Delta)
   -- only while no spell has been fetched and at most once a second.
   local MaxDpsGlobal = _G.MaxDps;
   if (not MaxDpsGlobal or not MaxDpsGlobal.Spells or not next(MaxDpsGlobal.Spells))
+    and not UserPaused
     and MDB.EnsureEngine then
     EnsureEngineElapsed = EnsureEngineElapsed + Delta;
     if EnsureEngineElapsed >= 1 then
@@ -1080,9 +1117,10 @@ local function Update (self, Delta)
   -- a clean tick; cell 39's heartbeat+checksum is rewritten every tick).
   WriteSelfHeal2Raw(SH2);
 
-  -- v3.5 Ext3: publish the effective 14-bit toggle mask + app epoch + blocked
-  -- nibble. The app mask wins while the epoch is non-zero; otherwise the
-  -- local toggles are rebuilt into the mask. Presence bit is in cell 28 B.
+  -- v3.5 Ext3: publish the EFFECTIVE 14-bit toggle mask + app epoch + blocked
+  -- nibble. OVERLAY-WINS: EffectiveMask() rebuilds the mask from the resolved
+  -- in-game state every frame, so an in-game flip (notably OOC off) reaches
+  -- the companion even while the app epoch is live. Presence bit in cell 28 B.
   local PubMask, PubEpoch, PubBlocked = EXT3_MASK_BITS, 0, 0;
   if MDB.Toggles then
     if MDB.Toggles.EffectiveMask then PubMask = MDB.Toggles.EffectiveMask(); end
@@ -1184,11 +1222,12 @@ local function HandleCommand (Input)
   end
 
   if Command == "mask" then
-    -- v3.5 app-wins mask push: `/mdb mask <hhhh> <epoch>`. The desktop app is
-    -- the only writer; the bridge refuses while in combat (never rewrite the
-    -- truth mid-fight) or when the arguments fail the wire range check ("bad
-    -- checksum"). A refusal raises blocked bit1 in cell 41 B and leaves the
-    -- stored mask untouched, so the panel can show why.
+    -- v3.5 mask push: `/mdb mask <hhhh> <epoch>`. The desktop app is the only
+    -- writer; it pushes its permissive DEFAULTS (overlay-wins — the in-game
+    -- toggles override). The bridge refuses while in combat (never rewrite the
+    -- defaults mid-fight) or when the arguments fail the wire range check
+    -- ("bad checksum"). A refusal raises blocked bit1 in cell 41 B and leaves
+    -- the stored mask untouched, so the panel can show why.
     local OkRef = true;
     local Refuse = nil;
     local InCombat = false;
@@ -1219,7 +1258,7 @@ local function HandleCommand (Input)
     if MDB.Toggles and MDB.Toggles.SetAppMask then
       MDB.Toggles.SetAppMask(MaskArg, EpochArg, 0);
     end
-    Print(("app mask 0x%04X epoch %d applied (app wins)")
+    Print(("app mask 0x%04X epoch %d applied (default; overlay-wins)")
       :format(MaskArg, EpochArg));
     return;
   end
@@ -1242,10 +1281,14 @@ local function HandleCommand (Input)
   end
 
   if Command == "on" or Command == "off" or Command == "toggle" then
+    -- Single writer for the Enabled/UserPaused pair: `/mdb off` records an
+    -- explicit user pause (sticky, fail-closed) and `/mdb on` (or toggling
+    -- back on) is the only thing that clears it. The Options checkbox routes
+    -- through the same setter, so no UI path can diverge the two flags.
     if Command == "toggle" then
-      DB.Enabled = not DB.Enabled;
+      MDB.SetEnabled(not DB.Enabled);
     else
-      DB.Enabled = (Command == "on");
+      MDB.SetEnabled(Command == "on");
     end
     -- on/off doubles as the panic switch for the calibrate pattern.
     if DB.Calibrate and Command ~= "toggle" then
@@ -1267,11 +1310,13 @@ local function HandleCommand (Input)
   elseif Command == "calibrate" then
     if Arg1 == "on" then
       DB.Calibrate = true;
-      -- Entering calibrate implies the bridge should run: a previous
-      -- cleanup that left Enabled=false (stale paused strip) would
-      -- otherwise render nothing and the learner sweeps a dead corner.
-      if not DB.Enabled then
-        DB.Enabled = true;
+      -- Entering calibrate is an explicit user action that MUST render the
+      -- sweep: a stale Enabled=false strip or a previous `/mdb off` pause
+      -- would otherwise leave the learner sweeping a dead corner. Route
+      -- through the single writer so Enabled and the sticky pause clear in
+      -- lockstep (never a bare `DB.Enabled = true`).
+      if not DB.Enabled or MDB.IsUserPaused() then
+        MDB.SetEnabled(true);
         Print("bridge enabled");
       end
       CalStep = 0;
@@ -1289,6 +1334,9 @@ local function HandleCommand (Input)
     -- nested Toggles/Ui tables and let later edits mutate Defaults.
     for Key in pairs(DB) do DB[Key] = nil; end
     MergeDefaults(DB, Defaults);
+    -- Keep the in-memory sticky flag in lockstep with the restored defaults
+    -- (Defaults.UserPaused = false), or a clock-change reset would stay paused.
+    UserPaused = false;
     CalStep = 0;
     CalTick = 0;
     Layout();
@@ -1403,12 +1451,10 @@ local function HandleCommand (Input)
     end
   elseif ToggleKeyLower[Command] and MDB.Toggles and MDB.Toggles.Set then
     local Canon = ToggleKeyLower[Command];
-    -- v3.5: while the app owns the mask the in-game key is a read-only mirror.
-    if MDB.Toggles.AppControlled and MDB.Toggles.AppControlled() then
-      Print(("%s is app-controlled (epoch %d) - change it in the companion")
-        :format(MDB.Toggles.Label(Canon), MDB.Toggles.AppEpoch()));
-      return;
-    end
+    -- OVERLAY-WINS (2026-09-30): the in-game value is always writable, even
+    -- while the app epoch is live. Set() persists it; the effective mask and
+    -- the Ext3 mirror republish from Get() on the next frame, and FrameKey
+    -- includes the stored toggles so the slot cells repaint immediately.
     if Arg1 == "on" then
       MDB.Toggles.Set(Canon, true);
     elseif Arg1 == "off" then
@@ -1447,6 +1493,11 @@ do
       -- top-level values and existing toggles are preserved; only missing
       -- keys are seeded from Defaults (nested tables are copied, not aliased).
       MergeDefaults(MaxDpsBridgeDB, Defaults);
+
+      -- Legacy pause memory: a DB saved with Enabled=false (pre-UserPaused)
+      -- means the user paused, so seed the sticky flag from it.
+      UserPaused = (MaxDpsBridgeDB.UserPaused == true) or (MaxDpsBridgeDB.Enabled == false);
+      MaxDpsBridgeDB.UserPaused = UserPaused;
 
       CreateBlock();
       Root:SetScript("OnUpdate", Update);

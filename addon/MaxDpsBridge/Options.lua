@@ -37,7 +37,18 @@ local function BuildControlsStdUi (Panel, StdUi)
 
   local Enabled = StdUi:Checkbox(Panel, "Enable bridge", 240, 24);
   Enabled:SetChecked(DB.Enabled and true or false);
-  Enabled.OnValueChanged = function (_, Flag) DB.Enabled = (Flag and true or false); end;
+  Enabled.OnValueChanged = function (_, Flag)
+    -- Single writer (MDB.SetEnabled): checking Enable is the Options equivalent
+    -- of `/mdb on` and clears an earlier `/mdb off`; unchecking is `/mdb off`.
+    -- Never write DB.Enabled directly, or a logout with Enabled=false would be
+    -- re-seeded as a sticky pause by Bridge.lua's legacy seed.
+    if MDB.SetEnabled then
+      MDB.SetEnabled(Flag);
+    else
+      DB.Enabled = (Flag and true or false);
+      if MDB.SetUserPaused then MDB.SetUserPaused(not DB.Enabled); end
+    end
+  end;
 
   local CellSize = StdUi:SliderWithBox(Panel, 160, 48, DB.CellSize, 1, 64);
   CellSize:SetPrecision(0);
@@ -78,7 +89,14 @@ local function BuildControlsFallback (Panel)
   Enabled.Text:SetText("Enable bridge");
   Enabled:SetChecked(DB.Enabled and true or false);
   Enabled:SetScript("OnClick", function (self)
-    DB.Enabled = self:GetChecked() and true or false;
+    -- Single writer (MDB.SetEnabled): keep Enabled + sticky UserPaused in
+    -- lockstep; never write DB.Enabled directly (review finding 5).
+    if MDB.SetEnabled then
+      MDB.SetEnabled(self:GetChecked() and true or false);
+    else
+      DB.Enabled = self:GetChecked() and true or false;
+      if MDB.SetUserPaused then MDB.SetUserPaused(not DB.Enabled); end
+    end
   end);
 
   local CellSize = CreateFrame("Slider", nil, Panel, "OptionsSliderTemplate");
