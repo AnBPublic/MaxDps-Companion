@@ -114,8 +114,20 @@ MaxDpsCompanion.exe — DIB BitBlt sample @ PollIntervalMs
    blocked + CombatContext: HP + HpSource + HpPctUpper, cast, target, range,
    defensive urgency, stagger urgency, defensive gap-fill source). HP precedence:
    plain cell 27 > Ext2 curve > unknown; `[Intelligence] HpCurve=0` ignores the curve.
-       │
-       ▼
+        │
+        ▼
+UI-only class/spec publish — 2026-10-01
+  after the per-frame TTK feed and BEFORE the link/out-of-combat gates, the
+  engine publishes the decoded class/spec for the UI readout
+  (TryGetLiveClass/TryGetLiveSpec → class badge + console home). The v5
+  class/spec cells decode independently of the sensor block, so a degraded
+  (held out-of-combat) frame still reports its class; when the sensor block is
+  invalid the publish falls back to a class/spec-only context. The send paths
+  still assign their own real CombatContext before any scheduler/policy work
+  (:844, :989), so the UI copy can never influence a decision — it closes the
+  "AUTO DETECT while holding out of combat" readout defect.
+        │
+        ▼
 Out-of-combat gate (CombatGate) — 2026-09-30, fail-closed
   after the link gate and before the paused/target/auto-target/auto-interact/
   send paths, the engine holds out of combat unless the app's OOC toggle is on

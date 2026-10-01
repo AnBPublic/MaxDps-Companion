@@ -1,5 +1,46 @@
 # Handover — MaxDps-Companion
 
+## 2026-10-01 UI CLASS/SPEC PUBLISH WHILE HELD (this change)
+
+GOAL: fix the class badge / console home reading "AUTO DETECT" whenever the
+engine holds out of combat. Diagnosed: `Tick()` cleared `_lastCombatContext`
+(:399) and only the two send paths assigned it (:844 scheduler / :989 legacy),
+so the fail-closed OOC gate (`:547-552`) returned before any publish and
+`TryGetLiveClass`/`TryGetLiveSpec` (:177-187) read null. Decode failure was
+ruled out (that reports "no pixel block", never "holding (out of combat)").
+
+CHANGED (app only; no wire / addon / vendor / settings / scheduler contract):
+- `RotationEngine.cs`: new `internal void PublishUiContext(BridgeFrame frame)`
+  called from `Tick()` right after `UpdateTtk(frame)` and BEFORE the link/OOC
+  gates. When `frame.ClassName` is set it publishes
+  `FromFrame(frame, HpCurve).WithTtk(_ttkEstimate, TimeToKillHistoryDurFactor)`
+  if that projection is `ContextValid`, else a minimal `Class/Spec`-only
+  `CombatContext` (`ContextValid=false`) — needed because `FromFrame`
+  returns `Unknown()` (class dropped) when the sensor block is invalid while
+  the class/spec cells decode independently (`PixelProtocol :660-661`).
+  UI-only: the send paths still rebuild/assign `_lastCombatContext` before any
+  scheduler/policy work, so the publish can never influence a send;
+  `CombatGate.OutOfCombatPermitted`, `_lastPlan` and both send paths are
+  untouched (05eb108 overlay-wins fail-closed hold stays authoritative).
+- Tests: `tests/MaxDpsCompanion.Tests/UiClassPublishTests.cs` (4 facts) —
+  degraded-context OOC frame still reports Warrior/Arms; context-valid frame
+  reports Priest/Shadow; no-class frame stays unset; publish leaves the send
+  paths untouched (OOC gate still holds, no action/plan side effects).
+- `ARCHITECTURE.md` pipeline gains the UI-only publish stage.
+
+VERIFY (this machine): app `dotnet build -c Release` 0 warnings / 0 errors;
+`dotnet test -c Release` **932/933** — the only failure is the pre-existing
+load-sensitive `ClassicUi_PopupOpen_Fast_StaticOpaqueScrim` timing flake
+(578 ms > 500 measured on a clean HEAD stash too, so unrelated to this change);
+new `UiClassPublishTests` 4/4. `lua tests/secret_harness.lua` 248 passed /
+0 failed; `luac -p` all 8 addon files clean; `pwsh tools/ability_audit.ps1`
+exit 0 (Violations 0 / Warnings 0 / Missing 0 / Stale 0, catalog matches).
+Generated churn (`ThisAssembly.Gen.cs`, `ABILITY_REGISTRY_AUDIT.md`) reverted
+to HEAD. LIVE OWED (retail 12.1): stand out of combat holding → the badge /
+console home show the live class+spec instead of "AUTO DETECT". Static ≠
+automated ≠ live.
+
+
 ## 2026-10-01 v3.7 REVIEWER MUST-FIX (this change)
 
 GOAL: close the 6 reviewer must-fix items on the adaptive-TTK work. No wire

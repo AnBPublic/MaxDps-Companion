@@ -507,6 +507,18 @@ internal sealed class RotationEngine : IDisposable
         // replay reconstructs it identically.
         UpdateTtk(frame);
 
+        // 2026-10-01 UI-ONLY class/spec publish. The class badge and the
+        // console home must read the live class even when THIS frame can never
+        // reach a send path (out-of-combat hold, link hold, paused, ...). The
+        // v5 class/spec cells decode independently of the sensor block
+        // (PixelProtocol :660-661), so a frame whose sensors are degraded still
+        // carries its class. This only feeds TryGetLiveClass/TryGetLiveSpec:
+        // the send paths rebuild and assign _lastCombatContext from the same
+        // frame before any scheduler/policy work (:844, :989), so a UI-only
+        // publish can never influence a decision. Placed after UpdateTtk so the
+        // UI copy carries the fresh estimate, and BEFORE the link/OOC gates.
+        PublishUiContext(frame);
+
         // PERF (v1.3.9): summary/raw strings only when the UI wants them.
         var summary = WantDiagnostics ? Summarise(frame) : "-";
 
@@ -777,6 +789,27 @@ internal sealed class RotationEngine : IDisposable
     /// <summary>Ability display name when the identity is known, else the stroke/slot.</summary>
     private string ActionNameOf(int spellId, KeyStroke stroke) =>
         spellId > 0 && _catalog.TryGet(spellId) is { } ability ? ability.Name : stroke.Describe();
+
+    /// <summary>
+    /// UI-only publish of the decoded class/spec for this tick (call site in
+    /// <see cref="Tick"/>). The class/spec cells decode independently of the
+    /// v5 sensor block, so when the sensors are degraded
+    /// (<see cref="BridgeFrame.ContextValid"/> false) a full
+    /// <see cref="CombatContext.FromFrame(BridgeFrame,bool)"/> yields
+    /// <see cref="CombatContext.Unknown"/> and drops the class; that case
+    /// publishes a minimal class/spec-only context (<c>ContextValid=false</c>).
+    /// Never read by the scheduler/policy/send paths — those assign their own
+    /// real context from the same frame before any decision.
+    /// </summary>
+    internal void PublishUiContext(BridgeFrame frame)
+    {
+        if (frame.ClassName is null) return;
+        var projected = CombatContext.FromFrame(frame, _settings.HpCurve)
+            .WithTtk(_ttkEstimate, _settings.TimeToKillHistoryDurFactor);
+        _lastCombatContext = projected.ContextValid
+            ? projected
+            : new CombatContext { Class = frame.ClassName, Spec = frame.SpecName };
+    }
 
     /// <summary>
     /// Feeds the per-target TTK estimator from the decoded frame (once per real
