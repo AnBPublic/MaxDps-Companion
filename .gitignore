@@ -5,6 +5,8 @@ backups/
 *.pdb
 dist/*
 !dist/.gitkeep
+# custom/out: generated patched vendor tree (tools/Sync-CustomMaxDps.ps1)
+custom/out/
 .vs/
 *.user
 # settings.ini: tracked default at repo root. Per-machine copy in dist\ is
