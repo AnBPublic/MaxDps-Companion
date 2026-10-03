@@ -154,10 +154,10 @@ local function FireUnitEvent(unit, event)
   end
 end
 
-local function FirePlainEvent(event)
+local function FirePlainEvent(event, arg1, arg2)
   for _, f in ipairs(AllFrames) do
     if f._events and f._events[event] and f._scripts.OnEvent then
-      f._scripts.OnEvent(f, event)
+      f._scripts.OnEvent(f, event, arg1, arg2)
     end
   end
 end
@@ -176,6 +176,7 @@ MaxDpsBridgeDB = {}
 function UnitExists() return true end
 function UnitIsDead() return false end
 function UnitCanAttack() return true end
+function UnitGUID() return "guid-1" end
 function UnitCastingInfo() return nil end
 function UnitChannelInfo() return nil end
 function UnitClass() return "Warrior", "WARRIOR", 1 end
@@ -603,80 +604,164 @@ check("v5 target change clears cast state", bit.band(tfchanged, 1) == 0)
 
 -- v2.1: a secret/failed CheckInteractDistance must leave melee UNKNOWN (2),
 -- never collapse to a confirmed out-of-melee (0) that would fire a gap closer.
+FirePlainEvent("PLAYER_TARGET_CHANGED")   -- clear the v3.6 per-target cache
 CheckInteractDistance = function() return S(true) end
 local secretMelee = select(1, MDB.GetTargetContext())
 CheckInteractDistance = function() return false end
 check("secret melee probe stays UNKNOWN", secretMelee == 2)
 
--- v3.5: CheckInteractDistance is #nocombat-restricted; it must never be
--- called while InCombatLockdown() is true (ADDON_ACTION_BLOCKED), and every
--- reference in addon/ must sit next to an InCombatLockdown guard.
+-- v3.6: one shared, event-gated melee probe. CheckInteractDistance is
+-- #nocombat-restricted; ADDON_ACTION_BLOCKED is the breaker of last resort.
 do
   local SavedCID = CheckInteractDistance
   local SavedICL = InCombatLockdown
+  local SavedUAC = UnitAffectingCombat
+  local SavedTime = GetTime
+  local function ResetProbe() FirePlainEvent("PLAYER_TARGET_CHANGED") end
 
-  -- (a) counting stub: in combat -> zero calls, melee stays UNKNOWN (2).
+  -- (a) every gate blocks the call: server combat event, lockdown, and the
+  -- post-combat 0.5 s cool-off all leave melee UNKNOWN (2) with 0 stub calls.
   local Calls = 0
+  InCombatLockdown = function() return false end
+  UnitAffectingCombat = function() return false end
+  CheckInteractDistance = function() Calls = Calls + 1; return true end
+  FirePlainEvent("PLAYER_REGEN_DISABLED")
+  local mA1 = select(1, MDB.GetTargetContext())
+  check("v3.6 (a1) regen-disabled -> 0 calls, melee UNKNOWN", mA1 == 2 and Calls == 0)
+  FirePlainEvent("PLAYER_REGEN_ENABLED")
+  Calls = 0
+  local mA2 = select(1, MDB.GetTargetContext())
+  check("v3.6 (a2) post-combat cool-off -> 0 calls", mA2 == 2 and Calls == 0)
   InCombatLockdown = function() return true end
-  CheckInteractDistance = function() Calls = Calls + 1; return true end
-  local mA = select(1, MDB.GetTargetContext())
-  check("v3.5 (a) combat -> 0 calls, melee UNKNOWN", mA == 2 and Calls == 0)
-
-  -- (b) out of combat: true and false are both observed and reflected.
-  InCombatLockdown = function() return false end
   Calls = 0
-  CheckInteractDistance = function() Calls = Calls + 1; return true end
-  local mTrue = select(1, MDB.GetTargetContext())
+  local mA3 = select(1, MDB.GetTargetContext())
+  check("v3.6 (a3) InCombatLockdown -> 0 calls", mA3 == 2 and Calls == 0)
+  InCombatLockdown = function() return false end
+
+  -- past the cool-off: the probe resumes and calls exactly once.
+  GetTime = function() return 1001.0 end
+  ResetProbe()
+  Calls = 0
+  local mOk = select(1, MDB.GetTargetContext())
+  check("v3.6 (a4) probe resumes after cool-off", mOk == 1 and Calls == 1)
+
+  -- (b) UnitAffectingCombat=true while InCombatLockdown=false must not call.
+  UnitAffectingCombat = function() return true end
+  ResetProbe()
+  Calls = 0
+  local mB = select(1, MDB.GetTargetContext())
+  check("v3.6 (b) UnitAffectingCombat blocks -> 0 calls, melee UNKNOWN",
+    mB == 2 and Calls == 0)
+  UnitAffectingCombat = function() return false end
+
+  -- (c) 100 calls in 0.25 s hit the per-target cache: exactly one stub call.
+  ResetProbe()
+  Calls = 0
   CheckInteractDistance = function() Calls = Calls + 1; return false end
-  local mFalse = select(1, MDB.GetTargetContext())
-  check("v3.5 (b) ooc true/false reflected", Calls == 2 and mTrue == 1 and mFalse == 0)
+  for _ = 1, 100 do MDB.GetTargetContext() end
+  check("v3.6 (c) 100 calls in 0.25s -> 1 stub call", Calls == 1)
 
-  -- (c) nil global degrades to UNKNOWN without a call.
-  CheckInteractDistance = nil
-  local mC = select(1, MDB.GetTargetContext())
-  check("v3.5 (c) nil CheckInteractDistance -> UNKNOWN", mC == 2)
-
-  -- (d) a client without InCombatLockdown never probes at all.
+  -- (d) a target change clears the cache, so the next probe calls again.
   Calls = 0
   CheckInteractDistance = function() Calls = Calls + 1; return true end
+  ResetProbe()
+  MDB.GetTargetContext()
+  ResetProbe()
+  MDB.GetTargetContext()
+  check("v3.6 (d) PLAYER_TARGET_CHANGED clears the cache", Calls == 2)
+
+  -- (d2) a client that does not expose InCombatLockdown is NOT refused by the
+  -- missing API (intentional weaken, plan 2026-10-03): out of combat with the
+  -- other gates open it still probes once. InCombatEv / UnitAffectingCombat
+  -- remain the lockdown signals, and the BLOCKED breaker is the backstop.
   InCombatLockdown = nil
-  local mD = select(1, MDB.GetTargetContext())
-  check("v3.5 (d) missing InCombatLockdown -> 0 calls, UNKNOWN", mD == 2 and Calls == 0)
-
-  -- (e) a throwing probe stays pcall-contained and fails to UNKNOWN.
+  UnitAffectingCombat = function() return false end
+  CheckInteractDistance = function() Calls = Calls + 1; return true end
+  GetTime = function() return 2007.0 end
+  ResetProbe()
+  Calls = 0
+  local mD2 = select(1, MDB.GetTargetContext())
+  check("v3.6 (d2) missing InCombatLockdown -> probe proceeds (intentional)",
+    mD2 == 1 and Calls == 1)
   InCombatLockdown = function() return false end
-  CheckInteractDistance = function() error("ADDON_ACTION_BLOCKED") end
-  local okE, mE = pcall(MDB.GetTargetContext)
-  check("v3.5 (e) throwing probe -> pcall UNKNOWN", okE and select(1, mE) == 2)
 
-  -- (f) source-grep: every non-comment CheckInteractDistance reference in
-  -- addon/ has InCombatLockdown within three lines (guard is adjacent).
-  local Files = { "addon/MaxDpsBridge/Reader.lua", "addon/MaxDpsBridge/Bridge.lua" }
-  local Guarded, Refs = true, 0
+  -- (d3) a secret-string GUID (type()=="string" but secret) is scrubbed to nil
+  -- BEFORE the cache compare, so `MeleeCache.guid == Guid` never runs on it: a
+  -- fresh probe is taken instead of a throw/cached read. Scrub is stubbed to
+  -- treat one sentinel string as secret (Lua strings cannot carry a metatable).
+  local RealScrub = scrubsecretvalues
+  UnitGUID = function() return "guid-1" end
+  CheckInteractDistance = function() Calls = Calls + 1; return true end
+  GetTime = function() return 2008.0 end
+  ResetProbe()
+  MDB.GetTargetContext()            -- prime the cache with a plain GUID
+  scrubsecretvalues = function(v)
+    if v == "guid-secret" then return nil end
+    return v
+  end
+  UnitGUID = function() return "guid-secret" end
+  Calls = 0
+  local okG, mG = pcall(MDB.GetTargetContext)
+  check("v3.6 (d3) secret-string GUID: no throw, fresh probe not cached read",
+    okG and select(1, mG) == 1 and Calls == 1)
+  scrubsecretvalues = RealScrub
+  UnitGUID = function() return "guid-1" end
+
+  -- (e) the ADDON_ACTION_BLOCKED breaker: the FIRST hit is a finite 5 s
+  -- backoff (the probe resumes after it), the SECOND disables the session.
+  CheckInteractDistance = function() Calls = Calls + 1; return true end
+  GetTime = function() return 2000.0 end
+  FirePlainEvent("ADDON_ACTION_BLOCKED", "MaxDpsBridge", "blocked CheckInteractDistance()")
+  ResetProbe()
+  Calls = 0
+  local mE1 = select(1, MDB.GetTargetContext())
+  check("v3.6 (e1) 1st BLOCKED -> 5 s backoff, 0 calls", mE1 == 2 and Calls == 0)
+  GetTime = function() return 2006.0 end   -- past the 5 s first-hit backoff
+  ResetProbe()
+  Calls = 0
+  local mE2 = select(1, MDB.GetTargetContext())
+  check("v3.6 (e2) probe resumes after first-hit backoff", mE2 == 1 and Calls == 1)
+  FirePlainEvent("ADDON_ACTION_BLOCKED", "MaxDpsBridge", "blocked CheckInteractDistance()")
+  GetTime = function() return 9999.0 end   -- far future: session-disabled
+  ResetProbe()
+  Calls = 0
+  local mE3 = select(1, MDB.GetTargetContext())
+  check("v3.6 (e3) 2nd BLOCKED disables probe for the session", mE3 == 2 and Calls == 0)
+
+  -- (f) source-grep: the addon touches CheckInteractDistance from exactly ONE
+  -- non-comment site across addon/*.lua. Comments and quoted strings are
+  -- stripped first, so the ADDON_ACTION_BLOCKED name-match (a string literal)
+  -- counts for nothing, and the type() existence guard is not a touch.
+  local Files = {
+    "addon/MaxDpsBridge/Bars.lua", "addon/MaxDpsBridge/Bridge.lua",
+    "addon/MaxDpsBridge/Catalog.lua", "addon/MaxDpsBridge/Keymap.lua",
+    "addon/MaxDpsBridge/Options.lua", "addon/MaxDpsBridge/Panel.lua",
+    "addon/MaxDpsBridge/Reader.lua", "addon/MaxDpsBridge/Toggles.lua",
+  }
+  local Sites, Invokes = 0, 0
   for _, Path in ipairs(Files) do
     local Fh = io.open(Path, "r")
-    if Fh then
-      local Text = Fh:read("a"); Fh:close()
-      local Lines = {}
-      for L in Text:gmatch("[^\n]*") do Lines[#Lines + 1] = L end
-      for i, L in ipairs(Lines) do
-        local Code = L:gsub("%-%-.*$", "")
-        if Code:find("CheckInteractDistance", 1, true) then
-          Refs = Refs + 1
-          local Near = false
-          for j = math.max(1, i - 3), math.min(#Lines, i + 3) do
-            if Lines[j]:find("InCombatLockdown", 1, true) then Near = true; break end
-          end
-          if not Near then Guarded = false end
+    assert(Fh, "source-grep cannot open " .. Path)
+    local Text = Fh:read("a"); Fh:close()
+    for L in Text:gmatch("[^\n]*") do
+      local Code = L:gsub("%-%-.*$", "")
+      Code = Code:gsub('"[^"]*"', '""'):gsub("'[^']*'", "''")
+      if Code:find("CheckInteractDistance", 1, true) then
+        if Code:find("pcall%s*%(%s*CheckInteractDistance") then
+          Sites = Sites + 1; Invokes = Invokes + 1
+        elseif not Code:find("type%s*%(%s*CheckInteractDistance") then
+          Sites = Sites + 1   -- any other reference is an unguarded touch
         end
       end
     end
   end
-  check("v3.5 (f) every addon CheckInteractDistance near InCombatLockdown",
-    Guarded and Refs >= 4)
+  check("v3.6 (f) exactly one addon CheckInteractDistance touch site", Sites == 1)
+  check("v3.6 (f2) that one site is the guarded pcall", Invokes == 1)
 
+  GetTime = SavedTime
   CheckInteractDistance = SavedCID
   InCombatLockdown = SavedICL
+  UnitAffectingCombat = SavedUAC
 end
 
 -- v2.1: the deprecated GetSpecialization chain is bypassed when the modern

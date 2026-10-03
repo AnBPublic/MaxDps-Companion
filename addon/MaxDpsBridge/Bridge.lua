@@ -406,8 +406,11 @@ local function IdNibbleSum (SpellID)
   return Sum;
 end
 
--- Target state is read-only: UnitExists/UnitIsDead/UnitCanAttack and
--- CheckInteractDistance never taint and never act on the world.
+-- Target state is read-only: UnitExists/UnitIsDead/UnitCanAttack never taint
+-- and never act on the world. CheckInteractDistance is #nocombat-restricted in
+-- 12.x (it has raised ADDON_ACTION_BLOCKED), so it is NOT called here: Reader
+-- owns the single event-gated, breaker-protected call site and Bridge only
+-- consumes MDB.ProbeTargetMelee (nil = UNKNOWN while gated/blocked).
 local function TargetState ()
   if type(UnitExists) ~= "function" then return nil; end
   if not UnitExists("target") then return STATE_NEED_TARGET; end
@@ -417,11 +420,11 @@ local function TargetState ()
   if type(UnitCanAttack) == "function" and not UnitCanAttack("player", "target") then
     return STATE_NEED_TARGET;
   end
-  if type(InCombatLockdown) == "function" and not InCombatLockdown()
-     and type(CheckInteractDistance) == "function" then
-    local Ok, Near = pcall(CheckInteractDistance, "target", 3);
-    if Ok and Near then return STATE_NEED_INTERACT; end
+  local Near = nil;
+  if type(MDB.ProbeTargetMelee) == "function" then
+    Near = MDB.ProbeTargetMelee();
   end
+  if Near == 1 then return STATE_NEED_INTERACT; end
   return nil;
 end
 

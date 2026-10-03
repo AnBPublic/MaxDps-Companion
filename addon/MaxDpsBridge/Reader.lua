@@ -56,6 +56,26 @@ local TargetCasting, TargetCastInterruptible = false, nil;
 -- event must not latch "casting" forever and hold the whole rotation.
 local PlayerCastSince, TargetCastSince = nil, nil;
 
+-- ======= v3.6 TAINT-SAFE MELEE PROBE STATE =======
+-- Declared above every user for the same lexical reason as the cast sensors:
+-- EnsureProbeEvents (below) registers the event frame that flips these plain
+-- booleans, and MDB.ProbeTargetMelee (far below) reads them. CheckInteract-
+-- Distance is #nocombat-restricted in 12.x, so it is never called while any
+-- of these gates is closed; ADDON_ACTION_BLOCKED is the breaker of last resort.
+local MeleeCache = { val = nil, guid = nil, at = 0 };  -- per-target result
+local SafeAfter = 0;        -- no probe before this GetTime stamp
+local InCombatEv = false;   -- event-driven combat flag (regen/encounter)
+local BlockHits = 0;        -- ADDON_ACTION_BLOCKED count; 2 = disabled
+
+-- Plain GetTime stamp (pcall-contained; nil when missing). Lives here so both
+-- the event frame and the probe can share it without a lexical gap.
+local function SafeNow ()
+  if type(GetTime) ~= "function" then return nil; end
+  local Ok, Now = pcall(GetTime);
+  if Ok and type(Now) == "number" then return Now; end
+  return nil;
+end
+
 local function MaxDpsEngine ()
   local Direct = _G.MaxDps;
   if Direct and (Direct.Spells or Direct.Flags or Direct.GlowIndependent) then
@@ -1279,6 +1299,74 @@ local function CreateSensor (Unit, Handler)
   return Frame;
 end
 
+-- Event frame that gates the melee probe (v3.6). #nocombat APIs are blocked
+-- from the moment the client enters combat lockdown until 0.5 s after it
+-- leaves, and a hidden breaker (ADDON_ACTION_BLOCKED) can fire even outside
+-- the lockdown window. This frame tracks all three signals on plain booleans
+-- and disables the probe for the session after two blocked calls. Idempotent:
+-- reuses the frame if one already exists (MDB._ProbeEvents).
+local function ClearMeleeCache ()
+  MeleeCache.val, MeleeCache.guid, MeleeCache.at = nil, nil, 0;
+end
+
+local function EnsureProbeEvents ()
+  if MDB._ProbeEvents then return MDB._ProbeEvents; end
+  if type(CreateFrame) ~= "function" then return nil; end
+  local Frame = CreateFrame("Frame");
+  if type(Frame) ~= "table" or type(Frame.RegisterEvent) ~= "function" then
+    return nil;
+  end
+  local Ok = pcall(function ()
+    Frame:RegisterEvent("PLAYER_REGEN_DISABLED");
+    Frame:RegisterEvent("PLAYER_REGEN_ENABLED");
+    Frame:RegisterEvent("ENCOUNTER_START");
+    Frame:RegisterEvent("ENCOUNTER_END");
+    Frame:RegisterEvent("PLAYER_TARGET_CHANGED");
+    Frame:RegisterEvent("PLAYER_ENTERING_WORLD");
+    Frame:RegisterEvent("ADDON_ACTION_BLOCKED");
+  end);
+  if not Ok then return nil; end
+  Frame:SetScript("OnEvent", function (_, Event, Arg1, Arg2)
+    if Event == "PLAYER_REGEN_DISABLED" or Event == "ENCOUNTER_START" then
+      InCombatEv = true;
+      ClearMeleeCache();
+    elseif Event == "PLAYER_REGEN_ENABLED" or Event == "ENCOUNTER_END" then
+      InCombatEv = false;
+      local T = SafeNow();
+      if BlockHits < 2 and T then SafeAfter = T + 0.5; end
+    elseif Event == "PLAYER_TARGET_CHANGED" then
+      ClearMeleeCache();
+    elseif Event == "PLAYER_ENTERING_WORLD" then
+      local Lock = false;
+      if type(InCombatLockdown) == "function" then
+        local OkL, L = pcall(InCombatLockdown);
+        Lock = (OkL and L == true);
+      end
+      InCombatEv = Lock;
+      local T = SafeNow();
+      if T then SafeAfter = T + 0.5; end
+    elseif Event == "ADDON_ACTION_BLOCKED" then
+      if Arg1 == addonName and type(Arg2) == "string"
+         and string.find(Arg2, "CheckInteractDistance", 1, true) then
+        BlockHits = BlockHits + 1;
+        ClearMeleeCache();
+        if BlockHits >= 2 then
+          SafeAfter = math.huge;   -- 2nd hit: never probe again this session
+        else
+          local T = SafeNow();
+          if T then SafeAfter = T + 5; end;   -- 1st hit: finite 5 s backoff
+        end;
+        if BlockHits == 1 then
+          pcall(DiagPrint,
+            "CheckInteractDistance blocked by the client; melee range is now UNKNOWN.");
+        end
+      end
+    end
+  end);
+  MDB._ProbeEvents = Frame;
+  return Frame;
+end
+
 function MDB.InitSensors ()
   if SensorEvents then return; end
   SensorEvents = true;
@@ -1329,6 +1417,9 @@ function MDB.InitSensors ()
     end);
   end
 
+  -- v3.6: the melee-probe event frame (regen/encounter/target/world/BLOCKED).
+  EnsureProbeEvents();
+
   if not PlayerFrame and not TargetFrame then
     SensorEvents = false;   -- pre-Midnight client: stay UNKNOWN forever
   end
@@ -1378,24 +1469,66 @@ function MDB.GetCastState ()
   return 0;
 end
 
--- File-local: CheckInteractDistance is #nocombat-restricted in 12.x; probing
--- it while the client is in combat lockdown raises ADDON_ACTION_BLOCKED. Only
--- probe when InCombatLockdown exists and reports out of combat. The pcall
--- stays belt-and-braces so a throwing API fails to nil => UNKNOWN (2).
+-- v3.6: the ONLY CheckInteractDistance call site in the addon. The API is
+-- #nocombat-restricted in 12.x and can raise ADDON_ACTION_BLOCKED, so it is
+-- gated twice: ProbeSafe rejects event/lockdown/UnitAffectingCombat blocks and
+-- the 0.5 s post-combat cool-off, and it is disabled for the session after two
+-- ADDON_ACTION_BLOCKED hits. One probe is shared by GetTargetContext and
+-- Bridge.TargetState so the call rate does not multiply. Results are cached
+-- per target GUID for 0.25 s. pcall stays belt-and-braces: a throwing/secret
+-- API fails to nil => UNKNOWN.
 -- Returns 1 in melee, 0 confirmed out of melee, nil unknown/not probed.
-local function ProbeTargetMelee ()
-  if type(InCombatLockdown) ~= "function" then return nil; end
-  if InCombatLockdown() then return nil; end
-  if type(CheckInteractDistance) ~= "function" then return nil; end
-  local Ok, Near = pcall(CheckInteractDistance, "target", 3);
+local function ProbeSafe ()
+  if InCombatEv then return false; end
+  if BlockHits >= 2 then return false; end
+  -- Intentional: a client that does not expose InCombatLockdown is NOT
+  -- refused outright (plan 2026-10-03). InCombatEv (regen/encounter) and
+  -- UnitAffectingCombat still gate it, and ADDON_ACTION_BLOCKED is the
+  -- breaker, so an absent API can never un-gate an ongoing combat state.
+  if type(InCombatLockdown) == "function" then
+    local OkL, Locked = pcall(InCombatLockdown);
+    if not OkL or Locked == true then return false; end
+  end
+  if type(UnitAffectingCombat) == "function" then
+    local OkC, InC = pcall(UnitAffectingCombat, "player");
+    if OkC and Scrubbed(InC) == true then return false; end
+  end
+  local Now = SafeNow();
+  if Now and Now < SafeAfter then return false; end
+  return true;
+end
+
+local function TargetGuid ()
+  if type(UnitGUID) ~= "function" then return nil; end
+  local Ok, Guid = pcall(UnitGUID, "target");
   if not Ok then return nil; end
-  -- Scrub first, then map ONLY the explicit booleans: a secret/failed probe
-  -- must stay UNKNOWN (2), never become a confirmed out-of-melee (0) that
-  -- would let a gap closer fire blind.
-  Near = Scrubbed(Near);
-  if Near == true then return 1
-  elseif Near == false then return 0 end;
+  -- Secret GUIDs still report type()=="string"; scrubbing turns them into
+  -- nil so the cache compare (`MeleeCache.guid == Guid`) can never throw.
+  Guid = Scrubbed(Guid);
+  if type(Guid) == "string" then return Guid; end
   return nil;
+end
+
+function MDB.ProbeTargetMelee ()
+  if not ProbeSafe() then return nil; end;   -- no API touch, no cache read
+  local Now = SafeNow();
+  local Guid = TargetGuid();
+  if Guid and MeleeCache.guid == Guid and Now and (Now - MeleeCache.at) < 0.25 then
+    return MeleeCache.val;   -- same target, still fresh: one call per 0.25 s
+  end
+  if type(CheckInteractDistance) ~= "function" then return nil; end
+  local Val = nil;
+  local Ok, Near = pcall(CheckInteractDistance, "target", 3);
+  if Ok then
+    -- Scrub first, then map ONLY the explicit booleans: a secret/failed probe
+    -- must stay UNKNOWN (2), never become a confirmed out-of-melee (0) that
+    -- would let a gap closer fire blind.
+    Near = Scrubbed(Near);
+    if Near == true then Val = 1
+    elseif Near == false then Val = 0 end;
+  end
+  MeleeCache.val, MeleeCache.guid, MeleeCache.at = Val, Guid, Now or 0;
+  return Val;
 end
 
 -- Returns meleeFlag (0 = confirmed out of melee, 1 = in melee,
@@ -1416,9 +1549,9 @@ function MDB.GetTargetContext ()
     TargetCasting, TargetCastInterruptible, TargetCastSince = false, nil, nil;
   end
 
-  local Melee = 2;   -- unknown unless CheckInteractDistance answers
+  local Melee = 2;   -- unknown unless the shared event-gated probe answers
   if HasTarget then
-    local Probe = ProbeTargetMelee();
+    local Probe = MDB.ProbeTargetMelee();
     if Probe ~= nil then Melee = Probe; end
   end
 
