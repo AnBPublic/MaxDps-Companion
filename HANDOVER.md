@@ -1,5 +1,52 @@
 # Handover — MaxDps-Companion
 
+## 2026-10-03 NO-DOWNTIME MAIN — T4 tests + T5 docs (bridge + scheduler, no wire change)
+
+STATUS: the MAIN slot can never be stranded (Q1 = NO empty Main). Layer A —
+`Reader.GetMainSpellID` now collects every non-denied `On==1` glow, sorts
+ascending, and takes the first still **usable** id (`C_Spell.IsSpellUsable` /
+`IsUsableSpell`, pcall+scrub; only a plain `usable==false AND noPower==true`
+vetoes — secrets / nil / throw fail open, Q3=YES). When every glow is denied or
+power-starved it falls through to the per-spec `MDB.MainFallback` table
+(`addon/MaxDpsBridge/MainFallback.lua`, TOC-wired; Fury specID 72 /
+`"WARRIOR:Fury"` → Bloodthirst 23881, name-verified in read-only `vendor/`).
+This is a deliberate, user-approved exception to "bridge only encodes what
+MaxDps suggests" (custom behaviour, not upstream parity); unlisted specs stay
+nil and are OWED. Layer B — `ActionScheduler` re-arms a failed Main at
+`MainReprobeMs = 400` (was the 1.5/3 s ladder) with `MainSameSpellNoOpCap = 3`;
+a CHANGED Main identity drops the superseded identity's backoff and presses the
+next tick. Layer C — `CandidateTracker` refreshes the sole Main candidate's TTL
+while the frame heartbeat stays fresh (a brief empty-Main re-probe must not
+expire it). **No wire change** — `docs/PROTOCOL.md` layout, `PixelProtocol.cs`,
+`KeySender.cs`, `vendor/` untouched; one exe rule holds. Spec:
+`docs/plans/2026-10-03-no-downtime-main.md`.
+
+CHANGED: `addon/MaxDpsBridge/Reader.lua` (MainUsable + sorted scan + fallback
+selector), `addon/MaxDpsBridge/MainFallback.lua` (new) + `MaxDpsBridge.toc`,
+`app/MaxDpsCompanion/Scheduler/ActionScheduler.cs` (`MainReprobeMs`,
+`MainSameSpellNoOpCap`, changed-identity reset), `Decision/CandidateTracker.cs`
+(sole-Main TTL refresh), `tests/secret_harness.lua` (11 Q1 checks),
+`tests/MaxDpsCompanion.Tests/MainNoDowntimeTests.cs` (new, 4 facts) + the
+re-pinned `ActionSchedulerPolicyTests.Main_Failure_Ladder_Uses_The_Fast_Reprobe_Floor`,
+`ARCHITECTURE.md`, `docs/TESTING.md` §3i, this section.
+
+VERIFY (this machine): app `dotnet build app\MaxDpsCompanion\MaxDpsCompanion.csproj
+-c Release` **0 warnings / 0 errors**; `dotnet test -c Release` **942/942**
+(938 + 4 new; one run flaked on the pre-existing load-sensitive
+`ClassicUi_PopupOpen_Fast_StaticOpaqueScrim` at 521.1 ms > 500, passes
+standalone and on the clean rerun); `lua tests/secret_harness.lua` **275
+passed / 0 failed**; `luac -p` **10** bridge files clean;
+`pwsh tools/ability_audit.ps1` exit 0 (violations 0 / warnings 0 / missing 0 /
+stale 0, committed Catalog.lua matches generated).
+
+NEXT / OWED (live retail 12.1 Fury): with the bridge addon loaded, Rampage
+(184367) must only fire at Rage ≥ 80; when Rampage is rage-starved the MAIN
+slot carries Bloodthirst (23881) instead of blanking; the rotation keeps a
+legal Main key with no GCD gap and no silent Main longer than ~0.4 s
+(MainReprobeMs) + one MinKeyInterval; a changed Main suggestion is pressed the
+next tick. Unlisted specs have no filler (Main may legitimately stay empty).
+Static ≠ automated test ≠ live in-game.
+
 ## 2026-10-03 RELEASE 3.7.0 "VIGIL" (custom 12.1 fork, companion + bridge identity)
 
 STATUS: the custom MaxDps 12.1 fork ships as release **3.7.0 "Vigil"** (was

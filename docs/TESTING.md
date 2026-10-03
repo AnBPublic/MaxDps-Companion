@@ -391,6 +391,33 @@ Also OWED: the true 12.1 ids (fill `newSpellId` / refresh `MDB.MajorCDDeny`)
 and the `Sync-CustomMaxDps.ps1` publish + `_backup/` rollback end-to-end.
 Static ≠ automated test ≠ live in-game.
 
+### 3i. No-downtime MAIN / Fury fallback (live 12.1 retail, OWED)
+
+Offline evidence is `MainNoDowntimeTests` (Fury Rampage rage-blind fixture:
+`MainReprobeMs` ≤ 400, re-probe ≥ `MinKeyInterval`, never silent beyond
+`MainReprobeMs + MinKeyInterval`; a changed Main picks the next tick; 20
+stationary no-op ticks keep every gap; no filler is invented when `ranked==0`)
+plus the Q1 block in `lua tests/secret_harness.lua` (glowing∩usable scan,
+denied/power-starved fall-through, per-spec filler, fail-open on secret/nil/
+throw) — never live proof. Observe in a real client with a Fury Warrior and the
+bridge 3.7.0 addon loaded:
+
+1. **Rampage only at Rage ≥ 80.** While Rampage (184367) is suggested but the
+   player is below 80 Rage, it must **not** be pressed; the MAIN slot carries
+   the castable filler Bloodthirst (23881) instead of blanking.
+2. **No GCD gaps / no silent Main.** The rotation keeps a legal MAIN key every
+   tick: the gap between attempts never exceeds ~0.4 s (`MainReprobeMs`) plus
+   one `MinKeyInterval`, and a no-op press never latches a hold.
+3. **Alternate pressed.** When MaxDps swaps the MAIN suggestion to a different
+   spell id, the new identity is pressed on the next tick (the superseded
+   pick's backoff is dropped).
+4. Record + export + replay the run: 0 mismatches for decisions and policy
+   verdicts.
+
+Unlisted specs have no filler (MAIN may legitimately stay empty and are OWED);
+the Fury ids are verified by name against the read-only `vendor/` tree (see
+`addon/MaxDpsBridge/MainFallback.lua`). Static ≠ automated test ≠ live in-game.
+
 ## Benchmarks / diagnostics (no game)
 
 ```powershell

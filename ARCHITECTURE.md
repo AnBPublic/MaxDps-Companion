@@ -368,6 +368,35 @@ an optional, reversible vendor patch set for the same symptom. Neither changes
 the wire: cells, `PROTOCOL_VERSION` and the bridge encoder are untouched. See
 `custom/CUSTOM_FORK.md` and `docs/TESTING.md` §3h.
 
+## No-downtime MAIN (bridge + scheduler, no wire change)
+
+The MAIN slot must never be stranded on a dead tick (Q1 = NO empty Main).
+Neither the pixel layout nor `PROTOCOL_VERSION` changes; the pipeline is:
+
+```
+Reader.GetMainSpellID (addon; only what MaxDps already glows)
+  └─ collect every glowing id (On == 1), drop MDB.MajorCDDeny, sort ascending
+       └─ first id with C_Spell.IsSpellUsable (power veto only:
+          usable==false AND noPower==true; secret/nil/throw fail OPEN) ──► MAIN
+       └─ all denied/power-starved ⇒ MDB.MainFallback[specID | "CLASS:Spec"]
+          (MainFallback.lua; Fury 72 / "WARRIOR:Fury" → Bloodthirst 23881) ──► MAIN
+       └─ no candidate at all / unlisted spec ⇒ nil (idle by design)
+
+ActionScheduler (companion)
+  └─ a failed MAIN press re-arms at MainReprobeMs = 400 ms (not the
+     1.5 s/3 s ladder); MainSameSpellNoOpCap = 3 bounds the no-op repeats
+  └─ a CHANGED Main identity drops the superseded pick's backoff and
+     presses the next tick
+CandidateTracker
+  └─ the sole Main candidate's TTL is refreshed while the frame heartbeat
+     stays fresh, so a brief empty-Main re-probe does not expire it
+```
+
+The fallback is the deliberate, user-approved exception to "the bridge only
+encodes what MaxDps suggests" — it is custom behaviour, not upstream parity;
+unlisted specs stay nil and are OWED. See
+`docs/plans/2026-10-03-no-downtime-main.md` and `docs/TESTING.md` §3i.
+
 ## Class Browser (S6) / Class skills screen
 
 ```
