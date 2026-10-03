@@ -619,18 +619,25 @@ public class ActionSchedulerPolicyTests
     }
 
     [Fact]
-    public void Main_Failure_Ladder_Is_Pinned_At_Three_Seconds()
+    public void Main_Failure_Ladder_Uses_The_Fast_Reprobe_Floor()
     {
         var s = new ActionScheduler();
 
+        // Base reject window: the first Main failure is still 1.5 s.
         s.NoteFailure(Slot.Main, KeyE, 1600);
-        Assert.Equal(3100, s.FailedUntilFor(Slot.Main, KeyE)); // 1.5 s base
+        Assert.Equal(3100, s.FailedUntilFor(Slot.Main, KeyE));
+
+        // T2 (no-downtime Main): every later Main failure re-arms at the fast
+        // MainReprobeMs floor, never the old 3 s rung. The effective re-press
+        // is at most MainReprobeMs + MinKeyInterval (the pacing gate).
+        Assert.Equal(400, ActionScheduler.MainReprobeMs);
         s.NoteFailure(Slot.Main, KeyE, 2000);
-        Assert.Equal(5000, s.FailedUntilFor(Slot.Main, KeyE)); // 3 s
+        Assert.Equal(2000 + ActionScheduler.MainReprobeMs, s.FailedUntilFor(Slot.Main, KeyE));
+        Assert.True(s.FailedUntilFor(Slot.Main, KeyE) - 2000 <= ActionScheduler.MainReprobeMs + 120);
         s.NoteFailure(Slot.Main, KeyE, 2400);
-        Assert.Equal(5400, s.FailedUntilFor(Slot.Main, KeyE)); // 3 s cap (not 6 s)
+        Assert.Equal(2400 + ActionScheduler.MainReprobeMs, s.FailedUntilFor(Slot.Main, KeyE));
         s.NoteFailure(Slot.Main, KeyE, 2800);
-        Assert.Equal(5800, s.FailedUntilFor(Slot.Main, KeyE)); // 3 s cap (not 10 s)
+        Assert.Equal(2800 + ActionScheduler.MainReprobeMs, s.FailedUntilFor(Slot.Main, KeyE));
     }
 
     [Fact]

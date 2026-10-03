@@ -82,6 +82,20 @@ internal sealed class ActionScheduler
     internal const int MaxAttemptsPerWindow = 5;
 
     /// <summary>
+    /// T2 (no-downtime Main): a Main press that keeps failing is re-armed at
+    /// this fast floor instead of the escalating 1.5 s/3 s ladder, so the
+    /// rotation is never stranded on a silent Main slot.
+    /// </summary>
+    internal const int MainReprobeMs = 400;
+
+    /// <summary>
+    /// T2 (no-downtime Main): consecutive no-op sends of the SAME Main spell
+    /// allowed before the RC6 send-count backoff treats it as stuck. Bounds the
+    /// fast <see cref="MainReprobeMs"/> re-probe.
+    /// </summary>
+    internal const int MainSameSpellNoOpCap = 3;
+
+    /// <summary>
     /// Fallback scheduler rank order (policy off or unknown): interrupt,
     /// defensive, main, then the optional cooldowns, items and companion-only
     /// slots. Consumers must not reorder: tests pin this contract.
@@ -134,6 +148,11 @@ internal sealed class ActionScheduler
     // stroke) means a sibling rotation candidate that shares a key does not
     // inherit the failed suggestion's suppression (RC6).
     private readonly Dictionary<(Slot Slot, KeyStroke Stroke, int SpellId), (int Count, long WindowStartMs)> _attempts = new();
+
+    // T2 (no-downtime Main): the Main spell identity that last won a tick. A
+    // change means the rotation genuinely moved on, so the superseded
+    // identity's failure memory is dropped rather than carried forward.
+    private int _lastMainSpellId;
 
     // Post-send GCD confirmation: a press that never starts the GCD failed.
     private (Slot Slot, KeyStroke Stroke, int SpellId, long SentAt, bool SawGcd, bool RidesGcd)? _pendingConfirm;
@@ -268,6 +287,7 @@ internal sealed class ActionScheduler
         _failureStreak.Clear();
         _lastFailureAt.Clear();
         _attempts.Clear();
+        _lastMainSpellId = 0;
         _pendingConfirm = null;
         _policyMemory.Reset();
         _catalogForNotes = null;
@@ -326,6 +346,13 @@ internal sealed class ActionScheduler
             // rolling send-count backoff (RC6) is re-armed so a situational
             // ability that failed against the previous target is not silenced
             // against the new one.
+            // T2 (no-downtime Main): a CHANGED Main spell id means the rotation
+            // moved on to a different identity; drop the superseded identity's
+            // failure memory in addition to the new-fight edge below.
+            var currentMainSpell = CurrentMainSpellId(input);
+            var mainSpellChanged = currentMainSpell != 0
+                && _lastMainSpellId != 0
+                && currentMainSpell != _lastMainSpellId;
             if (targetChanged || combatChanged)
             {
                 _attempts.Clear();
@@ -334,6 +361,9 @@ internal sealed class ActionScheduler
                 // so a stuck suggestion from the previous target cannot keep
                 // the rotation silent. Situational slots keep their
                 // suppression: a failed cooldown stays failed.
+            }
+            if (targetChanged || combatChanged || mainSpellChanged)
+            {
                 RemoveMainEntries(_failedUntil);
                 RemoveMainEntries(_failureStreak);
                 RemoveMainEntries(_lastFailureAt);
@@ -689,12 +719,20 @@ internal sealed class ActionScheduler
             // failing (immune, invalid, out of resource) — suppress it with an
             // escalating window, then retry at a decaying rate. Keying on the
             // spell identity keeps a rotated-in sibling candidate pressable.
+            // T2 (no-downtime Main): the Main slot uses the tighter
+            // MainSameSpellNoOpCap and is re-armed at the fast MainReprobeMs
+            // floor instead of the escalating failure ladder; every other slot
+            // keeps the 5-sends/1.5 s rule and its ladder.
+            var sendCap = slot == Slot.Main ? MainSameSpellNoOpCap : MaxAttemptsPerWindow;
             if (_attempts.TryGetValue((slot, candidate.Stroke, candidate.SpellId), out var attempt)
-                && attempt.Count >= MaxAttemptsPerWindow
+                && attempt.Count >= sendCap
                 && input.NowMs - attempt.WindowStartMs <= AttemptWindowMs)
             {
-                NoteFailure(slot, candidate.Stroke, input.NowMs, candidate.SpellId);
                 _attempts.Remove((slot, candidate.Stroke, candidate.SpellId));
+                if (slot == Slot.Main)
+                    _failedUntil[(slot, candidate.Stroke, candidate.SpellId)] = input.NowMs + MainReprobeMs;
+                else
+                    NoteFailure(slot, candidate.Stroke, input.NowMs, candidate.SpellId);
                 suppressed++;
                 NoteHold(ScheduleReason.RetryBackoff);
                 continue;
@@ -739,6 +777,16 @@ internal sealed class ActionScheduler
                 Provider = policy?.Provider ?? "",
                 Evidence = policy?.Evidence ?? [],
             });
+        }
+
+        // T2 (no-downtime Main): remember the Main identity that won this tick;
+        // the next tick compares against it to drop a superseded identity's
+        // failure memory.
+        foreach (var action in actions)
+        {
+            if (action.Slot != Slot.Main) continue;
+            _lastMainSpellId = action.SpellId;
+            break;
         }
 
         if (actions.Count == 0)
@@ -844,8 +892,9 @@ internal sealed class ActionScheduler
 
     /// <summary>
     /// Records a failed press: escalating suppression window per consecutive
-    /// failure — Main 1.5/3/3/3 s (hard 3 s cap), every other slot
-    /// 1.5/3/6/10 s — reset by the next successful send or a &gt;6 s silence.
+    /// failure — Main 1.5 s then the fast <see cref="MainReprobeMs"/> floor,
+    /// every other slot 1.5/3/6/10 s — reset by the next successful send or a
+    /// &gt;6 s silence.
     /// </summary>
     internal void NoteFailure(Slot slot, KeyStroke stroke, long nowMs, int spellId = 0)
     {
@@ -879,7 +928,10 @@ internal sealed class ActionScheduler
         long windowMs;
         if (slot == Slot.Main)
         {
-            windowMs = streak <= 1 ? RejectedSuppressMs : MaxMainSuppressMs;
+            // T2 (no-downtime Main): re-arm the rotation hard at the fast
+            // MainReprobeMs floor after the base reject window instead of the
+            // old 1.5/3 s ladder, so a silent Main is never stranded.
+            windowMs = streak <= 1 ? RejectedSuppressMs : MainReprobeMs;
         }
         else
         {
@@ -902,6 +954,22 @@ internal sealed class ActionScheduler
             if (key.Slot == Slot.Main) (dead ??= []).Add(key);
         if (dead is null) return;
         foreach (var key in dead) map.Remove(key);
+    }
+
+    /// <summary>
+    /// T2 (no-downtime Main): the enabled Main candidate's spell identity this
+    /// tick (0 = none). Used to detect when the rotation moved on to a
+    /// different Main spell so the superseded identity's failure memory can be
+    /// dropped.
+    /// </summary>
+    private static int CurrentMainSpellId(ScheduleInput input)
+    {
+        foreach (var candidate in input.Candidates)
+        {
+            if (candidate.Slot != Slot.Main || !candidate.Enabled) continue;
+            return candidate.SpellId;
+        }
+        return 0;
     }
 
     /// <summary>Test/diagnostic seam: the failure-suppression window set for a key (0 = none).</summary>

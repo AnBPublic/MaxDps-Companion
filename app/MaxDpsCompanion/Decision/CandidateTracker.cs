@@ -69,6 +69,16 @@ internal sealed class CandidateTracker
     private long _lastUpdateMs;
     private long _measuredTickMs;
 
+    // T3 (no-downtime MAIN) freshness bookkeeping. The bridge repaints its
+    // heartbeat every rendered tick, so a repeated heartbeat means the addon
+    // stopped painting (the scheduler's link-loss signal). _lastMainSpellId
+    // remembers the most recent non-zero Main identity, so a brief empty-Main
+    // gap is distinguishable from a switch to a different spell.
+    private int _lastHeartbeat = -1;
+    private bool _hasHeartbeat;
+    private bool _frameFresh;
+    private int _lastMainSpellId;
+
     /// <summary>Smoothed measured frame interval; 0 before the second frame.</summary>
     public long MeasuredTickMs => _measuredTickMs;
 
@@ -92,6 +102,15 @@ internal sealed class CandidateTracker
             _measuredTickMs = _measuredTickMs == 0 ? delta : (_measuredTickMs * 3 + delta) / 4;
         }
         _lastUpdateMs = nowMs;
+
+        // T3: a fresh frame advances the bridge heartbeat; an identical
+        // heartbeat is a frozen paint (stale) and must not keep the sole Main
+        // candidate alive. Remember the latest non-zero Main identity.
+        _frameFresh = !_hasHeartbeat || frame.Heartbeat != _lastHeartbeat;
+        _hasHeartbeat = true;
+        _lastHeartbeat = frame.Heartbeat;
+        var mainSpell = frame.Slots[(int)Slot.Main] is null ? 0 : frame.SpellId(Slot.Main);
+        if (mainSpell != 0) _lastMainSpellId = mainSpell;
 
         foreach (var observation in _observed.Values) observation.Present = false;
 
@@ -171,9 +190,26 @@ internal sealed class CandidateTracker
 
     private ActionCandidate[] Build(bool[] slotEnabled, long nowMs, long ttlMs)
     {
+        // T3 (no-downtime MAIN): while a fresh frame still carries the SAME
+        // sole Main identity, refresh its TTL every tick instead of letting it
+        // fall out of the 1000-2500 ms window (TtlMsFor). The bridge blanks
+        // Main while it re-probes a cooldown/power-gated glow; without this the
+        // scheduler would see NoCandidate in that gap where a usable filler
+        // exists. Limited to the sole Main candidate: any other slot, a second
+        // Main identity, or a stale (frozen-heartbeat) frame refreshes nothing
+        // and expires exactly as before.
+        var soleMainSpellId = SoleMainSpellId();
+        var refreshMain = ttlMs >= 0
+            && _frameFresh
+            && soleMainSpellId != 0
+            && soleMainSpellId == _lastMainSpellId;
+
         var candidates = new List<ActionCandidate>(_observed.Count);
         foreach (var ((slot, spellId), observation) in _observed)
         {
+            if (refreshMain && slot == (int)Slot.Main && spellId == soleMainSpellId)
+                observation.LastSeenMs = nowMs;
+
             var included = ttlMs < 0
                 ? observation.Present
                 : observation.Present || nowMs - observation.LastSeenMs < ttlMs;
@@ -192,6 +228,24 @@ internal sealed class CandidateTracker
             return bySlot != 0 ? bySlot : a.SpellId.CompareTo(b.SpellId);
         });
         return candidates.ToArray();
+    }
+
+    /// <summary>
+    /// The Main slot's tracked spell id when the last-seen set holds exactly
+    /// one Main identity, else 0. T3's no-downtime refresh is limited to that
+    /// sole candidate (a second identity means the bridge switched spells, so
+    /// the old one must be allowed to expire).
+    /// </summary>
+    private int SoleMainSpellId()
+    {
+        var found = 0;
+        foreach (var (slot, spellId) in _observed.Keys)
+        {
+            if (slot != (int)Slot.Main) continue;
+            if (found != 0) return 0;
+            found = spellId;
+        }
+        return found;
     }
 
     private void Prune(long nowMs)
@@ -213,5 +267,9 @@ internal sealed class CandidateTracker
         _observed.Clear();
         _lastUpdateMs = 0;
         _measuredTickMs = 0;
+        _lastHeartbeat = -1;
+        _hasHeartbeat = false;
+        _frameFresh = false;
+        _lastMainSpellId = 0;
     }
 }
