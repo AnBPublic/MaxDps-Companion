@@ -358,6 +358,39 @@ the estimate/history takes over and the major fires on a long fight.
 `WarmupSec=0` reproduces the legacy fail-open exactly; the setting is recorded
 as `ttkw` and the replay must reproduce the hold.
 
+### 3h. Custom MaxDps 12.1 fork acceptance (live 12.1 retail, OWED)
+
+Offline evidence is static only — `luac -p addon/MaxDpsBridge/*.lua`, the T2
+fixture suite (`pwsh tests/sync/Sync-CustomMaxDps.Tests.ps1`) and the
+`MDB.MajorCDDeny` table — never live proof. There is no automated in-game test
+for the fork. Observe in a real client with the bridge 3.6.0 addon loaded
+(`/reload`, `/mdb status` shows `protocol=5`):
+
+1. **Avatar / Combustion no longer Main.** Play a Warrior and a Fire Mage with
+   the relevant major off cooldown; while MaxDps suggests the major, the MAIN
+   slot must **not** encode it (`MDB.GetMainSpellID` returns the next allowed
+   source or nil). Diagnostics/plan must never show a 2-3 min cooldown as the
+   Main rotation pick.
+2. **Offensive fires the moved CDs.** The same major must still fire through
+   the **Offensive** slot when ready and policy-Use (`Reader.GetOffensiveCandidate`
+   → `FirstFlagged("offensive")`), independent of the denied Main pick.
+3. **No stall on a denied AC pick.** Hold the rotation on an Assisted-Combat
+   pick that is denied: the bridge must fall through to the next allowed
+   source, and an empty Main must not block the Offensive candidate or latch a
+   hold. Confirm the next tick re-evaluates (a hold is non-latching) and the
+   rotation resumes with no extra delay.
+4. **Fork vs stock after `/reload`.** With the custom `out/` tree published
+   into `AddOns`, `/reload` and confirm the denylist is active (no major as
+   Main, Offensive still works); swap back to stock MaxDps, `/reload`, and
+   confirm the pre-fork behavior (major may be encoded as Main). This is the
+   A/B that proves the fork, not the companion, fixed it.
+5. Record + export + replay the run: 0 mismatches for decisions and policy
+   verdicts.
+
+Also OWED: the true 12.1 ids (fill `newSpellId` / refresh `MDB.MajorCDDeny`)
+and the `Sync-CustomMaxDps.ps1` publish + `_backup/` rollback end-to-end.
+Static ≠ automated test ≠ live in-game.
+
 ## Benchmarks / diagnostics (no game)
 
 ```powershell

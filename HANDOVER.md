@@ -1,5 +1,49 @@
 # Handover — MaxDps-Companion
 
+## 2026-10-03 CUSTOM MAXDPS 12.1 FORK — T4 docs (this change, docs-only)
+
+STATUS: T1-T3 are done — `custom/upstream-pristine/` + `MANIFEST.json`
+(v11.3.49, Interface 120100, captured `2026-10-03T12:12:52Z`),
+`custom/patches.json` (75 entries: 22 data + 40 guard + 13 canary), the T2
+sync tool `tools/Sync-CustomMaxDps.ps1` (+ `tests/sync/…`), and the T3
+bridge-side denylist **live**: `addon/MaxDpsBridge/MajorCooldowns.lua`
+(`MDB.MajorCDDeny`, wired into the TOC) plus the `GetMainSpellID` skip in
+`Reader.lua`. **No wire change** — `docs/PROTOCOL.md`, `PixelProtocol.cs`,
+`KeySender.cs`, `Scheduler/**`, `Decision/**`, `Knowledge/**` and `vendor/`
+are untouched; majors are simply no longer encoded as MAIN. This pass is
+**docs-only** (no code, no build run): `custom/CUSTOM_FORK.md` behavior
+sections, `ARCHITECTURE.md` custom-fork pipeline/file map, `docs/TESTING.md`
+§3h live checklist, and this section.
+
+CHANGED (docs): `custom/CUSTOM_FORK.md` (fork behavior model — P-DATA vs
+P-GUARD vs bridge denylist precedence, update-aware rule, sync tool, publish
+path, OWED), `ARCHITECTURE.md` (custom/ layout + `MajorCooldowns.lua` +
+`GetMainSpellID` deny + no-wire note in the file map), `docs/TESTING.md` §3h,
+`HANDOVER.md`.
+
+SYNC: **partially reconciled, one item OWED.** The authored
+`custom/patches.json` uses the rich `kind`/`anchor{regex,scope}`/
+`apply{op,text}`/`fixedWhen{regex}` shape; the T2 tool + its fixture tests read
+a flatter `target`/`op`/string-`anchor`/`insert`/`replace` shape, so the tool
+has not yet consumed the 75 authored entries end-to-end. Reconciliation
+(adapter or regenerated manifest) is OWED. `custom/out/` is a gitignored
+build artifact and is currently absent (expected until a sync run).
+
+VERIFY: docs-only. `git status --short` shows only the intended docs plus the
+pre-existing T3 worktree files (see the status quote in the task report).
+No build/test claimed.
+
+NEXT / OWED (live retail 12.1 + publish):
+1. **Live 12.1 id check** — resolve the true ids for the 22 moved majors and
+   the "already correct" set in a real client; fill `newSpellId` and refresh
+   `MDB.MajorCDDeny` (offline vendor names are not live proof).
+2. **Publish** — run `tools/Sync-CustomMaxDps.ps1 -NewUpstream <drop>
+   -PublishTo <AddOns>` end-to-end and verify the `_backup/<stamp>/` rollback.
+3. **Manifest reconciliation** — align `patches.json` with the sync tool.
+4. **Full retail run** — `docs/TESTING.md` §3h (Avatar/Combustion no longer
+   Main; Offensive fires the moved CDs; no stall on a denied AC pick; fork vs
+   stock after `/reload`). Static ≠ automated test ≠ live in-game.
+
 ## 2026-10-03 RELEASE 3.6.0 "WARDEN" (companion + bridge identity)
 
 STATUS: consolidates the two feature sections below plus the unified-mask UI

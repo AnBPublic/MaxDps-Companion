@@ -348,6 +348,26 @@ static data; the policy only consumes decoded protocol fields and the
 companion's own send history. Nothing invented, nothing secret, no LLM in the
 runtime.
 
+## Custom MaxDps 12.1 fork (bridge-side, no wire change)
+
+```
+vendor/ (read-only) ──► custom/upstream-pristine/ ──► custom/patches.json
+                                                        │  tools/Sync-CustomMaxDps.ps1
+                                                        ▼
+                                              custom/out/  ──► AddOns
+                                              (generated, reversible)
+
+addon/MaxDpsBridge/MajorCooldowns.lua  MDB.MajorCDDeny
+        └─► Reader.GetMainSpellID: skip denied ids in the SpellsGlowing scan,
+            reject a denied MaxDps.Spell → MAIN never carries a major CD
+```
+
+The fork corrects 12.1 stale major-cooldown ids without editing `vendor/`.
+`MDB.MajorCDDeny` is the runtime fix and needs no sync run; `custom/out/` is
+an optional, reversible vendor patch set for the same symptom. Neither changes
+the wire: cells, `PROTOCOL_VERSION` and the bridge encoder are untouched. See
+`custom/CUSTOM_FORK.md` and `docs/TESTING.md` §3h.
+
 ## Class Browser (S6) / Class skills screen
 
 ```
@@ -513,14 +533,39 @@ MaxDps-Companion/
                              MaxDpsBridgeDB.Toggles + SlotAllowed(slot, ctx),
                              the single gate before WriteSlot (missing = ON,
                              fails open; addon can only restrict)
-    Panel.lua                in-game settings panel + draggable overlay
-                             (overlay = plain Frame, no RegisterForClicks,
-                             right-click reset via OnMouseUp; panel uses
-                             Settings.RegisterCanvasLayoutCategory
-                             with InterfaceOptions_AddCategory fallback);
-                             `/mdb toggles` opens it, `/mdb overlay on|off`
-                             shows/hides the overlay, optional minimap button
-  app/MaxDpsCompanion/       WinForms companion (sampler → PostMessage)
+     Panel.lua                in-game settings panel + draggable overlay
+                              (overlay = plain Frame, no RegisterForClicks,
+                              right-click reset via OnMouseUp; panel uses
+                              Settings.RegisterCanvasLayoutCategory
+                              with InterfaceOptions_AddCategory fallback);
+                              `/mdb toggles` opens it, `/mdb overlay on|off`
+                              shows/hides the overlay, optional minimap button
+     MajorCooldowns.lua       custom MaxDps 12.1 fork (T3): `MDB.MajorCDDeny`
+                              table of stale/current major-CD ids. GetMainSpellID
+                              skips every denied id in the SpellsGlowing scan
+                              (Reader.lua:332-355) and rejects a denied
+                              MaxDps.Spell, so a stale glow or a 2-3 min CD is
+                              never encoded as the MAIN slot; the Offensive slot
+                              is an independent Flags-scan, so an empty Main
+                              cannot deadlock the rotation. Bridge-side PRIMARY
+                              fix; no vendor edit, no wire change.
+   custom/                    custom MaxDps fork (read-only vendor preserved):
+     upstream-pristine/        untouched v11.3.49 snapshot + MANIFEST.json
+                              (fileSha256 churn baseline; captured 2026-10-03)
+     patches.json              declarative patch manifest (75: 22 data +
+                              40 guard + 13 canary); P-DATA = Cooldowns.lua id
+                              moves, P-GUARD = Specialization ACSpells bypass,
+                              canary = `local setSpell` sentinel
+     out/                      GENERATED patched tree (build artifact, absent
+                              until a sync run; never hand-edited)
+   tools/Sync-CustomMaxDps.ps1 T2 sync tool: churn-diff a new upstream drop vs
+                              MANIFEST, apply patches.json into custom/out/,
+                              write SYNC-REPORT.md; update-aware (fixedWhen ⇒
+                              FIXED-UPSTREAM skip; ambiguous anchor ⇒ CONFLICT;
+                              all-fixed ⇒ skip the run entirely); publishes to
+                              `\Interface\AddOns` only on a clean run, with a
+                              `_backup/<stamp>/` rollback; vendor/ never written
+   app/MaxDpsCompanion/       WinForms companion (sampler → PostMessage)
     Knowledge/               ability knowledge base (v2.0; defensive v2.3; registry v2.6)
       AbilityModel.cs        enums + AbilityDefinition + slot mapping,
                              `Scope` ("Racial" = race-carried, carried by every
