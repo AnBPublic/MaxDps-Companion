@@ -1,3 +1,17 @@
+3.6.0
+date: 2026-10-03 "Warden"
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED from 3.5.2 - v5 core 35 cells + ADDITIVE Ext2 40-cell block
+          + ADDITIVE Ext3 43-cell block. The v5 version nibble stays 5 and every
+          cell is byte-identical; 3.6.0 is a feature release with no Lua wire
+          change. X-Codename: Warden in the TOC.
+v3.6.0:   Companion 3.6.0 "Warden" / bridge 3.6.0. Bridge identity bump plus
+          the taint-safe melee probe: CheckInteractDistance now has ONE call
+          site (Reader MDB.ProbeTargetMelee), Bridge.TargetState consumes it,
+          so ADDON_ACTION_BLOCKED on the restricted call cannot be raised from
+          the Bridge path. Gated melee is UNKNOWN; cell 29 bit1 already means
+          UNKNOWN, so no wire change. No Catalog.lua change.
 3.5.2.2
 date: 2026-10-01 "Fullcover"
 git: <commit placeholder - fill at release>

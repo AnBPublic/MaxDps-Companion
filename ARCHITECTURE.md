@@ -14,7 +14,7 @@ Vendor discovery (read-only): MaxDps:GlowDefensiveHPMidnight (Buttons.lua:1056)
   curve's own control points — see docs/research/ABILITY_RESEARCH.md §6.
        │
        ▼
-MaxDpsBridge addon — 43-cell pixel strip (bridge 3.5.2; v5 + Ext2 layout
+MaxDpsBridge addon — 43-cell pixel strip (bridge 3.6.0; v5 + Ext2 layout
   unchanged from 3.0.0, Ext3 shipped by T1/T2). Ext3: a 43-cell strip
   (cells 40-42 = 14-bit app toggle mask + epoch + blocked nibble + cell-42
   checksum/commit, presence cell 28 B bit2); a pre-3.5 companion ignores it
@@ -41,6 +41,14 @@ MaxDpsBridge addon — 43-cell pixel strip (bridge 3.5.2; v5 + Ext2 layout
   sensors: arg-blind RegisterUnitEvent cast tracking (player + target),
            pcall+scrub HP/target-HP/stagger, IsSpellInRange tri-states (incl.
            the SelfHeal slot), aura probe,
+           melee probe: the addon's single CheckInteractDistance call site
+           (Reader.MDB.ProbeTargetMelee, #nocombat-restricted in 12.x) is shared
+           by GetTargetContext and Bridge.TargetState, gated by an event frame
+           (`InCombatEv` regen/encounter + InCombatLockdown + scrubbed
+           UnitAffectingCombat + 0.5 s post-combat SafeAfter) and a per-target
+           0.25 s cache; ADDON_ACTION_BLOCKED on CheckInteractDistance is a
+           breaker (2 hits ⇒ probe off for the session, melee UNKNOWN, no wire
+           change — cell 29 bit1 already means UNKNOWN),
            generated Catalog.lua extras (Mobility/SelfHeal/Defensive per spec)
   extras:  the companion-only slots are an INDEPENDENT candidate source:
            the bridge walks the curated per-spec list and encodes the first
@@ -243,7 +251,14 @@ Situational policy (Knowledge/PolicyEvaluator) — [Intelligence] Enabled=1
       (never without the latch). A v3.6 kill-secure bypass fires either
       MajorBurst/Summon or a curated `killSecure:true` major when the estimate
       is valid, age ≥20 s, target ≤35% and TTK 3–20 s; execute range also
-      bypasses the guard when TTK ≥3 s or unknown
+      bypasses the guard when TTK ≥3 s or unknown. v3.8 adds a **warmup hold**
+      (`"warming up TTK"`): a provisional-eligible major with no valid/provisional
+      estimate, target age < `[TimeToKill] WarmupSec` (default 3 s; 0 = legacy)
+      and a binding history short of its buff-aware need is held; execute /
+      kill-secure / zero-need / long-history carve-outs fail open. The
+      adaptive-need input is now the ability's own **buff duration**
+      (`max(MinTtk, min(DurFactor·buffDur, 20))`, the research 1/2 rule) rather
+      than the T2 2·cd+dur window
     · mobility: gap closers need a confirmed out-of-melee target + in-range
       ability; escapes/movement are never automatic
     · self-heals: emergency self-heal (HP <= EmergencyHpPct, default 35) is a
@@ -416,10 +431,12 @@ MainForm (borderless; 660-wide fixed frame; no frame ring; tray; pause
        │     button row 1 (52): Start | Stop | Launch Game
        │     button row 2 (46): Recalibrate | Abilities… | Advanced… | Open Folder
        │     status line (26)
-       ├─ Advanced scrim + centred card (tabs Configuration | Diagnostics |
-       │   Intelligence), built lazily once, one AutoScroll panel of fixed
-       │   RuleSections per tab
+        ├─ Advanced scrim + centred card (tabs Configuration | Diagnostics |
+        │   Intelligence), built lazily once, measured GlassCards per tab
          └─ Abilities scrim + centred card (one "Class browser" tab, S6)
+           Both masks are built by the one BuildUnifiedPopup shell and fill
+           client-24 × client-24 (min 360×280), capped at their maxWidth
+           (Advanced 620 / Class browser 900)
     One full-window overlay at a time: opening Advanced/Abilities hides the S7
     console home and the other scrim (RestoreConsoleAfterPopup only if a popup
     hid it). v3.5.2: the scrims are parented to the top-level Form (not the
@@ -437,7 +454,7 @@ MainForm (borderless; 660-wide fixed frame; no frame ring; tray; pause
   content height (`MainForm.LayoutHero` measures the hero + body rows and
   `ApplyContentHeight` clamps it to the working area), so the window grows with
   its content instead of scrolling. Restored classic primitives live in UiControls.cs
-  (LinkLamp, StripView, ClassBadge, RoundedCard, RuleSection, GradientCanvas,
+  (LinkLamp, StripView, ClassBadge, RoundedCard, GradientCanvas,
   WheelSafeNumeric forwarding the wheel to its scrollable parent); the tabbed
   pages still use Ui/Layout.cs (VertStack/WrapFlow/GridPanel/BentoSplit/
   UiMeasure) and Ui/UiPrimitives.cs (GlassCard/KvRow/pills/tiles/chips/
@@ -458,7 +475,7 @@ MainForm (borderless; 660-wide fixed frame; no frame ring; tray; pause
 
 ```
 MaxDps-Companion/
-  addon/MaxDpsBridge/        bridge addon 3.5.2 (v5 + Ext2 + additive Ext3
+  addon/MaxDpsBridge/        bridge addon 3.6.0 (v5 + Ext2 + additive Ext3
                              encoder, candidate rotation, in-game toggle UI,
                              /mdb commands)
     Catalog.lua              GENERATED class/spec ids + extras (--gen-catalog,
@@ -477,12 +494,18 @@ MaxDps-Companion/
                              MDB.GetCrowdControlCandidate (slot-6 CC source),
                              v3.5 MDB.IsInterruptPinReady (casting-gated
                              interrupt pin) + MDB.IsBossTarget (CC boss skip),
-                             Ext2 HP-curve source
+                             Ext2 HP-curve source,
+                             v3.6 MDB.ProbeTargetMelee (single event-gated,
+                             breaker-protected CheckInteractDistance site;
+                             EnsureProbeEvents owns regen/encounter/target/
+                             world/BLOCKED events)
     Bridge.lua               strip rendering + 40-cell v5 + Ext2 encode
                              (urgency + HP curve + SelfHeal2 + Ext2 checksum);
                              slot 6 = interrupt-first only while the target
                              sensor confirms a live cast, else the v3.4.0 CC
                              candidate (wire frozen, no new slot);
+                             v3.6 TargetState consumes MDB.ProbeTargetMelee
+                             (never calls CheckInteractDistance itself);
                              per-tick toggle context + /mdb toggles|overlay|
                              <key>|all|why, deep Defaults merge
     Toggles.lua              in-game 13-toggle policy (pure logic, no frames):
@@ -542,11 +565,12 @@ MaxDps-Companion/
                              source identity + structured decision evidence;
                              v3.2.0 T1-T4 TTK gates; v3.3.0 Burst/AoE preset
                              holds + Solo HP-banded escalation (SoloBandLatch);
-                              v3.6 provisional waste guard + grace hold +
-                              kill-secure + execute carve-out + tiered defensive
-                              lookup; v3.7 ttk-hist adaptive branch (activeDur
-                              = T2 2·cd+dur) + consumable/trinket Burst release
-                              above a 5 s binding history
+                               v3.6 provisional waste guard + grace hold +
+                               kill-secure + execute carve-out + tiered defensive
+                               lookup; v3.7 ttk-hist adaptive branch + consumable/
+                               trinket Burst release above a 5 s binding history;
+                               v3.8 buff-aware need (buffDur, not T2 window) +
+                               warmup hold before the gap-fill/pair gates
       KillHistory.cs         v3.7 pure/fake-clock bounded rolling kill window
                              (KillRecord AtMs/LifeSec/StartFrac/EndFrac;
                              Add/Prune/Clear/Count, nearest-rank
@@ -567,7 +591,8 @@ MaxDps-Companion/
                              thresholds, grace-hold/kill-secure helpers and the
                              `[TimeToKill] Fallback` mode; v3.7 NeedAdaptive
                              (max(base, min(DurFactor·activeDur, 20))) and the
-                             `ttk-hist` T1 branch
+                             `ttk-hist` T1 branch; v3.8 BuffNeed (buff duration)
+                             + `DefaultWarmupSec`/`WarmupHoldHolds`
       SoloBandLatch.cs       v3.3.0 Solo HP-band hysteresis latch (enter band,
                              then stay eligible to enter+5 once engaged; with no
                              prior engagement it is the plain enter threshold)
@@ -626,7 +651,7 @@ MaxDps-Companion/
                              v3.3.0 Mode/Target preset rows),
                              UiShellValidation (honest structural smoke)
     UiControls.cs            restored classic primitives: RoundedCard (hero),
-                             RuleSection, GradientCanvas, LinkLamp, StripView,
+                             GradientCanvas, LinkLamp, StripView,
                              ClassBadge, WheelSafeNumeric
     MainForm.cs              borderless classic 660-wide fixed main window
                              (no AutoScroll on the timer path, no frame ring):
@@ -724,7 +749,9 @@ MaxDps-Companion/
                              execute, Solo T4 + emergency override, unknown
                              fail-open, kill-switch); v3.6 provisional/grace
                              hold, kill-secure, execute carve-out, tiered
-                             defensive lookup, Fallback mode
+                             defensive lookup, Fallback mode; v3.8 BuffNeed +
+                             WarmupHoldHolds (young unknown major, carve-outs,
+                             history release, provider wiring)
     TtkCurationTests.cs      raw-JSON TTK field schema conformance (defaults,
                              ranges, execute pairing, v3.6 killSecure)
     TtkEstimatorHistoryTests.cs  v3.7 fake-clock history: kill filter, window
@@ -736,8 +763,8 @@ MaxDps-Companion/
                              [TimeToKill] parse/clamp, replay hk/hs reproduce
     TtkReplayTests.cs        v3.2.0 recorded-series estimator rebuild (in-memory
                              + the checked-in ttk fixture, 0 mismatches)
-    fixtures/ttk-warrior-burst.jsonl  canonical v3.2.0 TTK recording (18 policy
-                             verdicts, 0 mismatches; trash hold / boss fire)
+    fixtures/ttk-warrior-burst.jsonl  canonical v3.2.0/v3.8 TTK recording (0
+                             mismatches; warmup hold / trash hold / boss fire)
     fixtures/ttk-trash-pack.jsonl     v3.6 dying-trash recording (6 mobs each
                              <5 s; 0 mismatches; latch / grace hold)
     SoloEscalationTests.cs   v3.3.0 Solo HP-band escalation: ValidateSoloBands
@@ -1002,8 +1029,18 @@ MaxDps-Companion/
   canvas, so it stays the default opaque view over the classic body — no
   background menu or ring peeks at any edge. No wire/format change;
   `PROTOCOL_VERSION` stays 5 and the Ext3 layout is byte-identical.
-  **3.5.2 "Fullcover"** is the release; the title renders
-  `v3.5.2 Fullcover` and `InstallDoctor` agrees with the bridge 3.5.2.
+  **3.6.0 "Warden"** is the release; the title renders
+  `v3.6.0 Warden` and `InstallDoctor` agrees with the bridge 3.6.0.
+- **M-route unified mask (UI only, no wire change).** `MainForm.BuildUnifiedPopup`
+  is the single shell every mask must call (opaque scrim + `RoundedCard` +
+  `SegmentedTabs`, main-window tokens). `Center` fills `client-24 × client-24`
+  (floor 360×280), so Advanced (620) fills height and the Class browser can
+  reach its 900 maxWidth on a roomy window. `PageHeader` subtitles and
+  `GlassCard` titles wrap (2 lines) instead of ellipsising; `Hint`/Advanced
+  checkboxes wrap at a card-inner width. `VirtualAbilityList` row toggles reuse
+  the `ToggleSwitch` brass palette and `ConsolePalette.Brass` is aliased to
+  `DesignTokens.Accent` (one accent). Dead `RuleSection`, `StatusDot`,
+  `SingleToggleRow` and `ShowClassSkills` removed.
 - **Cross-stream wiring owed (v3.3.0 Stream 4).** The three streams ship
   complete units but four connections are intentionally deferred (their target
   files are outside this merge pass): `Scheduler/BridgeHealth` consumed by

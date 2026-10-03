@@ -1,3 +1,40 @@
+3.6.0
+Date: 2026-10-03 — "Warden"
+Companion 3.6.0 "Warden" / bridge 3.6.0. Protocol UNCHANGED: v5 core (35
+cells, nibble 5) + Ext2 (40) + Ext3 (43) stay byte-identical. Three features:
+a taint-safe single-site melee probe in the bridge, TTK-aware offensive
+cooldown gating (warmup hold + buff-duration adaptive need), and one unified
+mask shell for both companion popups. The title bar reads
+"MaxDPS Companion v3.6.0 Warden"; the build hash/time stays on the Advanced
+Diagnostics install doctor card only.
+
+v3.6.0 WARDEN (taint-safe probe + TTK buff gating + unified masks, no wire change)
+
+- TAINT-SAFE MELEE PROBE: CheckInteractDistance is now called from ONE site
+  (Reader MDB.ProbeTargetMelee); Bridge.TargetState consumes it and never calls
+  it itself. The probe is event-gated (InCombatEv regen/encounter +
+  InCombatLockdown + scrubbed UnitAffectingCombat + 0.5 s post-combat
+  SafeAfter), per-target cached 0.25 s, and ADDON_ACTION_BLOCKED on the call is
+  a breaker: 1 hit = finite 5 s backoff, 2 = probe off for the session. Gated
+  melee reads as UNKNOWN (2); cell 29 bit1 already means UNKNOWN, so NO wire
+  change.
+- TTK BUFF GATING: a provisional-eligible major offensive cooldown is held
+  ("warming up TTK") while TTK is unknown and the target is younger than
+  [TimeToKill] WarmupSec (default 3 s; 0 = legacy fail-open); the adaptive-need
+  input is the ability's own buff duration (max(MinTtk, min(DurFactor*buffDur,
+  20))), not the T2 2*cd+dur window. ~29 majors gain curated cdMs/durMs/minTtkSec.
+  Telemetry records ttkw so replay reproduces the hold. No wire change.
+- UNIFIED MASKS: one BuildUnifiedPopup shell (opaque full-window scrim + centred
+  card + SegmentedTabs) builds both the Advanced and Class-browser masks; the
+  RuleSection control is retired in favour of measured GlassCards.
+
+VALIDATED (this machine): app `dotnet build -c Release` 0 warnings / 0 errors;
+`dotnet test -c Release` 938/938; `lua tests/secret_harness.lua` 256/256;
+`luac -p` 8 bridge files clean; `pwsh tools/ability_audit.ps1` exit 0
+(violations 0 / warnings 0, committed Catalog.lua matches generated).
+LIVE OWED: docs/TESTING.md 3f/3g plus the full retail 12.1 checklist. Static
+!= automated test != live in-game E2E.
+
 3.5.2.2
 Date: 2026-10-01 — "Fullcover"
 Companion 3.5.2.2 "Fullcover" / bridge 3.5.2.2. Patch version bump only, no

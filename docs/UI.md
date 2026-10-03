@@ -1,4 +1,4 @@
-# UI architecture — MaxDps Companion 3.5.2 "Fullcover" (classic)
+# UI architecture — MaxDps Companion 3.6.0 "Warden" (classic)
 
 The companion is one WinForms application (`MaxDpsCompanion.exe`, .NET 8,
 x64, PerMonitorV2). v3.0.0 restored a fast, fixed **classic** shell on top of

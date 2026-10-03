@@ -1,5 +1,133 @@
 # Handover — MaxDps-Companion
 
+## 2026-10-03 RELEASE 3.6.0 "WARDEN" (companion + bridge identity)
+
+STATUS: consolidates the two feature sections below plus the unified-mask UI
+into release 3.6.0 "Warden" (was 3.5.2.2 "Fullcover"). Protocol unchanged:
+v5 core 35 cells (nibble 5) + Ext2 (40) + Ext3 (43) byte-identical, so no
+`docs/PROTOCOL.md` / `PixelProtocol.cs` / `KeySender.cs` / `Scheduler/**` /
+`Decision/**` change. Version is single-sourced: csproj
+`<Version>3.6.0</Version>` + `<Codename>Warden</Codename>` feed
+`Native.DisplayVersion`; `Bridge.lua` `MDB.VERSION`, the TOC
+`## Version`/`## X-Codename`, repo + addon `VERSION.txt`, `README.md`,
+`docs/UI.md`, `ARCHITECTURE.md` and `ReleaseIdentityTests` follow. Both app and
+addon move together because `InstallDoctor` warns on a version mismatch.
+
+VERIFY (this machine): app build **0 warnings / 0 errors**; `dotnet test -c
+Release` **938/938**; `lua tests/secret_harness.lua` **256/256**; `luac -p` 8
+bridge files clean; `pwsh tools/ability_audit.ps1` exit 0 (violations 0 /
+warnings 0, committed Catalog.lua matches generated). One full test run flaked
+on the load-sensitive `ClassicUi_PopupOpen_Fast_StaticOpaqueScrim` (1176 ms vs
+500 ms) and passed standalone and on the clean rerun. LIVE OWED: retail 12.1
+3f/3g plus the full checklist. Static != automated test != live in-game E2E.
+
+## 2026-10-03 TTK-AWARE BUFF GATING (this change, L-route, Knowledge/** approved)
+
+STATUS: major offensive cooldowns are now held while a target's TTK is still
+unknown and the target is younger than `[TimeToKill] WarmupSec` (default 3 s;
+0 = legacy fail-open), reason `"warming up TTK"`. The adaptive-need gate now
+reads the ability's own **buff duration** (`max(MinTtk, min(DurFactor·buffDur,
+20))`, the research 1/2 rule), not the T2 2·cd+dur window. `PolicyOptions.
+TtkWarmupSec` defaults to 0 so tests/older replays stay byte-identical;
+`FromSettings` carries 3.0 and telemetry records `ttkw` so replay reproduces it.
+Spec: `docs/plans/2026-10-03-ttk-cooldown-buff-gating.md`. Protected/wire files
+(`docs/PROTOCOL.md`, `PixelProtocol.cs`, `KeySender.cs`, `Scheduler/**`,
+`Decision/**`, `addon/*.lua`, `vendor/`) untouched; one exe rule stays.
+
+CHANGED: `Knowledge/TtkPolicy.cs` (`DefaultWarmupSec`, `WarmupHoldReason`,
+`BuffNeed`, `WarmupHoldHolds`), `Knowledge/CandidateProviders.cs` (`buffDurSec`;
+warmup after grace hold), `Knowledge/PolicyEvaluator.cs` (`TtkWarmupSec` +
+`FromSettings`), `AppSettings.cs` + `settings.ini` (`WarmupSec` 3.0 / clamp
+0..10), `Telemetry/TelemetryEvent.cs` + `Telemetry/ReplayRunner.cs` (`ttkw`),
+`Knowledge/abilities.json` (~29 majors curated `cdMs`/`durMs`/`minTtkSec`, from
+`vendor/MaxDps/spell_durations.lua` read-only), tests (`TtkPolicyTests` +5,
+`TtkPolicyHistoryTests`, `TtkCurationTests` Tyrant 12, `TtkReplayTests` +
+regenerated `fixtures/ttk-warrior-burst.jsonl`), `ARCHITECTURE.md`,
+`docs/TESTING.md` §3g.
+
+VERIFY (this machine): app `dotnet build -c Release` **0 warnings / 0 errors**;
+`dotnet test -c Release` **938/938**; `lua tests/secret_harness.lua` **256/256**;
+`luac -p` 8 bridge files clean; `pwsh tools/ability_audit.ps1` exit 0
+(violations 0 / warnings 0, committed Catalog.lua matches generated).
+
+NEXT / OWED (live retail 12.1): pull an unmeasured target — a major shows
+`"warming up TTK"` for ~3 s after first sight then fires on a long fight; a
+target swap re-arms the ~3 s hold; `WarmupSec=0` is legacy. Static ≠ automated ≠
+live.
+
+## 2026-10-03 TAINT-SAFE MELEE PROBE (this change, L-route, addon only)
+
+STATUS: `CheckInteractDistance` no longer called from Bridge. Reader owns ONE
+shared, event-gated, per-target-cached probe (`MDB.ProbeTargetMelee`); Bridge's
+`TargetState` consumes it. `ProbeSafe()` requires `InCombatEv==false` AND
+`InCombatLockdown` nil/false AND `Scrubbed(UnitAffectingCombat("player"))~=true`
+AND `GetTime()>=SafeAfter` AND `BlockHits<2`. Event frame tracks
+regen/encounter/target/entering-world and treats `ADDON_ACTION_BLOCKED` on
+`CheckInteractDistance` as a breaker: 1 hit = finite 5 s backoff (probe resumes
+once), 2 hits disable the probe for the session.
+Melee is UNKNOWN (2) whenever gated; **no wire change** (PROTOCOL cell 29 bit1
+already encodes UNKNOWN). Spec: `docs/plans/2026-10-03-taint-safe-melee-probe.md`.
+
+CHANGED: `addon/MaxDpsBridge/Reader.lua`, `addon/MaxDpsBridge/Bridge.lua`,
+`tests/secret_harness.lua`, `ARCHITECTURE.md` (same pass). Protected/wire files
+(`docs/PROTOCOL.md`, `PixelProtocol.cs`, `KeySender.cs`, `Scheduler/**`,
+`Decision/**`, `Knowledge/**`, `vendor/`) untouched.
+
+VERIFY (this machine): `luac -p` 8 files clean; `lua tests/secret_harness.lua`
+**256/256**; `dotnet build app\MaxDpsCompanion\MaxDpsCompanion.csproj -c Release`
+**0 warnings / 0 errors**; `dotnet test -c Release` **933/933** (first run had
+one load-sensitive STA timeout, `ClassicUi_WidthTiers_ScaleFontAndRowHeight`,
+which passed standalone and on the full rerun — pre-existing flake);
+`pwsh tools\ability_audit.ps1` clean (violations 0, warnings 0, catalog match).
+
+NEXT / OWED (live retail 12.1): combat with a melee target — no
+`ADDON_ACTION_BLOCKED`; melee/mobility UNKNOWN during combat and ~0.5 s after;
+one block backs off ~5 s then resumes, two blocks disable the probe silently.
+Static ≠ automated ≠ live.
+
+## 2026-10-03 UNIFIED MASK REDESIGN (prior change, M-route, UI-only)
+
+GOAL: unify the Advanced / Class-browser masks onto the main-window shell
+(`BuildUnifiedPopup`), fill the window (client-24×client-24, min 360×280),
+fix text cut-offs, unify the brass toggle/accents, shorten Advanced hints and
+remove dead primitives. PROTECTED PATHS UNTOUCHED: `docs/PROTOCOL.md`,
+`PixelProtocol.cs`, `KeySender.cs`, `Scheduler/**`, `Decision/**`,
+`Knowledge/**` schema, `addon/*.lua`, `vendor/`.
+
+CHANGED (app UI only):
+- `MainForm.cs`: `BuildPopup` → `BuildUnifiedPopup` (+ mandatory usage doc);
+  `Center` fills client-24 both axes (was client-40 / client-60), so Advanced
+  @620 fills height and Abilities can reach maxWidth 900 on a roomy window.
+  `Hint` MaximumSize 860→800 (card-inner); `HintTip(short, full)` keeps the
+  full sentence in the owned tooltip + `AccessibleDescription`; the long
+  Engine/Intelligence/Safety/Input/Bridge/Telemetry/Doctor/Battle.net hints
+  shortened to ≤12 words. `CheckRow` gets `AutoSize + MaximumSize 800` wrap.
+  Removed dead `SingleToggleRow` and `ShowClassSkills` (zero call sites).
+- `Ui/UiPrimitives.cs`: `PageHeader` 72→84 and subtitle `WordBreak` (2 lines);
+  `GlassCard` header 68→88 and title `WordBreak` (no ellipsis at 660).
+- `Ui/AbilityExplorer.cs`: `VirtualAbilityList.DrawToggle` now paints the
+  `ToggleSwitch` palette (brass ON / border OFF), not green/muted.
+- `UiControls.cs`: `ConsolePalette.Brass = DesignTokens.Accent` (one brass);
+  deleted dead `RuleSection` and `StatusDot`.
+- `ARCHITECTURE.md` shell/pipeline updated in the same pass per AGENTS.md.
+
+RULED OUT: converting `ConsoleNavItem`/`PresetChip` to `ChamferButton` —
+`ClassicUiTests.ClassicUi_Popups_Do_Not_Steal_Main_Controls` pins the exact
+main-body `ChamferButton` set (7), so the console items deliberately stay
+`UiClickable` (ConsoleHome.cs:16 comment). `_explorer`/`_classSkills`
+construction kept — live test seams (`ExplorerForTest`, `ClassSkillsForTest`,
+`ClassSkillsDebugState`, `ApproachADrillThroughTests`).
+
+VERIFY (this machine): app `dotnet build app\MaxDpsCompanion\MaxDpsCompanion.csproj
+-c Release` 0 warnings / 0 errors. `dotnet test -c Release` **932/933** — the
+only failure is the pre-existing load-sensitive
+`ClassicUi_PopupOpen_Fast_StaticOpaqueScrim` timing flake (682 ms > 500 under
+the loaded parallel run; passes 3/3 standalone with `--no-build`). `luac -p` all
+8 bridge files clean. No addon/wire/vendor/protected-path change.
+LIVE OWED (retail 12.1): open Advanced/Abilities at the 660 default and on a
+wide window — confirm near-full-window mask, no title/subtitle/checkbox
+ellipsis, brass list toggles, and Advanced fills height. Static ≠ automated ≠ live.
+
 ## 2026-10-01 UI CLASS/SPEC PUBLISH WHILE HELD (this change)
 
 GOAL: fix the class badge / console home reading "AUTO DETECT" whenever the

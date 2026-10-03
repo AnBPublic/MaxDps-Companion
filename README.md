@@ -1,4 +1,4 @@
-# MaxDPS Companion (Retail Midnight 12.1, v3.5.2 "Fullcover")
+# MaxDPS Companion (Retail Midnight 12.1, v3.6.0 "Warden")
 
 Pixel bridge driver for [kaminaris MaxDps](https://www.curseforge.com/wow/addons/maxdps)
 (vendor pin: MaxDps v11.3.49). No memory read, no injection, no OCR, no LLM.
@@ -11,6 +11,24 @@ Two pieces:
  | :--- | :--- |
  | `MaxDpsBridge` (addon, `addon/MaxDpsBridge/`) | Queries the MaxDps rotation engine each frame and encodes suggestions, ability ids and combat context into a 40-cell strip of flat-coloured pixels (35-cell v5 core + additive Ext2 block). |
  | `MaxDpsCompanion.exe` (desktop app, `app/MaxDpsCompanion/`) | Samples those pixels, decodes the frame, evaluates every situational suggestion (USE / HOLD / SKIP / UNAVAILABLE / UNKNOWN) against an embedded ability intelligence registry + explicit candidate providers, schedules one action at a time, and replays the player's own keybinds into the attached game window. |
+
+## v3.6.0 "Warden" — taint-safe probe, TTK buff gating, unified masks (no wire change)
+
+A companion **and** bridge version bump with **no protocol change**: `PROTOCOL`
+stays at 5 and the Ext3 layout stays byte-identical. Three changes ship
+together. (1) **Taint-safe melee probe:** `CheckInteractDistance` is
+`#nocombat`-restricted, so it now has exactly one call site
+(`Reader.MDB.ProbeTargetMelee`), event-gated and per-target cached; the Bridge
+consumes that result and never calls it itself, and an `ADDON_ACTION_BLOCKED`
+on the call backs off then disables the probe for the session. (2) **TTK-aware
+buff gating:** a major offensive cooldown is held `"warming up TTK"` while the
+target is younger than `[TimeToKill] WarmupSec` (default 3 s; 0 = legacy) and
+TTK is unknown, and the adaptive-need input is the ability's own buff duration.
+(3) **Unified masks:** one `BuildUnifiedPopup` shell builds both the Advanced
+and Class-browser masks. The title bar reads `MaxDPS Companion v3.6.0 Warden`;
+the build hash/time remains on the Advanced Diagnostics install doctor card
+only. Both app and addon move together because `InstallDoctor` warns on a
+version mismatch.
 
 ## v3.5.2 "Fullcover" — single full-window mask (UI only, no wire change)
 
