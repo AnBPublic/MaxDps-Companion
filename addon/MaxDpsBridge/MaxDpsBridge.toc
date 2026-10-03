@@ -2,12 +2,18 @@
 ## Title: MaxDps |cFF00D8FFBridge|r
 ## Notes: Pixel bridge: encodes MaxDps suggestions as a 40-cell strip for MaxDpsCompanion (protocol v5 + additive defensive urgency / gap-fill nibbles + Ext2 block: HP curve, SelfHeal2, Ext2 checksum; version nibble stays 5 so older companion exes keep working and old addons still drive).
 ## Author: AnBPublic
-## Version: 3.0.0
+## Version: 3.7.1
+## X-Codename: Vigil
 ## Dependencies: MaxDps
 ## SavedVariables: MaxDpsBridgeDB
 Catalog.lua
+MajorCooldowns.lua
 Keymap.lua
 Bars.lua
+MainFallback.lua
 Reader.lua
+Toggles.lua
 Bridge.lua
 Options.lua
+Panel.lua
+

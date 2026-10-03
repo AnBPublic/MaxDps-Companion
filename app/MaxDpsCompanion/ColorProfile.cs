@@ -24,8 +24,16 @@ internal sealed class ColorProfile
     public int[] Black { get; } = [0, 0, 0];
     public int[] White { get; } = [255, 255, 255];
 
+    /// <summary>
+    /// Conservative default magic-match tolerance. Preserved across the Stream 2
+    /// perf pass: the learner only changes values when the user's
+    /// <c>[Color]</c> profile actually overrides it, so an existing settings
+    /// file keeps its calibrated box. Build clamps to [16, 128].
+    /// </summary>
+    public const int DefaultTolerance = 64;
+
     /// <summary>Max per-channel distance from the magic reference that still counts.</summary>
-    public int Tolerance { get; set; } = 64;
+    public int Tolerance { get; set; } = DefaultTolerance;
 
     /// <summary>When the profile was learned (local time, informational).</summary>
     public string LearnedAt { get; set; } = "";

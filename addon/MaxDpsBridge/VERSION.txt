@@ -1,3 +1,170 @@
+3.7.1
+date: 2026-10-03 "Vigil"
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED from 3.7.0 - v5 core 35 cells + ADDITIVE Ext2 40-cell block
+          + ADDITIVE Ext3 43-cell block. The v5 version nibble stays 5 and every
+          cell is byte-identical; 3.7.1 is a patch version bump with no Lua wire
+          change. X-Codename: Vigil in the TOC.
+v3.7.1:   Companion 3.7.1 "Vigil" / bridge 3.7.1. No-downtime MAIN: Reader
+          collects every non-denied glow, sorts, skips power-starved picks
+          (C_Spell.IsSpellUsable, pcall+scrub), and falls through to the new
+          MainFallback.lua per-spec filler (Fury -> Bloodthirst 23881) instead
+          of a dead MAIN slot; the scheduler re-probes at MainReprobeMs=400
+          (MainSameSpellNoOpCap=3) and CandidateTracker refreshes the sole Main
+          TTL while the heartbeat stays fresh. No Catalog.lua / wire change.
+3.7.0
+date: 2026-10-03 "Vigil"
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED from 3.6.0 - v5 core 35 cells + ADDITIVE Ext2 40-cell block
+          + ADDITIVE Ext3 43-cell block. The v5 version nibble stays 5 and every
+          cell is byte-identical; 3.7.0 is a feature release with no Lua wire
+          change. X-Codename: Vigil in the TOC.
+v3.7.0:   Companion 3.7.0 "Vigil" / bridge 3.7.0. Major-cooldown denylist:
+          MajorCooldowns.lua MDB.MajorCDDeny makes GetMainSpellID skip denied
+          ids in the SpellsGlowing scan and reject a denied MaxDps.Spell, so a
+          stale / 2-3 min major CD is never encoded as MAIN. The Offensive slot
+          is an independent Flags-scan candidate, so an empty Main cannot
+          deadlock the rotation. No Catalog.lua change; no wire change.
+3.6.0
+date: 2026-10-03 "Warden"
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED from 3.5.2 - v5 core 35 cells + ADDITIVE Ext2 40-cell block
+          + ADDITIVE Ext3 43-cell block. The v5 version nibble stays 5 and every
+          cell is byte-identical; 3.6.0 is a feature release with no Lua wire
+          change. X-Codename: Warden in the TOC.
+v3.6.0:   Companion 3.6.0 "Warden" / bridge 3.6.0. Bridge identity bump plus
+          the taint-safe melee probe: CheckInteractDistance now has ONE call
+          site (Reader MDB.ProbeTargetMelee), Bridge.TargetState consumes it,
+          so ADDON_ACTION_BLOCKED on the restricted call cannot be raised from
+          the Bridge path. Gated melee is UNKNOWN; cell 29 bit1 already means
+          UNKNOWN, so no wire change. No Catalog.lua change.
+3.5.2.2
+date: 2026-10-01 "Fullcover"
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED from 3.5.2 - v5 core 35 cells + ADDITIVE Ext2 40-cell block
+          + ADDITIVE Ext3 43-cell block. The v5 version nibble stays 5 and every
+          cell is byte-identical; 3.5.2.2 is a patch version bump with no Lua
+          wire change. X-Codename: Fullcover in the TOC.
+v3.5.2.2: Patch version bump (companion + bridge identity). Bridge.lua
+          MDB.VERSION and the TOC now read 3.5.2.2 "Fullcover"; no Lua logic or
+          protocol change.
+3.5.2.1
+date: 2026-10-01 "Fullcover"
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED from 3.5.2 - v5 core 35 cells + ADDITIVE Ext2 40-cell block
+          + ADDITIVE Ext3 43-cell block. The v5 version nibble stays 5 and every
+          cell is byte-identical; 3.5.2.1 is a patch version bump with no Lua
+          wire change. X-Codename: Fullcover in the TOC.
+v3.5.2.1: Patch version bump (companion + bridge identity). Bridge.lua
+          MDB.VERSION and the TOC now read 3.5.2.1 "Fullcover"; no Lua logic or
+          protocol change.
+3.5.2
+date: 2026-10-01 "Fullcover"
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED from 3.5.1 - v5 core 35 cells + ADDITIVE Ext2 40-cell block
+          + ADDITIVE Ext3 43-cell block. The v5 version nibble stays 5 and every
+          cell is byte-identical; 3.5.2 is a UI-only companion release with no
+          Lua wire change. X-Codename: Fullcover in the TOC.
+v3.5.2:   UI-only version bump (single full-window mask in the companion).
+          Bridge.lua MDB.VERSION and the TOC now read 3.5.2 "Fullcover"; no Lua
+          logic or protocol change.
+3.5.1
+date: 2026-10-01 "Holdfast"
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED from 3.5.0 - v5 core 35 cells + ADDITIVE Ext2 40-cell block
+          + ADDITIVE Ext3 43-cell block (cells 40-42: 14-bit app toggle mask +
+          epoch + blocked nibble, cell 42 checksum/commit; presence cell 28 B
+          bit2). The v5 version nibble stays 5 and every cell is byte-identical;
+          only the companion's reading of the Ext3 OOC mirror bit became
+          fail-closed. X-Codename: Holdfast in the TOC.
+v3.5.1:   Version bump only (semantics-only companion release). Bridge.lua
+          MDB.VERSION and the TOC now read 3.5.1 "Holdfast"; no Lua wire change.
+3.5.0
+date: 2026-09-30
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: v5 core 35 cells + ADDITIVE Ext2 40-cell block + ADDITIVE Ext3 43-cell
+          block (cells 40-42: 14-bit app toggle mask + epoch + blocked nibble,
+          cell 42 checksum/commit; presence cell 28 B bit2). The v5 version
+          nibble stays 5 and cells 0-39 are byte-identical, so a pre-3.5
+          companion ignores Ext3 and an old 40-cell addon still drives the 3.5
+          companion (bit2=0). The Ext3 block is read only from a 43-cell
+          capture; a cell-42 failure drops only Ext3.
+v3.5.0:   Candidate rotation + toggle-mask mirror (T1/T2). COMPANION-ONLY slots
+          (Mobility/SelfHeal/Defensive/Offensive/CC) rotate ALL ready+bound+
+          policy-eligible candidates per tick instead of only the first entry,
+          so a held first candidate (Charge > Heroic Leap, Shadowstep >
+          Vanish) no longer starves the rest; the candidate dwell/TTL keeps a
+          rotated sibling's identity stable. Bridge.lua renders the additive
+          Ext3 block (ext3=1) publishing the effective 14-bit toggle mask;
+          `/mdb mask <hhhh> <epoch>` accepts an app-wins push, and `/mdb dwell
+          <1-60>` sets the rotation dwell. No v5/Ext2 change.
+3.3.0
+date: 2026-09-29
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: v5 core 35 cells + ADDITIVE Ext2 40-cell block (bridge 3.3.0). No
+          wire change in 3.3.0: the version nibble stays 5 and cells/counts are
+          the same. The addon only RESTRICTS what the companion already
+          decided (`effective = companion AND addon`, an addon OFF wins);
+          a missing DB key reads as ON; a blanked slot is the same all-zero,
+          valid-flag-clear cell the bridge already emits for "no candidate".
+v3.3.0:   In-game 13-toggle UI. New Toggles.lua (pure policy: Get/Set/Flip/
+          Keys/Label/Snapshot + SlotAllowed(slot, ctx) gate consulted before
+          every WriteSlot) and Panel.lua (plain-frame settings panel via
+          Settings.RegisterCanvasLayoutCategory / InterfaceOptions_AddCategory
+          fallback + draggable overlay + optional minimap button). Bridge.lua
+          gains a per-tick toggle context, deep Defaults merge (old
+          SavedVariables stay valid), `/mdb toggles|overlay|<key> on|off|
+          all on|off|why heal`, and a `toggles=N/13 ON; OFF: ...` status
+          field. Gates: per-slot OFF; OOC OFF blanks slots 1-8 on a strict
+          known out-of-combat; Solo OFF blanks Defensive(3)/SelfHeal(8) while
+          known ungrouped except emergency HP <= 35; AutoTarget/AutoInteract
+          silence states 3/4 -> 0; TTK OFF forces target band 15. Every API
+          pcall-contained and every gate fails open. Options.lua adds a
+          "Toggles..." entry. Same release also arms the companion Solo
+          HP-banded ladder ([Solo] bands) from the in-game Solo toggle.
+v3.3.0:   harness T21 suite (33 checks): nil ctx, secret HP, each OFF effect,
+          emergency exception, TTK band forcing.
+3.2.0
+date: 2026-09-29
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: v5 core 35 cells + ADDITIVE Ext2 40-cell block (bridge 3.2.0). No
+          wire change in 3.2.0: the version nibble stays 5 and cells/counts are
+          the same. TTK intelligence is companion-side only - the estimator
+          reuses the target HP band already on the wire, so no bridge code or
+          new protocol field was added. This VERSION bump tracks the companion
+          3.2.0 release; the B4 freshness audit confirmed the target band is
+          re-read every tick with no cache (Reader.lua:1323-1341, 1397-1402;
+          Bridge.lua:407-415, 573, 740).
+v3.2.0:   VERSION bump only. No Lua behaviour change. The companion's TTK
+          estimator/gates (T1-T4) consume the existing target HP band (cell
+          29) and the frame clock; protocol and Catalog.lua are unchanged.
+3.1.0
+date: 2026-09-29
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: v5 core 35 cells + ADDITIVE Ext2 40-cell block (bridge 3.1.0). No
+          wire change in 3.1.0: the version nibble stays 5 and cells/counts are
+          the same. R1 adds the curated per-spec `offensive` gap-fill list to
+          Catalog.lua (MaxDps's flagged+ready+bound offensive first; else the
+          first ready+bound curated entry, inside enableCooldowns — there is no
+          source bit, the companion derives the source by id membership) and
+          adds `defensiveMinor` for the defensive gap-fill's Orange tier
+          (short-CD mitigation; majors/immunities still require Red). R2
+          re-reads self-heal readiness every tick (never cached) so a cooldown
+          or reset re-offers the same heal on the next tick.
+v3.1.0:   offensive + defensiveMinor gap-fill lists emitted in Catalog.lua;
+          keybind memo invalidation on bar/binding/talent/spec/cooldown events
+          (Bars.lua). Version bump only — protocol unchanged.
 3.0.0
 date: 2026-09-29
 git: <commit placeholder - fill at release>

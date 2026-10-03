@@ -1,3 +1,4 @@
+using System.Reflection;
 using Xunit;
 
 namespace MaxDpsCompanion.Tests;
@@ -163,6 +164,317 @@ public class ClassicUiTests
 
         Assert.Null(error);
         Assert.Equal(0, layouts);
+    }
+
+    /// <summary>
+    /// v3.0.0 defect D1/D2: the hero slot/mode toggles and the Launch Game /
+    /// Recalibrate / Open Folder buttons were ALSO added to the lazily-built
+    /// Advanced popup. WinForms gives a control exactly one parent, so building
+    /// the popup re-parented them off the main window — the "cards show no
+    /// toggles" / "bottom buttons missing" screenshot. Opening every popup must
+    /// leave the main body's own controls in place.
+    /// </summary>
+    [Fact]
+    public void ClassicUi_Popups_Do_Not_Steal_Main_Controls()
+    {
+        var (result, error) = RunOnSta(() =>
+        {
+            var settings = new AppSettings();
+            using var form = new MainForm(settings);
+            form.StartPosition = FormStartPosition.Manual;
+            form.Location = new Point(-32000, -32000);
+            form.ShowInTaskbar = false;
+            form.Show();
+            System.Windows.Forms.Application.DoEvents();
+
+            // Build every lazy popup tab exactly once, as a user would.
+            form.OpenAdvancedForTest();
+            form.AdvancedTabsForTest.SelectedIndex = 1;
+            System.Windows.Forms.Application.DoEvents();
+            form.AdvancedTabsForTest.SelectedIndex = 2;
+            System.Windows.Forms.Application.DoEvents();
+            form.OpenAbilitiesForTest();
+            form.AbilitiesTabsForTest.SelectedIndex = 1;
+            System.Windows.Forms.Application.DoEvents();
+            form.HideAbilitiesForTest();
+            form.HideAdvancedForTest();
+            System.Windows.Forms.Application.DoEvents();
+
+            var body = form.MainBodyForTest;
+            var toggles = Descendants(body).OfType<ToggleSwitch>()
+                .Select(t => t.AccessibleName ?? "?")
+                .OrderBy(x => x, StringComparer.Ordinal).ToArray();
+            var buttons = Descendants(body).OfType<ChamferButton>()
+                .Select(b => b.Text)
+                .OrderBy(x => x, StringComparer.Ordinal).ToArray();
+            return (toggles, buttons);
+        });
+
+        Assert.Null(error);
+        Assert.Equal(
+            new[] { "Auto-interact", "Auto-target", "Consumable", "Crowd control", "Defensive", "Interrupt", "Main", "Mobility", "Offensive", "Out of combat", "Self-heal", "Solo", "TTK guard", "Trinket" },
+            result.toggles);
+        Assert.Equal(
+            new[] { "Abilities\u2026", "Advanced\u2026", "Launch Game", "Open Folder", "Recalibrate", "Start", "Stop" },
+            result.buttons);
+    }
+
+    /// <summary>D3: every hero setting row sizes to its wrapped text — no subtitle clipping.</summary>
+    [Fact]
+    public void ClassicUi_HeroRows_SizeToContent_NoClipping()
+    {
+        var (result, error) = RunOnSta(() =>
+        {
+            var settings = new AppSettings();
+            using var form = new MainForm(settings);
+            ShowOffscreen(form);
+            var body = form.MainBodyForTest;
+            var rows = Descendants(body).OfType<SettingRow>().ToArray();
+            var clipped = new List<string>();
+            foreach (var row in rows)
+            {
+                var parent = row.Parent;
+                if (parent is null) { clipped.Add("orphan"); continue; }
+                var need = ((IUiMeasured)row).MeasuredHeight(row.Width);
+                if (row.Bounds.Bottom > parent.ClientSize.Height + 1 || row.Height < need - 1)
+                    clipped.Add($"{row.Controls.OfType<Label>().FirstOrDefault()?.Text}: rowH={row.Height} parentH={parent.ClientSize.Height} need={need}");
+            }
+            var modeLabels = Descendants(body).OfType<Label>()
+                .Where(l => l.Text is "Target when needed" or "Interact when needed")
+                .Select(l => (l.Text, l.Height, Bottom: l.Bounds.Bottom, ParentH: l.Parent?.ClientSize.Height ?? -1))
+                .ToArray();
+            return (Rows: rows.Length, Clipped: clipped, Mode: modeLabels);
+        });
+
+        Assert.Null(error);
+        Assert.Equal(14, result.Rows);
+        Assert.True(result.Clipped.Count == 0, string.Join("; ", result.Clipped));
+        Assert.Equal(2, result.Mode.Length);
+        foreach (var m in result.Mode)
+            Assert.True(m.Bottom <= m.ParentH, $"{m.Text} bottom {m.Bottom} > parent {m.ParentH}");
+    }
+
+    /// <summary>D4: the window opens at the measured content height, not the fixed 920.</summary>
+    [Fact]
+    public void ClassicUi_ContentHeight_IsMeasured_NoDeadZone()
+    {
+        var (result, error) = RunOnSta(() =>
+        {
+            var settings = new AppSettings();
+            using var form = new MainForm(settings);
+            ShowOffscreen(form);
+            return (Height: form.ClientSize.Height, Measured: form.MeasuredContentHeightForTest,
+                Min: form.MinimumSizeForTest.Height);
+        });
+
+        Assert.Null(error);
+        Assert.True(result.Measured > 0);
+        Assert.True(result.Height < 920, $"expected the measured height below the old fixed 920, got {result.Height}");
+        Assert.True(Math.Abs(result.Height - result.Measured) <= 2,
+            $"window {result.Height} != measured content {result.Measured}");
+        Assert.True(result.Height >= result.Min);
+    }
+
+    /// <summary>§3: a user-chosen height taller than the content is kept, not clamped back.</summary>
+    [Fact]
+    public void ClassicUi_UserTallerHeight_IsKept_NotClamped()
+    {
+        var (result, error) = RunOnSta(() =>
+        {
+            var settings = new AppSettings();
+            using var form = new MainForm(settings);
+            ShowOffscreen(form);
+            var content = form.MeasuredContentHeightForTest;
+            var want = content + 180;
+            form.ResizeHeightForTest(want);
+            return (Want: want, Content: form.MeasuredContentHeightForTest, Height: form.ClientSize.Height);
+        });
+
+        Assert.Null(error);
+        Assert.True(result.Content > 0);
+        Assert.True(result.Want > result.Content);
+        Assert.Equal(result.Want, result.Height);
+    }
+
+    /// <summary>D5: width tiers pick the base font step + row height at 520/660/900/1100.</summary>
+    [Fact]
+    public void ClassicUi_WidthTiers_ScaleFontAndRowHeight()
+    {
+        var (result, error) = RunOnSta(() =>
+        {
+            var settings = new AppSettings();
+            using var form = new MainForm(settings);
+            ShowOffscreen(form);
+            var samples = new List<(int Width, float Font, int Row)>();
+            foreach (var width in new[] { 520, 660, 900, 1100 })
+            {
+                form.ClientSize = new Size(width, form.ClientSize.Height);
+                form.ApplyTierNowForTest();
+                samples.Add((form.ClientSize.Width, form.ScaleForTest.BaseFont, form.ScaleForTest.RowHeight));
+            }
+            return samples;
+        });
+
+        Assert.Null(error);
+        Assert.Equal(new[] { 520, 660, 900, 1100 }, result.Select(s => s.Width).ToArray());
+        Assert.Equal(new[] { 9f, 10f, 11f, 12f }, result.Select(s => s.Font).ToArray());
+        Assert.Equal(new[] { 56, 66, 74, 82 }, result.Select(s => s.Row).ToArray());
+    }
+
+    /// <summary>D5: the width tier also reaches the Advanced + Abilities popups.</summary>
+    [Fact]
+    public void ClassicUi_WidthTiers_Scale_Popups()
+    {
+        var (result, error) = RunOnSta(() =>
+        {
+            var settings = new AppSettings();
+            using var form = new MainForm(settings);
+            ShowOffscreen(form);
+            form.OpenAdvancedForTest();
+            var samples = new List<(int Width, int Pad, Size Toggle, float AdvFont, float AbFont)>();
+            foreach (var width in new[] { 520, 660, 900, 1100 })
+            {
+                form.ApplyPopupTierForTest(width);
+                samples.Add((width,
+                    form.AdvancedPopupForTest.Padding.Left,
+                    form.AdvancedMainToggleForTest.Size,
+                    form.AdvancedTabFontForTest,
+                    form.AbilitiesTabFontForTest));
+            }
+            return samples;
+        });
+
+        Assert.Null(error);
+        Assert.Equal(new[] { 520, 660, 900, 1100 }, result.Select(s => s.Width).ToArray());
+        Assert.Equal(new[] { 4, 6, 6, 8 }, result.Select(s => s.Pad).ToArray());
+        Assert.Equal(
+            new[] { new Size(46, 26), new Size(52, 30), new Size(58, 34), new Size(64, 38) },
+            result.Select(s => s.Toggle).ToArray());
+        Assert.Equal(new[] { 9f, 10f, 11f, 12f }, result.Select(s => s.AdvFont).ToArray());
+        Assert.Equal(new[] { 9f, 10f, 11f, 12f }, result.Select(s => s.AbFont).ToArray());
+    }
+
+    /// <summary>
+    /// S5: popups open under 500 ms of wall time and the scrim is a STATIC
+    /// OPAQUE layer — no fade timer, no alpha BackColor. The old animated alpha
+    /// scrim sat behind native children (TabControl/ComboBox) and garbled them;
+    /// the fix is one opaque paint layer, asserted here by A == 255 and no
+    /// active popup animation.
+    /// </summary>
+    [Fact]
+    public void ClassicUi_PopupOpen_Fast_StaticOpaqueScrim()
+    {
+        var (result, error) = RunOnSta(() =>
+        {
+            var settings = new AppSettings();
+            using var form = new MainForm(settings);
+            ShowOffscreen(form);
+
+            // The first open is the one-time lazy build of the config/diag tree;
+            // the budget is the open *transition*, so warm it once first.
+            form.OpenAdvancedForTest();
+            form.HideAdvancedForTest();
+            form.OpenAbilitiesForTest();
+            form.HideAbilitiesForTest();
+
+            form.OpenAdvancedForTest();
+            var advancedMs = form.LastPopupOpenMsForTest;
+            var advancedAlpha = form.AdvancedScrimColorForTest.A;
+            var fadeActiveAdvanced = form.PopupFadeActiveForTest;
+            form.HideAdvancedForTest();
+
+            form.OpenAbilitiesForTest();
+            var abilitiesMs = form.LastPopupOpenMsForTest;
+            var abilitiesAlpha = form.AdvancedScrimColorForTest.A;
+            var fadeActiveAbilities = form.PopupFadeActiveForTest;
+            form.HideAbilitiesForTest();
+
+            form.EngineRunningForFadeGate = true;
+            form.OpenAdvancedForTest();
+            var runningFadeActive = form.PopupFadeActiveForTest;
+            var runningAlpha = form.AdvancedScrimColorForTest.A;
+            form.HideAdvancedForTest();
+            form.EngineRunningForFadeGate = false;
+
+            return (advancedMs, abilitiesMs, advancedAlpha, abilitiesAlpha,
+                fadeActiveAdvanced, fadeActiveAbilities, runningFadeActive, runningAlpha);
+        });
+
+        Assert.Null(error);
+        // Warm-run budget: the debug/test-host STOPWATCH budget covers
+        // machine-load variance (CI/dev boxes spike under load).
+        Assert.True(result.advancedMs < 500, $"Advanced opened in {result.advancedMs:F1} ms (target < 500)");
+        Assert.True(result.abilitiesMs < 500, $"Abilities opened in {result.abilitiesMs:F1} ms (target < 500)");
+        Assert.Equal(255, result.advancedAlpha);
+        Assert.Equal(255, result.abilitiesAlpha);
+        Assert.False(result.fadeActiveAdvanced, "no popup fade: the scrim is static");
+        Assert.False(result.fadeActiveAbilities, "no popup fade: the scrim is static");
+        Assert.False(result.runningFadeActive, "no popup animation exists at all");
+        Assert.Equal(255, result.runningAlpha);
+    }
+
+    /// <summary>
+    /// v3.4.0 Approach A §4: the companion-appendix hero bubble body opens the
+    /// Abilities overlay pre-filtered to its set, while the toggle switch keeps
+    /// flipping and "Main" stays non-clickable (MaxDps authority).
+    /// </summary>
+    [Fact]
+    public void ClassicUi_HeroBubble_Click_Opens_Filtered_Abilities()
+    {
+        var (result, error) = RunOnSta(() =>
+        {
+            var settings = new AppSettings();
+            using var form = new MainForm(settings);
+            ShowOffscreen(form);
+
+            var rows = form.HeroSettingRowsForTest;
+            var offensiveRow = rows.First(r => HasToggle(r, "Offensive"));
+            var mainRow = rows.First(r => HasToggle(r, "Main"));
+            var toggle = offensiveRow.Controls.OfType<ToggleSwitch>().First();
+
+            // The switch keeps flipping and must NOT open the overlay.
+            var before = toggle.Checked;
+            RaiseClick(toggle);
+            var flipped = toggle.Checked != before;
+            var openedByToggle = form.AbilitiesVisibleForTest;
+
+            // The body opens the overlay, filtered, on the Explorer tab.
+            RaiseClick(offensiveRow);
+            System.Windows.Forms.Application.DoEvents();
+            return (Flipped: flipped, OpenedByToggle: openedByToggle,
+                Opened: form.AbilitiesVisibleForTest,
+                Tab: form.AbilitiesTabsForTest.SelectedIndex,
+                Offensive: form.ExplorerForTest.CategoriesForTest.Contains("Offensive"),
+                MainHint: mainRow.AccessibleDescription,
+                OffensiveHint: offensiveRow.AccessibleDescription);
+        });
+
+        Assert.Null(error);
+        Assert.True(result.Flipped, "clicking the toggle must still flip it");
+        Assert.False(result.OpenedByToggle, "clicking the toggle must not open the Abilities overlay");
+        Assert.True(result.Opened, "clicking the Offensive bubble body did not open the Abilities overlay");
+        Assert.Equal(0, result.Tab);
+        Assert.True(result.Offensive, "the explorer was not filtered to Offensive");
+        Assert.Contains("Click for skill list", result.OffensiveHint ?? "");
+        Assert.DoesNotContain("Click for skill list", result.MainHint ?? "");   // Main stays MaxDps authority
+    }
+
+    private static bool HasToggle(SettingRow row, string title) =>
+        row.Controls.OfType<ToggleSwitch>().Any(t => t.AccessibleName == title);
+
+    private static void RaiseClick(Control control)
+    {
+        var onClick = typeof(Control).GetMethod("OnClick", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        onClick.Invoke(control, new object[] { EventArgs.Empty });
+    }
+
+    private static void ShowOffscreen(Form form)
+    {
+        form.StartPosition = FormStartPosition.Manual;
+        form.Location = new Point(-32000, -32000);
+        form.ShowInTaskbar = false;
+        form.Show();
+        System.Windows.Forms.Application.DoEvents();
     }
 
     private static IEnumerable<Control> Descendants(Control root)

@@ -16,9 +16,11 @@ public class KnowledgeExtrasTests
     private static AbilityCatalog Catalog => AbilityCatalog.Default;
 
     /// <summary>Specs that deliberately have no self-heal candidate (documented).</summary>
+    /// v3.3.0: mages sustain via spec barriers (Arcane 235450 / Fire 235313 /
+    /// Frost 11426), so only Demon Hunter Havoc/Devourer remain documented
+    /// nones (no verified solo self-heal id exists for them yet).
     private static readonly HashSet<(string Class, string Spec)> DocumentedNones =
     [
-        ("MAGE", "Arcane"), ("MAGE", "Fire"), ("MAGE", "Frost"),
         ("DEMONHUNTER", "Havoc"), ("DEMONHUNTER", "Devourer"),
     ];
 

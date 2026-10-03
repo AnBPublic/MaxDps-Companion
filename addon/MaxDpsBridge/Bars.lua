@@ -144,6 +144,17 @@ end
 
 function MDB.InvalidateBindings ()
   Dirty = true;
+  -- PERF (Stream 2, 3.4.0): bump the binding/readiness revision so
+  -- Bridge.FrameKey invalidates the cached slot scan. Bars repaint a frame
+  -- late, cooldown resets fire SPELL_UPDATE_COOLDOWN, and both change which
+  -- candidate is ready/bound without any upstream table identity changing.
+  MDB._BindRevision = (MDB._BindRevision or 0) + 1;
+  -- The comment above MDB.ResolveBinding already promises that the per-spell
+  -- VK cache is wiped by bar updates via this function; Rebuild() also wiped it
+  -- but only when the texture map was next rebuilt. Wipe it here so a bar /
+  -- binding change is reflected on the very next tick, not whenever the
+  -- texture fallback happens to run.
+  if MDB._BindCache then wipe(MDB._BindCache); end
 end
 
 function MDB.BindingCount ()
@@ -164,6 +175,13 @@ do
   Listener:RegisterEvent("PLAYER_TALENT_UPDATE");
   Listener:RegisterEvent("SPELLS_CHANGED");
   Listener:RegisterEvent("UPDATE_MACROS");
+  -- Reset-adjacent readiness event: a cooldown-reset proc/talent changes a
+  -- spell's cooldown state. Readiness itself is NEVER cached (ExtraCandidates
+  -- re-reads IsSpellReady every tick), but the per-spell VK cache may hold a
+  -- Miss from when the ability was unbound/unready; drop it so a reset is
+  -- picked up within the same tick. Never a full bar rebuild cost: this only
+  -- sets the dirty flag + wipes our own plain table (see InvalidateBindings).
+  Listener:RegisterEvent("SPELL_UPDATE_COOLDOWN");
   Listener:SetScript("OnEvent", function ()
     -- Bars repaint a frame late, so defer instead of reading stale icons.
     C_Timer.After(0.1, MDB.InvalidateBindings);

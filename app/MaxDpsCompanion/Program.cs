@@ -373,6 +373,7 @@ internal static class Program
                     ? genCatalogArg[(split + 1)..].Trim().Trim('"')
                     : Path.Combine(AppDir, "Catalog.lua");
                 File.WriteAllText(outPath, CatalogLuaGenerator.Generate(AbilityCatalog.Default));
+                DeleteOnDiskIconCache();
                 return;
             }
 
@@ -584,6 +585,26 @@ internal static class Program
         frame = PixelProtocol.Decode(PixelProtocol.TrimToV4(cells), profile);
         if (frame is not null) return frame;
         return PixelProtocol.Decode(PixelProtocol.TrimToV1(cells), profile);
+    }
+
+    /// <summary>
+    /// Stream 3 `--gen-catalog` hook: a regenerated catalog can remap spell ids
+    /// to different icons, so drop the on-disk icon cache next to the exe. The
+    /// cache path is the one <see cref="SpellIconCache"/> owns
+    /// (<c>assets/icons</c> under <see cref="AppDir"/>); when it does not exist
+    /// there is nothing to invalidate and this is a no-op. The in-memory cache
+    /// belongs to the UI process, not this headless path, so deleting the files
+    /// IS the whole invalidation here. Best-effort only: a locked or missing
+    /// directory is ignored and never fails catalog generation.
+    /// </summary>
+    private static void DeleteOnDiskIconCache()
+    {
+        try
+        {
+            var cache = Path.Combine(AppDir, "assets", "icons");
+            if (Directory.Exists(cache)) Directory.Delete(cache, recursive: true);
+        }
+        catch { /* best-effort cache; catalog generation must still succeed */ }
     }
 
     /// <summary>`--name=value` argument lookup with a default.</summary>

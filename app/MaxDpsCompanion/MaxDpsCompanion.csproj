@@ -17,7 +17,8 @@
     <AssemblyTitle>MaxDPS Companion</AssemblyTitle>
     <Product>MaxDPS Companion</Product>
     <RootNamespace>MaxDpsCompanion</RootNamespace>
-    <Version>3.0.0</Version>
+    <Version>3.7.1</Version>
+    <Codename>Vigil</Codename>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Pixel coordinates must be physical, not DPI-virtualised. -->
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
@@ -25,6 +26,10 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="MaxDpsCompanion.Tests" />
+    <!-- Release codename is single-sourced from <Codename> and baked into the
+         assembly as AssemblyMetadata, so Native.Codename / DisplayVersion can
+         never drift from the csproj. -->
+    <AssemblyMetadata Include="Codename" Value="$(Codename)" />
   </ItemGroup>
 
   <!-- Loose art next to the exe: title-bar icon + tray/form icon fallback. -->

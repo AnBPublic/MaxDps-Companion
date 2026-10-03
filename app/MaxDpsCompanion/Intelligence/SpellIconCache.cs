@@ -31,9 +31,17 @@ internal sealed class SpellIconCache
     private readonly string _directory;
     private readonly HttpClient _http;
     private readonly Func<int, string?>? _slugProvider;
-    private readonly ConcurrentDictionary<int, Bitmap> _memory = new();
+    private readonly Func<DateTime> _utcNow;
+    private readonly ConcurrentDictionary<int, (Bitmap Bitmap, DateTime LoadedUtc)> _memory = new();
     private readonly ConcurrentDictionary<int, byte> _missing = new();
     private readonly ConcurrentDictionary<int, byte> _inflight = new();
+
+    /// <summary>
+    /// How long a memory-cached bitmap stays fresh (Stream 3). Past this age the
+    /// entry is evicted and re-read from disk so a catalog regeneration / icon
+    /// refresh can surface without an app restart.
+    /// </summary>
+    public TimeSpan Ttl { get; set; } = TimeSpan.FromDays(7);
 
     /// <summary>Raised (background thread) after a new icon becomes available.</summary>
     public event Action<int>? IconReady;
@@ -42,15 +50,28 @@ internal sealed class SpellIconCache
     /// <paramref name="slugProvider"/> supplies the official client icon slug
     /// (from the class-spells verification) so the common case is ONE request
     /// to the Blizzard render CDN. Null falls back to Wowhead tooltip
-    /// discovery, which some networks block.
+    /// discovery, which some networks block. <paramref name="utcNow"/> is a test
+    /// seam for the TTL clock; production uses UTC now.
     /// </summary>
-    public SpellIconCache(string? directory = null, HttpMessageHandler? handler = null, Func<int, string?>? slugProvider = null)
+    public SpellIconCache(string? directory = null, HttpMessageHandler? handler = null, Func<int, string?>? slugProvider = null, Func<DateTime>? utcNow = null)
     {
         _directory = directory ?? Path.Combine(Program.AppDir, "assets", "icons");
         _http = handler is null ? new HttpClient() : new HttpClient(handler);
         _http.Timeout = TimeSpan.FromSeconds(6);
         _slugProvider = slugProvider;
+        _utcNow = utcNow ?? (() => DateTime.UtcNow);
         try { Directory.CreateDirectory(_directory); } catch { /* cache is best-effort */ }
+    }
+
+    /// <summary>
+    /// Drops every in-memory bitmap and negative entry so the next
+    /// <see cref="TryGet"/> re-reads disk / re-requests (catalog regeneration
+    /// hook). In-flight fetches are left to complete.
+    /// </summary>
+    public void Invalidate()
+    {
+        _memory.Clear();
+        _missing.Clear();
     }
 
     /// <summary>
@@ -61,7 +82,11 @@ internal sealed class SpellIconCache
     public Image? TryGet(int spellId)
     {
         if (spellId <= 0) return null;
-        if (_memory.TryGetValue(spellId, out var cached)) return cached;
+        if (_memory.TryGetValue(spellId, out var cached))
+        {
+            if (_utcNow() - cached.LoadedUtc < Ttl) return cached.Bitmap;
+            _memory.TryRemove(spellId, out _);   // stale: fall through and re-read disk
+        }
         if (_missing.ContainsKey(spellId)) return null;
 
         var path = Path.Combine(_directory, $"{spellId}.jpg");
@@ -72,7 +97,7 @@ internal sealed class SpellIconCache
                 using var stream = File.OpenRead(path);
                 using var raw = Image.FromStream(stream);
                 var bitmap = new Bitmap(raw);
-                _memory[spellId] = bitmap;
+                _memory[spellId] = (bitmap, _utcNow());
                 return bitmap;
             }
             catch

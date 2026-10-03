@@ -1,4 +1,4 @@
-# MaxDPS Companion (Retail Midnight 12.1, v3.0.0)
+# MaxDPS Companion (Retail Midnight 12.1, v3.7.1 "Vigil")
 
 Pixel bridge driver for [kaminaris MaxDps](https://www.curseforge.com/wow/addons/maxdps)
 (vendor pin: MaxDps v11.3.49). No memory read, no injection, no OCR, no LLM.
@@ -11,6 +11,94 @@ Two pieces:
  | :--- | :--- |
  | `MaxDpsBridge` (addon, `addon/MaxDpsBridge/`) | Queries the MaxDps rotation engine each frame and encodes suggestions, ability ids and combat context into a 40-cell strip of flat-coloured pixels (35-cell v5 core + additive Ext2 block). |
  | `MaxDpsCompanion.exe` (desktop app, `app/MaxDpsCompanion/`) | Samples those pixels, decodes the frame, evaluates every situational suggestion (USE / HOLD / SKIP / UNAVAILABLE / UNKNOWN) against an embedded ability intelligence registry + explicit candidate providers, schedules one action at a time, and replays the player's own keybinds into the attached game window. |
+
+## v3.7.1 "Vigil" — no-downtime MAIN (usable-glow scan + Fury filler, no wire change)
+
+A companion **and** bridge version bump with **no protocol change**: `PROTOCOL`
+stays at 5 and every cell is byte-identical. The MAIN slot can no longer be
+stranded: `Reader.GetMainSpellID` collects every non-denied glowing id, sorts
+ascending, skips power-starved picks (`C_Spell.IsSpellUsable`), and falls
+through to the new `MainFallback.lua` per-spec filler (Fury → Bloodthirst
+23881) instead of a dead Main slot. The scheduler re-probes a failed Main at
+`MainReprobeMs = 400` (`MainSameSpellNoOpCap = 3`) and `CandidateTracker`
+refreshes the sole Main TTL while the frame heartbeat stays fresh. The fallback
+is a deliberate, user-approved exception to "the bridge only encodes what
+MaxDps suggests"; unlisted specs stay empty. The title bar reads
+`MaxDPS Companion v3.7.1 Vigil`.
+
+## v3.7.0 "Vigil" — custom MaxDps 12.1 fork (bridge denylist + reversible sync, no wire change)
+
+A companion **and** bridge version bump with **no protocol change**: `PROTOCOL`
+stays at 5 and every cell is byte-identical. A stale major cooldown can no
+longer be encoded as the MAIN rotation pick: the new `MajorCooldowns.lua`
+denylist makes `GetMainSpellID` skip stale/current major-CD ids, and the
+Offensive slot stays an independent candidate so an empty Main cannot stall the
+rotation. `custom/` vendors the untouched MaxDps v11.3.49 snapshot, a 75-entry
+declarative patch manifest and `tools/Sync-CustomMaxDps.ps1`, which applies
+patches into a generated, reversible `custom/out/` and publishes to `AddOns`
+only on a clean run (with a `_backup/` rollback). `vendor/` is never edited.
+The title bar reads `MaxDPS Companion v3.7.0 Vigil`.
+
+## v3.6.0 "Warden" — taint-safe probe, TTK buff gating, unified masks (no wire change)
+
+A companion **and** bridge version bump with **no protocol change**: `PROTOCOL`
+stays at 5 and the Ext3 layout stays byte-identical. Three changes ship
+together. (1) **Taint-safe melee probe:** `CheckInteractDistance` is
+`#nocombat`-restricted, so it now has exactly one call site
+(`Reader.MDB.ProbeTargetMelee`), event-gated and per-target cached; the Bridge
+consumes that result and never calls it itself, and an `ADDON_ACTION_BLOCKED`
+on the call backs off then disables the probe for the session. (2) **TTK-aware
+buff gating:** a major offensive cooldown is held `"warming up TTK"` while the
+target is younger than `[TimeToKill] WarmupSec` (default 3 s; 0 = legacy) and
+TTK is unknown, and the adaptive-need input is the ability's own buff duration.
+(3) **Unified masks:** one `BuildUnifiedPopup` shell builds both the Advanced
+and Class-browser masks. The title bar reads `MaxDPS Companion v3.6.0 Warden`;
+the build hash/time remains on the Advanced Diagnostics install doctor card
+only. Both app and addon move together because `InstallDoctor` warns on a
+version mismatch.
+
+## v3.5.2 "Fullcover" — single full-window mask (UI only, no wire change)
+
+A UI-only release with **no protocol change**: `PROTOCOL` stays at 5 and the
+Ext3 layout stays byte-identical. The Advanced and Class-browser masks are now
+parented to the top-level window and track its client rectangle, and the old
+two-pixel form padding is gone, so **one opaque layer covers the entire
+window** — no background ring or menu peeks at any edge. The 24/10/24/12 inset
+moved from the gradient canvas onto the classic body scroll, so the gradient
+ring surrounds the toggle card rather than the window. The title bar reads
+`MaxDPS Companion v3.5.2 Fullcover`; the build hash/time remains on the
+Advanced Diagnostics install doctor card only. Both app and addon move together
+because `InstallDoctor` warns on a version mismatch.
+
+## v3.5.1 "Holdfast" — semantics-only (no wire change)
+
+A companion **and** bridge version bump with **no protocol change**: `PROTOCOL`
+stays at 5 and the Ext3 layout stays byte-identical. It ships the semantic
+flips: the companion now holds **fail-closed out of combat** unless the bridge
+echoes the Ext3 OOC mirror bit, and toggle authority is **addon-wins** (the
+in-game overlay is authoritative; the app never auto-pushes a mask). The title
+bar reads `MaxDPS Companion v3.5.1 Holdfast`; the build hash/time moved from the
+title bar into the Advanced Diagnostics install doctor card. Both app and addon
+move together because `InstallDoctor` warns on a version mismatch.
+
+## v3.5.0 — reliable coverage, Class Browser, Console home
+
+The v3.5 release closes the "toggled skills never fire" defects (RC1–RC7) and
+rebuilds the UI around them. The bridge now rotates **every** ready+bound+
+policy-eligible candidate per slot instead of only the first, so a held gap
+closer no longer starves an escape; Escape/Movement route to the Mobility
+provider; and the scheduler can preempt on a brief GCD-off tick. Toggles are
+**app-wins**: the companion pushes its 14-bit mask to the addon and the bridge
+echoes the effective mask in the new additive **Ext3** block (43-cell strip,
+cells 40–42; nibble stays 5, a pre-3.5 companion ignores it). The Class Browser
+replaces the separate Class skills/Explorer tabs (Class|Spec|Mode, knobs,
+virtualized owner-drawn rows, live why-held), and the default view is a
+read-only Console home with rolling log and five named presets. Per-class
+verified overlays (`Knowledge/classes/<CLASS>.json`, 13 classes) plus an
+override store give every spec a companion-owned path. Perf/diagnostics add
+off-thread browser precompute, cached scaled icons, a why-not-firing panel and
+an install doctor. Protocol: v5 core + Ext2 + additive Ext3 (no v5 change).
+Offline-proven; live retail checklist stays OWED (`docs/TESTING.md` §3).
 
 ## Intelligence coverage (v2.7.0, unchanged in 2.8)
 
@@ -56,6 +144,32 @@ measures 2000 refreshes (mean/p95 µs + startup ms); 12 snapshots (6 pages ×
 MaxDpsCompanion.exe --ui-smoke-test
 MaxDpsCompanion.exe --ui-snapshot-page=main --ui-snapshot=main.png --ui-snapshot-width=660 --ui-snapshot-height=920
 ```
+
+## Gap-fill + reset-aware sustain (v3.1.0)
+
+v3.1.0 closes two gaps. The Offensive slot gains a curated per-spec gap-fill
+list (1–4 true burst cooldowns, shared burst first) so a cooldown the user
+toggled ON fires even when MaxDps never surfaces it, and the defensive
+gap-fill opens a short-cooldown (Orange) tier while majors still wait for Red.
+Self-sustain is now reset-aware: self-heal readiness is re-read every tick, a
+reset proc re-offers the same spell, a transient failed press is capped at
+1.5 s, and a ready heal is never demoted behind the rotation (a cooldown wait
+is reported as `SelfHealCoolingDown`). The classic shell also scales by width
+tier (Compact/Classic/Roomy/Wide) and measured content height. Protocol is
+unchanged (v5 core + additive Ext2); all of it is offline-proven — the live
+retail checklist stays OWED.
+
+## TTK intelligence (v3.2.0)
+
+A pure, fake-clock estimator derives a per-target time-to-kill from the target
+HP band already on the wire (no wire change, no Lua change) and uses it to stop
+wasting cooldowns: **T1** holds a major offensive while the target dies before
+the cooldown pays off, **T2** fires early (bypassing the pairing hold) when the
+fight is long enough for two full uses, **T3** fires a favored execute cooldown
+below its HP threshold, and **T4** saves a non-emergency Solo defensive when the
+target dies imminently. An unknown/invalid estimate fails open (every gate is
+skipped), and `[TimeToKill] Enabled=0` disables the whole feature. Telemetry
+records `ttk`/`thp`/`ttkMs` so replay rebuilds the estimator deterministically.
 
 ## Ability intelligence (v2.6.0)
 

@@ -4,11 +4,62 @@ using System.Text;
 namespace MaxDpsCompanion;
 
 /// <summary>
+/// Companion-side rotation preset (Stream 3, restrict-only). FULL is the
+/// historical behaviour (every gate unchanged). BURST conserves major
+/// offensives, consumables and on-use trinkets until the per-target TTK is
+/// measurable (a TTK-valid boss), so burst windows are not spent on dying
+/// trash. A preset only ever HOLDS candidates — it never adds a press — and
+/// the addon can further restrict via its own toggles.
+/// </summary>
+internal enum RotationPreset
+{
+    Full = 0,
+    Burst = 1,
+}
+
+/// <summary>
+/// Companion-side target preset (Stream 3, restrict-only). SINGLE_TARGET is the
+/// historical behaviour. AOE conserves catalogued single-target-only offensive
+/// cooldowns so the curated AoE-ranked candidates already present in the list
+/// get priority. Default = current behaviour.
+/// </summary>
+internal enum TargetPreset
+{
+    SingleTarget = 0,
+    Aoe = 1,
+}
+
+/// <summary>
+/// [TimeToKill] Fallback — what the TTK guard does when no estimate is
+/// available (spec §4). FailOpen is the historical/permissive behaviour: an
+/// unknown TTK never holds a cooldown. ConserveMajors holds any unknown-TTK
+/// major offensive defensive-style without needing a fast-pack latch.
+/// </summary>
+internal enum TtkFallback
+{
+    FailOpen = 0,
+    ConserveMajors = 1,
+}
+
+/// <summary>
 /// INI-backed settings, kept hand-editable in the same shape as settings.ini.
 /// </summary>
 internal sealed class AppSettings
 {
     public string Path { get; private set; } = "settings.ini";
+
+    private readonly List<string> _loadWarnings = [];
+
+    /// <summary>
+    /// Non-fatal findings recorded at load time (2026-09-30 OOC hold fix,
+    /// extended for ADDON-WINS). A config that sets
+    /// <c>[Targeting] CombatOnly=0</c> is honoured exactly as written — never
+    /// silently overridden to 1 — and a warning explains that out-of-combat
+    /// automation now follows the in-game overlay: the companion is permissive
+    /// and the bridge's Ext3 OOC bit is authoritative, so an overlay OFF (or an
+    /// absent/stale Ext3 block) still holds. <see cref="CombatGate"/>.
+    /// </summary>
+    public IReadOnlyList<string> LoadWarnings => _loadWarnings;
 
     // [Bridge] — must match the addon's /mdb offset and /mdb cellsize.
     // Aethys-proven default 8: BlockLocator measures the real size off the
@@ -51,15 +102,25 @@ internal sealed class AppSettings
     public int KeyPressMs { get; set; } = 25;
 
     // [Targeting] — Tab fallback via the user's own TargetKey when the
-    // bridge reports need-target. Kill-switch default OFF. The OFF/COMBAT/
-    // ALL mode lives on the in-game T button; CombatOnly narrows the
-    // companion side too (hold after a long stretch without Active).
+    // bridge reports need-target. Kill-switch default OFF (the addon-wins
+    // workflow turns it ON, meaning "let the overlay decide"). Even when ON the
+    // in-game overlay's AutoTarget mirror bit is authoritative: overlay OFF (or
+    // an absent Ext3 block) holds. CombatOnly narrows the companion side too.
     public bool AutoTargetEnabled { get; set; } = false;
+
+    // Companion-side out-of-combat kill-switch, default true (fail-closed).
+    // ADDON-WINS workflow: the user sets CombatOnly=0 to hand out-of-combat
+    // authority to the in-game overlay; the companion then permits OOC only
+    // when the bridge echoes the Ext3 OOC bit AND the frame is Active with a
+    // target. CombatOnly=1 always holds out of combat regardless of the
+    // overlay. A load warning explains an explicit 0 (see LoadWarnings) but the
+    // value is never silently overridden.
     public bool CombatOnly { get; set; } = true;
     public string TargetKey { get; set; } = "Tab";
 
     // [Interact] — interact-key fallback when the bridge reports need-interact
-    // (state 4). Kill-switch default OFF; default key F (retail interact).
+    // (state 4). Kill-switch default OFF (turn ON in the addon-wins workflow);
+    // gated by the overlay's AutoInteract mirror bit. Default key F.
     public bool InteractEnabled { get; set; } = false;
     public string InteractKey { get; set; } = "F";
 
@@ -94,6 +155,59 @@ internal sealed class AppSettings
     // [Intelligence] — paint the player HP curve strip (cell 35). ON by default.
     public bool HpCurve { get; set; } = true;
 
+    // [TimeToKill] — per-target time-to-kill estimation (v3.2.0). ON by default:
+    // the engine feeds a pure estimator every tick and the offensives/defensives
+    // apply the TTK gates. Enabled=0 turns the estimator off entirely and skips
+    // every TTK gate (the pre-TTK behaviour). Invalid estimates fail open in
+    // either case.
+    public bool TimeToKillEnabled { get; set; } = true;
+
+    // [TimeToKill] Fallback — behaviour when no TTK estimate is available
+    // (spec §4). FailOpen (default) = unknown TTK never holds a cooldown;
+    // ConserveMajors = apply the grace-hold to any unknown-TTK major without
+    // needing a fast-pack latch.
+    public TtkFallback TimeToKillFallback { get; set; } = TtkFallback.FailOpen;
+
+    // [TimeToKill] adaptive real-data history (v3.7, approved spec
+    // docs/plans/2026-10-01-adaptive-ttk.md). History=0 disables the learned
+    // window and reproduces the pre-history estimator exactly. When ON, the
+    // rolling window keeps the last HistoryKills valid kills (clamp 3..20) no
+    // older than HistoryMaxAgeSec (clamp 30..900); the learned rate binds only
+    // once at least HistoryMinKills (clamp 2..10) are known, uses the
+    // HistoryQuantile percentile (clamp 50..95, pessimistic nearest-rank), and
+    // the adaptive need requires HistoryDurFactor (clamp 0..1) of an ability's
+    // active duration.
+    public bool TimeToKillHistory { get; set; } = true;
+    public int TimeToKillHistoryKills { get; set; } = 8;
+    public int TimeToKillHistoryMinKills { get; set; } = 3;
+    public int TimeToKillHistoryMaxAgeSec { get; set; } = 240;
+    public int TimeToKillHistoryQuantile { get; set; } = 75;
+    public double TimeToKillHistoryDurFactor { get; set; } = 0.5;
+
+    // [TimeToKill] WarmupSec — v3.8 TTK-aware offensive cooldown gating: hold a
+    // major offensive for this many seconds after first sight while the target's
+    // TTK is still unknown, so a trash mob that dies before an estimate exists
+    // cannot spend a full cooldown. Clamp 0..10; 0 disables the hold (legacy
+    // fail-open). The buff-aware adaptive need uses HistoryDurFactor of the
+    // ability's own buff duration ("research 1/2 rule", capped at 20 s).
+    public double TimeToKillWarmupSec { get; set; } = TtkPolicy.DefaultWarmupSec;
+
+    // [CrowdControl] — companion-side CC appendix opt-in (v3.4.0). OFF by
+    // default (CC is an explicit opt-in; Solo-like safety). ON makes curated,
+    // auto-eligible crowd-control rows eligible while a target is confirmed and
+    // the companion's own DR memory is clear; OFF keeps them manual-by-design.
+    // The in-game addon toggle can only further restrict (addon OFF wins,
+    // missing key = ON); that cross-surface wiring is OWED live.
+    public bool CrowdControlEnabled { get; set; } = false;
+
+    // [Rotation] — companion-side restrict-only presets (Stream 3). Defaults are
+    // the historical behaviour. Burst holds major offensives/consumable/trinket
+    // until the TTK estimate is valid (a boss-like target); AoE conserves
+    // catalogued single-target-only offensive cooldowns. Neither ever adds a
+    // press; the in-game addon can further restrict via its own toggles.
+    public RotationPreset ModePreset { get; set; } = RotationPreset.Full;
+    public TargetPreset TargetMode { get; set; } = TargetPreset.SingleTarget;
+
     // [Solo] — SOLO / SELF-SUSTAIN mode (v2.0). OFF by default. ON adds the
     // survival-first layer on top of the standard policy: self-heals become
     // eligible below the sustain threshold, defensives may be used for
@@ -110,6 +224,18 @@ internal sealed class AppSettings
     /// <summary>A major defensive waits while a minor runs and HP is above this.</summary>
     public int SoloDefensiveEscalateHpPct { get; set; } = 60;
 
+    /// <summary>Solo HP-banded escalation master switch (default on).</summary>
+    public bool SoloEscalationEnabled { get; set; } = true;
+
+    /// <summary>At/below this HP% Solo offers Minor absorbs (default 75, clamp 40-99).</summary>
+    public int SoloMinorHpPct { get; set; } = 75;
+
+    /// <summary>At/below this HP% Solo offers Major defensives (default 50, clamp 20-90).</summary>
+    public int SoloMajorHpPct { get; set; } = 50;
+
+    /// <summary>At/below this HP% Solo offers immunities (default 30, clamp 5-60).</summary>
+    public int SoloImmunityHpPct { get; set; } = 30;
+
     // [Abilities] — per-ability automatic-use overrides (v2.3.0 defensive
     // intelligence; v2.6 richer modes). The curated catalog default is ON for
     // automatable abilities and OFF for manual-by-design ones (NeverAutomatic).
@@ -121,6 +247,21 @@ internal sealed class AppSettings
     // recommendation, Solo or emergency override); ON is only eligibility,
     // never "spam when ready".
     public AbilityPolicy Abilities { get; set; } = AbilityPolicy.Default;
+
+    // [AbilityOverrides] — per-machine user overrides of the v3.5 taxonomy
+    // (T4). Keyed by spell id; an entry may ONLY set mode + minUrgency, so a
+    // store file can never re-route an ability, pull it into the main rotation
+    // or exempt it from the cast gate, and it can never raise a Never base to
+    // Auto/Suggest. The store file is OPTIONAL and lives NEXT TO THE EXE
+    // (dist\), which is git-ignored and therefore never committed. Absent file
+    // = no overrides. Precedence: registry < overlay < overrides.
+    public bool AbilityOverridesEnabled { get; set; } = true;
+
+    /// <summary>Store file name (relative to the settings file / exe).</summary>
+    public string AbilityOverridesFile { get; set; } = "ability-overrides.json";
+
+    /// <summary>The loaded per-machine store (never null; Empty when disabled/absent).</summary>
+    public AbilityOverrides AbilityOverrides { get; private set; } = AbilityOverrides.Empty;
 
     // [Telemetry] — local rotation telemetry (v1.5.0). OFF by default: the
     // recorder is opt-in, keeps a bounded in-memory ring of JSONL events
@@ -140,12 +281,26 @@ internal sealed class AppSettings
     // no credentials are stored anywhere.
     public string BNetPath { get; set; } = "";
 
+    /// <summary>
+    /// Settings schema version (v3.5 S1). Written as <c>[Meta] ConfigVersion</c>;
+    /// a config that has a <c>[Spells]</c> section but no <c>[Meta]</c> is a
+    /// pre-3.5 install and receives the one-time migration below.
+    /// </summary>
+    public const int ConfigVersion = 1;
+
     public static AppSettings Load(string path)
     {
         var settings = new AppSettings { Path = path };
-        if (!File.Exists(path)) return settings;
+        if (!File.Exists(path))
+        {
+            CrowdControlGate.Configure(settings.CrowdControlEnabled);
+            settings.LoadAbilityOverrides();
+            return settings;
+        }
 
         var section = "";
+        var hasSpells = false;
+        var hasMeta = false;
         foreach (var raw in File.ReadAllLines(path))
         {
             var line = raw.Trim();
@@ -154,6 +309,8 @@ internal sealed class AppSettings
             if (line.StartsWith('[') && line.EndsWith(']'))
             {
                 section = line[1..^1].Trim().ToLowerInvariant();
+                if (section == "spells") hasSpells = true;
+                if (section == "meta") hasMeta = true;
                 continue;
             }
 
@@ -165,8 +322,65 @@ internal sealed class AppSettings
             settings.Apply(section, key, value);
         }
 
+        // v3.5 S1 one-time migration (fixes RC1/RC2). A genuine pre-3.5 install
+        // config has [Spells] but no [Meta] section; the symptoms were Mobility
+        // shipped OFF (RC1: `spell7=0` and the scheduler silently drops the
+        // slot) and CrowdControl shipped OFF (RC2: CC rows fell through to the
+        // Utility provider and never fired). Turn the new defaults ON exactly
+        // once; the next Save stamps [Meta] so a later user OFF choice sticks.
+        // Partial/legacy-less test configs (no [Spells]) are never touched.
+        if (hasSpells && !hasMeta)
+        {
+            settings.SlotEnabled[6] = true;              // Mobility
+            settings.CrowdControlEnabled = true;         // CC appendix
+        }
+
+        // Publish the companion CC opt-in to the policy gate (the settings class
+        // is the single load point; the evaluator's one-line CC call-site has no
+        // options plumbing by contract). Default OFF, so an absent section keeps
+        // CC manual-by-design unless the migration above turned it ON.
+        CrowdControlGate.Configure(settings.CrowdControlEnabled);
+        settings.LoadAbilityOverrides();
         return settings;
     }
+
+    /// <summary>
+    /// Resolves the per-machine override file next to the settings file (which
+    /// lives next to the exe in production). An absolute configured path wins.
+    /// </summary>
+    public string AbilityOverridesPath()
+    {
+        var directory = System.IO.Path.GetDirectoryName(Path);
+        if (string.IsNullOrEmpty(directory)) directory = ".";
+        return System.IO.Path.Combine(directory, AbilityOverridesFile);
+    }
+
+    /// <summary>Loads the optional store; a missing file means "no overrides".</summary>
+    private void LoadAbilityOverrides() =>
+        AbilityOverrides = AbilityOverridesEnabled
+            ? AbilityOverrides.LoadFile(AbilityOverridesPath())
+            : AbilityOverrides.Empty;
+
+    /// <summary>
+    /// S6 Class Browser knob: sets (or clears, when null) the per-machine
+    /// urgency-floor override for one spell. Mode is left untouched; the same
+    /// allow-list (spellId/mode/minUrgency) still governs the store.
+    /// </summary>
+    public void SetUrgencyOverride(int spellId, int? minUrgency)
+    {
+        if (spellId <= 0) return;
+        AbilityOverrides = AbilityOverrides.With(spellId, null, minUrgency);
+    }
+
+    /// <summary>S6 knob "Reset row": drops any override for one spell id.</summary>
+    public void ClearOverride(int spellId)
+    {
+        if (spellId <= 0) return;
+        AbilityOverrides = AbilityOverrides.Without(spellId);
+    }
+
+    /// <summary>Persists the per-machine override store next to the exe (best effort).</summary>
+    public bool SaveAbilityOverrides() => AbilityOverrides.SaveFile(AbilityOverridesPath());
 
     private void Apply(string section, string key, string value)
     {
@@ -193,7 +407,20 @@ internal sealed class AppSettings
             case ("timing", "minkeyintervalms"): MinKeyIntervalMs = ParseInt(value, MinKeyIntervalMs); break;
             case ("timing", "keypressms"): KeyPressMs = ParseInt(value, KeyPressMs); break;
             case ("targeting", "autotargetenabled"): AutoTargetEnabled = ParseBool(value, AutoTargetEnabled); break;
-            case ("targeting", "combatonly"): CombatOnly = ParseBool(value, CombatOnly); break;
+            case ("targeting", "combatonly"):
+                CombatOnly = ParseBool(value, CombatOnly);
+                // 2026-09-30 ADDON-WINS: keep the value (no silent override)
+                // but explain the authority model. The overlay owns OOC; the
+                // companion is permissive and still fails closed without the
+                // Ext3 OOC mirror bit.
+                if (!CombatOnly)
+                    _loadWarnings.Add(
+                        "CombatOnly=0: out-of-combat authority follows the in-game overlay — the companion is " +
+                        "permissive and permits OOC only while the addon echoes the OOC toggle bit. The addon's " +
+                        "Out-of-combat toggle is NOT seeded: a fresh install reads OFF (hold) until you turn it ON " +
+                        "in the in-game MaxDps Bridge panel/overlay (an overlay OFF or no Ext3 block = hold); " +
+                        "set CombatOnly=1 to always hold out of combat.");
+                break;
             case ("targeting", "targetkey"): TargetKey = string.IsNullOrWhiteSpace(value) ? TargetKey : value.Trim(); break;
             case ("interact", "interactenabled"): InteractEnabled = ParseBool(value, InteractEnabled); break;
             case ("interact", "interactkey"): InteractKey = string.IsNullOrWhiteSpace(value) ? InteractKey : value.Trim(); break;
@@ -203,13 +430,31 @@ internal sealed class AppSettings
             case ("intelligence", "enabled"): IntelligenceEnabled = ParseBool(value, IntelligenceEnabled); break;
             case ("intelligence", "staleafterms"): IntelligenceStaleAfterMs = ParseInt(value, IntelligenceStaleAfterMs); break;
             case ("intelligence", "hpcurve"): HpCurve = ParseBool(value, HpCurve); break;
+            case ("timetokill", "enabled"): TimeToKillEnabled = ParseBool(value, TimeToKillEnabled); break;
+            case ("timetokill", "fallback"): TimeToKillFallback = ParseTtkFallback(value); break;
+            case ("timetokill", "history"): TimeToKillHistory = ParseBool(value, TimeToKillHistory); break;
+            case ("timetokill", "historykills"): TimeToKillHistoryKills = Math.Clamp(ParseInt(value, TimeToKillHistoryKills), 3, 20); break;
+            case ("timetokill", "historyminkills"): TimeToKillHistoryMinKills = Math.Clamp(ParseInt(value, TimeToKillHistoryMinKills), 2, 10); break;
+            case ("timetokill", "historymaxagesec"): TimeToKillHistoryMaxAgeSec = Math.Clamp(ParseInt(value, TimeToKillHistoryMaxAgeSec), 30, 900); break;
+            case ("timetokill", "historyquantile"): TimeToKillHistoryQuantile = Math.Clamp(ParseInt(value, TimeToKillHistoryQuantile), 50, 95); break;
+            case ("timetokill", "historydurfactor"): TimeToKillHistoryDurFactor = Math.Clamp(ParseDouble(value, TimeToKillHistoryDurFactor), 0.0, 1.0); break;
+            case ("timetokill", "warmupsec"): TimeToKillWarmupSec = Math.Clamp(ParseDouble(value, TimeToKillWarmupSec), 0.0, 10.0); break;
+            case ("crowdcontrol", "enabled"): CrowdControlEnabled = ParseBool(value, CrowdControlEnabled); break;
+            case ("rotation", "mode"): ModePreset = ParseRotationPreset(value); break;
+            case ("rotation", "targets"): TargetMode = ParseTargetPreset(value); break;
             case ("solo", "enabled"): SoloEnabled = ParseBool(value, SoloEnabled); break;
             case ("solo", "emergencyhppct"): SoloEmergencyHpPct = Math.Clamp(ParseInt(value, SoloEmergencyHpPct), 5, 90); break;
             case ("solo", "selfsustainhppct"): SoloSelfSustainHpPct = Math.Clamp(ParseInt(value, SoloSelfSustainHpPct), 10, 99); break;
             case ("solo", "defensiveescalatehppct"): SoloDefensiveEscalateHpPct = Math.Clamp(ParseInt(value, SoloDefensiveEscalateHpPct), 5, 99); break;
+            case ("solo", "escalationenabled"): SoloEscalationEnabled = ParseBool(value, SoloEscalationEnabled); break;
+            case ("solo", "minorhppct"): SoloMinorHpPct = Math.Clamp(ParseInt(value, SoloMinorHpPct), 40, 99); break;
+            case ("solo", "majorhppct"): SoloMajorHpPct = Math.Clamp(ParseInt(value, SoloMajorHpPct), 20, 90); break;
+            case ("solo", "immunityhppct"): SoloImmunityHpPct = Math.Clamp(ParseInt(value, SoloImmunityHpPct), 5, 60); break;
             case ("abilities", "on"): Abilities = AbilityPolicy.FromParts(value, Abilities.EncodeOff(), Abilities.EncodeModes()); break;
             case ("abilities", "off"): Abilities = AbilityPolicy.FromParts(Abilities.EncodeOn(), value, Abilities.EncodeModes()); break;
             case ("abilities", "modes"): Abilities = AbilityPolicy.FromParts(Abilities.EncodeOn(), Abilities.EncodeOff(), value); break;
+            case ("abilityoverrides", "enabled"): AbilityOverridesEnabled = ParseBool(value, AbilityOverridesEnabled); break;
+            case ("abilityoverrides", "file"): AbilityOverridesFile = string.IsNullOrWhiteSpace(value) ? AbilityOverridesFile : value.Trim(); break;
             case ("telemetry", "enabled"): TelemetryEnabled = ParseBool(value, TelemetryEnabled); break;
             case ("telemetry", "capacity"): TelemetryCapacity = Math.Clamp(ParseInt(value, TelemetryCapacity), 64, 1_000_000); break;
             case ("color", "magic"): ParseTriple(value, Color.MagicR, Color.MagicG, Color.MagicB, out var mr, out var mg, out var mb); Color.MagicR = mr; Color.MagicG = mg; Color.MagicB = mb; break;
@@ -226,6 +471,11 @@ internal sealed class AppSettings
         var text = new StringBuilder()
             .AppendLine("; MaxDPS Companion settings.")
             .AppendLine("; CellSize/OffsetX/OffsetY must match the addon's '/mdb status' output.")
+            .AppendLine()
+            .AppendLine("; Settings schema version; stamped on Save so the v3.5")
+            .AppendLine("; Mobility/CrowdControl migration runs at most once.")
+            .AppendLine("[Meta]")
+            .AppendLine($"ConfigVersion={ConfigVersion}")
             .AppendLine()
             .AppendLine("[Bridge]")
             .AppendLine($"CellSize={CellSize}")
@@ -290,15 +540,56 @@ internal sealed class AppSettings
             .AppendLine($"StaleAfterMs={IntelligenceStaleAfterMs}")
             .AppendLine($"HpCurve={(HpCurve ? 1 : 0)}")
             .AppendLine()
+            .AppendLine("; Per-target time-to-kill estimation (default on). 0 = no estimator;")
+            .AppendLine("; every TTK gate is skipped. Invalid estimates always fail open.")
+            .AppendLine("; Fallback: FailOpen (default) = unknown TTK never holds; ConserveMajors")
+            .AppendLine("; = hold any unknown-TTK major without a fast-pack latch.")
+            .AppendLine("[TimeToKill]")
+            .AppendLine($"Enabled={(TimeToKillEnabled ? 1 : 0)}")
+            .AppendLine($"Fallback={(TimeToKillFallback == TtkFallback.ConserveMajors ? "ConserveMajors" : "FailOpen")}")
+            .AppendLine("; Adaptive real-data history (v3.7). 0 = pre-history behaviour.")
+            .AppendLine("; HistoryKills/MaxAgeSec bound the learned window; HistoryMinKills gates")
+            .AppendLine("; binding; HistoryQuantile is the pessimistic burn-rate percentile;")
+            .AppendLine("; HistoryDurFactor is the fraction of an active duration the fight must cover.")
+            .AppendLine($"History={(TimeToKillHistory ? 1 : 0)}")
+            .AppendLine($"HistoryKills={TimeToKillHistoryKills}")
+            .AppendLine($"HistoryMinKills={TimeToKillHistoryMinKills}")
+            .AppendLine($"HistoryMaxAgeSec={TimeToKillHistoryMaxAgeSec}")
+            .AppendLine($"HistoryQuantile={TimeToKillHistoryQuantile}")
+            .AppendLine($"HistoryDurFactor={TimeToKillHistoryDurFactor.ToString(CultureInfo.InvariantCulture)}")
+            .AppendLine("; WarmupSec: hold a major offensive for this long after first sight")
+            .AppendLine("; while the target TTK is unknown (0 = off / legacy fail-open; clamp 0..10).")
+            .AppendLine($"WarmupSec={TimeToKillWarmupSec.ToString(CultureInfo.InvariantCulture)}")
+            .AppendLine()
+            .AppendLine("; Crowd-control appendix (opt-in, default off). ON makes curated")
+            .AppendLine("; auto-eligible CC rows fire only on a confirmed target and never")
+            .AppendLine("; chains the same DR category; the addon toggle can only restrict.")
+            .AppendLine("[CrowdControl]")
+            .AppendLine($"Enabled={(CrowdControlEnabled ? 1 : 0)}")
+            .AppendLine()
+            .AppendLine("; Companion-side restrict-only presets. Full/SingleTarget = historical")
+            .AppendLine("; behaviour. Burst holds majors/consumable/trinket until a boss TTK is")
+            .AppendLine("; measurable; Aoe conserves catalogued single-target-only cooldowns.")
+            .AppendLine("; A preset only ever holds; the addon can further restrict.")
+            .AppendLine("[Rotation]")
+            .AppendLine($"Mode={(ModePreset == RotationPreset.Burst ? "Burst" : "Full")}")
+            .AppendLine($"Targets={(TargetMode == TargetPreset.Aoe ? "Aoe" : "SingleTarget")}")
+            .AppendLine()
             .AppendLine("; Solo / self-sustain mode (default off; requires [Intelligence] Enabled=1).")
             .AppendLine("; EmergencyHpPct: below this, survival actions outrank the rotation.")
             .AppendLine("; SelfSustainHpPct: below this, efficient self-heals become eligible.")
             .AppendLine("; DefensiveEscalateHpPct: a major defensive waits while a minor runs above this.")
+            .AppendLine("; EscalationEnabled: Solo HP-banded survival ladder (minor<=MinorHpPct,")
+            .AppendLine(";   major<=MajorHpPct, immunity<=ImmunityHpPct) in addition to self-heals.")
             .AppendLine("[Solo]")
             .AppendLine($"Enabled={(SoloEnabled ? 1 : 0)}")
             .AppendLine($"EmergencyHpPct={SoloEmergencyHpPct}")
             .AppendLine($"SelfSustainHpPct={SoloSelfSustainHpPct}")
             .AppendLine($"DefensiveEscalateHpPct={SoloDefensiveEscalateHpPct}")
+            .AppendLine($"EscalationEnabled={(SoloEscalationEnabled ? 1 : 0)}")
+            .AppendLine($"MinorHpPct={SoloMinorHpPct}")
+            .AppendLine($"MajorHpPct={SoloMajorHpPct}")
+            .AppendLine($"ImmunityHpPct={SoloImmunityHpPct}")
             .AppendLine()
             .AppendLine("; Per-ability automatic-use overrides, comma-separated spell ids.")
             .AppendLine("; On = explicitly enabled (default-off ability turned ON).")
@@ -310,6 +601,13 @@ internal sealed class AppSettings
             .AppendLine($"On={Abilities.EncodeOn()}")
             .AppendLine($"Off={Abilities.EncodeOff()}")
             .AppendLine($"Modes={Abilities.EncodeModes()}")
+            .AppendLine()
+            .AppendLine("; Per-machine taxonomy overrides (T4). The store file lives next to the")
+            .AppendLine("; exe (dist\\), is never committed, and may only set mode + minUrgency.")
+            .AppendLine("; Absent file = no overrides. Precedence: registry < overlay < overrides.")
+            .AppendLine("[AbilityOverrides]")
+            .AppendLine($"Enabled={(AbilityOverridesEnabled ? 1 : 0)}")
+            .AppendLine($"File={AbilityOverridesFile}")
             .AppendLine()
             .AppendLine("; Local rotation telemetry (opt-in, default off). Bounded in-memory")
             .AppendLine("; JSONL ring; Export writes it next to the exe. No network, no")
@@ -346,8 +644,34 @@ internal sealed class AppSettings
         if (int.TryParse(parts[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out var pb)) b = Math.Clamp(pb, 0, 255);
     }
 
-    private static int ParseInt(string value, int fallback) =>
-        int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+    private static RotationPreset ParseRotationPreset(string value) => value.Trim().ToLowerInvariant() switch
+    {
+        "burst" => RotationPreset.Burst,
+        _ => RotationPreset.Full,
+    };
+
+    private static TargetPreset ParseTargetPreset(string value) => value.Trim().ToLowerInvariant() switch
+    {
+        "aoe" or "ae" or "multi" => TargetPreset.Aoe,
+        _ => TargetPreset.SingleTarget,
+    };
+
+    private static TtkFallback ParseTtkFallback(string value) => value.Trim().ToLowerInvariant() switch
+    {
+        "conservemajors" or "conserve" => TtkFallback.ConserveMajors,
+        _ => TtkFallback.FailOpen,
+    };
+
+    private static int ParseInt(string value, int fallback) =>        int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : fallback;
+
+    private static double ParseDouble(string value, double fallback) =>
+        // NaN/Infinity parse successfully but must never reach a Math.Clamp:
+        // Clamp(NaN) is NaN, which would propagate (e.g. NeedAdaptive=NaN). A
+        // non-finite token falls back exactly like an unparseable one.
+        double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
+        && double.IsFinite(parsed)
             ? parsed
             : fallback;
 

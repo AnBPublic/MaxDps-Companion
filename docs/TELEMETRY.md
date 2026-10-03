@@ -61,9 +61,13 @@ One JSON object per line, UTF-8, `\n`-terminated; null sections are omitted.
 | `slots` | tick | 8 entries (Main/Off/Def/Cons/Trin/Int/Mobility/SelfHeal): decoded keybind or null. |
 | `cands` | tick | Candidate snapshot: `slot`, `key`, `en` (slot toggle), `act` (not movement-bound), `seen`/`chg` (observation window), `pressedMs`/`pressed` (press history). |
 | `dec` | tick | `src` (`intelligence` \| `legacy`), `sel`, `reason`, `conf`, `stale`, `order`. |
-| `pol` | tick | **Policy record (v2.0; extended v2.1, v2.3, v2.6):** `fresh` (the scheduler ran this tick), `sel`/`reason`/`conf` (plan head, e.g. `CastHold`/`ChannelHold`/`PolicyHold`), `suppressed`/`held`/`skipped` counts, `detail` (first hold/skip reason), `hp`/`hpKnown`, v3.0.0 `hpSrc` (`Plain`/`Curve`/`Unknown`) and `hpUp` (the curve band's upper bound for the overheal guard), `cast`, `melee`, `tcast` (target cast), `tint` (target interruptibility), `ctx` (sensor block valid), `rang` (8-char per-slot range: `U`/`I`/`O`), `buff` (8-char self-buff bits), `du` (v2.3 HP-curve defensive urgency string), `dsu` (v2.3 stagger-curve urgency string), `dsrc` (v2.3 catalog gap-fill source bool; omitted when false), `opts` (the exact policy options the policy ran with), `verdicts` = per-candidate `{slot, spell, v (Use/Hold/Skip/Unavailable/Unknown - v2.6 five-state), r (reason), alt (v3.0.0: this is the SelfHeal2 alternate), arng (v3.0.0: the alternate's own range `U`/`I`/`O`)}`. This is the explainability record: why every situational ability was or was not pressed. Present only when the scheduler actually ran (`fresh:true`); legacy-path ticks carry no policy block (a stale plan is never recorded as this tick's reasoning). Hold + Unknown recompute as held, Skip + Unavailable as skipped. |
+| `pol` | tick | **Policy record (v2.0; extended v2.1, v2.3, v2.6):** `fresh` (the scheduler ran this tick), `sel`/`reason`/`conf` (plan head, e.g. `CastHold`/`ChannelHold`/`PolicyHold`), `suppressed`/`held`/`skipped` counts, `detail` (first hold/skip reason), `hp`/`hpKnown`, v3.0.0 `hpSrc` (`Plain`/`Curve`/`Unknown`) and `hpUp` (the curve band's upper bound for the overheal guard), `cast`, `melee`, `tcast` (target cast), `tint` (target interruptibility), `ctx` (sensor block valid), `rang` (8-char per-slot range: `U`/`I`/`O`), `buff` (8-char self-buff bits), `du` (v2.3 HP-curve defensive urgency string), `dsu` (v2.3 stagger-curve urgency string), `dsrc` (v2.3 catalog gap-fill source bool; omitted when false), `cls`/`spec` (v3.0.0 additive: the decoded class/spec the tick ran under; omitted on legacy records), `cdWait`/`lastTriedMs` (r2: the plan held at the self-heal cooldown wait / the last SelfHeal attempt in ms; omitted when false/never), `opts` (the exact policy options the policy ran with), `verdicts` = per-candidate `{slot, spell, v (Use/Hold/Skip/Unavailable/Unknown - v2.6 five-state), r (reason), alt (v3.0.0: this is the SelfHeal2 alternate), arng (v3.0.0: the alternate's own range `U`/`I`/`O`), cdWait (r2: this SelfHeal verdict is the cooldown wait), lastTriedMs (r2: last SelfHeal attempt, ms), resetHint (r2: optional curated informational string, e.g. "resets on kill")}`. This is the explainability record: why every situational ability was or was not pressed. Present only when the scheduler actually ran (`fresh:true`); legacy-path ticks carry no policy block (a stale plan is never recorded as this tick's reasoning). Hold + Unknown recompute as held, Skip + Unavailable as skipped. |
 | `pol.du` / `pol.dsu` | tick | v2.3 MaxDps defensive urgency: `Unknown`/`White`/`Yellow`/`Orange`/`Red` (`du` from the HP curve, `dsu` from the stagger curve). **A policy record without `du` is a legacy pre-v2.3 record** — see Replay below. |
 | `pol.dsrc` | tick | `true` when the Defensive slot was supplied by the catalog gap-fill rather than MaxDps itself; omitted when false. |
+| `pol.cls` / `pol.spec` | tick | v3.0.0 additive: the decoded class/spec the tick ran under (omitted on legacy records). The Offensive gap-fill has no wire source bit, so replay needs the same class/spec to re-derive its `CompanionGapFill` source by id membership. |
+| `pol.ttk` | tick | v3.2.0 additive: the estimator's per-target time-to-kill in seconds (one decimal), omitted when `[TimeToKill] Enabled=0` or the estimate is invalid. Informational only — the replay reconstructs the estimator and does not compare this field. |
+| `thp` / `ttkMs` | tick | v3.2.0 additive: the decoded target HP percent (`thp`, omitted when unknown) and the exact engine timestamp the estimator was fed with (`ttkMs`, omitted when there was no real frame or `[TimeToKill] Enabled=0`). The replay feeds `(ttkMs, hasTarget, thp)` in order to rebuild the identical estimator. |
+| `pol.cdWait` / `pol.lastTriedMs` | tick | r2: `cdWait` true when the plan held with reason `SelfHealCoolingDown` (HP in the sustain window, no ready heal); `lastTriedMs` is the last SelfHeal attempt/send (ms). Omitted when false/never; **replay does not compare them**, so legacy fixtures stay at 0 mismatches. |
 | `pol.opts` | tick | The exact policy options the record ran with: `solo`, `em`/`sus`/`esc` (the `[Solo]` thresholds) and v2.3 `on`/`off` (the `[Abilities]` explicit override lists, sorted comma lists, omitted when empty). Replay rebuilds `PolicyOptions` from this exactly. |
 | `send` | send | `what` (`spell` \| `target` \| `interact`), `slot`, `key`, `intervalMs` (gap since the previous send), `sp` (sent ability spell id; omitted when unknown). |
 | `staleAfterMs` | tick | The staleness window in force when the decision was made. |
@@ -111,6 +115,13 @@ recorded, so a defensive verdict that depended on urgency, the gap-fill
 source or a user ON/OFF override recomputes deterministically. `dsrc` absent
 means the slot was a MaxDps recommendation.
 
+**TTK replay (v3.2.0).** When a tick records `ttkMs`, the runner feeds the
+recorded `(ttkMs, hasTarget, thp)` series into a fresh `TtkEstimator` before
+recomputing that tick's verdicts; the rebuilt estimate (`CombatContext.WithTtk`)
+drives the T1–T4 gates exactly as live. A record without `ttkMs` (legacy, or
+`[TimeToKill] Enabled=0`) leaves every TTK gate skipped, so the six legacy
+fixtures stay at 0 mismatches.
+
 **Legacy pre-v2.3 records.** A `pol` record written before v2.3 carries no
 `du` field: defensive urgency was not recorded, so its verdicts cannot be
 re-derived. The runner does **not** recompute them, counts them separately,
@@ -143,6 +154,15 @@ SelfHeal slot before recomputing that one verdict, so it stays deterministic.
 The canonical hidden-HP fixture is
 `tests/MaxDpsCompanion.Tests/fixtures/solo-hidden-hp-warrior.jsonl`
 (`6 policy verdicts recomputed, 0 mismatch(es)`).
+
+**Cooldown / reset replay (r2).** `cdWait` (policy-level, omitted when false)
+and `lastTriedMs` (last SelfHeal attempt/send, ms; omitted when never) are
+additive and informational; `verdicts[]` SelfHeal entries may carry `cdWait`,
+`lastTriedMs` and `resetHint`. Replay does not compare them, so all four
+legacy fixtures stay at 0 mismatches. The cooldown/reset fixture
+`tests/MaxDpsCompanion.Tests/fixtures/solo-cooldown-reset-warrior.jsonl`
+covers Use → cooldown wait (no verdict) → reset Use → GCD → unchanged-slot Use
+and replays with `8 policy verdicts recomputed, 0 mismatch(es)`.
 
 **Defensive urgency proof.** The companion fixture
 `tests/MaxDpsCompanion.Tests/fixtures/defensive-warrior-urgency.jsonl` is the
@@ -198,3 +218,4 @@ report.
 | `tests/MaxDpsCompanion.Tests/fixtures/defensive-warrior-urgency.jsonl` | Canonical v2.3 defensive-urgency recording (16 verdicts, 0 mismatches; White/Yellow/Orange/Red + user-OFF + gap-fill). |
 | `tests/MaxDpsCompanion.Tests/fixtures/offensive-interrupt-warrior.jsonl` | Canonical v2.6 offensive-interrupt recording (7 verdicts, 0 mismatches; five-state incl. Unavailable/Unknown). |
 | `tests/MaxDpsCompanion.Tests/fixtures/solo-hidden-hp-warrior.jsonl` | v3.0.0 hidden-HP curve recording (6 verdicts, 0 mismatches; `hpSrc`/`hpUp` + `~% (curve)` reasons). |
+| `tests/MaxDpsCompanion.Tests/fixtures/ttk-warrior-burst.jsonl` | v3.2.0 TTK recording (18 policy verdicts, 0 mismatches; T1 trash hold + T4 solo defensive hold + long-lived-target fire; `ttk`/`thp`/`ttkMs`). |

@@ -315,6 +315,7 @@ public class TelemetryReplayTests : IDisposable
         var plan = scheduler.Advance(new ScheduleInput
         {
             Frame = frame,
+            OutOfCombatPermitted = true,
             Candidates = candidates,
             NowMs = nowMs,
             MinKeyIntervalMs = 120,

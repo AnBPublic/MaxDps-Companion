@@ -19,6 +19,15 @@ namespace MaxDpsCompanion;
 ///     the engine remembers the last Active frame and treats a long stretch
 ///     without one as out of combat. (The companion-side gate; the addon-side
 ///     gate is the T button mode plus UnitAffectingCombat in Bridge.lua.)
+///  5. 2026-09-30 fail-closed OOC: with CombatOnly OFF the auto-target /
+///     auto-interact gates ALSO require the Ext3 OOC mirror bit
+///     (CombatGate.MirrorOutOfCombatSet) — a disabled config gate is not
+///     permission, and an old/unsynced addon fails closed.
+///  6. 2026-09-30 ADDON-WINS authority flip: the companion's AutoTarget /
+///     Interact kill-switches are permissive (user turns them ON) and the
+///     in-game overlay's mirror bits are authoritative. If the mirror says the
+///     overlay toggle is OFF — or no Ext3 mirror exists — the guard holds, so
+///     the overlay can always veto an inject without the app re-enabling it.
 /// </summary>
 internal static class MovementGuard
 {
@@ -277,17 +286,32 @@ internal static class MovementGuard
     /// lastActiveMs when no Active frame has ever been seen (fresh start out
     /// of combat -&gt; hold). Idle never fires: the T button is OFF or a target
     /// is present, so there is nothing to ask for.
+    ///
+    /// 2026-09-30 fail-closed OOC fix: with combatOnly OFF, auto-target must
+    /// NOT fire just because the config gate is disabled — it additionally
+    /// requires the Ext3 OOC mirror bit (<paramref name="mirrorOutOfCombatSet"/>,
+    /// see <see cref="CombatGate.MirrorOutOfCombatSet"/>). CombatOnly alone is
+    /// no longer permission.
+    ///
+    /// 2026-09-30 ADDON-WINS: the overlay's AutoTarget mirror bit
+    /// (<paramref name="mirrorAutoTargetSet"/>, see
+    /// <see cref="CombatGate.MirrorAutoTargetSet"/>) is authoritative. If the
+    /// overlay turned AutoTarget OFF, or the Ext3 mirror is absent/stale, the
+    /// companion holds even though its own kill-switch is ON.
     /// </summary>
     public static bool ShouldAutoTarget(
         BridgeState state,
         bool autoTargetEnabled,
         bool combatOnly,
+        bool mirrorOutOfCombatSet,
+        bool mirrorAutoTargetSet,
         long nowMs,
         long lastActiveMs,
         long combatIdleWindowMs = 5000)
     {
         if (!autoTargetEnabled || state != BridgeState.NeedTarget) return false;
-        if (!combatOnly) return true;
+        if (!mirrorAutoTargetSet) return false;   // overlay AutoTarget OFF => hold
+        if (!combatOnly) return mirrorOutOfCombatSet;
         if (lastActiveMs == long.MinValue) return false;
         return nowMs - lastActiveMs <= combatIdleWindowMs;
     }
@@ -298,17 +322,29 @@ internal static class MovementGuard
     /// last Active frame; a long stretch without Active reads as out of
     /// combat and holds. Pass long.MinValue for lastActiveMs when no Active
     /// frame has ever been seen (fresh start out of combat -&gt; hold).
+    ///
+    /// 2026-09-30 fail-closed OOC fix: with combatOnly OFF, auto-interact must
+    /// NOT fire just because the config gate is disabled — it additionally
+    /// requires the Ext3 OOC mirror bit (<paramref name="mirrorOutOfCombatSet"/>).
+    ///
+    /// 2026-09-30 ADDON-WINS: the overlay's AutoInteract mirror bit
+    /// (<paramref name="mirrorAutoInteractSet"/>, see
+    /// <see cref="CombatGate.MirrorAutoInteractSet"/>) is authoritative. If the
+    /// overlay turned AutoInteract OFF, or the mirror is absent/stale, hold.
     /// </summary>
     public static bool ShouldAutoInteract(
         BridgeState state,
         bool interactEnabled,
         bool combatOnly,
+        bool mirrorOutOfCombatSet,
+        bool mirrorAutoInteractSet,
         long nowMs,
         long lastActiveMs,
         long combatIdleWindowMs = 5000)
     {
         if (!interactEnabled || state != BridgeState.NeedInteract) return false;
-        if (!combatOnly) return true;
+        if (!mirrorAutoInteractSet) return false;   // overlay AutoInteract OFF => hold
+        if (!combatOnly) return mirrorOutOfCombatSet;
         if (lastActiveMs == long.MinValue) return false;
         return nowMs - lastActiveMs <= combatIdleWindowMs;
     }

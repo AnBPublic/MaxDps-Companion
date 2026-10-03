@@ -80,7 +80,12 @@ internal static class DecisionEngine
         var stale = new List<ActionCandidate>(unique.Count);
         foreach (var candidate in unique)
         {
-            if (candidate.IsStale(ctx.NowMs, ctx.StaleAfterMs)) stale.Add(candidate);
+            // R2 (sustain-cd): a ready SelfHeal is never stale-demoted — after
+            // a cooldown the same spell is re-suggested with unchanged slot
+            // content, and the pressed-since-change bookkeeping must not
+            // swallow the new opportunity (parity with ActionScheduler).
+            if (candidate.Slot != Slot.SelfHeal && candidate.IsStale(ctx.NowMs, ctx.StaleAfterMs))
+                stale.Add(candidate);
             else fresh.Add(candidate);
         }
         var demoted = stale.Count > 0 && fresh.Count > 0;

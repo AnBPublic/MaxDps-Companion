@@ -1,3 +1,311 @@
+3.7.1
+Date: 2026-10-03 — "Vigil"
+Companion 3.7.1 "Vigil" / bridge 3.7.1. Protocol UNCHANGED: v5 core (35
+cells, nibble 5) + Ext2 (40) + Ext3 (43) stay byte-identical. No-downtime MAIN:
+Reader.GetMainSpellID collects every non-denied glowing id, sorts ascending and
+takes the first still usable (`C_Spell.IsSpellUsable` power veto only;
+secrets/nil/throw fail open), then falls through to the per-spec
+`MDB.MainFallback` filler (Fury specID 72 / "WARRIOR:Fury" -> Bloodthirst
+23881) instead of a dead Main slot. ActionScheduler re-probes a failed Main at
+MainReprobeMs=400 (MainSameSpellNoOpCap=3); CandidateTracker refreshes the sole
+Main TTL while the frame heartbeat stays fresh. The filler is a deliberate,
+user-approved exception to "the bridge only encodes what MaxDps suggests";
+unlisted specs stay empty. No Lua wire change. The title bar reads
+"MaxDPS Companion v3.7.1 Vigil".
+
+3.7.0
+Date: 2026-10-03 — "Vigil"
+Companion 3.7.0 "Vigil" / bridge 3.7.0. Protocol UNCHANGED: v5 core (35
+cells, nibble 5) + Ext2 (40) + Ext3 (43) stay byte-identical. Custom MaxDps
+12.1 fork: a bridge-side major-cooldown denylist (`MDB.MajorCDDeny`,
+MajorCooldowns.lua) keeps a stale / 2-3 min CD out of the MAIN slot (the
+Offensive slot is an independent candidate, so an empty Main never stalls the
+rotation), plus a vendored untouched v11.3.49 snapshot, a 75-entry declarative
+patch manifest and a reversible sync tool. No Lua wire change. The title bar
+reads "MaxDPS Companion v3.7.0 Vigil".
+
+v3.7.0 VIGIL (custom 12.1 fork: MAJOR-CD DENYLIST + sync tooling, no wire change)
+
+- MAJOR-CD DENYLIST: new addon/MaxDpsBridge/MajorCooldowns.lua defines
+  MDB.MajorCDDeny (22 stale-v11.3.49 moved major ids + 15 already-correct
+  majors). GetMainSpellID skips denied ids in the SpellsGlowing scan and
+  rejects a denied MaxDps.Spell, so a stale glow or a 2-3 min on-use CD is
+  never encoded as the MAIN rotation pick. No deadlock: the Offensive slot is
+  an independent Flags-scan candidate and an empty Main does not veto it; a
+  hold is non-latching. The v5 nibble and every cell are untouched.
+- CUSTOM FORK TREE: custom/upstream-pristine/ (untouched v11.3.49 + SHA256
+  MANIFEST.json), custom/patches.json (75 entries: 22 P-DATA id moves + 40
+  P-GUARD ACSpells bypass + 13 canaries),
+  docs/plans/2026-10-03-custom-maxdps-fork.md. vendor/ is read-only, untouched.
+- SYNC TOOLING: tools/Sync-CustomMaxDps.ps1 diffs a new upstream drop vs the
+  pristine manifest, applies patches into custom/out/, writes SYNC-REPORT.md
+  and publishes to AddOns only on a clean run (_backup/<stamp>/ rollback);
+  tests/sync/ fixture suite 45/45.
+
+VALIDATED (this machine): app `dotnet build -c Release` 0 warnings / 0 errors;
+`dotnet test -c Release` 938/938; `lua tests/secret_harness.lua` 264/264;
+`luac -p` 9 bridge files clean; `pwsh tests/sync/Sync-CustomMaxDps.Tests.ps1`
+45/45; `pwsh tools/ability_audit.ps1` exit 0 (violations 0 / warnings 0). LIVE
+OWED: docs/TESTING.md 3h (majors no longer Main; Offensive still fires; no
+stall on a denied AC pick; fork vs stock after /reload; replay 0 mismatches)
+plus the true 12.1 ids and the Sync publish/_backup end-to-end. Static !=
+automated test != live in-game E2E.
+
+3.6.0
+Date: 2026-10-03 — "Warden"
+Companion 3.6.0 "Warden" / bridge 3.6.0. Protocol UNCHANGED: v5 core (35
+cells, nibble 5) + Ext2 (40) + Ext3 (43) stay byte-identical. Three features:
+a taint-safe single-site melee probe in the bridge, TTK-aware offensive
+cooldown gating (warmup hold + buff-duration adaptive need), and one unified
+mask shell for both companion popups. The title bar reads
+"MaxDPS Companion v3.6.0 Warden"; the build hash/time stays on the Advanced
+Diagnostics install doctor card only.
+
+v3.6.0 WARDEN (taint-safe probe + TTK buff gating + unified masks, no wire change)
+
+- TAINT-SAFE MELEE PROBE: CheckInteractDistance is now called from ONE site
+  (Reader MDB.ProbeTargetMelee); Bridge.TargetState consumes it and never calls
+  it itself. The probe is event-gated (InCombatEv regen/encounter +
+  InCombatLockdown + scrubbed UnitAffectingCombat + 0.5 s post-combat
+  SafeAfter), per-target cached 0.25 s, and ADDON_ACTION_BLOCKED on the call is
+  a breaker: 1 hit = finite 5 s backoff, 2 = probe off for the session. Gated
+  melee reads as UNKNOWN (2); cell 29 bit1 already means UNKNOWN, so NO wire
+  change.
+- TTK BUFF GATING: a provisional-eligible major offensive cooldown is held
+  ("warming up TTK") while TTK is unknown and the target is younger than
+  [TimeToKill] WarmupSec (default 3 s; 0 = legacy fail-open); the adaptive-need
+  input is the ability's own buff duration (max(MinTtk, min(DurFactor*buffDur,
+  20))), not the T2 2*cd+dur window. ~29 majors gain curated cdMs/durMs/minTtkSec.
+  Telemetry records ttkw so replay reproduces the hold. No wire change.
+- UNIFIED MASKS: one BuildUnifiedPopup shell (opaque full-window scrim + centred
+  card + SegmentedTabs) builds both the Advanced and Class-browser masks; the
+  RuleSection control is retired in favour of measured GlassCards.
+
+VALIDATED (this machine): app `dotnet build -c Release` 0 warnings / 0 errors;
+`dotnet test -c Release` 938/938; `lua tests/secret_harness.lua` 256/256;
+`luac -p` 8 bridge files clean; `pwsh tools/ability_audit.ps1` exit 0
+(violations 0 / warnings 0, committed Catalog.lua matches generated).
+LIVE OWED: docs/TESTING.md 3f/3g plus the full retail 12.1 checklist. Static
+!= automated test != live in-game E2E.
+
+3.5.2.2
+Date: 2026-10-01 — "Fullcover"
+Companion 3.5.2.2 "Fullcover" / bridge 3.5.2.2. Patch version bump only, no
+behaviour change; protocol UNCHANGED: v5 core (35 cells, nibble 5) + Ext2 (40)
++ Ext3 (43) stay byte-identical. The title bar reads
+"MaxDPS Companion v3.5.2.2 Fullcover"; the build hash/time stays on the
+Advanced Diagnostics install doctor card only.
+
+3.5.2.1
+Date: 2026-10-01 — "Fullcover"
+Companion 3.5.2.1 "Fullcover" / bridge 3.5.2.1. Patch version bump only, no
+behaviour change; protocol UNCHANGED: v5 core (35 cells, nibble 5) + Ext2 (40)
++ Ext3 (43) stay byte-identical. The title bar reads
+"MaxDPS Companion v3.5.2.1 Fullcover"; the build hash/time stays on the
+Advanced Diagnostics install doctor card only.
+
+3.5.2
+Date: 2026-10-01 — "Fullcover"
+Companion 3.5.2 "Fullcover" / bridge 3.5.2. Protocol UNCHANGED: v5 core (35
+cells, nibble 5) + Ext2 (40) + Ext3 (43) stay byte-identical. 3.5.2 is a
+UI-only release: the Advanced / Class-browser mask is parented to the
+top-level Form and tracks its client rectangle, and the old Form.Padding(2) is
+removed, so ONE opaque layer covers the entire window; the 24/10/24/12 inset
+moved from the GradientCanvas onto the classic body scroll so the gradient ring
+sits around the toggle card, never around the window. Visible change: the title
+bar reads "MaxDPS Companion v3.5.2 Fullcover"; the build hash/time stays on the
+Advanced Diagnostics install doctor card only.
+
+v3.5.2 FULLCOVER (UI-only, no wire change)
+
+- Single full-window mask: Advanced/Class-browser scrims are parented to the
+  top-level Form (Bounds = form client rectangle) and the two-pixel Form
+  padding is gone, so no background ring or menu peeks at any edge. The
+  console home already stretched to the full body canvas and remains the
+  default view, so the classic body never shows through it.
+- Version/identity: Native.DisplayVersion = "v3.5.2 Fullcover"; the title bar
+  carries only version + codename (hash/time Advanced-only, unchanged).
+
+3.5.1
+Date: 2026-10-01 — "Holdfast"
+Companion 3.5.1 "Holdfast" / bridge 3.5.1. Protocol UNCHANGED: v5 core (35
+cells, nibble 5) + Ext2 (40) + Ext3 (43) stay byte-identical. 3.5.1 is the
+semantics-only release: the companion holds fail-closed out of combat unless
+the Ext3 OOC mirror echoes the toggle, and toggle authority is addon-wins (the
+in-game overlay is authoritative; the app never auto-pushes a mask). The
+no-bump decision recorded for 3.5.0 is hereby superseded. Visible change: the
+title bar shows "MaxDPS Companion v3.5.1 Holdfast" and the build hash/time
+moved into the Advanced Diagnostics install doctor card.
+
+v3.5.1 HOLDFAST (semantics-only, no wire change)
+
+- Fail-closed out-of-combat hold (CombatGate): the engine, the scheduler input
+  and the auto-target/interact movement guards all require the Ext3 OOC mirror
+  bit; an explicit [Targeting] CombatOnly=0 alone no longer permits OOC firing.
+- Addon-wins toggle authority: ToggleSync no longer auto-pushes; an explicit
+  local in-game value wins, a missing key reads ON, and EffectiveMask is the
+  Ext3 echo or 0 (fail-closed).
+- Title/version: Native.DisplayVersion = "v3.5.1 Holdfast"; build hash/time now
+  live on the install doctor card, not the title bar.
+
+3.5.0
+Date: 2026-09-30
+Companion 3.5.0 / bridge 3.5.0. Protocol ADDITIVE: v5 core (35 cells, nibble 5)
++ Ext2 (40) + new Ext3 block (43 cells: 14-bit app toggle mask + epoch +
+blocked nibble + cell-42 checksum/commit, presence cell 28 B bit2). v3.5 is the
+largest release since v3: multi-candidate bridge rotation, app-wins toggle sync,
+per-class verified taxonomy overlays, the Class Browser, a read-only Console
+home, and perf/diagnostics (off-thread browser precompute, scaled icons,
+why-not-firing, install doctor).
+
+v3.5.0 RELIABLE COVERAGE + CLASS BROWSER + CONSOLE UI
+
+- RC1-RC7 closed: app-wins toggle sync (T5) + ConfigVersion migration turns
+  Mobility/CC defaults ON once (RC1/RC2); candidate rotation (T1/S2) ends
+  first-entry shadowing (RC4); Escape/Movement routed to Mobility (T6) (RC5);
+  scheduler GCD-bypass + scoped RetryBackoff (T6) (RC6); taxonomy overlays +
+  browser give every spec a companion-owned path (RC7); HP-curve urgency
+  fallback (RC3).
+- Ext3 T0 contract + T2 capture: 43-cell decode, cells 40-42 mask/epoch/blocked
+  + checksum, presence bit, drops only Ext3 on failure.
+- T4/S3a-c: per-class Knowledge/classes/<CLASS>.json overlays (13 classes) +
+  ClassOverlayLoader + AbilityOverrides store.
+- S5 UI foundation: opaque scrim, single-layer paint, segmented tabs, owned
+  ComboBox/tooltip, themed scrollbar, type scale.
+- S6 Class Browser: Class|Spec|Mode selectors + knobs + virtualized owner-drawn
+  rows with live why-held; replaces Class skills/Explorer tabs.
+- S7 Console home: read-only status console + rolling log + 5 named presets.
+- S8 perf/diagnostics: off-thread precompute, scaled icon cache, why-not-firing
+  panel, InstallDoctor (build drift, CellSize, mask mirror, addon version).
+
+VALIDATED (this machine): build 0 warnings / 0 errors; dotnet test 797/797;
+lua harness 219/219; luac -p clean; audit Violations 0 / Warnings 0 / Missing 0
+/ Stale 0; vendor/ empty. Reviewer APPROVE. Exe rebuilt from HEAD to fix install
+drift. LIVE OWED: full retail 12.1 checklist (docs/TESTING.md 3).
+
+3.3.0
+Date: 2026-09-29
+Companion 3.3.0 / bridge 3.3.0. Protocol unchanged: v5 core (35 cells, version
+nibble 5) + additive Ext2 40-cell block. Two additive v3.3.0 features:
+(a) Solo HP-banded survival ladder - in Solo, defensives/shields/absorbs
+escalate as HP drops (Minor <=75 / heal <=65 / Major <=50 / Immunity <=30);
+catalog widened to a core+talent superset, unchosen talents ignored at runtime,
+group behaviour unchanged. (b) In-game 13-toggle UI - the companion hero's 13
+toggles (8 Spells + Solo / OOC / Auto-target / Auto-interact / TTK) are now
+available in the addon via `/mdb` and Esc > Options > MaxDps Bridge; the addon
+can only restrict (effective = companion AND addon, addon OFF wins), a missing
+key reads as ON, and a blanked slot is wire-indistinguishable from "no
+candidate". No cell/count/version-nibble change.
+
+v3.3.0 SOLO LADDER + IN-GAME TOGGLES
+
+- Solo ladder: [Solo] EscalationEnabled=1 + MinorHpPct 75 (40-99) /
+  MajorHpPct 50 (20-90) / ImmunityHpPct 30 (5-60); PolicyOptions
+  ValidateSoloBands; AbilityCatalog DefensiveGapFillMajor + ImmunityGapFill
+  (CatalogVersion 4); CatalogLuaGenerator emits defensiveMajor + immunity;
+  Reader.lua Solo ladder block armed by Bridge.lua only while Solo ON and
+  known ungrouped; telemetry sesc/smin/smaj/simm additive (omitted at
+  defaults). Group verdicts byte-identical.
+- In-game toggles: new addon/MaxDpsBridge/Toggles.lua (pure policy +
+  SlotAllowed gate) and Panel.lua (plain-frame settings panel + draggable
+  overlay); Bridge.lua v3.3.0 per-tick context + deep Defaults merge + slash
+  commands; Options.lua "Toggles..." entry; harness T21 33 checks. The addon
+  only restricts; no wire change.
+
+VALIDATED (this machine): build 0 warnings / 0 errors; dotnet test 585/585;
+lua harness 186/186; luac -p clean; audit Violations 0 / Warnings 0 / Missing
+0 / Stale 0, Catalog.lua matches generated.
+
+LIVE OWED (retail 12.1): each Solo band fires at the right HP; nothing new
+fires grouped; toggle OFF blanks the slot and returns ON; overlay drag/guard;
+TTK OFF forces the unknown band; persistence across /reload. NOT validated on
+a live client here.
+
+3.2.0
+Date: 2026-09-29
+Companion 3.2.0 / bridge 3.2.0 (version-only bridge bump; no Lua change). TTK
+intelligence: a pure per-target time-to-kill estimator gates offensive and solo
+defensive cooldowns. Protocol unchanged: v5 core (35 cells, version nibble 5) +
+additive Ext2 40-cell block; no wire field was added (the estimator reuses the
+target HP band already on the wire).
+
+v3.2.0 TTK INTELLIGENCE (T-A estimator/gates + T-B curation)
+
+- Estimator (Knowledge/TtkEstimator.cs, pure/fake-clock): frac = (band+0.5)/15;
+  resets on no target, >10s unknown, or a >0.12 upward frac jump; feeds only
+  real declines measured from the last FED anchor (flat ticks accumulate time,
+  not rate) into an EWMA (3s time constant; the first fed sample seeds it).
+  Valid at >=2 fed samples, >=2.5s span, ewma >=0.004 frac/s; TtkSec =
+  clamp(frac/ewma, 0, 300). Invalid fails open, skipping every gate.
+- Gates (CandidateProviders): T1 waste guard (offensive, all sources) holds when
+  valid TTK < minTtk; T2 two-uses fires (bypasses the pairing hold) when TTK >=
+  2*cd+dur (absent cd skips); T3 execute fires when executeFavored and target HP
+  <= executeBelowPct; T4 dying-target holds a non-emergency Solo defensive when
+  TTK < 6s (emergency overrides). Reasons cite the TTK seconds.
+- Defaults (TtkPolicy) by OffensiveUsage: MajorBurst 12, Transformation/Summon
+  20, WindowDriven 10, ShortCooldown/ProcDriven/AoeOnly/SingleTargetOnly/
+  ResourceDriven/Execute 5, unknown 10; DefensiveOffensiveHybrid never gates.
+  [TimeToKill] Enabled=1 kill-switch (default ON) + one Modes-card toggle row.
+- Curation (abilities.json): 9 explicit minTtkSec values (Army 30, five summons
+  20, two short CDs 5, Void Metamorphosis 20); one execute synergy (Deathmark
+  35%). B1 corrected Metamorphosis cdMs 240000->120000 and removed Void
+  Metamorphosis's timer fields (resource-gated), each with a sourceUrl.
+- Telemetry additive ttk/thp/ttkMs on policy records; replay reconstructs the
+  estimator from the recorded (ttkMs, hasTarget, thp) series. New fixture
+  ttk-warrior-burst.jsonl replays 18 policy verdicts / 0 mismatches; the six
+  legacy fixtures still replay 0 mismatches. Target-band freshness verified
+  (Reader.lua:1323-1341, 1397-1402; Bridge.lua:407-415,573,740) -> no Lua change.
+
+VALIDATED (this machine): build 0 warnings / 0 errors; dotnet test 571/571;
+lua harness 153/153; audit Violations 0 / Warnings 0 / Missing 0 / Stale 0; 7
+replay fixtures 0 mismatches; bench-scheduler UNCHANGED sends=1620
+sha256=b71a999d5e46570e; ui-smoke PASS.
+
+LIVE OWED (retail 12.1): trash-hold / boss-fire / execute / Solo-T4 / replay.
+NOT validated on a live client here.
+
+3.1.0
+Date: 2026-09-29
+Companion 3.1.0 / bridge 3.1.0. Protocol unchanged: v5 core (35 cells, version
+nibble 5) + additive Ext2 40-cell block. R1 gives the Offensive slot a curated
+gap-fill seam and extends the defensive gap-fill to an Orange (short-CD) tier;
+R2 makes self-sustain reset-aware (readiness re-read every tick, 1.5s transient
+failure cap, no stale demotion, cdWait telemetry); classic popup open budget
+relaxed 150 -> 500 ms (fade contract unchanged); width-tier UI scaling.
+
+v3.1.0 R1 + R2 + POPUP BUDGET
+
+- R1 offensive gap-fill: curated per-spec `offensive` lists in
+  Knowledge/abilities.json (1-4 true burst CDs, shared burst first), emitted as
+  `offensive` by CatalogLuaGenerator and consumed by Reader.lua
+  GetOffensiveCandidate inside MaxDps's enableCooldowns switch. The companion
+  detects the gap-fill by id membership (no wire bit; decode frozen); combat /
+  Solo gated. Defensive gap-fill extended to Orange via the new
+  `defensiveMinor` list, so a user-enabled short-CD mitigation can fire at
+  Orange while majors still wait Red. Telemetry records cls/spec (additive) so
+  replay re-derives the offensive source.
+- R2 reset-aware self-sustain: the bridge re-reads self-heal readiness every
+  tick (keybind memo dropped on bar/binding/talent/spec/SPELL_UPDATE_COOLDOWN),
+  a reset/proc re-offers the same spell; the scheduler never stale-demotes or
+  pending-confirm-demotes SelfHeal, caps a transient failed heal at 1.5 s with
+  no escalation, and reports the distinct reason SelfHealCoolingDown when HP is
+  in the sustain window with no heal ready. Telemetry cdWait/lastTriedMs/
+  resetHint are additive/informational and not compared by replay.
+- POPUP-BUDGET: ClassicUi_PopupOpen_Fast_SingleBoundedFade warm-run wall budget
+  150 -> 500 ms (load variance); the D6 contract is unchanged (one bounded
+  fade <= 120 ms, skipped while running).
+- Dynamic UI scaling: width tiers (Compact/Classic/Roomy/Wide) + measured
+  content height; applied to the main window and both popups.
+
+VALIDATED (this machine): build 0/0; dotnet test 521/521; lua harness 153/153;
+audit Violations 0 / Warnings 0 / Missing 0 / Stale 0; 6 replay fixtures 0
+mismatches; bench-scheduler UNCHANGED sends=1620 sha256=b71a999d5e46570e;
+ui-smoke PASS; bench-ui mean ~4-20 us / p95 <15 us (startup load-dependent).
+
+LIVE OWED (retail 12.1): toggled-on offensive CD fires when MaxDps never
+surfaces it; Orange short-CD defensive fires; majors still wait Red; reset-proc
+sustain re-fires within the 1.5 s cap. NOT validated on a live client here.
+
 3.0.0
 Date: 2026-09-29
 Companion 3.0.0 / bridge 3.0.0. Protocol v5 wire version nibble unchanged; the

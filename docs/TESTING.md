@@ -10,7 +10,7 @@ cd tests\MaxDpsCompanion.Tests
 dotnet test -c Release
 ```
 
-443 tests, all fake-clock (no wall time, no I/O except temp files). Groups:
+571 tests, all fake-clock (no wall time, no I/O except temp files). Groups:
 
 | File | Covers |
 | :--- | :--- |
@@ -25,6 +25,10 @@ dotnet test -c Release
 | `ActionSchedulerPolicyTests` | policy filtering + ranking, emergency survival above main, mobility below main, companion-slot gating, trinket lockout, failed-press rejection, GCD confirmation, escalating retry backoff, suppression not blocking other ranks, channel/cast holds (policy on and off), pending-confirm demotion, stale-interrupt main continuation, range revalidation |
 | `SelfSustainEndToEndTests` | real v5 wire frame → decode → tracker → scheduler: Impending Victory generated, policy USE, `SelfSustain`/`EmergencySurvival` selection, GCD confirmation and return to main; healthy/cooldown/out-of-range/no-target/casting/GCD/conservation negatives; Solo OFF; Intelligence OFF; bounded failure recovery |
 | `SelfSustainReplayTests` | canonical Solo recording replayed with 0 verdict mismatches (in-memory + the checked-in `fixtures/solo-warrior-selfheal.jsonl` used by `--replay`) |
+| `SelfSustainCooldownTests` | r2 reset-aware sustain: a ready heal is never stale-demoted, a transient failed press is capped at 1.5 s with no escalation, the distinct `SelfHealCoolingDown` wait is reported, and an optional curated `resetHint` is parsed (informational only) |
+| `SoloCooldownResetReplayTests` | r2 canonical cooldown/reset recording recomputes every verdict with 0 mismatches (in-memory + the checked-in `fixtures/solo-cooldown-reset-warrior.jsonl`) |
+| `OffensiveGapFillTests` | r1 offensive gap-fill: curated per-spec lists, source derived by id membership, combat/Solo gate, registry enforcement, and the unchanged reason strings for MaxDps-sourced rows |
+| `OffensiveGapFillReplayTests` | r1 canonical offensive-gap-fill recording recomputes every verdict with 0 mismatches, with `cls`/`spec` rebuilt from telemetry (in-memory + the checked-in `fixtures/offensive-gapfill-warrior.jsonl`) |
 | `DefensiveIntelligenceTests` | additive v5 protocol decode (urgency/source/stagger + reserved-nibble and extension-checksum coverage), the urgency policy matrix (White hard hold, Yellow/Orange/Red tiers, the MaxDps-recommendation one-stage discount, curated Ignore Pain Orange, stagger override + HP fallback), emergency override, user policy (OFF absolute, Vanish default-OFF and emergency-only ON), scheduler integration (Red selects, White holds and main continues, Orange gap-fill major held but minor fires, OFF reported as a skip) and failed-press recovery |
 | `DefensiveReplayTests` | canonical defensive recording recomputes every verdict with 0 mismatches (in-memory + the checked-in `fixtures/defensive-warrior-urgency.jsonl`), a failed defensive press is rejected, and a policy record with no `du` is treated as legacy pre-v2.3 (verdicts skipped, 0 mismatches, report says so) |
 | `ClassSpellBookTests` | token name decoding (incl. connector/alias cases), the junk/passive filter, merge provenance and priority (curated/vendor win over class-spells), live-client verification (official name/icon, a removed id not merged), `DefensiveGapFill` exclusion of the modeled layer, shared-vs-per-spec tree, all-class coverage, and a Main-spell opt-out through `AbilityPolicy` OFF |
@@ -46,7 +50,7 @@ wago.tools fetch is never exercised by the test run.
 lua tests/secret_harness.lua
 ```
 
-94 checks. Stubs the WoW API with Midnight secret semantics (values that
+153 checks. Stubs the WoW API with Midnight secret semantics (values that
 throw on compare/arithmetic), loads Catalog + Keymap + Reader + Bridge, fires
 `ADDON_LOADED`, and drives `Update` directly. Covers:
 
@@ -65,6 +69,13 @@ throw on compare/arithmetic), loads Catalog + Keymap + Reader + Bridge, fires
   the Purifying Brew stagger curve with its HP fallback, the Defensive
   MaxDps-first / Red-only gap-fill candidate + source bit, and every probe
   contained (a secret/nil stagger or HP reading encodes 0 = UNKNOWN);
+- offensive + defensiveMinor gap-fill (r1): a MaxDps-named offensive wins and
+  the curated `offensive` list is offered only when MaxDps names none (inside
+  `enableCooldowns`); the `defensiveMinor` list is offered at the Orange tier
+  while majors stay Red-only;
+- reset-aware self-heal readiness (r2): a keybind memo is invalidated on
+  cooldown/talent/spec events so a reset re-offers the same heal, and readiness
+  is re-read every tick (never cached);
 - getter-throw containment (`SafeRead`: frame survives, warns once);
 - self-sustain extras (v2.2): a ready-but-unbound self-heal stays empty, a
   bound one encodes (VK + spell id) and the slot-8 range probe is encoded;
@@ -227,9 +238,11 @@ LIVE WOW VERIFIED (owed - observe in a real client, Intelligence ON):
 Offline evidence is NEVER live proof. Mark every line below on the machine
 that ran retail: `LIVE VERIFIED` / `LIVE UNVERIFIED` / `LIVE FAILED`.
 OFFLINE VERIFIED (this session, do not re-claim live): build 0/0;
-`dotnet test` 440/440; `lua tests/secret_harness.lua` 94/94;
+`dotnet test` 571/571; `lua tests/secret_harness.lua` 153/153;
 `--ui-smoke-test` PASS (structural checks); `--bench-scheduler` sends=1620
-sha256=b71a999d5e46570e; replays 9/16/7 verdicts 0 mismatches;
+sha256=b71a999d5e46570e; 7 replays 0 mismatches (solo 9, defensive 16,
+offensive-interrupt 7, solo-hidden-hp 6, cooldown-reset 8, offensive-gapfill,
+ttk-warrior-burst 18);
 `tools/ability_audit.ps1` exit 0 (Violations 0 / Warnings 0 / Missing 0 /
 Stale 0; addon Catalog.lua matches).
 
@@ -286,6 +299,125 @@ Stale 0; addon Catalog.lua matches).
 22. Complete the §55 coverage report (`--ability-coverage`) after the run and
     record which class/spec lines were exercised.
 
+### 3e. TTK v3.6 dying-trash guard acceptance (live 12.1 retail, OWED)
+
+Offline evidence is the estimator/policy/curation tests plus the
+`ttk-trash-pack.jsonl` replay (6 mobs, each <5 s) and the unchanged legacy
+replays at 0 mismatches; that is never live proof. Observe in a real client
+with Intelligence ON, TTK guard ON (or observe the documented OFF collateral):
+
+1. **M+ trash → boss (no-hold check).** Clear a trash pack where individual
+   mobs die in <5 s, then pull the boss. During trash the major burst must be
+   **held** (`"fast pack, waiting for TTK"` after the second quick kill, or the
+   provisional waste hold); against the boss it must **fire normally** — the
+   latch must clear on the long fight (telemetry: no Major held vs the boss,
+   estimate valid and TTK ≥30 s). Confirm a kill-secure major still fires late
+   in a long fight (age ≥20 s, target ≤35%, TTK 3–20 s).
+2. **Dungeon tank Minor check.** As a tank with a short-CD Minor defensive,
+   confirm group-scope gating is conservative: a group Minor may only be held
+   when the estimate is valid <4 s, urgency is below Orange and the fast-pack
+   latch is set; group Major/Immunity must **never** be gated, and emergency HP
+   always overrides. (Rationale: enemy count is unobservable; the tank may be
+   dying to other mobs.)
+3. **Toggle semantics.** Confirm the hero/`/mdb` label reads **"TTK guard"**
+   and the tooltip says *OFF = cooldowns fire without dying-target protection*.
+   With it OFF, band 15 blanks the execute gate and Burst consumers as well as
+   the TTK gates (documented collateral); `[TimeToKill] Fallback=ConserveMajors`
+   holds an unknown-TTK major even with no latch.
+4. **No false holds.** Confirm a normal single-target boss pull (long, slow
+   decline) is never held by the grace hold/provisional path, and that the
+   kill-secure exception cannot fire before age 20 s.
+5. Record + export + replay the run: 0 mismatches for decisions and policy
+   verdicts (`ttkp`/latch fields included).
+
+### 3f. TTK v3.7 adaptive real-data history (live 12.1 retail, OWED)
+
+Offline evidence is `TtkEstimatorHistoryTests` (kill filter, window
+cap/prune/idle-clear, nearest-rank quantile, below-MinKills fail-open identity,
+blend weights, history-only provisional) and `TtkPolicyHistoryTests`
+(NeedAdaptive, `ttk-hist` hold/use, invalid-live restriction, carve-outs,
+consumable/trinket Burst release, `[TimeToKill]` parse/clamp, replay hk/hs
+reproduce) — never live proof. One history line: with Intelligence ON and
+`[TimeToKill] History=1`, clear a fast trash pack then pull a boss; the first
+~8.5 s of the boss may be held on the trash-learned rate (reason `ttk-hist`),
+then the live rate wins and the major fires. Telemetry carries `hk`/`hr`/`hs`/
+`hprov` and the replay report must read `adaptive-history reconstruction 0
+mismatch(es)`. `History=0` reproduces the pre-history behaviour exactly.
+
+### 3g. TTK v3.8 warmup + buff-aware gating (live 12.1 retail, OWED)
+
+Offline evidence is `TtkPolicyTests` (`BuffNeed` half-buff/cap-20/zero-fallback,
+`WarmupHoldHolds` young-unknown major hold, window close, valid/provisional/
+execute/AoE/minor/kill-secure carve-outs, binding-history release, provider
+Hold `"warming up TTK"` vs Use) and the regenerated `ttk-warrior-burst.jsonl`
+fixture (warmup holds from t=0, then the T1 hold, then the boss fire, 0
+mismatches). Never live proof. One live line: with Intelligence ON and
+`[TimeToKill]` defaults (WarmupSec=3), pull a target whose TTK is not yet
+measurable; a major is held `"warming up TTK"` for ~3 s after first sight, then
+the estimate/history takes over and the major fires on a long fight.
+`WarmupSec=0` reproduces the legacy fail-open exactly; the setting is recorded
+as `ttkw` and the replay must reproduce the hold.
+
+### 3h. Custom MaxDps 12.1 fork acceptance (live 12.1 retail, OWED)
+
+Offline evidence is static only — `luac -p addon/MaxDpsBridge/*.lua`, the T2
+fixture suite (`pwsh tests/sync/Sync-CustomMaxDps.Tests.ps1`) and the
+`MDB.MajorCDDeny` table — never live proof. There is no automated in-game test
+for the fork. Observe in a real client with the bridge 3.7.1 addon loaded
+(`/reload`, `/mdb status` shows `protocol=5`):
+
+1. **Avatar / Combustion no longer Main.** Play a Warrior and a Fire Mage with
+   the relevant major off cooldown; while MaxDps suggests the major, the MAIN
+   slot must **not** encode it (`MDB.GetMainSpellID` returns the next allowed
+   source or nil). Diagnostics/plan must never show a 2-3 min cooldown as the
+   Main rotation pick.
+2. **Offensive fires the moved CDs.** The same major must still fire through
+   the **Offensive** slot when ready and policy-Use (`Reader.GetOffensiveCandidate`
+   → `FirstFlagged("offensive")`), independent of the denied Main pick.
+3. **No stall on a denied AC pick.** Hold the rotation on an Assisted-Combat
+   pick that is denied: the bridge must fall through to the next allowed
+   source, and an empty Main must not block the Offensive candidate or latch a
+   hold. Confirm the next tick re-evaluates (a hold is non-latching) and the
+   rotation resumes with no extra delay.
+4. **Fork vs stock after `/reload`.** With the custom `out/` tree published
+   into `AddOns`, `/reload` and confirm the denylist is active (no major as
+   Main, Offensive still works); swap back to stock MaxDps, `/reload`, and
+   confirm the pre-fork behavior (major may be encoded as Main). This is the
+   A/B that proves the fork, not the companion, fixed it.
+5. Record + export + replay the run: 0 mismatches for decisions and policy
+   verdicts.
+
+Also OWED: the true 12.1 ids (fill `newSpellId` / refresh `MDB.MajorCDDeny`)
+and the `Sync-CustomMaxDps.ps1` publish + `_backup/` rollback end-to-end.
+Static ≠ automated test ≠ live in-game.
+
+### 3i. No-downtime MAIN / Fury fallback (live 12.1 retail, OWED)
+
+Offline evidence is `MainNoDowntimeTests` (Fury Rampage rage-blind fixture:
+`MainReprobeMs` ≤ 400, re-probe ≥ `MinKeyInterval`, never silent beyond
+`MainReprobeMs + MinKeyInterval`; a changed Main picks the next tick; 20
+stationary no-op ticks keep every gap; no filler is invented when `ranked==0`)
+plus the Q1 block in `lua tests/secret_harness.lua` (glowing∩usable scan,
+denied/power-starved fall-through, per-spec filler, fail-open on secret/nil/
+throw) — never live proof. Observe in a real client with a Fury Warrior and the
+bridge 3.7.1 addon loaded:
+
+1. **Rampage only at Rage ≥ 80.** While Rampage (184367) is suggested but the
+   player is below 80 Rage, it must **not** be pressed; the MAIN slot carries
+   the castable filler Bloodthirst (23881) instead of blanking.
+2. **No GCD gaps / no silent Main.** The rotation keeps a legal MAIN key every
+   tick: the gap between attempts never exceeds ~0.4 s (`MainReprobeMs`) plus
+   one `MinKeyInterval`, and a no-op press never latches a hold.
+3. **Alternate pressed.** When MaxDps swaps the MAIN suggestion to a different
+   spell id, the new identity is pressed on the next tick (the superseded
+   pick's backoff is dropped).
+4. Record + export + replay the run: 0 mismatches for decisions and policy
+   verdicts.
+
+Unlisted specs have no filler (MAIN may legitimately stay empty and are OWED);
+the Fury ids are verified by name against the read-only `vendor/` tree (see
+`addon/MaxDpsBridge/MainFallback.lua`). Static ≠ automated test ≠ live in-game.
+
 ## Benchmarks / diagnostics (no game)
 
 ```powershell
@@ -301,6 +433,14 @@ MaxDpsCompanion.exe --replay=<file.jsonl>        # deterministic decision replay
                                                  # --replay=tests\MaxDpsCompanion.Tests\fixtures\defensive-warrior-urgency.jsonl
                                                  # offensive-interrupt fixture (v2.6):
                                                  # --replay=tests\MaxDpsCompanion.Tests\fixtures\offensive-interrupt-warrior.jsonl
+                                                 # solo cooldown/reset fixture (r2):
+                                                 # --replay=tests\MaxDpsCompanion.Tests\fixtures\solo-cooldown-reset-warrior.jsonl
+                                                 # offensive gap-fill fixture (r1):
+                                                 # --replay=tests\MaxDpsCompanion.Tests\fixtures\offensive-gapfill-warrior.jsonl
+                                                 # TTK fixture (v3.2.0):
+                                                 # --replay=tests\MaxDpsCompanion.Tests\fixtures\ttk-warrior-burst.jsonl
+                                                 # TTK dying-trash fixture (v3.6):
+                                                 # --replay=tests\MaxDpsCompanion.Tests\fixtures\ttk-trash-pack.jsonl
 MaxDpsCompanion.exe --ability-audit=<path>         # registry audit report (Violations 0 / Warnings 0 / Missing 0 / Stale 0 enforced by tools/ability_audit.ps1, exit 3 when non-clean)
 MaxDpsCompanion.exe --ability-coverage=<path>      # v2.7 machine-readable coverage manifest (default ABILITY_COVERAGE.json)
 MaxDpsCompanion.exe --ability-info=<spellId>       # inspect one ability (writes ability-info.txt + stdout)

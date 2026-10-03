@@ -1,0 +1,34 @@
+MaxDps Companion rotation replay
+file       : tests\MaxDpsCompanion.Tests\fixtures\offensive-gapfill-warrior.jsonl
+format     : 1
+events     : 4 (tick 2, send 1, link 0, session 1, bad 0)
+span       : 0.000s .. 1.300s (1.300s)
+decisions  : 0 recorded
+verdicts   : 2 policy verdicts recomputed, 0 mismatch(es)
+catalog    : recorded v3, current v3
+decode errs: 0
+mismatches : 0
+
+t=0.000s  session  app=3.0.0 proto=5 capacity=10000 start
+t=1.000s  send  spell Offensive R  interval=0ms
+t=1.000s  tick #0  Active  hb=1  target=yes  gcd=no  link=yes  note="offensive gap-fill in combat"
+  slots   : Main=-  Off=R  Def=-  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=-
+  cand    : Offensive  R      enabled actionable  age=0.000s unchanged=0.000s pressed=no
+  decision: Offensive -> OffensiveCooldown (60%)
+  policy  : OffensiveCooldown -> Offensive  held=0 skipped=0 suppressed=0
+  verdict : Offensive  spell=1719     Use  offensive candidate; no conflict observed  [Offensive]  why: no conflict observed
+  timing  : last send spell Offensive R 0ms ago
+t=1.300s  tick #0  Active  hb=2  target=yes  gcd=no  link=yes  note="offensive gap-fill out of combat"
+  slots   : Main=-  Off=R  Def=-  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=-
+  cand    : Offensive  R      enabled actionable  age=0.300s unchanged=0.300s pressed=no
+  decision: Offensive -> OffensiveCooldown (60%)
+  policy  : PolicyHold  held=1 skipped=0 suppressed=0  "offensive gap-fill out of combat (solo off)"
+  verdict : Offensive  spell=1719     Hold offensive gap-fill out of combat (solo off)  [Offensive]  why: out of combat (offensive gap-fill)
+  timing  : last send spell Offensive R 300ms ago
+
+summary
+  reasons : -
+  policy  : OffensiveCooldown 1, PolicyHold 1
+  sends   : spell 1
+  faults  : -
+  notes   : offensive gap-fill in combat 1, offensive gap-fill out of combat 1

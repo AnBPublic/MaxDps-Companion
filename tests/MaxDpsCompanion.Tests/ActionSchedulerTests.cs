@@ -59,6 +59,7 @@ public class ActionSchedulerTests
     private static ScheduleInput Input(long now, BridgeFrame? frame, params ActionCandidate[] candidates) => new()
     {
         Frame = frame,
+        OutOfCombatPermitted = true,
         Candidates = candidates,
         NowMs = now,
         MinKeyIntervalMs = 120,

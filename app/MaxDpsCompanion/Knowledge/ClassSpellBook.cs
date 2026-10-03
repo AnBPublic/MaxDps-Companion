@@ -260,10 +260,14 @@ internal sealed class ClassSpellBook
         "FlightMastersLicense", "ColdWeatherFlying", "CloudSerpentRiding",
         "WorkingOvertime", "Reinforce", "FastTrack", "BountifulBags", "Mr.Popularity",
         "Bartering", "HonorableMention", "ForGreatJustice", "Command", "BattleFatigue",
-        "ArcaneResistance", "BloodFury", "Hardiness", "AxeSpecialization", "MaceSpecialization",
+        // Catalogued racial actives (BloodFury/Berserking/ArcaneTorrent/
+        // GiftOfTheNaaru/Stoneform) are deliberately NOT junk: curated
+        // scope=Racial rows carry them. Only racial PASSIVES / manual dispels
+        // remain filtered here.
+        "ArcaneResistance", "Hardiness", "AxeSpecialization", "MaceSpecialization",
         "LeatherSpecialization", "Vitality", "Ruthlessness", "TitheEvasion", "SpellWarding",
-        "ArcaneAffinity", "ArcaneTorrent", "GiftOfTheNaaru", "Berserking", "WillOfTheForsaken",
-        "Stoneform", "EscapeArtist", "EveryManForHimself", "Perception",
+        "ArcaneAffinity", "WillOfTheForsaken",
+        "EscapeArtist", "EveryManForHimself", "Perception",
         // Old-content / achievement / convenience tokens.
         "VindicaarMatrixCrystal", "TheQuickandtheDead", "GuildMail", "HastyHearth",
         "ReviveBattlePets", "MountUp", "MobileBanking", "PackHobgoblin", "TimeisMoney",
