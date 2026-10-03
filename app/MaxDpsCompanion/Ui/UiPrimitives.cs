@@ -204,7 +204,9 @@ internal sealed class PageHeader : Control
         Text = title;
         _subtitle = subtitle;
         Dock = DockStyle.Top;
-        Height = 72;
+        // Two subtitle lines (M-route): the old 72px/EndEllipsis header clipped
+        // long rubrik subtitles at the 660 default. 84px + WordBreak wraps.
+        Height = 84;
         SetStyle(ControlStyles.ResizeRedraw | ControlStyles.SupportsTransparentBackColor, true);
         BackColor = Color.Transparent;
         AccessibleRole = AccessibleRole.StaticText;
@@ -220,8 +222,8 @@ internal sealed class PageHeader : Control
             TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
         if (_subtitle.Length > 0)
             TextRenderer.DrawText(e.Graphics, _subtitle, DesignTokens.Type(DesignTokens.BodySize),
-                new Rectangle(0, 42, Width, 22), DesignTokens.TextSecondary,
-                TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
+                new Rectangle(0, 42, Width, Math.Max(22, Height - 44)), DesignTokens.TextSecondary,
+                TextFormatFlags.Left | TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix);
     }
 }
 
@@ -235,7 +237,9 @@ internal sealed class GlassCard : Panel, IUiContentHost, IUiMeasured
 {
     private const int ShellInset = 5;
     private const int CoreInset = 13;
-    private const int HeaderHeight = 68;
+    // 88 (was 68) leaves two wrapped title lines clear of the header rule so a
+    // long card title no longer ellipsises at the 660 default (M-route).
+    private const int HeaderHeight = 88;
 
     public string Title { get; }
     public string Eyebrow { get; }
@@ -320,8 +324,8 @@ internal sealed class GlassCard : Panel, IUiContentHost, IUiMeasured
         if (!string.IsNullOrEmpty(eyebrow))
             Ui.DrawTracked(e.Graphics, eyebrow, eyebrowFont, new Point(textLeft, ShellInset + CoreInset + 4), DesignTokens.Accent);
         TextRenderer.DrawText(e.Graphics, Title, DesignTokens.Section,
-            new Rectangle(textLeft, ShellInset + CoreInset + 20, Math.Max(10, textRight - textLeft), 24), DesignTokens.TextPrimary,
-            TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
+            new Rectangle(textLeft, ShellInset + CoreInset + 20, Math.Max(10, textRight - textLeft), 40), DesignTokens.TextPrimary,
+            TextFormatFlags.Left | TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix);
 
         var ruleY = ShellInset + HeaderHeight - 1;
         using var rule = new Pen(DesignTokens.Hairline, 1F);

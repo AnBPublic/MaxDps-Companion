@@ -989,23 +989,8 @@ internal sealed class MainForm : Form
         return new ToggleRowPanel(left, right) { Dock = DockStyle.Fill, Margin = Padding.Empty };
     }
 
-    /// <summary>
-    /// One full-width single-toggle Modes row (v3.2.0 Time-to-kill). Measured by
-    /// <see cref="HeroRowHeight"/>'s <see cref="SettingRow"/> case.
-    /// </summary>
-    private SettingRow SingleToggleRow(string title, string hint, ToggleSwitch toggle)
-    {
-        toggle.AccessibleName = title;
-        toggle.AccessibleDescription = hint;
-        var row = new SettingRow(title, hint, toggle)
-        {
-            Dock = DockStyle.Fill,
-            Margin = new Padding(4, 2, 4, 2),
-            AlternateFill = false,
-        };
-        _heroSettingRows.Add(row);
-        return row;
-    }
+    // M-route cleanup: SingleToggleRow removed (dead since the two-toggle hero
+    // rows absorbed every Modes entry).
 
     private Control BuildButtonRow1()
     {
@@ -1262,7 +1247,7 @@ internal sealed class MainForm : Form
 
     private Panel BuildAdvancedOverlay()
     {
-        var (scrim, tabs, popup) = BuildPopup("Advanced", 620, onClose: HideAdvanced);
+        var (scrim, tabs, popup) = BuildUnifiedPopup("Advanced", 620, onClose: HideAdvanced);
         _advancedTabs = tabs;
         _advancedPopup = popup;
         AddTab(tabs, "Configuration", _config);
@@ -1273,7 +1258,7 @@ internal sealed class MainForm : Form
 
     private Panel BuildAbilitiesOverlay()
     {
-        var (scrim, tabs, popup) = BuildPopup("Class browser", 900, onClose: HideAbilities);
+        var (scrim, tabs, popup) = BuildUnifiedPopup("Class browser", 900, onClose: HideAbilities);
         _abilitiesTabs = tabs;
         _abilitiesPopup = popup;
         // S6: one Class Browser replaces the separate Class skills + Explorer
@@ -1295,11 +1280,13 @@ internal sealed class MainForm : Form
     }
 
     /// <summary>
-    /// Opaque scrim + centred card (width min(client-40, <paramref name="maxWidth"/>),
-    /// height client-60) with the single popup header (title + Back) and a
-    /// segmented tab host.
+    /// THE unified mask shell (M-route). Opaque full-window scrim + centred
+    /// RoundedCard (client-24 x client-24, min 360x280), one popup header and a
+    /// SegmentedTabs host, so every mask reuses the main-window tokens.
+    /// Usage: <c>var (scrim, tabs, popup) = BuildUnifiedPopup("Title", 900, onClose);</c>
+    /// All future masks MUST call this helper rather than rolling a new shell.
     /// </summary>
-    private (Panel Scrim, SegmentedTabs Tabs, RoundedCard Popup) BuildPopup(string title, int maxWidth, Action onClose)
+    private (Panel Scrim, SegmentedTabs Tabs, RoundedCard Popup) BuildUnifiedPopup(string title, int maxWidth, Action onClose)
     {
         var scrim = new Panel
         {
@@ -1375,8 +1362,13 @@ internal sealed class MainForm : Form
 
         void Center()
         {
-            var w = Math.Min(maxWidth, Math.Max(360, scrim.ClientSize.Width - 40));
-            var h = Math.Max(280, scrim.ClientSize.Height - 60);
+            // M-route: fill the scrim minus a 24px edge (type/padding still
+            // track the tier via ApplyPopupScale). The old 40/60 dead margin
+            // capped Advanced at 620 and left Abilities short of its 900
+            // maxWidth on a roomy window (scrimW-40 < 900).
+            const int edge = 24;
+            var w = Math.Min(maxWidth, Math.Max(360, scrim.ClientSize.Width - edge));
+            var h = Math.Max(280, scrim.ClientSize.Height - edge);
             var size = new Size(w, h);
             var location = new Point(
                 Math.Max(0, (scrim.ClientSize.Width - w) / 2),
@@ -1606,9 +1598,9 @@ internal sealed class MainForm : Form
     {
         page.AddCard("Automation", "Engine").Add(Stack(
             (CheckRow(_scheduler), 30),
-            (Hint("On = deterministic ordering and pacing: frozen-heartbeat link hold, interrupt/defensive urgency, GCD and key-interval gates. Off = legacy loop."), 0),
+            (HintTip("Smooth, ordered casts. Off = old loop.", "On = deterministic ordering and pacing: frozen-heartbeat link hold, interrupt/defensive urgency, GCD and key-interval gates. Off = legacy loop."), 0),
             (CheckRow(_intelligence), 30),
-            (Hint("Evaluates every situational suggestion USE / HOLD / SKIP against the ability knowledge base and live combat context. The main rotation is never gated."), 0)));
+            (HintTip("Grades situational abilities USE/HOLD/SKIP.", "Evaluates every situational suggestion USE / HOLD / SKIP against the ability knowledge base and live combat context. The main rotation is never gated."), 0)));
 
         page.AddCard("Combat", "Slots").Add(TwoCol(64,
             RowFor("Main rotation", "Your damage rotation - MaxDps decides", _mainAdv),
@@ -1622,12 +1614,12 @@ internal sealed class MainForm : Form
 
         page.AddCard("Safety", "Modes").Add(Stack(
             (CheckRow(_solo), 30),
-            (Hint("Requires Combat intelligence. Below 65% HP efficient self-heals become eligible; below 35% HP survival actions outrank damage. Emergency cooldowns are preserved while HP is safe."), 0),
+            (HintTip("Self-heal below 65% HP; survival outranks damage below 35%.", "Requires Combat intelligence. Below 65% HP efficient self-heals become eligible; below 35% HP survival actions outrank damage. Emergency cooldowns are preserved while HP is safe."), 0),
             (_soloBands, 0),
             (CheckRow(_combatOnly), 30),
             (Hint("When on, the companion only acts while you are in combat."), 0),
             (_ccToggle, 0),
-            (Hint("Crowd control is opt-in (default off). ON allows curated stuns on a confirmed target with DR protection; the in-game toggle can only restrict."), 0)));
+            (HintTip("Opt-in stuns on a confirmed target. Overlay can only restrict.", "Crowd control is opt-in (default off). ON allows curated stuns on a confirmed target with DR protection; the in-game toggle can only restrict."), 0)));
 
         page.AddCard("Targeting", "Assist").Add(Stack(
             (ToggleField("Auto-target (press Target key)", _autoTargetAdv), 38),
@@ -1638,11 +1630,11 @@ internal sealed class MainForm : Form
         page.AddCard("Input", "Keys").Add(Stack(
             (Ui.FieldRow("Pause hotkey", _pauseHotkey), 38),
             (CheckRow(_allowBackground), 30),
-            (Hint("Keyboard slots keep working while the game is in the background; mouse/interact always need focus."), 0)));
+            (HintTip("Keyboard fires in background; mouse needs focus.", "Keyboard slots keep working while the game is in the background; mouse/interact always need focus."), 0)));
 
         page.AddCard("Bridge", "Attach").Add(Stack(
             (Ui.FieldRow("Game process", _processName), 38),
-            (Hint("Which game window to attach to (without .exe). Recalibrate locates the strip; the engine re-aligns automatically if it moves."), 0)));
+            (HintTip("Game window to attach to. Recalibrate finds the strip.", "Which game window to attach to (without .exe). Recalibrate locates the strip; the engine re-aligns automatically if it moves."), 0)));
 
         page.AddCard("Advanced", "Tools").Add(ButtonsRow(44, _classSkillsEntryBtn(), _openFolderAdvConfig));
     }
@@ -1689,7 +1681,7 @@ internal sealed class MainForm : Form
         _castAuditLoad.Click += (_, _) => LoadCastAudit();
         page.AddCard("Telemetry", "Recording").Add(Stack(
             (CheckRow(_telemetry), 30),
-            (Hint("Bounded in-memory JSONL ring: decoded keybinds, state flags and timing only. No network, no Blizzard values."), 0),
+            (HintTip("In-memory timing log only. No network, no Blizzard values.", "Bounded in-memory JSONL ring: decoded keybinds, state flags and timing only. No network, no Blizzard values."), 0),
             (ButtonsRow(40, _telemetryExport, _telemetryReplay, _castAuditLoad), 40),
             (StatusLabel(_telemetryStatus), 24),
             (_castAuditView, 0)));
@@ -1728,7 +1720,7 @@ internal sealed class MainForm : Form
             (ButtonsRow(40, _doctorRefresh), 40),
             (_doctorValue, 44),
             (buildIdentity, 0),
-            (Hint("Checks the exe build vs HEAD, configured vs emitted cell size, the app mask vs the Ext3 mirror and the addon version."), 0)));
+            (HintTip("Checks build, cell size, toggle mask and addon version.", "Checks the exe build vs HEAD, configured vs emitted cell size, the app mask vs the Ext3 mirror and the addon version."), 0)));
         RefreshInstallDoctor();
 
         // The decoded bridge strip lives here now (moved off the hero card).
@@ -1750,7 +1742,7 @@ internal sealed class MainForm : Form
         page.AddCard("Battle.net / tools", "Launch").Add(Stack(
             (Ui.FieldRow("BNet path", _bnetPath), 38),
             (ButtonsRow(40, _bnetBrowse, _launchGameAdv, _openFolderAdvDiag), 40),
-            (Hint("Launch Game opens Battle.net for WoW. No credentials are stored - the launcher's remembered account is used."), 0)));
+            (HintTip("Opens Battle.net for WoW. No credentials stored.", "Launch Game opens Battle.net for WoW. No credentials are stored - the launcher's remembered account is used."), 0)));
     }
 
     /// <summary>
@@ -1840,16 +1832,33 @@ internal sealed class MainForm : Form
     {
         Text = text,
         AutoSize = true,
-        MaximumSize = new Size(860, 0),
+        // M-route: a card-inner wrap width, not a fixed 860. The stack min()s
+        // this with the real card width, so 660-tier text wraps without clip.
+        MaximumSize = new Size(800, 0),
         Font = DesignTokens.Type(DesignTokens.BodySize),
         ForeColor = DesignTokens.TextSecondary,
         BackColor = Color.Transparent,
         Margin = new Padding(0, 0, 0, 2),
     };
 
+    /// <summary>
+    /// M-route: a short visible line (<=12 words) with the full sentence kept in
+    /// the owned tooltip + accessible description, so cards stay scannable
+    /// without losing the detail.
+    /// </summary>
+    private Label HintTip(string shortText, string fullDetail)
+    {
+        var label = Hint(shortText);
+        label.AccessibleDescription = fullDetail;
+        _liveTip.SetToolTip(label, fullDetail);
+        return label;
+    }
+
     private static Control CheckRow(CheckBox box)
     {
         box.AutoSize = true;
+        // M-route: long labels wrap inside the card rather than clipping.
+        box.MaximumSize = new Size(800, 0);
         box.ForeColor = DesignTokens.TextPrimary;
         box.BackColor = Color.Transparent;
         box.Font = DesignTokens.Type(DesignTokens.BodySize);
@@ -1913,15 +1922,8 @@ internal sealed class MainForm : Form
         return new SettingRow(title, subtitle, toggle) { Dock = DockStyle.None, Margin = Padding.Empty };
     }
 
-    private void ShowClassSkills()
-    {
-        if (_classSkills is null) return;
-        ShowAbilities();
-        _abilitiesTabs.SelectedIndex = 0;
-        _classSkills.Open(
-            _engine.TryGetLiveClass(out var className) ? className : null,
-            _engine.TryGetLiveSpec(out var specName) ? specName : null);
-    }
+    // M-route cleanup: ShowClassSkills removed (dead; the single Class browser
+    // tab is reached via ShowAbilities/ShowAbilitiesWithPreset).
 
     // ----- app icon -----
 

@@ -17,7 +17,9 @@ internal static class ConsolePalette
     public static readonly Color Keyline = Color.FromArgb(0x3A, 0x4A, 0x52);
     public static readonly Color Bone = Color.FromArgb(0xE9, 0xE3, 0xD3);
     public static readonly Color Tidewash = Color.FromArgb(0x93, 0xA5, 0xAE);
-    public static readonly Color Brass = Color.FromArgb(0xC6, 0x9A, 0x3F);
+    // M-route: one brass accent. The console palette now reuses the shell
+    // token so ConsoleHome / ChamferButton and the popups cannot drift apart.
+    public static readonly Color Brass = DesignTokens.Accent;
     public static readonly Color Ember = Color.FromArgb(0xB2, 0x3A, 0x2C);
     public static readonly Color EmberLight = Color.FromArgb(0xE0, 0x68, 0x4E);
 
@@ -272,70 +274,8 @@ internal sealed class ChamferButton : Button
     }
 }
 
-/// <summary>
-/// Double-bezel section: an outer hairline shell with concentric inner content
-/// (outer 12px radius, inner 8px), eyebrow-tag title, hairline rule.
-/// Sections read as machined plates, never flat boxes on the background.
-/// </summary>
-internal sealed class RuleSection : Panel
-{
-    private string _title = "";
-
-    public string SectionTitle
-    {
-        get => _title;
-        set { _title = value; Invalidate(); }
-    }
-
-    public RuleSection()
-    {
-        Padding = new Padding(10, 34, 10, 10);
-        BackColor = Color.Transparent;
-        SetStyle(ControlStyles.ResizeRedraw, true);
-    }
-
-    private static GraphicsPath Squircle(Rectangle r, int radius)
-    {
-        var path = new GraphicsPath();
-        var d = radius * 2;
-        path.AddArc(r.Left, r.Top, d, d, 180, 90);
-        path.AddArc(r.Right - d - 1, r.Top, d, d, 270, 90);
-        path.AddArc(r.Right - d - 1, r.Bottom - d - 1, d, d, 0, 90);
-        path.AddArc(r.Left, r.Bottom - d - 1, d, d, 90, 90);
-        path.CloseFigure();
-        return path;
-    }
-
-    protected override void OnPaint(PaintEventArgs e)
-    {
-        // Outer shell: faint fill + hairline, 12px concentric radius.
-        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        var outer = new Rectangle(1, 1, Math.Max(1, Width - 2), Math.Max(1, Height - 2));
-        using var outerPath = Squircle(outer, 12);
-        using var shell = new SolidBrush(Color.FromArgb(14, 255, 255, 255));
-        e.Graphics.FillPath(shell, outerPath);
-        using var hairline = new Pen(Color.FromArgb(28, 255, 255, 255), 1F);
-        e.Graphics.DrawPath(hairline, outerPath);
-
-        // Eyebrow tag: microscopic wide-tracked label with brass tick.
-        using var tick = new SolidBrush(ConsolePalette.Brass);
-        e.Graphics.FillRectangle(tick, 12, 10, 6, 6);
-        using var font = new Font(MainForm.UiFontPublic, 9F, FontStyle.Bold);
-        using var text = new SolidBrush(ConsolePalette.Bone);
-        // Wide tracking for the eyebrow feel: draw with extra spacing via format.
-        e.Graphics.DrawString(SectionTitle.ToUpperInvariant(), font, text, 24, 6);
-        var size = e.Graphics.MeasureString(SectionTitle.ToUpperInvariant(), font);
-        var y = 17;
-        var x1 = 24 + (int)Math.Ceiling(size.Width) + 12;
-        if (x1 < Width - 12)
-        {
-            using var pen = new Pen(ConsolePalette.Keyline, 1F);
-            e.Graphics.DrawLine(pen, x1, y, Width - 12, y);
-        }
-
-        base.OnPaint(e);
-    }
-}
+// M-route cleanup: RuleSection removed (zero call sites; GlassCard/section
+// headers own this surface now).
 
 internal sealed class TitleBarButton : UiClickable
 {
@@ -857,33 +797,8 @@ internal sealed class ToggleSwitch : UiClickable
     }
 }
 
-internal sealed class StatusDot : Control
-{
-    private Color _dot = Color.FromArgb(71, 230, 148);
-
-    /// <summary>Dot colour. Default is the PRP running-green.</summary>
-    public Color Dot
-    {
-        get => _dot;
-        set { _dot = value; Invalidate(); }
-    }
-
-    public StatusDot()
-    {
-        DoubleBuffered = true;
-        SetStyle(ControlStyles.SupportsTransparentBackColor, true);
-        BackColor = Color.Transparent;
-    }
-
-    protected override void OnPaint(PaintEventArgs e)
-    {
-        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        using var glow = new SolidBrush(Color.FromArgb(55, _dot.R, _dot.G, _dot.B));
-        using var dot = new SolidBrush(_dot);
-        e.Graphics.FillEllipse(glow, 1, Height / 2 - 8, 16, 16);
-        e.Graphics.FillEllipse(dot, 5, Height / 2 - 4, 8, 8);
-    }
-}
+// M-route cleanup: StatusDot removed (zero call sites; LinkLamp/pills carry
+// status with a glyph or word, never colour alone).
 
 // ----- classic (v1.3.9) restored primitives -----
 

@@ -441,7 +441,9 @@ internal sealed class VirtualAbilityList : Control
         var enabled = ability.Automatable;
         var track = new Rectangle(r.X - 12, r.Y, 34, 22);
         using var path = Ui.Rounded(track, 11);
-        using var fill = new SolidBrush(!enabled ? DesignTokens.Disabled : on ? DesignTokens.Success : DesignTokens.TextMuted);
+        // M-route: match ToggleSwitch exactly (brass ON / border OFF) instead of
+        // the old green/muted repaint, so list rows and settings read as one.
+        using var fill = new SolidBrush(!enabled ? DesignTokens.Disabled : on ? DesignTokens.Accent : DesignTokens.Border);
         g.FillPath(fill, path);
         var thumb = new Rectangle(on ? track.Right - 18 : track.X + 2, track.Y + 2, 18, 18);
         using var thumbFill = new SolidBrush(Color.White);
