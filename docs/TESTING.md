@@ -344,6 +344,20 @@ then the live rate wins and the major fires. Telemetry carries `hk`/`hr`/`hs`/
 `hprov` and the replay report must read `adaptive-history reconstruction 0
 mismatch(es)`. `History=0` reproduces the pre-history behaviour exactly.
 
+### 3g. TTK v3.8 warmup + buff-aware gating (live 12.1 retail, OWED)
+
+Offline evidence is `TtkPolicyTests` (`BuffNeed` half-buff/cap-20/zero-fallback,
+`WarmupHoldHolds` young-unknown major hold, window close, valid/provisional/
+execute/AoE/minor/kill-secure carve-outs, binding-history release, provider
+Hold `"warming up TTK"` vs Use) and the regenerated `ttk-warrior-burst.jsonl`
+fixture (warmup holds from t=0, then the T1 hold, then the boss fire, 0
+mismatches). Never live proof. One live line: with Intelligence ON and
+`[TimeToKill]` defaults (WarmupSec=3), pull a target whose TTK is not yet
+measurable; a major is held `"warming up TTK"` for ~3 s after first sight, then
+the estimate/history takes over and the major fires on a long fight.
+`WarmupSec=0` reproduces the legacy fail-open exactly; the setting is recorded
+as `ttkw` and the replay must reproduce the hold.
+
 ## Benchmarks / diagnostics (no game)
 
 ```powershell

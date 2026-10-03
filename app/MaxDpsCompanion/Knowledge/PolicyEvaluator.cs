@@ -122,6 +122,17 @@ internal sealed class PolicyOptions
     /// <summary>v3.7: adaptive-need duration factor.</summary>
     public double TtkHistoryDurFactor { get; init; } = TtkPolicy.DefaultNeedDurFactor;
 
+    /// <summary>
+    /// v3.8 TTK-aware cooldown gating: hold a major offensive for this many
+    /// seconds after first sight while the target TTK is unknown
+    /// (<c>[TimeToKill] WarmupSec</c>, clamp 0..10). The default is 0 = legacy
+    /// fail-open, so manually-built options (tests / older replays) keep the
+    /// pre-warmup behaviour; <see cref="FromSettings"/> carries the app's
+    /// configured default. Non-zero values are recorded in telemetry and
+    /// rebuilt by the replay runner.
+    /// </summary>
+    public double TtkWarmupSec { get; init; }
+
     public static PolicyOptions Standard { get; } = new();
 
     public static PolicyOptions FromSettings(AppSettings settings) => new()
@@ -144,6 +155,7 @@ internal sealed class PolicyOptions
         TtkHistoryMaxAgeSec = settings.TimeToKillHistoryMaxAgeSec,
         TtkHistoryQuantile = settings.TimeToKillHistoryQuantile,
         TtkHistoryDurFactor = settings.TimeToKillHistoryDurFactor,
+        TtkWarmupSec = settings.TimeToKillWarmupSec,
     };
 
     /// <summary>

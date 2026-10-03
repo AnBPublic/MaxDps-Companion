@@ -362,7 +362,7 @@ public class TtkPolicyHistoryTests
         Assert.True(ctx.TtkHistProvisional);
     }
 
-    // ----- a zero cooldown/duration keeps the base need (activeDur = 0) -----
+    // ----- a zero buff duration keeps the base need (buffDur = 0) -----
 
     [Fact]
     public void Zero_Cooldown_Active_Duration_Keeps_Base_Need()
@@ -370,11 +370,14 @@ public class TtkPolicyHistoryTests
         Assert.Equal(10.0, TtkPolicy.NeedAdaptive(10, 0, 0.5), 6);
 
         var ability = Offensive(OffensiveUsage.WindowDriven, cooldownMs: 0, durationMs: 0);
-        var activeDurSec = (TtkPolicy.TwoUsesFactor * (double)ability.CooldownMs + ability.DurationMs) / 1000.0;
-        Assert.Equal(0.0, activeDurSec, 6);
+        // v3.8: the adaptive need now reads the ability's own BUFF duration, not
+        // the T2 second-use window; a zero duration keeps the base need.
+        var buffDurSec = ability.DurationMs > 0 ? ability.DurationMs / 1000.0 : 0.0;
+        Assert.Equal(0.0, buffDurSec, 6);
+        Assert.Equal(TtkPolicy.MinTtkSec(ability), TtkPolicy.BuffNeed(ability, 0.5), 6);
         // base need stays 10 s: 9 s holds, exactly 10 s uses.
-        Assert.True(TtkPolicy.WasteGuardHolds(ability, HistCombat(9), activeDurSec, 0.5));
-        Assert.False(TtkPolicy.WasteGuardHolds(ability, HistCombat(10), activeDurSec, 0.5));
+        Assert.True(TtkPolicy.WasteGuardHolds(ability, HistCombat(9), buffDurSec, 0.5));
+        Assert.False(TtkPolicy.WasteGuardHolds(ability, HistCombat(10), buffDurSec, 0.5));
     }
 
     // ----- telemetry export: hr/hprov beside hk/hs -----

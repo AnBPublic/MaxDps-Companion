@@ -271,6 +271,9 @@ internal static class ReplayRunner
                                     // v3.6.0 additive: absent on legacy records ->
                                     // FailOpen, the behaviour they were recorded with.
                                     TimeToKillFallback = ParseEnum(pendingOptions.TtkFallback, TtkPolicy.DefaultFallback),
+                                    // v3.8: absent on legacy records -> 0 (warmup off,
+                                    // the behaviour they were recorded with).
+                                    TtkWarmupSec = pendingOptions.TtkWarmupSec ?? 0,
                                 };
                             var pendingCatalog = replayCatalog ??= AbilityCatalog.Default;
                             foreach (var recordedVerdict in pendingVerdicts)

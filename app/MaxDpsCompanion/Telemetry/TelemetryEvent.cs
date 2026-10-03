@@ -212,6 +212,15 @@ internal sealed record TelemetryOptions
     [JsonPropertyName("thd")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public double? TtkHistoryDurFactor { get; init; }
+
+    /// <summary>
+    /// v3.8 additive: [TimeToKill] WarmupSec; omitted at 0 (legacy fail-open) so
+    /// legacy lines replay unchanged. Replay rebuilds the warmup hold from this
+    /// value.
+    /// </summary>
+    [JsonPropertyName("ttkw")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? TtkWarmupSec { get; init; }
 }
 
 /// <summary>
@@ -602,6 +611,9 @@ internal sealed record TelemetryEvent
                 TtkHistoryMaxAgeSec = options.TtkHistoryMaxAgeSec == 240 ? null : options.TtkHistoryMaxAgeSec,
                 TtkHistoryQuantile = options.TtkHistoryQuantile == 75 ? null : options.TtkHistoryQuantile,
                 TtkHistoryDurFactor = options.TtkHistoryDurFactor == 0.5 ? null : options.TtkHistoryDurFactor,
+                // v3.8: record the warmup window so replay reproduces the hold;
+                // omitted at 0 (legacy) so default lines are unchanged.
+                TtkWarmupSec = options.TtkWarmupSec == 0 ? null : options.TtkWarmupSec,
             },
             Verdicts = verdicts,
         };

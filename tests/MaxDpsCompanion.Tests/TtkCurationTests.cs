@@ -150,8 +150,12 @@ namespace MaxDpsCompanion.Tests;
         Assert.Equal(30, Int(byId[42650], "minTtkSec"));
 
         // The other summons keep the Summon tier default, stated explicitly.
-        foreach (var id in new[] { 1122, 34433, 49206, 205180, 265187 })
+        foreach (var id in new[] { 1122, 34433, 49206, 205180 })
             Assert.Equal(20, Int(byId[id], "minTtkSec"));
+
+        // v3.8 retune: Demonic Tyrant's 15 s buff needs only 12 s of fight to
+        // cover half of it, so its curated minimum dropped 20 -> 12.
+        Assert.Equal(12, Int(byId[265187], "minTtkSec"));
 
         // 45-75s short cooldowns read as waste-safe at the ShortCooldown default.
         foreach (var id in new[] { 207289, 375982 })

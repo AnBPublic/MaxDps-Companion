@@ -293,17 +293,18 @@ internal sealed class OffensiveCandidateProvider : ICandidateProvider
         // MaxDps-sourced and companion gap-fill offensives; MaxDps simply
         // re-suggests next tick, so there is no lockout. An unknown TTK fails
         // open (never holds).
-        // activeDurSec is the provider's T2 value: the full second-use window
-        // (2·cooldown + duration). It feeds the v3.7 adaptive need so a long
-        // cooldown is held until the fight is expected to cover its own
-        // duration. Computed here because the ability carries both components.
-        var activeDurSec = (TtkPolicy.TwoUsesFactor * (double)ability.CooldownMs + ability.DurationMs) / 1000.0;
-        if (TtkPolicy.WasteGuardHolds(ability, ctx, activeDurSec, ctx.TtkHistDurFactor))
+        // buffDurSec is the v3.8 buff-aware need input: the ability's own
+        // *buff duration* (curated DurationMs / 1000, 0 when absent), NOT the
+        // T2 second-use window. The history branch compares the learned fight
+        // length against max(MinTtk, min(durFactor·buffDur, 20)) — the research
+        // 1/2 rule — so a long buff is held until the fight can cover it.
+        var buffDurSec = ability.DurationMs > 0 ? ability.DurationMs / 1000.0 : 0.0;
+        if (TtkPolicy.WasteGuardHolds(ability, ctx, buffDurSec, ctx.TtkHistDurFactor))
         {
             var need = TtkPolicy.MinTtkSec(ability);
-            if (TtkPolicy.HistoryWasteGuardHolds(ability, ctx, activeDurSec, ctx.TtkHistDurFactor))
+            if (TtkPolicy.HistoryWasteGuardHolds(ability, ctx, buffDurSec, ctx.TtkHistDurFactor))
             {
-                var needAdapt = TtkPolicy.NeedAdaptive(need, activeDurSec, ctx.TtkHistDurFactor);
+                var needAdapt = TtkPolicy.NeedAdaptive(need, buffDurSec, ctx.TtkHistDurFactor);
                 return D(PolicyDecision.Hold(
                         $"ttk-hist: target ~{ctx.TtkHistSec:0.#}s to die; saving {ability.Name} (needs {needAdapt:0.#}s)"),
                     src, $"ttk-hist {ctx.TtkHistSec:0.#}s below adaptive {needAdapt:0.#}s");
@@ -324,6 +325,17 @@ internal sealed class OffensiveCandidateProvider : ICandidateProvider
         if (TtkPolicy.GraceHoldHolds(ability, ctx, p.Fallback))
             return D(PolicyDecision.Hold(TtkPolicy.GraceHoldReason),
                 src, "fast pack (unknown TTK, latch set, age < 4s)");
+
+        // Warmup hold (v3.8, spec §1/§2): while the target's TTK is still
+        // unknown and the target was first seen less than [TimeToKill]
+        // WarmupSec ago, hold a major offensive rather than spending a full
+        // cooldown on something that may die before an estimate exists. Sits
+        // after the fast-pack grace hold and before the gap-fill/pair gates.
+        // Restricted to the provisional-eligible majors and fails open on every
+        // carve-out (execute, kill-secure, zero need, binding-long history).
+        if (TtkPolicy.WarmupHoldHolds(ability, ctx, p.Options.TtkWarmupSec, ctx.TtkHistDurFactor))
+            return D(PolicyDecision.Hold(TtkPolicy.WarmupHoldReason),
+                src, $"TTK unknown, target age < {p.Options.TtkWarmupSec:0.#} s");
 
         // A companion offensive gap-fill never fires out of combat in Normal
         // mode — Solo mode is the only out-of-combat path (mirrors the

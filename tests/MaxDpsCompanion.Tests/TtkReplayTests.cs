@@ -61,7 +61,9 @@ public class TtkReplayTests
             var estimate = estimator.Update(now, frame.HasTarget, frame.TargetHpPct >= 0,
                 TtkEstimator.BandFromPercent(frame.TargetHpPct));
             var combat = CombatContext.FromFrame(frame).WithTtk(estimate);
-            var options = new PolicyOptions { SoloEnabled = solo };
+            // v3.8: the warmup hold is opt-in in PolicyOptions; the app enables
+            // it by default via FromSettings. Record it so replay reproduces it.
+            var options = new PolicyOptions { SoloEnabled = solo, TtkWarmupSec = TtkPolicy.DefaultWarmupSec };
             var plan = scheduler.Advance(new ScheduleInput
             {
                 Frame = frame,

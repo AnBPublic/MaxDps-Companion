@@ -184,6 +184,14 @@ internal sealed class AppSettings
     public int TimeToKillHistoryQuantile { get; set; } = 75;
     public double TimeToKillHistoryDurFactor { get; set; } = 0.5;
 
+    // [TimeToKill] WarmupSec — v3.8 TTK-aware offensive cooldown gating: hold a
+    // major offensive for this many seconds after first sight while the target's
+    // TTK is still unknown, so a trash mob that dies before an estimate exists
+    // cannot spend a full cooldown. Clamp 0..10; 0 disables the hold (legacy
+    // fail-open). The buff-aware adaptive need uses HistoryDurFactor of the
+    // ability's own buff duration ("research 1/2 rule", capped at 20 s).
+    public double TimeToKillWarmupSec { get; set; } = TtkPolicy.DefaultWarmupSec;
+
     // [CrowdControl] — companion-side CC appendix opt-in (v3.4.0). OFF by
     // default (CC is an explicit opt-in; Solo-like safety). ON makes curated,
     // auto-eligible crowd-control rows eligible while a target is confirmed and
@@ -430,6 +438,7 @@ internal sealed class AppSettings
             case ("timetokill", "historymaxagesec"): TimeToKillHistoryMaxAgeSec = Math.Clamp(ParseInt(value, TimeToKillHistoryMaxAgeSec), 30, 900); break;
             case ("timetokill", "historyquantile"): TimeToKillHistoryQuantile = Math.Clamp(ParseInt(value, TimeToKillHistoryQuantile), 50, 95); break;
             case ("timetokill", "historydurfactor"): TimeToKillHistoryDurFactor = Math.Clamp(ParseDouble(value, TimeToKillHistoryDurFactor), 0.0, 1.0); break;
+            case ("timetokill", "warmupsec"): TimeToKillWarmupSec = Math.Clamp(ParseDouble(value, TimeToKillWarmupSec), 0.0, 10.0); break;
             case ("crowdcontrol", "enabled"): CrowdControlEnabled = ParseBool(value, CrowdControlEnabled); break;
             case ("rotation", "mode"): ModePreset = ParseRotationPreset(value); break;
             case ("rotation", "targets"): TargetMode = ParseTargetPreset(value); break;
@@ -548,6 +557,9 @@ internal sealed class AppSettings
             .AppendLine($"HistoryMaxAgeSec={TimeToKillHistoryMaxAgeSec}")
             .AppendLine($"HistoryQuantile={TimeToKillHistoryQuantile}")
             .AppendLine($"HistoryDurFactor={TimeToKillHistoryDurFactor.ToString(CultureInfo.InvariantCulture)}")
+            .AppendLine("; WarmupSec: hold a major offensive for this long after first sight")
+            .AppendLine("; while the target TTK is unknown (0 = off / legacy fail-open; clamp 0..10).")
+            .AppendLine($"WarmupSec={TimeToKillWarmupSec.ToString(CultureInfo.InvariantCulture)}")
             .AppendLine()
             .AppendLine("; Crowd-control appendix (opt-in, default off). ON makes curated")
             .AppendLine("; auto-eligible CC rows fire only on a confirmed target and never")

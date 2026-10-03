@@ -62,7 +62,9 @@ public class TtkPolicyTests
         bool provisional = false,
         double targetHpFrac = 0,
         double ageSec = 0,
-        bool latch = false) =>
+        bool latch = false,
+        bool histBinding = false,
+        double histSec = 0) =>
         new()
         {
             TtkValid = ttkValid,
@@ -73,6 +75,8 @@ public class TtkPolicyTests
             TargetHpFrac = targetHpFrac,
             TargetAgeSec = ageSec,
             FastPackLatch = latch,
+            TtkHistBinding = histBinding,
+            TtkHistSec = histSec,
         };
 
     // ----- A2: schema parse -----
@@ -498,6 +502,111 @@ public class TtkPolicyTests
         // Above the band the hold still applies.
         Assert.True(TtkPolicy.DyingTargetHolds(Defensive(DefensiveTier.Major),
             DefCombat(true, 8, hpValid: true, hp: 80), true, false));
+    }
+
+    // ----- v3.8 warmup hold + buff-aware need -----
+
+    [Fact]
+    public void BuffNeed_Uses_Half_Of_The_Buff_Duration_Capped_At_Twenty()
+    {
+        // MajorBurst base need is 15 s; a 20 s buff needs max(15, 10) = 15 s.
+        var dur20 = Offensive(durationMs: 20_000);
+        // A 40 s buff halves to 20 s, which is also the hard cap.
+        var dur40 = Offensive(durationMs: 40_000);
+        // A zero duration falls back to the base need.
+        var dur0 = Offensive(durationMs: 0);
+
+        Assert.Equal(15.0, TtkPolicy.BuffNeed(dur20, 0.5), 6);
+        Assert.Equal(20.0, TtkPolicy.BuffNeed(dur40, 0.5), 6);
+        Assert.Equal(15.0, TtkPolicy.BuffNeed(dur0, 0.5), 6);
+        Assert.Equal(TtkPolicy.MinTtkSec(dur0), TtkPolicy.BuffNeed(dur0, 0.5), 6);
+    }
+
+    [Fact]
+    public void Warmup_Holds_A_Young_Unknown_Major_Until_Estimable()
+    {
+        var major = Offensive(OffensiveUsage.MajorBurst);
+
+        // 2 s trash, seen 1 s, unknown: hold (warming up TTK).
+        Assert.True(TtkPolicy.WarmupHoldHolds(major, Combat(ttkValid: false, ttkSec: 300, ageSec: 1), 3.0, 0.5));
+        // The window closes at 3 s.
+        Assert.False(TtkPolicy.WarmupHoldHolds(major, Combat(ttkValid: false, ttkSec: 300, ageSec: 3.5), 3.0, 0.5));
+        // A valid estimate releases it (20 s boss with 30 s TTK).
+        Assert.False(TtkPolicy.WarmupHoldHolds(major, Combat(ttkValid: true, ttkSec: 30, ageSec: 1), 3.0, 0.5));
+        // A provisional estimate is "known" and releases it too.
+        Assert.False(TtkPolicy.WarmupHoldHolds(major, Combat(ttkValid: false, ttkSec: 300, ageSec: 1, provisional: true), 3.0, 0.5));
+        // WarmupSec = 0 is the legacy fail-open.
+        Assert.False(TtkPolicy.WarmupHoldHolds(major, Combat(ttkValid: false, ttkSec: 300, ageSec: 1), 0, 0.5));
+    }
+
+    [Fact]
+    public void Warmup_Never_Holds_Execute_Aoe_Minors_Or_KillSecure()
+    {
+        var young = Combat(ttkValid: false, ttkSec: 300, ageSec: 1);
+        Assert.False(TtkPolicy.WarmupHoldHolds(Offensive(OffensiveUsage.Execute), young, 3.0, 0.5));
+        Assert.False(TtkPolicy.WarmupHoldHolds(Offensive(OffensiveUsage.AoeOnly), young, 3.0, 0.5));
+        Assert.False(TtkPolicy.WarmupHoldHolds(Offensive(OffensiveUsage.ShortCooldown), young, 3.0, 0.5));
+        Assert.False(TtkPolicy.WarmupHoldHolds(Offensive(killSecure: true), young, 3.0, 0.5));
+        Assert.False(TtkPolicy.WarmupHoldHolds(Offensive(minTtkSec: 0), young, 3.0, 0.5));
+    }
+
+    [Fact]
+    public void Warmup_Releases_When_A_Binding_History_Already_Covers_The_Buff()
+    {
+        var major = Offensive(OffensiveUsage.MajorBurst, durationMs: 20_000); // BuffNeed 15 s
+        // History predicts a 20 s fight -> >= BuffNeed, no warmup hold.
+        Assert.False(TtkPolicy.WarmupHoldHolds(major,
+            Combat(ttkValid: false, ttkSec: 300, ageSec: 1, histBinding: true, histSec: 20), 3.0, 0.5));
+        // History predicts only 5 s -> still holds (unknown live, short history).
+        Assert.True(TtkPolicy.WarmupHoldHolds(major,
+            Combat(ttkValid: false, ttkSec: 300, ageSec: 1, histBinding: true, histSec: 5), 3.0, 0.5));
+    }
+
+    [Fact]
+    public void Warmup_Provider_Wiring_Holds_A_Fresh_Trash_Major_And_Uses_A_Boss()
+    {
+        var ability = WithGroup(Offensive(OffensiveUsage.MajorBurst), "Burst");
+        var options = new PolicyOptions { TtkWarmupSec = 3.0 };
+
+        var held = CandidateProviders.Offensive.Evaluate(new ProviderInput
+        {
+            Input = new PolicyInput
+            {
+                Slot = Slot.Offensive,
+                SpellId = ability.SpellId,
+                Context = Combat(ttkValid: false, ttkSec: 300, ageSec: 1),
+                Options = options,
+                Memory = new PolicyMemory(),
+                NowMs = 1000,
+                InCombat = true,
+                HasTarget = true,
+            },
+            Ability = ability,
+            Catalog = Catalog,
+            Range = TriState.Yes,
+        });
+        Assert.Equal(PolicyVerdict.Hold, held.Verdict);
+        Assert.Equal(TtkPolicy.WarmupHoldReason, held.Reason);
+
+        // A valid long boss estimate falls through to Use.
+        var fired = CandidateProviders.Offensive.Evaluate(new ProviderInput
+        {
+            Input = new PolicyInput
+            {
+                Slot = Slot.Offensive,
+                SpellId = ability.SpellId,
+                Context = Combat(ttkValid: true, ttkSec: 30, ageSec: 1),
+                Options = options,
+                Memory = new PolicyMemory(),
+                NowMs = 1000,
+                InCombat = true,
+                HasTarget = true,
+            },
+            Ability = ability,
+            Catalog = Catalog,
+            Range = TriState.Yes,
+        });
+        Assert.Equal(PolicyVerdict.Use, fired.Verdict);
     }
 
     // ----- [TimeToKill] Fallback end-to-end wiring (spec §4) -----
