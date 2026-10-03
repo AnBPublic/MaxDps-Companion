@@ -1,3 +1,18 @@
+3.7.1
+Date: 2026-10-03 — "Vigil"
+Companion 3.7.1 "Vigil" / bridge 3.7.1. Protocol UNCHANGED: v5 core (35
+cells, nibble 5) + Ext2 (40) + Ext3 (43) stay byte-identical. No-downtime MAIN:
+Reader.GetMainSpellID collects every non-denied glowing id, sorts ascending and
+takes the first still usable (`C_Spell.IsSpellUsable` power veto only;
+secrets/nil/throw fail open), then falls through to the per-spec
+`MDB.MainFallback` filler (Fury specID 72 / "WARRIOR:Fury" -> Bloodthirst
+23881) instead of a dead Main slot. ActionScheduler re-probes a failed Main at
+MainReprobeMs=400 (MainSameSpellNoOpCap=3); CandidateTracker refreshes the sole
+Main TTL while the frame heartbeat stays fresh. The filler is a deliberate,
+user-approved exception to "the bridge only encodes what MaxDps suggests";
+unlisted specs stay empty. No Lua wire change. The title bar reads
+"MaxDPS Companion v3.7.1 Vigil".
+
 3.7.0
 Date: 2026-10-03 — "Vigil"
 Companion 3.7.0 "Vigil" / bridge 3.7.0. Protocol UNCHANGED: v5 core (35

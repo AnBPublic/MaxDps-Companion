@@ -1,4 +1,4 @@
-# MaxDPS Companion (Retail Midnight 12.1, v3.7.0 "Vigil")
+# MaxDPS Companion (Retail Midnight 12.1, v3.7.1 "Vigil")
 
 Pixel bridge driver for [kaminaris MaxDps](https://www.curseforge.com/wow/addons/maxdps)
 (vendor pin: MaxDps v11.3.49). No memory read, no injection, no OCR, no LLM.
@@ -11,6 +11,20 @@ Two pieces:
  | :--- | :--- |
  | `MaxDpsBridge` (addon, `addon/MaxDpsBridge/`) | Queries the MaxDps rotation engine each frame and encodes suggestions, ability ids and combat context into a 40-cell strip of flat-coloured pixels (35-cell v5 core + additive Ext2 block). |
  | `MaxDpsCompanion.exe` (desktop app, `app/MaxDpsCompanion/`) | Samples those pixels, decodes the frame, evaluates every situational suggestion (USE / HOLD / SKIP / UNAVAILABLE / UNKNOWN) against an embedded ability intelligence registry + explicit candidate providers, schedules one action at a time, and replays the player's own keybinds into the attached game window. |
+
+## v3.7.1 "Vigil" — no-downtime MAIN (usable-glow scan + Fury filler, no wire change)
+
+A companion **and** bridge version bump with **no protocol change**: `PROTOCOL`
+stays at 5 and every cell is byte-identical. The MAIN slot can no longer be
+stranded: `Reader.GetMainSpellID` collects every non-denied glowing id, sorts
+ascending, skips power-starved picks (`C_Spell.IsSpellUsable`), and falls
+through to the new `MainFallback.lua` per-spec filler (Fury → Bloodthirst
+23881) instead of a dead Main slot. The scheduler re-probes a failed Main at
+`MainReprobeMs = 400` (`MainSameSpellNoOpCap = 3`) and `CandidateTracker`
+refreshes the sole Main TTL while the frame heartbeat stays fresh. The fallback
+is a deliberate, user-approved exception to "the bridge only encodes what
+MaxDps suggests"; unlisted specs stay empty. The title bar reads
+`MaxDPS Companion v3.7.1 Vigil`.
 
 ## v3.7.0 "Vigil" — custom MaxDps 12.1 fork (bridge denylist + reversible sync, no wire change)
 

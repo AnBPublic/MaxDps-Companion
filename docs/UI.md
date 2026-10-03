@@ -1,4 +1,4 @@
-# UI architecture — MaxDps Companion 3.7.0 "Vigil" (classic)
+# UI architecture — MaxDps Companion 3.7.1 "Vigil" (classic)
 
 The companion is one WinForms application (`MaxDpsCompanion.exe`, .NET 8,
 x64, PerMonitorV2). v3.0.0 restored a fast, fixed **classic** shell on top of

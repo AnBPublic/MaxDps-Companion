@@ -1,5 +1,14 @@
 # Handover — MaxDps-Companion
 
+## 2026-10-03 RELEASE 3.7.1 "VIGIL" (no-downtime MAIN, companion + bridge identity)
+
+STATUS: ships the no-downtime MAIN subsystem as release **3.7.1 "Vigil"** (was
+3.7.0). Protocol unchanged (v5 nibble stays 5; every cell byte-identical).
+Companion and bridge identity both move to 3.7.1; the codename stays Vigil
+(patch release, per the 3.5.2.x precedent). Branch publish, no tag. Spec:
+`docs/plans/2026-10-03-no-downtime-main.md`. Fresh exe copied to `dist\`
+(gitignored; not committed).
+
 ## 2026-10-03 NO-DOWNTIME MAIN — T4 tests + T5 docs (bridge + scheduler, no wire change)
 
 STATUS: the MAIN slot can never be stranded (Q1 = NO empty Main). Layer A —

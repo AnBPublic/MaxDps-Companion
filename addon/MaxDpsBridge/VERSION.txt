@@ -1,3 +1,18 @@
+3.7.1
+date: 2026-10-03 "Vigil"
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED from 3.7.0 - v5 core 35 cells + ADDITIVE Ext2 40-cell block
+          + ADDITIVE Ext3 43-cell block. The v5 version nibble stays 5 and every
+          cell is byte-identical; 3.7.1 is a patch version bump with no Lua wire
+          change. X-Codename: Vigil in the TOC.
+v3.7.1:   Companion 3.7.1 "Vigil" / bridge 3.7.1. No-downtime MAIN: Reader
+          collects every non-denied glow, sorts, skips power-starved picks
+          (C_Spell.IsSpellUsable, pcall+scrub), and falls through to the new
+          MainFallback.lua per-spec filler (Fury -> Bloodthirst 23881) instead
+          of a dead MAIN slot; the scheduler re-probes at MainReprobeMs=400
+          (MainSameSpellNoOpCap=3) and CandidateTracker refreshes the sole Main
+          TTL while the heartbeat stays fresh. No Catalog.lua / wire change.
 3.7.0
 date: 2026-10-03 "Vigil"
 git: <commit placeholder - fill at release>
