@@ -1,5 +1,31 @@
 # Handover — MaxDps-Companion
 
+## 2026-10-03 RELEASE 3.7.0 "VIGIL" (custom 12.1 fork, companion + bridge identity)
+
+STATUS: the custom MaxDps 12.1 fork ships as release **3.7.0 "Vigil"** (was
+3.6.0 "Warden"): branch publish, no tag (the repo tag list stays empty). Protocol
+unchanged — the v5 nibble stays 5 and every cell is byte-identical. The
+bridge-side denylist (`MDB.MajorCDDeny` in `MajorCooldowns.lua` + the
+`GetMainSpellID` skip/reject) keeps a stale / 2-3 min major CD out of the MAIN
+slot; the Offensive slot is an independent candidate, so an empty Main cannot
+stall the rotation. `custom/` (pristine v11.3.49 + `MANIFEST.json` + 75-entry
+`patches.json`) and `tools/Sync-CustomMaxDps.ps1` (+ `tests/sync/`) publish the
+optional reversible vendor patch; `vendor/` is never edited.
+
+VERIFY (this machine): `dotnet build -c Release` 0 warnings / 0 errors;
+`dotnet test -c Release` 938/938; `lua tests/secret_harness.lua` 264/264;
+`luac -p` 9 bridge files clean; `pwsh tests/sync/Sync-CustomMaxDps.Tests.ps1`
+45/45; `pwsh tools/ability_audit.ps1` exit 0 (violations 0 / warnings 0). Fresh
+exe copied to `dist\` (gitignored; not committed).
+
+NEXT / OWED (live retail 12.1): (1) resolve the true 12.1 ids for the 22 moved
+majors and the "already correct" set and refresh `MDB.MajorCDDeny` (offline
+vendor names are not live proof); (2) `docs/TESTING.md` §3h A/B — majors no
+longer Main, the Offensive slot still fires the moved CDs, no stall on a denied
+AC pick, fork vs stock after `/reload`, replay 0 mismatches; (3) Sync publish +
+`_backup/<stamp>/` rollback end-to-end; (4) align `patches.json` with the sync
+tool (adapter OWED). Static ≠ automated test ≠ live in-game.
+
 ## 2026-10-03 CUSTOM MAXDPS 12.1 FORK — T4 docs (this change, docs-only)
 
 STATUS: T1-T3 are done — `custom/upstream-pristine/` + `MANIFEST.json`
@@ -29,9 +55,8 @@ has not yet consumed the 75 authored entries end-to-end. Reconciliation
 (adapter or regenerated manifest) is OWED. `custom/out/` is a gitignored
 build artifact and is currently absent (expected until a sync run).
 
-VERIFY: docs-only. `git status --short` shows only the intended docs plus the
-pre-existing T3 worktree files (see the status quote in the task report).
-No build/test claimed.
+VERIFY: this docs pass itself was docs-only; the 3.7.0 release commit above
+carries the build/test/sync evidence.
 
 NEXT / OWED (live retail 12.1 + publish):
 1. **Live 12.1 id check** — resolve the true ids for the 22 moved majors and

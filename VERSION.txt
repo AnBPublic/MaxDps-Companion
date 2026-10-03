@@ -1,3 +1,41 @@
+3.7.0
+Date: 2026-10-03 — "Vigil"
+Companion 3.7.0 "Vigil" / bridge 3.7.0. Protocol UNCHANGED: v5 core (35
+cells, nibble 5) + Ext2 (40) + Ext3 (43) stay byte-identical. Custom MaxDps
+12.1 fork: a bridge-side major-cooldown denylist (`MDB.MajorCDDeny`,
+MajorCooldowns.lua) keeps a stale / 2-3 min CD out of the MAIN slot (the
+Offensive slot is an independent candidate, so an empty Main never stalls the
+rotation), plus a vendored untouched v11.3.49 snapshot, a 75-entry declarative
+patch manifest and a reversible sync tool. No Lua wire change. The title bar
+reads "MaxDPS Companion v3.7.0 Vigil".
+
+v3.7.0 VIGIL (custom 12.1 fork: MAJOR-CD DENYLIST + sync tooling, no wire change)
+
+- MAJOR-CD DENYLIST: new addon/MaxDpsBridge/MajorCooldowns.lua defines
+  MDB.MajorCDDeny (22 stale-v11.3.49 moved major ids + 15 already-correct
+  majors). GetMainSpellID skips denied ids in the SpellsGlowing scan and
+  rejects a denied MaxDps.Spell, so a stale glow or a 2-3 min on-use CD is
+  never encoded as the MAIN rotation pick. No deadlock: the Offensive slot is
+  an independent Flags-scan candidate and an empty Main does not veto it; a
+  hold is non-latching. The v5 nibble and every cell are untouched.
+- CUSTOM FORK TREE: custom/upstream-pristine/ (untouched v11.3.49 + SHA256
+  MANIFEST.json), custom/patches.json (75 entries: 22 P-DATA id moves + 40
+  P-GUARD ACSpells bypass + 13 canaries),
+  docs/plans/2026-10-03-custom-maxdps-fork.md. vendor/ is read-only, untouched.
+- SYNC TOOLING: tools/Sync-CustomMaxDps.ps1 diffs a new upstream drop vs the
+  pristine manifest, applies patches into custom/out/, writes SYNC-REPORT.md
+  and publishes to AddOns only on a clean run (_backup/<stamp>/ rollback);
+  tests/sync/ fixture suite 45/45.
+
+VALIDATED (this machine): app `dotnet build -c Release` 0 warnings / 0 errors;
+`dotnet test -c Release` 938/938; `lua tests/secret_harness.lua` 264/264;
+`luac -p` 9 bridge files clean; `pwsh tests/sync/Sync-CustomMaxDps.Tests.ps1`
+45/45; `pwsh tools/ability_audit.ps1` exit 0 (violations 0 / warnings 0). LIVE
+OWED: docs/TESTING.md 3h (majors no longer Main; Offensive still fires; no
+stall on a denied AC pick; fork vs stock after /reload; replay 0 mismatches)
+plus the true 12.1 ids and the Sync publish/_backup end-to-end. Static !=
+automated test != live in-game E2E.
+
 3.6.0
 Date: 2026-10-03 — "Warden"
 Companion 3.6.0 "Warden" / bridge 3.6.0. Protocol UNCHANGED: v5 core (35

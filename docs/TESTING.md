@@ -363,7 +363,7 @@ as `ttkw` and the replay must reproduce the hold.
 Offline evidence is static only — `luac -p addon/MaxDpsBridge/*.lua`, the T2
 fixture suite (`pwsh tests/sync/Sync-CustomMaxDps.Tests.ps1`) and the
 `MDB.MajorCDDeny` table — never live proof. There is no automated in-game test
-for the fork. Observe in a real client with the bridge 3.6.0 addon loaded
+for the fork. Observe in a real client with the bridge 3.7.0 addon loaded
 (`/reload`, `/mdb status` shows `protocol=5`):
 
 1. **Avatar / Combustion no longer Main.** Play a Warrior and a Fire Mage with

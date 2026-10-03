@@ -1,3 +1,17 @@
+3.7.0
+date: 2026-10-03 "Vigil"
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED from 3.6.0 - v5 core 35 cells + ADDITIVE Ext2 40-cell block
+          + ADDITIVE Ext3 43-cell block. The v5 version nibble stays 5 and every
+          cell is byte-identical; 3.7.0 is a feature release with no Lua wire
+          change. X-Codename: Vigil in the TOC.
+v3.7.0:   Companion 3.7.0 "Vigil" / bridge 3.7.0. Major-cooldown denylist:
+          MajorCooldowns.lua MDB.MajorCDDeny makes GetMainSpellID skip denied
+          ids in the SpellsGlowing scan and reject a denied MaxDps.Spell, so a
+          stale / 2-3 min major CD is never encoded as MAIN. The Offensive slot
+          is an independent Flags-scan candidate, so an empty Main cannot
+          deadlock the rotation. No Catalog.lua change; no wire change.
 3.6.0
 date: 2026-10-03 "Warden"
 git: <commit placeholder - fill at release>
