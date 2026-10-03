@@ -323,6 +323,13 @@ function MDB.GetMainSpellID ()
   -- EMPTY + Idle downstream — correct, not a failure.
   local MaxDps = MaxDpsEngine();
   if not MaxDps then return nil; end
+  -- T3 (custom MaxDps 12.1 fork): Majors must never be encoded as MAIN. The
+  -- denylist is our own plain table (MajorCooldowns.lua); scrub only protects
+  -- the upstream tables, the index below is a plain number compare.
+  -- Denying a Main pick cannot deadlock the rotation: the Offensive slot is an
+  -- independent Flags-scan candidate (GetOffensiveCandidate, below) and the
+  -- scheduler holds only when NO slot survives, re-evaluated every tick.
+  local Deny = MDB.MajorCDDeny;
   local Glowing = MaxDps.SpellsGlowing;
   if type(Glowing) == "table" then
     local Clean = Glowing;
@@ -334,7 +341,8 @@ function MDB.GetMainSpellID ()
       if type(dropsecretaccess) == "function" then dropsecretaccess(); end
       local Best = nil;
       for ID, On in pairs(Clean) do
-        if type(ID) == "number" and ID ~= 0 and On == 1 then
+        if type(ID) == "number" and ID ~= 0 and On == 1
+          and not (Deny and Deny[ID]) then
           if not Best or ID < Best then Best = ID; end
         end
       end
@@ -343,7 +351,8 @@ function MDB.GetMainSpellID ()
     if OkScan and type(Found) == "number" and Found ~= 0 then return Found; end
   end
   local Spell = MaxDps.Spell;
-  if type(Spell) == "number" and Spell ~= 0 then return Spell; end
+  if type(Spell) == "number" and Spell ~= 0
+    and not (Deny and Deny[Spell]) then return Spell; end
   return nil;
 end
 

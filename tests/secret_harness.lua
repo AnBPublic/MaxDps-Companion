@@ -243,6 +243,7 @@ C_AssistedCombat = nil
 local MDB = {}
 _G.MaxDpsBridge = MDB
 assert(loadfile("addon/MaxDpsBridge/Catalog.lua"))("MaxDpsBridge", MDB)
+assert(loadfile("addon/MaxDpsBridge/MajorCooldowns.lua"))("MaxDpsBridge", MDB)
 -- Workstream C emits the real MDB.SpellAliases in Catalog.lua; this worktree
 -- stubs it so the variant path is exercised before C is merged.
 MDB.SpellAliases = { [202168] = { 34428 } }
@@ -389,6 +390,40 @@ MaxDps.Spell = S(999999)
 ok, ready = pcall(MDB.GetMainSpellID)
 check("secret MaxDps.Spell: no throw, no suggestion", ok and ready == nil)
 MaxDps.Spell = 185358
+
+-- ================= 6b. T3 major-cooldown denylist =================
+-- A major cooldown must never be encoded as the MAIN pick: GetMainSpellID
+-- skips denied ids in the SpellsGlowing scan and rejects a denied
+-- MaxDps.Spell, while a non-denied pick is untouched.
+check("T3 MajorCDDeny table present", type(MDB.MajorCDDeny) == "table")
+check("T3 Combustion (needs-move) is denied", MDB.MajorCDDeny[190319] == true)
+check("T3 Avatar (already-correct) is denied", MDB.MajorCDDeny[107574] == true)
+check("T3 non-major id is not denied", MDB.MajorCDDeny[185358] ~= true)
+
+-- (a) a denied glow is the ONLY glow -> nil.
+MaxDps.SpellsGlowing = { [190319] = 1 }
+MaxDps.Spell = nil
+ok, ready = pcall(MDB.GetMainSpellID)
+check("T3 denied glow only -> nil, no throw", ok and ready == nil)
+
+-- (b) denied glow LOWER than a kept glow: without the denylist the scan would
+-- return the denied 1719; with it the non-denied 185358 wins.
+MaxDps.SpellsGlowing = { [1719] = 1, [185358] = 1 }
+MaxDps.Spell = nil
+ok, ready = pcall(MDB.GetMainSpellID)
+check("T3 denied glow skipped, non-denied kept", ok and ready == 185358)
+
+-- (c) a denied MaxDps.Spell is rejected; a non-denied Spell is still kept.
+MaxDps.SpellsGlowing = nil
+MaxDps.Spell = 107574
+ok, ready = pcall(MDB.GetMainSpellID)
+check("T3 denied MaxDps.Spell rejected", ok and ready == nil)
+MaxDps.Spell = 185358
+ok, ready = pcall(MDB.GetMainSpellID)
+check("T3 non-denied MaxDps.Spell kept", ok and ready == 185358)
+
+-- restore the glow state later sections expect
+MaxDps.SpellsGlowing = { [185358] = 1 }
 
 -- ================= 7. Bridge hot loop =================
 -- restricted shapes on every slot + secret target flags: Update must not
