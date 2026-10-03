@@ -10,6 +10,7 @@ Catalog.lua
 MajorCooldowns.lua
 Keymap.lua
 Bars.lua
+MainFallback.lua
 Reader.lua
 Toggles.lua
 Bridge.lua

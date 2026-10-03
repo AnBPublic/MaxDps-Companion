@@ -249,6 +249,8 @@ assert(loadfile("addon/MaxDpsBridge/MajorCooldowns.lua"))("MaxDpsBridge", MDB)
 MDB.SpellAliases = { [202168] = { 34428 } }
 assert(loadfile("addon/MaxDpsBridge/Keymap.lua"))("MaxDpsBridge", MDB)
 assert(loadfile("addon/MaxDpsBridge/Bars.lua"))("MaxDpsBridge", MDB)
+-- Q1 fallback registry loads before Reader (Reader references MDB.MainFallback).
+assert(loadfile("addon/MaxDpsBridge/MainFallback.lua"))("MaxDpsBridge", MDB)
 assert(loadfile("addon/MaxDpsBridge/Reader.lua"))("MaxDpsBridge", MDB)
 -- 3.3.0 toggle policy loads before Bridge (Bridge builds its slash key map at
 -- load time from MDB.Toggles.Keys); pure logic, no frames.
@@ -1867,6 +1869,127 @@ local function RunCcFixTests ()
   MaxDps.classInterrupts = nil
 end
 RunCcFixTests()
+
+-- =====================================================================
+-- Q1 no-downtime Main (plan 2026-10-03-no-downtime-main): sorted glowing
+-- scan gated by MainUsable (only plain usable==false AND noPower==true
+-- vetoes), then the per-spec MainFallback filler, then nil. Scoped so its
+-- locals do not push the main chunk over Lua's 200-local limit.
+-- =====================================================================
+local function RunMainFallbackTests ()
+  local savedGlow = MaxDps.SpellsGlowing
+  local savedSpell = MaxDps.Spell
+  local savedUsable = C_Spell.IsSpellUsable
+  local savedGetSpecInfo = GetSpecializationInfo
+  local savedCooldown = C_Spell.GetSpellCooldown
+  local savedCharges = C_Spell.GetSpellCharges
+
+  -- Cooldowns stay out of the way: MainUsable is power-only, so a plain
+  -- no-cooldown shape keeps every id "castable" except power-starved ones.
+  C_Spell.GetSpellCooldown = function()
+    return { startTime = 0, duration = 0, isEnabled = true, isActive = false, isOnGCD = false }
+  end
+  C_Spell.GetSpellCharges = function() return nil end
+  GetSpecializationInfo = function() return 72 end   -- Fury (specID 72)
+
+  local function Usability (NoPower)
+    C_Spell.IsSpellUsable = function(id)
+      if NoPower[id] then return false, true end
+      return true, false
+    end
+  end
+
+  -- (1) Rampage glow no-power + Bloodthirst glow usable -> Bloodthirst.
+  Usability({ [184367] = true })
+  MaxDps.SpellsGlowing = { [184367] = 1, [23881] = 1 }
+  MaxDps.Spell = nil
+  MDB.BeginTick()
+  local ok1, id1 = pcall(MDB.GetMainSpellID)
+  check("MF rampage no-power + bloodthirst glow -> Bloodthirst", ok1 and id1 == 23881)
+
+  -- (2) A power-starved glow with a LOWER id is skipped, not returned:
+  --     synthetic 100 starved + 185358 usable -> 185358 (old lowest-id code
+  --     would have returned 100 and stranded the slot).
+  Usability({ [100] = true })
+  MaxDps.SpellsGlowing = { [100] = 1, [185358] = 1 }
+  MaxDps.Spell = nil
+  MDB.BeginTick()
+  local ok2, id2 = pcall(MDB.GetMainSpellID)
+  check("MF lower-id power-starved glow skipped, next usable wins", ok2 and id2 == 185358)
+
+  -- (3) Only a power-starved glow -> Fury fallback filler (Bloodthirst).
+  Usability({ [184367] = true })
+  MaxDps.SpellsGlowing = { [184367] = 1 }
+  MaxDps.Spell = nil
+  MDB.BeginTick()
+  local ok3, id3 = pcall(MDB.GetMainSpellID)
+  check("MF all glows power-starved -> Fury fallback filler", ok3 and id3 == 23881)
+
+  -- (4) Fallback filler itself power-starved -> nil (never press blind).
+  Usability({ [184367] = true, [23881] = true })
+  MaxDps.SpellsGlowing = { [184367] = 1 }
+  MaxDps.Spell = nil
+  MDB.BeginTick()
+  local ok4, id4 = pcall(MDB.GetMainSpellID)
+  check("MF fallback filler power-starved -> nil", ok4 and id4 == nil)
+
+  -- (5) Unverified spec (Arms 71) has no filler -> nil.
+  Usability({ [184367] = true })
+  GetSpecializationInfo = function() return 71 end   -- Arms
+  MaxDps.SpellsGlowing = { [184367] = 1 }
+  MaxDps.Spell = nil
+  MDB.BeginTick()
+  local ok5, id5 = pcall(MDB.GetMainSpellID)
+  check("MF unverified spec (Arms) -> nil", ok5 and id5 == nil)
+  GetSpecializationInfo = function() return 72 end
+
+  -- (6) secret / nil / throwing usability probes -> fail OPEN (glow kept),
+  --     never a stripped slot on an unobservable verdict.
+  MaxDps.SpellsGlowing = { [185358] = 1 }
+  MaxDps.Spell = nil
+  C_Spell.IsSpellUsable = function() return S(false), S(true) end
+  MDB.BeginTick()
+  local ok6, id6 = pcall(MDB.GetMainSpellID)
+  check("MF secret usability -> fail open, glow kept", ok6 and id6 == 185358)
+  C_Spell.IsSpellUsable = function() return nil end
+  MDB.BeginTick()
+  local ok7, id7 = pcall(MDB.GetMainSpellID)
+  check("MF nil usability -> fail open, glow kept", ok7 and id7 == 185358)
+  C_Spell.IsSpellUsable = function() error("secret probe throw") end
+  MDB.BeginTick()
+  local ok8, id8 = pcall(MDB.GetMainSpellID)
+  check("MF throwing usability -> fail open, glow kept", ok8 and id8 == 185358)
+
+  -- (7) denied ids are still never returned: a usable glow beside a denied
+  --     one wins, and an all-denied glow (Fury) falls through to the filler.
+  Usability({})
+  MaxDps.SpellsGlowing = { [190319] = 1, [185358] = 1 }   -- 190319 denied
+  MaxDps.Spell = nil
+  MDB.BeginTick()
+  local ok9, id9 = pcall(MDB.GetMainSpellID)
+  check("MF denied glow skipped, usable glow wins", ok9 and id9 == 185358)
+  MaxDps.SpellsGlowing = { [190319] = 1 }                 -- denied only
+  MDB.BeginTick()
+  local ok10, id10 = pcall(MDB.GetMainSpellID)
+  check("MF denied-only glow -> filler, never the denied id", ok10 and id10 == 23881)
+
+  -- (8) denied-only MaxDps.Spell (no glow at all) also routes the fallback:
+  --     the engine named a denied major, so a dead Main slot is still wrong.
+  MaxDps.SpellsGlowing = nil
+  MaxDps.Spell = 190319                                   -- denied only
+  MDB.BeginTick()
+  local ok11, id11 = pcall(MDB.GetMainSpellID)
+  check("MF denied-only Spell -> filler, never the denied id", ok11 and id11 == 23881)
+
+  MaxDps.SpellsGlowing = savedGlow
+  MaxDps.Spell = savedSpell
+  C_Spell.IsSpellUsable = savedUsable
+  GetSpecializationInfo = savedGetSpecInfo
+  C_Spell.GetSpellCooldown = savedCooldown
+  C_Spell.GetSpellCharges = savedCharges
+  MDB.BeginTick()
+end
+RunMainFallbackTests()
 
 print(string.format("RESULT: %d passed, %d failed", PASS, FAIL))
 if FAIL > 0 then os.exit(1) end

@@ -289,6 +289,42 @@ function MDB.EnsureEngine ()
   end
 end
 
+--- ======= MAIN-SLOT USABILITY + FALLBACK (Q1, no-downtime Main) =======
+
+-- MainUsable(id): ONLY a plain, doubly-confirmed POWER starvation vetoes a
+-- Main pick — usable == false AND noPower == true, both plain booleans.
+-- Every other outcome (secret / nil / non-boolean / pcall failure / cooldown /
+-- GCD / out-of-range) fails OPEN, matching the v1.3.2 "trust upstream"
+-- rule above: upstream already decided castability on its trusted path, so
+-- our job is only to catch the one case it glows but cannot pay (e.g.
+-- Rampage with no Rage). Secrets are scrubbed to nil before any compare, so
+-- this can never branch on a secret. Read-only, never protected.
+local function MainUsable (SpellID)
+  if type(SpellID) ~= "number" or SpellID == 0 then return false; end
+  local Fn;
+  if _G.C_Spell and type(_G.C_Spell.IsSpellUsable) == "function" then
+    Fn = _G.C_Spell.IsSpellUsable;
+  elseif type(_G.IsUsableSpell) == "function" then
+    Fn = _G.IsUsableSpell;
+  else
+    return true;  -- no API: fail open
+  end
+  local Ok, Usable, NoPower = pcall(Fn, SpellID);
+  if not Ok then return true; end
+  if type(scrubsecretvalues) == "function" then
+    local OkU, CleanU = pcall(scrubsecretvalues, Usable);
+    local OkN, CleanN = pcall(scrubsecretvalues, NoPower);
+    if OkU then Usable = CleanU; end
+    if OkN then NoPower = CleanN; end
+  end
+  if Usable == false and NoPower == true then return false; end
+  return true;
+end
+
+-- Forward declaration: MainFallbackList reads the resolved class/spec
+-- (defined below ClassSpec), but GetMainSpellID sits above it lexically.
+local MainFallbackList;
+
 --- ======= SLOT READOUT (guards live above CATEGORY HOOKS; duplicate deleted v1.2.3) =======
 
 function MDB.GetMainSpellID ()
@@ -330,6 +366,7 @@ function MDB.GetMainSpellID ()
   -- independent Flags-scan candidate (GetOffensiveCandidate, below) and the
   -- scheduler holds only when NO slot survives, re-evaluated every tick.
   local Deny = MDB.MajorCDDeny;
+  local HadCandidate = false;
   local Glowing = MaxDps.SpellsGlowing;
   if type(Glowing) == "table" then
     local Clean = Glowing;
@@ -337,22 +374,57 @@ function MDB.GetMainSpellID ()
       local OkS, C = pcall(scrubsecretvalues, Glowing);
       if OkS and type(C) == "table" then Clean = C; end
     end
-    local OkScan, Found = pcall(function ()
+    local OkScan, Found, HadAny = pcall(function ()
       if type(dropsecretaccess) == "function" then dropsecretaccess(); end
-      local Best = nil;
+      -- Q1: collect EVERY non-denied glowing id, sort ascending, then take
+      -- the first still castable. The old lowest-id pick could land on a
+      -- power-starved pick (Rampage with no Rage) and hold the Main slot
+      -- EMPTY; MainUsable skips it and the next glow (Bloodthirst) wins.
+      -- `Any` counts a glow even when denied: an engine that is glowing
+      -- something (major CD / power-starved) must still fall through to the
+      -- spec filler rather than leave a dead Main slot (plan Q1).
+      local Ids = {};
+      local Any = false;
       for ID, On in pairs(Clean) do
-        if type(ID) == "number" and ID ~= 0 and On == 1
-          and not (Deny and Deny[ID]) then
-          if not Best or ID < Best then Best = ID; end
+        if type(ID) == "number" and ID ~= 0 and On == 1 then
+          Any = true;
+          if not (Deny and Deny[ID]) then Ids[#Ids + 1] = ID; end
         end
       end
-      return Best;
+      table.sort(Ids);
+      for i = 1, #Ids do
+        if MainUsable(Ids[i]) then return Ids[i]; end
+      end
+      return nil, Any;
     end);
     if OkScan and type(Found) == "number" and Found ~= 0 then return Found; end
+    if OkScan and HadAny then HadCandidate = true; end
   end
   local Spell = MaxDps.Spell;
-  if type(Spell) == "number" and Spell ~= 0
-    and not (Deny and Deny[Spell]) then return Spell; end
+  if type(Spell) == "number" and Spell ~= 0 then
+    if not (Deny and Deny[Spell]) and MainUsable(Spell) then return Spell; end
+    -- A denied or power-starved Spell is still a Main candidate the engine
+    -- named; fall through to the filler rather than return nil (plan Q1).
+    HadCandidate = true;
+  end
+  -- Q1 FALLBACK: the engine was glowing (or naming) a Main candidate, yet
+  -- none survived the denylist + MainUsable — all denied or power-starved.
+  -- Encode the first castable per-spec filler (Fury -> Bloodthirst,
+  -- vendor-verified in MainFallback.lua) instead of a dead Main slot.
+  -- Idle-by-design (no candidate at all) still returns nil; unverified specs
+  -- have no filler and stay EMPTY. MainUsable gates the filler too.
+  if HadCandidate then
+    local Fallback = MainFallbackList and MainFallbackList();
+    if Fallback then
+      for i = 1, #Fallback do
+        local Id = Fallback[i];
+        if type(Id) == "number" and Id ~= 0
+          and not (Deny and Deny[Id]) and MainUsable(Id) then
+          return Id;
+        end
+      end
+    end
+  end
   return nil;
 end
 
@@ -373,12 +445,12 @@ end
 -- lookups per 50 ms tick, all allocating Lua garbage inside the game's
 -- frame budget (GC pressure = WoW frametime spikes). Bridge.Update now
 -- calls MDB.BeginTick() once; the first getter computes, the rest reuse.
-local Tick = { Gen = 0, Flags = nil, FlagsOwner = nil, Items = nil, Class = nil, ClassFile = nil, Spec = nil };
+local Tick = { Gen = 0, Flags = nil, FlagsOwner = nil, Items = nil, Class = nil, ClassFile = nil, Spec = nil, SpecID = nil };
 
 function MDB.BeginTick ()
   Tick.Gen = Tick.Gen + 1;
   Tick.Flags, Tick.FlagsOwner, Tick.Items = nil, nil, nil;
-  Tick.Class, Tick.ClassFile, Tick.Spec = nil, nil, nil;
+  Tick.Class, Tick.ClassFile, Tick.Spec, Tick.SpecID = nil, nil, nil, nil;
 end
 
 local function ScrubbedFlags ()
@@ -416,7 +488,7 @@ local function ClassSpec ()
   if not MaxDps then return nil; end
   -- Per-tick memo (see Tick above): resolved once per update, not once per
   -- candidate spell (CategoryOf calls this for every flagged spell).
-  if Tick.Class == MaxDps then return MaxDps, Tick.ClassFile, Tick.Spec; end
+  if Tick.Class == MaxDps then return MaxDps, Tick.ClassFile, Tick.Spec, Tick.SpecID; end
   if type(UnitClass) ~= "function" then return nil; end
   local OkC, _, classFile = pcall(UnitClass, "player");
   if not OkC or not classFile then return nil; end
@@ -449,9 +521,29 @@ local function ClassSpec ()
     local OkName, Name = pcall(function () return MaxDps.idtospec[specID] end);
     if OkName and type(Name) == "string" then specName = Name; end
   end
-  if not specName then return nil; end
-  Tick.Class, Tick.ClassFile, Tick.Spec = MaxDps, classFile, specName;
-  return MaxDps, classFile, specName;
+  -- v3.7.1 Q1: keep the resolved class (and specID when available) even when
+  -- idtospec cannot name the spec, so the Main fallback can key on specID.
+  -- Callers already guard `not specName`; CategoryOf bails on it.
+  Tick.Class, Tick.ClassFile, Tick.Spec, Tick.SpecID = MaxDps, classFile, specName, specID;
+  return MaxDps, classFile, specName, specID;
+end
+
+-- Q1 fallback selector: class+spec resolved by ClassSpec (memoized per tick).
+-- Tries the numeric specID first, then the "CLASS:Spec" key, then a
+-- class-level generic list (populated only when vendor-verified). Unknown
+-- spec / missing table -> nil, so the Main slot stays EMPTY.
+function MainFallbackList ()
+  local MaxDps, classFile, specName, specID = ClassSpec();
+  if not MaxDps then return nil; end
+  local FB = MDB.MainFallback;
+  if type(FB) ~= "table" then return nil; end
+  if type(specID) == "number" and type(FB[specID]) == "table" then return FB[specID]; end
+  if classFile and specName then
+    local Key = classFile .. ":" .. specName;
+    if type(FB[Key]) == "table" then return FB[Key]; end
+  end
+  if classFile and type(FB[classFile]) == "table" then return FB[classFile]; end
+  return nil;
 end
 
 local function SetHas (Tbl, Id)
