@@ -14,7 +14,7 @@ Vendor discovery (read-only): MaxDps:GlowDefensiveHPMidnight (Buttons.lua:1056)
   curve's own control points — see docs/research/ABILITY_RESEARCH.md §6.
        │
        ▼
-MaxDpsBridge addon — 43-cell pixel strip (bridge 3.7.1; v5 + Ext2 layout
+MaxDpsBridge addon — 43-cell pixel strip (bridge 3.7.2; v5 + Ext2 layout
   unchanged from 3.0.0, Ext3 shipped by T1/T2). Ext3: a 43-cell strip
   (cells 40-42 = 14-bit app toggle mask + epoch + blocked nibble + cell-42
   checksum/commit, presence cell 28 B bit2); a pre-3.5 companion ignores it
@@ -195,7 +195,11 @@ TTK estimator (Knowledge/TtkEstimator) — v3.2.0, fed pre-policy
   The policy's `NeedAdaptive = max(MinTtkSec, min(DurFactor·activeDur, 20))`
   then holds a T1 offensive while `HistTtkSec` is below it (reason `ttk-hist`),
   restricted to the provisional-eligible majors while the live estimate is
-  invalid. `History=0` reproduces the pre-history estimator exactly.
+  invalid. 2026-10-04: `LiveReleasesHistory` fails that history hold open when a
+  valid live TTK ≥ the need, or (no valid live TTK) the target is ≥8 s old with
+  known HP ≥85% — a trash-learned window cannot hold
+  Recklessness/Avatar/Ancestral Call on a long-lived rare/elite.
+  `History=0` reproduces the pre-history estimator exactly.
         │
         ▼
 Execution safety (Knowledge/PolicyEvaluator.ExecutionSafety) — ALWAYS
@@ -258,7 +262,12 @@ Situational policy (Knowledge/PolicyEvaluator) — [Intelligence] Enabled=1
       kill-secure / zero-need / long-history carve-outs fail open. The
       adaptive-need input is now the ability's own **buff duration**
       (`max(MinTtk, min(DurFactor·buffDur, 20))`, the research 1/2 rule) rather
-      than the T2 2·cd+dur window
+      than the T2 2·cd+dur window. 2026-10-04 adds a **sub-50s bypass**
+      (`TtkPolicy.SubFiftyBypass`): a curated `CooldownMs` in (0, 50 s) fails
+      the waste/history/warmup/grace guards (and the Burst preset) open, so a
+      rotational short CD (Colossus Smash/Warbreaker/Demolish/Odyn's Fury/
+      Shield Charge/Demoralizing Shout 45 s, Essence Break 40 s) fires
+      regardless of target TTK; `CooldownMs == 0` stays gated (fail-closed)
     · mobility: gap closers need a confirmed out-of-melee target + in-range
       ability; escapes/movement are never automatic
     · self-heals: emergency self-heal (HP <= EmergencyHpPct, default 35) is a
@@ -364,9 +373,14 @@ addon/MaxDpsBridge/MajorCooldowns.lua  MDB.MajorCDDeny
 
 The fork corrects 12.1 stale major-cooldown ids without editing `vendor/`.
 `MDB.MajorCDDeny` is the runtime fix and needs no sync run; `custom/out/` is
-an optional, reversible vendor patch set for the same symptom. Neither changes
-the wire: cells, `PROTOCOL_VERSION` and the bridge encoder are untouched. See
-`custom/CUSTOM_FORK.md` and `docs/TESTING.md` §3h.
+an optional, reversible vendor patch set for the same symptom. P-DATA-023
+(2026-10-04) additionally inserts Ravager 228920 into the Arms `offensive`
+table — an **addition**, not an id move — so the vendor glow reaches the
+bridge's Offensive slot while `MDB.MajorCDDeny` keeps it out of Main. Scope is
+**Arms only**: Fury/Protection list Ravager in the bridge catalog but their
+vendor `offensive` tables lack it, so adding those is a separate patch if
+wanted. Neither changes the wire: cells, `PROTOCOL_VERSION` and the bridge
+encoder are untouched. See `custom/CUSTOM_FORK.md` and `docs/TESTING.md` §3h.
 
 ## No-downtime MAIN (bridge + scheduler, no wire change)
 
@@ -383,8 +397,9 @@ Reader.GetMainSpellID (addon; only what MaxDps already glows)
        └─ no candidate at all / unlisted spec ⇒ nil (idle by design)
 
 ActionScheduler (companion)
-  └─ a failed MAIN press re-arms at MainReprobeMs = 400 ms (not the
-     1.5 s/3 s ladder); MainSameSpellNoOpCap = 3 bounds the no-op repeats
+  └─ a failed MAIN press re-arms at MainReprobeMs = 150 ms (2026-10-04 WHITE
+     Main immediate; was 400 ms); MainSameSpellNoOpCap = 3 bounds the no-op
+     repeats and a GCD-observed send resets the count
   └─ a CHANGED Main identity drops the superseded pick's backoff and
      presses the next tick
 CandidateTracker
@@ -396,6 +411,75 @@ The fallback is the deliberate, user-approved exception to "the bridge only
 encodes what MaxDps suggests" — it is custom behaviour, not upstream parity;
 unlisted specs stay nil and are OWED. See
 `docs/plans/2026-10-03-no-downtime-main.md` and `docs/TESTING.md` §3i.
+
+## WHITE Main immediate (scheduler + decision, no wire change)
+
+2026-10-04, spec `docs/plans/2026-10-04-main-immediate.md`. The WHITE core
+rotation (Main slot) executes immediately when the bridge reports enemy in
+range/sight/castable; only the game-forbidden holds remain. No wire change,
+bridge untouched; Offensive keeps TTK/burst/pair. `DecisionEngine` mirrors the
+stale exemption on the legacy path.
+
+Main gate table (`Scheduler/ActionScheduler.cs`):
+
+| Gate | Main behaviour |
+| :--- | :--- |
+| recency-stale demotion | exempt — `Slot.SelfHeal or Slot.Main` bypass `IsStale` (`:657`) |
+| pending-confirm demotion | exempt (`:680-683`) |
+| MinInterval | `MinIntervalApplies` (`:1037`): a **different** Main press never waits; only an **identical** slot+stroke+spell repeat inside `MinKeyIntervalMs` (120 ms) is held — the pre-GCD-flip double-fire guard |
+| send cap / backoff | `MainSameSpellNoOpCap` (3) counts only sends with `!_pendingConfirm.SawGcd`; a GCD-observed send resets the count (`:236`); re-arm `MainReprobeMs = 150` ms |
+| failure suppression | `NoteFailure` never writes `_failedUntil` for Main (`:950`); streak/decay counters still advance for telemetry/replay |
+| GCD / cast / channel / range / melee / target / power / OS `blockedUntil` / TTL | KEEP — game truth or structural |
+
+`Decision/DecisionEngine.cs` mirrors C1: Main is exempt from stale demotion
+(`:87`) and takes no stale confidence penalty (`:103`), so a Main candidate is
+never demoted behind a fresh Offensive/Trinket/Consumable. Live checks OWED
+(`docs/TESTING.md` §3j).
+
+## MaxDpsBridgeExp (experimental in-game-config fork, no wire change)
+
+A second, separate addon (`addon/MaxDpsBridgeExp/`) implements the approved
+`docs/plans/2026-10-03-ingame-config.md` fork: the player configures the
+toggles in-game. It is **mutually exclusive** with the stable bridge — the
+fork checks `C_AddOns.IsAddOnLoaded("MaxDpsBridge")` and stays inert (no pixel
+frame, no strip ticker, no slash command) when the stable addon is loaded.
+No stable file, `vendor/`, or wire file changes; the 43-cell v5 + Ext2 + Ext3
+strip and `PROTOCOL_VERSION = 5` are byte-identical, so the same companion exe
+decodes either addon.
+
+```
+addon/MaxDpsBridgeExp/
+  MaxDpsBridgeExp.toc      Interface 120100, OptionalDeps MaxDps,
+                           SavedVariables MaxDpsBridgeExpDB,
+                           SavedVariablesPerCharacter MaxDpsBridgeExpCharDB
+  Exp.xml                  load order (Toggles, Catalog, MajorCooldowns,
+                           Keymap, Bars, MainFallback, Reader, Bridge, Core,
+                           Profiles, Overlay, Settings, Slash)
+  Toggles.lua ... Bridge.lua  stable copies renamed MDB→MDBX /
+                           MaxDpsBridge→MaxDpsBridgeExp, VERSION 3.7.1-exp;
+                           Bridge.lua no longer registers /mdb and exposes
+                           MDBX.HandleCommand for diagnostics
+  Exp/Core.lua             identity, Print, 200-line console ring,
+                           MDBX.IsInert() mutual-exclusion guard
+  Exp/Profiles.lua         v1 Global/Spec/Talent store, per-character
+                           override, versioned export/import line
+  Exp/Overlay.lua          insecure BackdropTemplate overlay (Header +
+                           14-pill/4-col grid + Footer), drag-if-unlocked,
+                           SetClampedToScreen, dirty flag + 0.2 s ticker only
+                           OnShow, InCombatLockdown→PLAYER_REGEN_ENABLED
+                           defer queue; no secure templates
+  Exp/Settings.lua         Settings.RegisterCanvasLayoutCategory (+ legacy
+                           InterfaceOptions fallback), 6 tabs (Pause /
+                           Rotation / Binds / Settings / Console / Debug)
+  Exp/Slash.lua            /mdbx ONLY + global MDBXBinding(key)
+  Bindings.xml             BINDING_HEADER_MDBX + MDBX_TOGGLE_OVERLAY +
+                           MDBX_TOGGLE_<KEY> ×14
+```
+
+The fork owns toggles (ADDON-WINS, the same `Toggles.SlotAllowed` single
+gate); the companion Exp mode mirrors the Ext3 mask cells 40-42 read-only.
+Offline bar: `luac -p` every file, `lua tests/secret_harness.lua`,
+`pwsh tools/ability_audit.ps1`. Live retail checks stay OWED.
 
 ## Class Browser (S6) / Class skills screen
 
@@ -524,7 +608,7 @@ MainForm (borderless; 660-wide fixed frame; no frame ring; tray; pause
 
 ```
 MaxDps-Companion/
-  addon/MaxDpsBridge/        bridge addon 3.7.1 (v5 + Ext2 + additive Ext3
+  addon/MaxDpsBridge/        bridge addon 3.7.2 (v5 + Ext2 + additive Ext3
                              encoder, candidate rotation, in-game toggle UI,
                              /mdb commands)
     Catalog.lua              GENERATED class/spec ids + extras (--gen-catalog,
@@ -540,8 +624,13 @@ MaxDps-Companion/
                              defensive urgency + gap-fill, spell variants
                              (base/override/alias resolution), SelfHeal2,
                              ExtraCandidates (mobility/selfHeal/defensive/cc),
-                             MDB.GetCrowdControlCandidate (slot-6 CC source),
-                             v3.5 MDB.IsInterruptPinReady (casting-gated
+                              MDB.GetCrowdControlCandidate (slot-6 CC source),
+                              CategoryOf tail also consults
+                              MDB.FlagOffensiveExtra (2026-10-04), so a flagged
+                              offensive absent from
+                              MaxDps.classCooldowns.offensive is still
+                              classified for the Offensive Flags scan,
+                              v3.5 MDB.IsInterruptPinReady (casting-gated
                              interrupt pin) + MDB.IsBossTarget (CC boss skip),
                              Ext2 HP-curve source,
                              v3.6 MDB.ProbeTargetMelee (single event-gated,
@@ -576,15 +665,34 @@ MaxDps-Companion/
                               MaxDps.Spell, so a stale glow or a 2-3 min CD is
                               never encoded as the MAIN slot; the Offensive slot
                               is an independent Flags-scan, so an empty Main
-                              cannot deadlock the rotation. Bridge-side PRIMARY
-                              fix; no vendor edit, no wire change.
+                              cannot deadlock the rotation. 2026-10-04: 167105
+                              Colossus Smash UN-denied (vendor/live-verified as a
+                              ~45 s Arms rotation button), 228920 Ravager denied
+                              for MAIN and added to the new
+                              `MDB.FlagOffensiveExtra` (Reader.CategoryOf maps
+                              it to "offensive" so the Flags scan can still route
+                              it to the Offensive slot though it is absent from
+                              `MaxDps.classCooldowns.offensive`). Bridge-side
+                              PRIMARY fix; no vendor edit, no wire change.
+     MainFallback.lua         no-downtime MAIN fallback (plan 2026-10-03): when
+                              every non-denied Main glow is denied/power-starved,
+                              Reader returns the first castable per-spec filler
+                              here instead of an empty slot. Fury 72 /
+                              "WARRIOR:Fury" → Bloodthirst 23881; 2026-10-04
+                              Arms 71 / "WARRIOR:Arms" → Mortal Strike 12294 then
+                              Overpower 7384 (all vendor name-verified). Unlisted
+                              specs stay nil. Deliberate exception to
+                              "encode only what MaxDps suggests".
    custom/                    custom MaxDps fork (read-only vendor preserved):
      upstream-pristine/        untouched v11.3.49 snapshot + MANIFEST.json
                               (fileSha256 churn baseline; captured 2026-10-03)
-     patches.json              declarative patch manifest (75: 22 data +
-                              40 guard + 13 canary); P-DATA = Cooldowns.lua id
-                              moves, P-GUARD = Specialization ACSpells bypass,
-                              canary = `local setSpell` sentinel
+      patches.json              declarative patch manifest (76: 23 data +
+                               40 guard + 13 canary); P-DATA = Cooldowns.lua id
+                               moves (22) plus the Ravager 228920 Arms-offensive
+                               addition (P-DATA-023; anchor = commented
+                               Sweeping Strikes line), P-GUARD =
+                               Specialization ACSpells bypass, canary =
+                               `local setSpell` sentinel
      out/                      GENERATED patched tree (build artifact, absent
                               until a sync run; never hand-edited)
    tools/Sync-CustomMaxDps.ps1 T2 sync tool: churn-diff a new upstream drop vs
@@ -660,13 +768,24 @@ MaxDps-Companion/
                              History=1/Kills=8/MinKills=3/MaxAgeSec=240/
                              Quantile=75/DurFactor=0.5; `History=0` = exact
                              pre-history behaviour)
-      TtkPolicy.cs           v3.2.0 MinTtkSec usage defaults + TTK field
-                             forwarding for the T1-T4 gates; v3.6 tiered
-                             thresholds, grace-hold/kill-secure helpers and the
-                             `[TimeToKill] Fallback` mode; v3.7 NeedAdaptive
-                             (max(base, min(DurFactor·activeDur, 20))) and the
-                             `ttk-hist` T1 branch; v3.8 BuffNeed (buff duration)
-                             + `DefaultWarmupSec`/`WarmupHoldHolds`
+       TtkPolicy.cs           v3.2.0 MinTtkSec usage defaults + TTK field
+                              forwarding for the T1-T4 gates; v3.6 tiered
+                              thresholds, grace-hold/kill-secure helpers and the
+                              `[TimeToKill] Fallback` mode; v3.7 NeedAdaptive
+                              (max(base, min(DurFactor·activeDur, 20))) and the
+                              `ttk-hist` T1 branch; v3.8 BuffNeed (buff duration)
+                              + `DefaultWarmupSec`/`WarmupHoldHolds`; 2026-10-04
+                               `LiveReleasesHistory` (valid live TTK ≥ need, or no
+                               valid TTK + target age ≥8 s + known HP ≥85%) fails
+                               `HistoryWasteGuardHolds` open, so a trash-learned
+                               window never holds a major against a long-lived
+                               rare/elite; 2026-10-04 sub-50s `SubFiftyBypass`
+                               (`CooldownMs > 0 && < 50_000`, fail-closed on 0)
+                               fails the waste/history/warmup/grace guards open so
+                               curated rotational short CDs (Warbreaker 262161
+                               etc.) are never TTK-conserved; the
+                               `CandidateProviders` burst-preset hold is gated
+                               the same way
       SoloBandLatch.cs       v3.3.0 Solo HP-band hysteresis latch (enter band,
                              then stay eligible to enter+5 once engaged; with no
                              prior engagement it is the plain enter threshold)
@@ -1103,8 +1222,8 @@ MaxDps-Companion/
   canvas, so it stays the default opaque view over the classic body — no
   background menu or ring peeks at any edge. No wire/format change;
   `PROTOCOL_VERSION` stays 5 and the Ext3 layout is byte-identical.
-  **3.7.1 "Vigil"** is the release; the title renders
-  `v3.7.1 Vigil` and `InstallDoctor` agrees with the bridge 3.7.1.
+  **3.7.2 "Onslaught"** is the release; the title renders
+  `v3.7.2 Onslaught` and `InstallDoctor` agrees with the bridge 3.7.2.
 - **M-route unified mask (UI only, no wire change).** `MainForm.BuildUnifiedPopup`
   is the single shell every mask must call (opaque scrim + `RoundedCard` +
   `SegmentedTabs`, main-window tokens). `Center` fills `client-24 × client-24`

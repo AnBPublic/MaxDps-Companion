@@ -69,7 +69,7 @@ Three layers, in precedence order:
    with an always-true bypass, so `MaxDps:GlowCooldownMidnight` still fires an
    offensive cooldown when AC suppresses it. Secondary/reversible vendor
    coverage for the same symptom class.
-3. **P-DATA** (`kind: "data"`, 22 entries) — `MaxDps/Cooldowns.lua`
+3. **P-DATA** (`kind: "data"`, 23 entries) — `MaxDps/Cooldowns.lua`
    offensive-table spell-ID moves. Since the new 12.1 IDs are **not known
    offline**, `newSpellId` stays `null`; the patch annotates the stale
    `v11.3.49` row with a comment (`-- P-DATA-0NN stale-v11.3.49 id; 12.1 move
@@ -104,8 +104,8 @@ removes exactly one wrong key and cannot strand the rotation.
 
 ## `patches.json`
 
-Declarative manifest authored by T1 (`custom/patches.json`), **75 entries** —
-22 `data`, 40 `guard`, 13 `canary`. Entry schema:
+Declarative manifest authored by T1 (`custom/patches.json`), **76 entries** —
+23 `data`, 40 `guard`, 13 `canary`. Entry schema:
 
 ```json
 {
@@ -133,7 +133,8 @@ Declarative manifest authored by T1 (`custom/patches.json`), **75 entries** —
 
 ### Kinds
 
-- **data** — `MaxDps/Cooldowns.lua` offensive-table spell-ID moves (22).
+- **data** — `MaxDps/Cooldowns.lua` offensive-table spell-ID moves (23: 22
+  moves + 1 addition, P-DATA-023 Ravager 228920 to the Arms offensive table).
 - **guard** — ACSpells loop bypass so `MaxDps:GlowCooldownMidnight` still
   fires when Assisted Combat suppresses an offensive cooldown (40 retail spec
   files; names `P-GUARD-001..040`).
@@ -141,15 +142,14 @@ Declarative manifest authored by T1 (`custom/patches.json`), **75 entries** —
   legacy/TWW fallback path (13 entries, one representative `Specialization/TWW`
   file per class module; names `P-CANARY-001..013`).
 
-T1 verification: all 75 anchors match exactly once; 0 conflicts.
+T1 verification: all 76 anchors match exactly once; 0 conflicts.
 
-> **Reconciliation OWED.** Two manifest shapes exist in the repo. The authored
-> `custom/patches.json` uses the rich `kind` / `anchor{regex,scope}` /
-> `apply{op,text}` / `fixedWhen{regex}` shape above. The T2 tool
-> (`tools/Sync-CustomMaxDps.ps1`) and its fixture tests read a flatter shape
-> (`target`, top-level `op`, string `anchor`/`find`, `insert`/`replace`,
-> `canary`). Until an adapter or a regenerated manifest aligns them, the sync
-> tool has not consumed the 75 authored entries end-to-end — tracked as OWED.
+> **Reconciliation resolved (2026-10-04).** The T2 tool consumed the authored
+> `custom/patches.json` end-to-end: a real dry-run
+> (`Sync-CustomMaxDps.ps1 -NewUpstream custom\upstream-pristine -WhatIf`)
+> reported **APPLIED 63 / CONFLICT 0 / FIXED-UPSTREAM 13** across all 76
+> entries, including `P-DATA-023` (no adapter was needed). The earlier
+> "flatter shape / not yet consumed" note is obsolete.
 
 ## Sync tool
 
@@ -189,10 +189,12 @@ custom/out/  ──(Sync -PublishTo)──►  <WoW>\_retail_\Interface\AddOns\M
 - A publish never happens on a CONFLICT run and never touches `vendor/`.
 - `custom/out/` is a build artifact: regenerate it, do not edit it in place.
 
-## Spell-ID move table (22, from the `data` patches)
+## Spell-ID move table (22 moves + 1 addition, from the 23 `data` patches)
 
 New 12.1 IDs are **not yet known offline**; `newSpellId` is `null`. The bridge
-denylist is the behavior fix; the vendor data patch is a marker.
+denylist is the behavior fix; the vendor data patch is a marker. The 22 moves
+below are stale-id markers; P-DATA-023 is a **new row addition**, not a move
+(see the Additions table after the move table).
 
 | Ability | Old ID | Class | Spec |
 |---|---|---|---|
@@ -219,6 +221,23 @@ denylist is the behavior fix; the vendor data patch is a marker.
 | Mindbender | 200174 | PRIEST | Shadow |
 | Shield Charge | 385952 | WARRIOR | Protection |
 
+### Additions (offensive-table, 1 — not a move)
+
+| Ability | Added ID | Class | Spec |
+|---|---|---|---|
+| Ravager | 228920 | WARRIOR | Arms |
+
+P-DATA-023 inserts `["Ravager"] = 228920` into the Arms `offensive` table
+(anchored on the commented Sweeping Strikes line) so the vendor glow lands in
+the bridge's Offensive slot. The bridge deny-list (`MDB.MajorCDDeny`) keeps it
+out of Main. This is an **addition**, not one of the 22 move-table entries, so
+the moves count is unchanged.
+
+Scope is **Arms only.** Fury and Protection both list Ravager in the generated
+`Catalog.lua`, but their vendor `offensive` tables lack it (`Cooldowns.lua`
+Fury :756-761 = Recklessness 1719 + Avatar 107574). Adding Ravager to Fury/Prot
+is a separate `data` patch if wanted.
+
 Already correct (major CDs, no data patch): Avatar 107574, Recklessness 1719,
 Void Eruption 228260, Metamorphosis, Tyrant, Shadowfiend, Trueshot, Icy Veins,
 Celestial/Incarnation, Ascendance, Infernal, Shadow Blades.
@@ -228,9 +247,12 @@ Celestial/Incarnation, Ascendance, Infernal, Shadow Blades.
 - [ ] **Live 12.1 id check** — resolve the true 12.1 ids for the 22 moves and
       the "already correct" majors against a real client; fill `newSpellId`
       and refresh `MDB.MajorCDDeny`. Static vendor names are not live proof.
-- [ ] **Publish run** — `Sync-CustomMaxDps.ps1` end-to-end onto a real
-      `AddOns` folder (and its backup/rollback path).
-- [ ] **Manifest schema reconciliation** — align `custom/patches.json` with
-      what `tools/Sync-CustomMaxDps.ps1` consumes, or add the adapter.
+- [x] **Publish run** — DONE 2026-10-04: `Sync-CustomMaxDps.ps1` end-to-end
+      onto the real `AddOns` folder. APPLIED 63 / CONFLICT 0 / FIXED-UPSTREAM
+      13; published hash == `custom/out/`; backup
+      `custom/out/_backup/20261004-172307`.
+- [x] **Manifest schema reconciliation** — DONE 2026-10-04: the tool consumed
+      the rich `custom/patches.json` shape end-to-end (APPLIED 63 /
+      FIXED-UPSTREAM 13), so no adapter is needed.
 - [ ] **Full retail run** — fork vs stock after `/reload`
       (see `docs/TESTING.md` §3h). Static ≠ automated test ≠ live in-game.

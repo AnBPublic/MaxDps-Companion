@@ -11,7 +11,7 @@
     "guard": "Specialization/*.lua ACSpells loop -> GlowCooldownMidnight bypass",
     "canary": "setSpell sentinel must survive"
   },
-  "count": 75,
+  "count": 76,
   "patches": [
     {
       "id": "P-DATA-001",
@@ -495,6 +495,28 @@
       },
       "fixedWhen": {
         "regex": "--\\ P-DATA-022"
+      }
+    },
+    {
+      "id": "P-DATA-023",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "WARRIOR",
+      "spec": "Arms",
+      "spellId": 228920,
+      "spellName": "Ravager",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Sweeping Strikes\"]\\ =\\ 260708,",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "--[\"Sweeping Strikes\"] = 260708,\n                [\"Ravager\"] = 228920, -- P-DATA-023 added-to-offensive (glow->offensive slot; bridge deny-list keeps it off Main)"
+      },
+      "fixedWhen": {
+        "regex": "\\[\"Ravager\"]\\s*=\\s*228920"
       }
     },
     {

@@ -1,5 +1,232 @@
 # Handover — MaxDps-Companion
 
+## 2026-10-04 RAVAGER → ARMS OFFENSIVE (fork data patch P-DATA-023; docs-only)
+
+STATUS: T1+T3+T4/T5 of `docs/plans/2026-10-04-ravager-offensive.md`. Ravager 228920
+is a Warrior/Arms major that existed only as a **commented** row in the vendor
+Arms `offensive` table (`vendor/MaxDps/Cooldowns.lua:743` Sweeping Strikes) and
+was absent from `MaxDps.classCooldowns.offensive`, so its glow never reached the
+Offensive slot. T1 adds `P-DATA-023` to `custom/patches.json` (`kind: data`,
+op replace, anchored on the unique commented Sweeping Strikes line) inserting
+`["Ravager"] = 228920` into the Arms `offensive` table; `fixedWhen` makes it
+idempotent (`FIXED-UPSTREAM` once upstream adds it). The bridge already keeps
+Ravager out of Main (`MDB.MajorCDDeny`) and routes it to Offensive
+(`MDB.FlagOffensiveExtra`), so no addon/app change and **no wire change**.
+T3 is docs-only: `custom/CUSTOM_FORK.md` counts **75→76 entries / 22→23 data**
+(+ separate Ravager **Additions** row, moves stay 22), `ARCHITECTURE.md`
+pipeline/file-map note, this section.
+
+T4/T5 HAVE RUN (2026-10-04): dry-run `pwsh tools/Sync-CustomMaxDps.ps1
+-NewUpstream custom\upstream-pristine -WhatIf` gave **APPLIED 63 / CONFLICT 0 /
+FIXED-UPSTREAM 13** across all 76 entries — the rich P-DATA-023 schema is
+consumed end-to-end, no adapter. `custom/out/MaxDps/Cooldowns.lua:744` then
+carried `Ravager` inside the Arms `offensive` table with P-DATA-009 intact.
+Publish verified: published `Cooldowns.lua` hash == `custom/out/` (**match
+True**), `luac -p` exit 0, backup at `custom/out/_backup/20261004-172307`.
+
+CHANGED: `custom/patches.json` (P-DATA-023), `custom/CUSTOM_FORK.md`,
+`ARCHITECTURE.md`, `HANDOVER.md`. `custom/out/` is a GENERATED T4 artifact
+(regenerate, never commit or hand-edit); `vendor/`,
+`custom/upstream-pristine/`, `addon/`, `app/`, tests and `settings.ini`
+untouched.
+
+VERIFY: `patches.json` parses (pwsh `ConvertFrom-Json`), `count = 76`
+(23 data + 40 guard + 13 canary); P-DATA-023 anchor matches **exactly once** in
+`vendor/MaxDps/Cooldowns.lua` (CRLF confirmed); simulated apply yields exactly
+one `["Ravager"] = 228920` at `Cooldowns.lua:744` inside Arms `offensive`, and
+`fixedWhen` then matches (idempotent). T4/T5 then ran the real tool (above):
+APPLIED 63 / CONFLICT 0 / FIXED-UPSTREAM 13, published hash match True,
+`luac -p` exit 0.
+
+OWED (live retail 12.1): Arms + Ravager talent — offensive slot sends Ravager's
+key and Main does not (part of the §3h retail run). Static ≠ automated ≠ live.
+
+## 2026-10-04 WHITE MAIN IMMEDIATE (scheduler + decision; no wire change)
+
+STATUS: T2/T3 of `docs/plans/2026-10-04-main-immediate.md` are in the worktree;
+this pass is T5 docs only. User directive — the WHITE core rotation (Main slot,
+SpellsGlowing via `GlowNextSpell`) executes **immediately** when the bridge
+reports enemy in range + sight + castable. Every companion-strategy Main delay
+is removed. Only game-forbidden holds remain (paused/OOC/no-target, GCD,
+range, cast/channel, melee, target, Main toggle off, power unusable, user
+Never/Manual, registry delegation, OS `blockedUntil`, candidate TTL). **No
+wire/PROTOCOL change**; bridge untouched (its Main gates are game truth).
+Offensive keeps its TTK/burst/pair gates. Spec:
+`docs/plans/2026-10-04-main-immediate.md`.
+
+CONTRACTS:
+- **C1 stale exemption:** `ActionScheduler.cs:657`
+  `entry.Candidate.Slot is not (Slot.SelfHeal or Slot.Main) && IsStale(...)`;
+  `DecisionEngine.cs:87` (no demotion) and `:103` (no stale confidence
+  penalty). A Main candidate is never demoted behind a fresh
+  Offensive/Trinket/Consumable.
+- **C2 MinInterval:** new `MinIntervalApplies(slot, candidate, intervalElapsed)`
+  (`ActionScheduler.cs:1037`) replaces the former blanket min-interval check
+  (`:745-747`). False (no hold) for Interrupt + Main on a **different** press;
+  True only for an **identical** slot+stroke+spell repeat inside the interval
+  (the pre-GCD-flip double-fire guard). New `_lastSentSpellId`, set in NoteSent
+  (`:215`), cleared in Reset (`:294`); `MinKeyIntervalMs` default 120 ms stays.
+- **C3 Main retry + suppression:** `MainReprobeMs` 400 → **150** (`:89`); the
+  Main send cap counts only sends with `!_pendingConfirm.SawGcd` (a
+  GCD-observed send resets the count, `:236`); `NoteFailure` slot==Main writes
+  **no** `_failedUntil` (`:950`) while still advancing counters and
+  `RejectionsDetected`. The non-Main ladder (1.5/3/6/10 s, 5-per-1.5 s cap) is
+  untouched.
+- **C4 policy:** no `PolicyEvaluator` Main-branch change; a pin test asserts
+  Main is never Hold/Skip from TTK/burst/pair/waste/own-history.
+- **C5 docs:** this section + `ARCHITECTURE.md` scheduler gate table +
+  `docs/TESTING.md` §3j. `docs/PROTOCOL.md` unchanged.
+
+MAIN GATE KEEP/REMOVE:
+| Gate | Change |
+| :--- | :--- |
+| paused/OOC, no target, GCD, range, cast/channel, melee, target, Main toggle off, power unusable, user Never/Manual, registry delegation, OS `blockedUntil`, candidate TTL | KEEP (game truth / structural) |
+| recency-stale demotion | REMOVE for Main (C1) |
+| min key interval for every press | REMOVE for a different Main press; KEEP only identical-repeat (C2) |
+| Main retry cap 400 ms / 3 sends | REPLACE with 150 ms re-probe + SawGcd-reset count (C3) |
+| failure-suppression ladder (`_failedUntil`) | REMOVE for Main (C3) |
+
+CHANGED (other pass): `Scheduler/ActionScheduler.cs`,
+`Decision/DecisionEngine.cs`, `tests/MaxDpsCompanion.Tests/MainImmediateTests.cs`.
+This pass: `ARCHITECTURE.md`, `docs/TESTING.md`, this section.
+
+OWED (live retail 12.1): Main fires on the first tick after the GCD falls in
+range/sight; never double-presses within one GCD; a blank-glow fallback fires
+immediately; Offensive and Main interleave (Off-GCD Offensive fires while Main
+is GCD-held); no-target/OOR/casting holds; a refused key is capped at ≤3 sends
+/ ≤1 per 150 ms. Static ≠ automated test ≠ live in-game.
+
+## 2026-10-04 RELEASE 3.7.2 "ONSLAUGHT" (Arms + Fury execution fix, companion + bridge identity)
+
+STATUS: ships the Arms + Fury execution fix (section below) as release
+**3.7.2 "Onslaught"** (was 3.7.1 "Vigil"). The codename moves this time because
+companion behavior changed (TTK history-release) and the bridge gained new
+routing (FlagOffensiveExtra + Arms fallback). Protocol unchanged (v5 nibble
+stays 5; every cell byte-identical). Companion and bridge identity both move to
+3.7.2: csproj `<Version>`/`<Codename>`, `Native.cs` fallback, `Bridge.lua`
+`MDB.VERSION`, the TOC `## Version`/`## X-Codename`, repo + addon `VERSION.txt`,
+`README.md`, `ARCHITECTURE.md`, `docs/UI.md`, `docs/TESTING.md`, and
+`ReleaseIdentityTests`. Branch publish, no tag. Spec:
+`docs/plans/2026-10-04-arms-fury-exec-fix.md`.
+
+## 2026-10-04 SUB-50s TTK BYPASS (policy + curated catalog; no wire change)
+
+STATUS: spec `docs/plans/2026-10-04-sub50s-ttk-bypass.md`. User directive —
+every companion-gated ability whose curated cooldown is **< 50 s** bypasses the
+TTK locks unrestricted, all classes/specs; 90 s+ majors stay gated. New
+`TtkPolicy.SubFiftyBypass(AbilityDefinition)` = `CooldownMs > 0 &&
+CooldownMs < 50_000` (near `MinTtkSec`, `TtkPolicy.cs`), and an early `return
+false` in `WarmupHoldHolds`, `WasteGuardCore` (choke point for both
+`WasteGuardHolds` overloads), `HistoryWasteGuardHolds` and `GraceHoldHolds`;
+`CandidateProviders` burst-preset hold gains `&& !SubFiftyBypass(ability)`.
+Execute/KillSecure carve-outs and `LiveReleasesHistory` order untouched. **No
+wire/PROTOCOL change**, no settings key, one exe rule holds.
+
+BACKFILL (`Knowledge/abilities.json`, all `cdMs 45000`; source live 12.1):
+Colossus Smash 167105, Warbreaker 262161 (keeps `minTtkSec:15`), Demolish
+436358, Odyn's Fury 385059, Shield Charge 385952 and Demoralizing Shout 1160
+(web-verified 45 s — warcraft.wiki/method/icy-veins). Essence Break 258860 was
+given its real `cdMs 40000` as the **curated non-warrior <50 s** example
+(warcraft.wiki). Caveat documented: `CooldownMs == 0` (unknown/uncurated)
+stays gated — fail-closed, never a blanket bypass of unknowns.
+
+CHANGED: `app/MaxDpsCompanion/Knowledge/TtkPolicy.cs`,
+`Knowledge/CandidateProviders.cs`, `Knowledge/abilities.json`, new
+`tests/MaxDpsCompanion.Tests/TtkSubFiftyBypassTests.cs` (6 facts),
+`ARCHITECTURE.md` file map, this section; `docs/research/ABILITY_REGISTRY_AUDIT.md`
++ `ABILITY_COVERAGE.json` regenerated by the audit run.
+
+VERIFY (this machine): `dotnet build app/MaxDpsCompanion/MaxDpsCompanion.csproj
+-c Release` **0 warnings / 0 errors**; `dotnet test -c Release` **966 passed /
+1 failed / 967** — the only failure is the pre-existing load-sensitive STA
+`ClassicUi_WidthTiers_ScaleFontAndRowHeight` "STA UI thread timed out", which
+passes standalone **1/1** under a clean run (documented flake); new
+`TtkSubFiftyBypassTests` **6/6**; `pwsh tools/ability_audit.ps1` exit 0
+(Violations 0 / Warnings 0 / Missing 0 / Stale 0; committed addon
+`Catalog.lua` matches the generated output). Static ≠ automated test ≠ live.
+
+OWED (live retail 12.1): Arms `shift+2` (Colossus Smash) / `shift+F` fire on
+cooldown including trash; Protection Shield Charge / Demoralizing Shout fire
+on cooldown; Fury rares still conserve 90 s majors (Recklessness/Avatar/
+Ancestral Call) on a short-TTK target. Trash conservation for <50 s buttons is
+**intentionally relaxed** (user accepted the waste risk, plan Acceptance).
+
+## 2026-10-04 ARMS + FURY EXECUTION FIX (bridge + policy; no wire change)
+
+STATUS: T1+T2 of `docs/plans/2026-10-04-arms-fury-exec-fix.md` are in the
+worktree; this pass is T3 docs only. Bridge: Colossus Smash 167105 is NO LONGER
+denied (the 12.1 stale-id guess was wrong — it is a ~45 s Arms rotation button;
+`spell-verification.json:4044` verifies the id), so `Reader.GetMainSpellID` may
+encode it again. Ravager 228920 was ADDED to `MDB.MajorCDDeny` (MAIN must never
+carry it) and to the new `MDB.FlagOffensiveExtra`, which `Reader.CategoryOf`
+now maps to `"offensive"` after its existing classCooldowns checks — so
+`FirstFlagged("offensive")` routes it into the Offensive slot even though it is
+absent from `MaxDps.classCooldowns.offensive`. `MainFallback.lua` gains Arms
+(`[71]` / `"WARRIOR:Arms"`) → Mortal Strike 12294 then Overpower 7384 (both
+vendor name-verified). Policy: `TtkPolicy.LiveReleasesHistory` now fails
+`HistoryWasteGuardHolds` open when a valid live TTK ≥ need, or (no valid live
+TTK) the target is ≥8 s old, HP known and ≥85% — a trash-learned history window
+can no longer hold Recklessness/Avatar/Ancestral Call against a long-lived
+rare/elite. Execute/kill-secure carve-outs stay first;
+`GraceHoldHolds`/`WarmupHoldHolds` unchanged.
+
+CHANGED: `addon/MaxDpsBridge/MajorCooldowns.lua`, `Reader.lua` (CategoryOf
+only), `MainFallback.lua`, `tests/secret_harness.lua`,
+`app/MaxDpsCompanion/Knowledge/TtkPolicy.cs`,
+`tests/MaxDpsCompanion.Tests/TtkRareTargetTests.cs`, `ARCHITECTURE.md`, this
+section. No `docs/PROTOCOL.md` / `PixelProtocol.cs` / `KeySender.cs` /
+`vendor/` / tracked `settings.ini` change; one exe rule holds.
+
+OWED (live retail 12.1): Arms shift+2 (Colossus Smash) and shift+F (Ravager)
+actually fire, and Ravager never occupies the MAIN slot; Fury Recklessness /
+Avatar / Ancestral Call fire on a rare/elite; trash majors stay conserved. The
+offline bar (build / `dotnet test` / `lua tests/secret_harness.lua` / `luac -p`
+/ `pwsh tools/ability_audit.ps1`) is T1/T2's, not this docs pass. Known
+divergence (corrected 2026-10-04): the stale claim that
+`addon/MaxDpsBridgeExp/MajorCooldowns.lua` still denies 167105 no longer holds
+— the Exp copy carries the same 2026-10-04 block (167105 un-denied,
+`MDBX.FlagOffensiveExtra[228920]`) **and** `Exp/MainFallback.lua` already
+mirrors the Arms `[71]` / `"WARRIOR:Arms"` → Mortal Strike then Overpower
+fallback (stable/Exp lockstep here). The remaining Exp/stable skew is the
+version string (`3.7.1-exp` vs stable `3.7.2`) only. Static ≠ automated test ≠
+live in-game.
+
+## 2026-10-03 MAXDPSBRIDGEEXP ADDON (experimental in-game-config fork)
+
+STATUS: new addon `addon/MaxDpsBridgeExp/` per
+`docs/plans/2026-10-03-ingame-config.md`. Separate addon — no stable-file
+edits, no wire change (43-cell v5 byte-identical; `docs/PROTOCOL.md`,
+`PixelProtocol.cs`, `KeySender.cs`, `vendor/` untouched). Mutually exclusive
+with the stable bridge: `Exp/Core.lua` exposes `MDBX.IsInert()` and the
+renamed `Bridge.lua` ADDON_LOADED bootstrap returns before creating the pixel
+frame / strip ticker when the stable addon is loaded; Bridge never registers
+`/mdb` and `Exp/Slash.lua` registers `/mdbx` only. Companion Exp mode is
+owned by the parallel app workstream (`AppSettings.InGameConfigMode`,
+`ExpModeTests.cs`), not this pass.
+
+CHANGED (all NEW files): `MaxDpsBridgeExp.toc`, `Exp.xml`, `Bindings.xml`;
+renamed stable copies `Toggles/Catalog/MajorCooldowns/Keymap/Bars/
+MainFallback/Reader/Bridge.lua` (`\bMDB\b→MDBX`,
+`MaxDpsBridge→MaxDpsBridgeExp`, VERSION `3.7.1-exp`); `Exp/Core.lua` (inert
+guard, chat print, 200-line console ring), `Exp/Profiles.lua` (v1
+Global/Spec/Talent store + versioned export/import, per-character override),
+`Exp/Overlay.lua` (insecure BackdropTemplate, Header + 14-pill/4-col grid +
+Footer, drag-if-unlocked, clamped, dirty flag + 0.2 s ticker only OnShow,
+InCombatLockdown→PLAYER_REGEN_ENABLED defer queue), `Exp/Settings.lua`
+(Settings.RegisterCanvasLayoutCategory + InterfaceOptions fallback, 6 tabs
+Pause/Rotation/Binds/Settings/Console/Debug), `Exp/Slash.lua` (`/mdbx` +
+global `MDBXBinding`).
+
+VERIFY (this machine): `luac -p` **13/13** new lua files clean; `luac -p`
+10 stable bridge files clean; `git status` shows stable/vendor/PROTOCOL
+untouched; `lua tests/secret_harness.lua` **275 passed / 0 failed**;
+`pwsh tools/ability_audit.ps1` exit 0 (violations 0 / warnings 0, catalog
+matches). LIVE OWED (retail 12.1): Exp loads alone with the stable bridge
+disabled (strip decodes); double-load guard in both load orders; overlay
+drag/lock/scale/alpha and the combat-deferred rebuild; Settings opens via the
+canvas category (and the legacy fallback); all 15 bindings fire; Ext3 mirror
+matches the in-game mask. Static ≠ automated test ≠ live in-game.
+
 ## 2026-10-03 RELEASE 3.7.1 "VIGIL" (no-downtime MAIN, companion + bridge identity)
 
 STATUS: ships the no-downtime MAIN subsystem as release **3.7.1 "Vigil"** (was
@@ -64,7 +291,7 @@ unchanged — the v5 nibble stays 5 and every cell is byte-identical. The
 bridge-side denylist (`MDB.MajorCDDeny` in `MajorCooldowns.lua` + the
 `GetMainSpellID` skip/reject) keeps a stale / 2-3 min major CD out of the MAIN
 slot; the Offensive slot is an independent candidate, so an empty Main cannot
-stall the rotation. `custom/` (pristine v11.3.49 + `MANIFEST.json` + 75-entry
+stall the rotation. `custom/` (pristine v11.3.49 + `MANIFEST.json` + 76-entry
 `patches.json`) and `tools/Sync-CustomMaxDps.ps1` (+ `tests/sync/`) publish the
 optional reversible vendor patch; `vendor/` is never edited.
 
@@ -86,7 +313,8 @@ tool (adapter OWED). Static ≠ automated test ≠ live in-game.
 
 STATUS: T1-T3 are done — `custom/upstream-pristine/` + `MANIFEST.json`
 (v11.3.49, Interface 120100, captured `2026-10-03T12:12:52Z`),
-`custom/patches.json` (75 entries: 22 data + 40 guard + 13 canary), the T2
+`custom/patches.json` (76 entries: 23 data + 40 guard + 13 canary; was 75/22
+before P-DATA-023 Ravager, 2026-10-04), the T2
 sync tool `tools/Sync-CustomMaxDps.ps1` (+ `tests/sync/…`), and the T3
 bridge-side denylist **live**: `addon/MaxDpsBridge/MajorCooldowns.lua`
 (`MDB.MajorCDDeny`, wired into the TOC) plus the `GetMainSpellID` skip in
@@ -107,7 +335,7 @@ SYNC: **partially reconciled, one item OWED.** The authored
 `custom/patches.json` uses the rich `kind`/`anchor{regex,scope}`/
 `apply{op,text}`/`fixedWhen{regex}` shape; the T2 tool + its fixture tests read
 a flatter `target`/`op`/string-`anchor`/`insert`/`replace` shape, so the tool
-has not yet consumed the 75 authored entries end-to-end. Reconciliation
+has not yet consumed the 76 authored entries end-to-end. Reconciliation
 (adapter or regenerated manifest) is OWED. `custom/out/` is a gitignored
 build artifact and is currently absent (expected until a sync run).
 
