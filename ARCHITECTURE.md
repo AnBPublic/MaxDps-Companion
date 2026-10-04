@@ -14,7 +14,7 @@ Vendor discovery (read-only): MaxDps:GlowDefensiveHPMidnight (Buttons.lua:1056)
   curve's own control points — see docs/research/ABILITY_RESEARCH.md §6.
        │
        ▼
-MaxDpsBridge addon — 43-cell pixel strip (bridge 3.7.2; v5 + Ext2 layout
+MaxDpsBridge addon — 43-cell pixel strip (bridge 3.7.3; v5 + Ext2 layout
   unchanged from 3.0.0, Ext3 shipped by T1/T2). Ext3: a 43-cell strip
   (cells 40-42 = 14-bit app toggle mask + epoch + blocked nibble + cell-42
   checksum/commit, presence cell 28 B bit2); a pre-3.5 companion ignores it
@@ -608,7 +608,7 @@ MainForm (borderless; 660-wide fixed frame; no frame ring; tray; pause
 
 ```
 MaxDps-Companion/
-  addon/MaxDpsBridge/        bridge addon 3.7.2 (v5 + Ext2 + additive Ext3
+  addon/MaxDpsBridge/        bridge addon 3.7.3 (v5 + Ext2 + additive Ext3
                              encoder, candidate rotation, in-game toggle UI,
                              /mdb commands)
     Catalog.lua              GENERATED class/spec ids + extras (--gen-catalog,
@@ -1222,8 +1222,8 @@ MaxDps-Companion/
   canvas, so it stays the default opaque view over the classic body — no
   background menu or ring peeks at any edge. No wire/format change;
   `PROTOCOL_VERSION` stays 5 and the Ext3 layout is byte-identical.
-  **3.7.2 "Onslaught"** is the release; the title renders
-  `v3.7.2 Onslaught` and `InstallDoctor` agrees with the bridge 3.7.2.
+  **3.7.3 "Reaver"** is the release; the title renders
+  `v3.7.3 Reaver` and `InstallDoctor` agrees with the bridge 3.7.3.
 - **M-route unified mask (UI only, no wire change).** `MainForm.BuildUnifiedPopup`
   is the single shell every mask must call (opaque scrim + `RoundedCard` +
   `SegmentedTabs`, main-window tokens). `Center` fills `client-24 × client-24`

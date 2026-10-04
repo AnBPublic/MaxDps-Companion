@@ -289,8 +289,8 @@ internal static class Native
     /// <summary>
     /// Release codename, SINGLE-SOURCED from csproj &lt;Codename&gt; via the
     /// AssemblyMetadata attribute (see the csproj). Falls back to the shipped
-    /// "Vigil" if the attribute is somehow absent (e.g. an old exe built
-    /// before the wiring), so the title can never render a bare "v3.7.1 ".
+    /// "Reaver" if the attribute is somehow absent (e.g. an old exe built
+    /// before the wiring), so the title can never render a bare "v3.7.3 ".
     /// </summary>
     internal static string Codename
     {
@@ -304,10 +304,10 @@ internal static class Native
         }
     }
 
-    private const string CodenameFallback = "Vigil";
+    private const string CodenameFallback = "Reaver";
 
     /// <summary>
-    /// Full display form used by the title bar: "v3.7.1 Vigil" (the "v"
+    /// Full display form used by the title bar: "v3.7.3 Reaver" (the "v"
     /// prefix plus the single-sourced version and codename). Never contains a
     /// build hash/time — those live in the Advanced Diagnostics install doctor.
     /// </summary>

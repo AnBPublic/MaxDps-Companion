@@ -363,7 +363,7 @@ as `ttkw` and the replay must reproduce the hold.
 Offline evidence is static only — `luac -p addon/MaxDpsBridge/*.lua`, the T2
 fixture suite (`pwsh tests/sync/Sync-CustomMaxDps.Tests.ps1`) and the
 `MDB.MajorCDDeny` table — never live proof. There is no automated in-game test
-for the fork. Observe in a real client with the bridge 3.7.1 addon loaded
+for the fork. Observe in a real client with the bridge 3.7.3 addon loaded
 (`/reload`, `/mdb status` shows `protocol=5`):
 
 1. **Avatar / Combustion no longer Main.** Play a Warrior and a Fire Mage with
@@ -394,19 +394,19 @@ Static ≠ automated test ≠ live in-game.
 ### 3i. No-downtime MAIN / Fury fallback (live 12.1 retail, OWED)
 
 Offline evidence is `MainNoDowntimeTests` (Fury Rampage rage-blind fixture:
-`MainReprobeMs` ≤ 400, re-probe ≥ `MinKeyInterval`, never silent beyond
+`MainReprobeMs` = 150, re-probe ≥ `MinKeyInterval`, never silent beyond
 `MainReprobeMs + MinKeyInterval`; a changed Main picks the next tick; 20
 stationary no-op ticks keep every gap; no filler is invented when `ranked==0`)
 plus the Q1 block in `lua tests/secret_harness.lua` (glowing∩usable scan,
 denied/power-starved fall-through, per-spec filler, fail-open on secret/nil/
 throw) — never live proof. Observe in a real client with a Fury Warrior and the
-bridge 3.7.1 addon loaded:
+bridge 3.7.3 addon loaded:
 
 1. **Rampage only at Rage ≥ 80.** While Rampage (184367) is suggested but the
    player is below 80 Rage, it must **not** be pressed; the MAIN slot carries
    the castable filler Bloodthirst (23881) instead of blanking.
 2. **No GCD gaps / no silent Main.** The rotation keeps a legal MAIN key every
-   tick: the gap between attempts never exceeds ~0.4 s (`MainReprobeMs`) plus
+   tick: the gap between attempts never exceeds ~0.15 s (`MainReprobeMs`) plus
    one `MinKeyInterval`, and a no-op press never latches a hold.
 3. **Alternate pressed.** When MaxDps swaps the MAIN suggestion to a different
    spell id, the new identity is pressed on the next tick (the superseded
@@ -417,6 +417,38 @@ bridge 3.7.1 addon loaded:
 Unlisted specs have no filler (MAIN may legitimately stay empty and are OWED);
 the Fury ids are verified by name against the read-only `vendor/` tree (see
 `addon/MaxDpsBridge/MainFallback.lua`). Static ≠ automated test ≠ live in-game.
+
+### 3j. WHITE Main immediate execution (live 12.1 retail, OWED)
+
+Offline evidence is `MainImmediateTests` (stale Main ahead of fresh Offensive;
+Main no MinInterval wait after a different slot/spell; identical repeat held
+exactly `MinKeyIntervalMs`; Main failure sets no `_failedUntil`; SawGcd resets
+the cap; non-Main backoff unchanged; GCD/cast/range/melee/NoTarget still hold;
+fallback Main identical) — never live proof. Observe in a real client with the
+bridge 3.7.3 addon loaded, Intelligence ON, Main toggle ON:
+
+1. **Main first tick post-GCD.** With an enemy in range + sight and a WHITE
+   core suggestion live, the Main key is sent on the first tick after the GCD
+   falls — no companion-strategy delay and no recency-stale demotion.
+2. **No double-press.** Within one GCD the identical Main spell is sent at
+   most once (the pre-GCD-flip guard holds an identical repeat for
+   `MinKeyIntervalMs`); a different Main spell from MaxDps is pressed
+   immediately even right after a different-slot press.
+3. **Fallback immediate.** With every Main glow denied/power-starved, the
+   per-spec `MainFallback` filler (Fury Bloodthirst 23881; Arms Mortal Strike
+   12294 → Overpower 7384) fires immediately rather than waiting a ladder.
+4. **Offensive/Main interleave.** An off-GCD Offensive still fires while the
+   Main is GCD-held; a Companion Offensive does not delay a different Main
+   spell (C2); Main still never carries a major CD.
+5. **No-target / OOR / casting holds.** With no target, out of range, or while
+   hard-casting/channeling, no Main key is sent (game-forbidden holds only).
+6. **Refused-key cap.** Force a refused Main (immune/resource-starved): sends
+   stay capped at ≤3 per window and ≤1 / 150 ms, and Main re-arms immediately
+   after the cap with no long suppression ladder.
+7. A refused Main never silences the rest of the rotation: a fresh Offensive/
+   Defensive/interrupt on another stroke still fires.
+8. Record + export + replay the run: 0 mismatches for decisions and policy
+   verdicts. Static ≠ automated test ≠ live in-game.
 
 ## Benchmarks / diagnostics (no game)
 

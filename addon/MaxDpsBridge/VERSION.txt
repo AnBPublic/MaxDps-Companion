@@ -1,3 +1,27 @@
+3.7.3
+date: 2026-10-04 "Reaver"
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED from 3.7.2 - v5 core 35 cells + ADDITIVE Ext2 40-cell block
+          + ADDITIVE Ext3 43-cell block. The v5 version nibble stays 5 and every
+          cell is byte-identical; 3.7.3 is a version-only identity bump with no
+          Lua wire change. X-Codename: Reaver in the TOC.
+v3.7.3:   Companion 3.7.3 "Reaver" / bridge 3.7.3. Version-only identity bump
+          (new dedicated codename; no Lua logic / Catalog.lua / wire change).
+3.7.2
+date: 2026-10-04 "Onslaught"
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED from 3.7.1 - v5 core 35 cells + ADDITIVE Ext2 40-cell block
+          + ADDITIVE Ext3 43-cell block. The v5 version nibble stays 5 and every
+          cell is byte-identical; 3.7.2 is a patch version bump with no Lua wire
+          change. X-Codename: Onslaught in the TOC.
+v3.7.2:   Companion 3.7.2 "Onslaught" / bridge 3.7.2. Arms + Fury execution fix:
+          Colossus Smash 167105 un-denied (Arms MAIN encodes it again) plus the
+          Arms MainFallback filler (Mortal Strike 12294 -> Overpower 7384);
+          Ravager 228920 added to MajorCDDeny + FlagOffensiveExtra so
+          Reader.CategoryOf routes it to the Offensive slot, never MAIN. No
+          Catalog.lua / wire change.
 3.7.1
 date: 2026-10-03 "Vigil"
 git: <commit placeholder - fill at release>

@@ -1,3 +1,25 @@
+3.7.3
+Date: 2026-10-04 — "Reaver"
+Companion 3.7.3 "Reaver" / bridge 3.7.3 (exp 3.7.3-exp). Version-only identity
+bump: no behaviour, Lua logic, catalog or wire change. New dedicated codename
+(Vigil/Onslaught are never reused). Protocol UNCHANGED: v5 core (35 cells,
+nibble 5) + Ext2 (40) + Ext3 (43) stay byte-identical. The title bar reads
+"MaxDPS Companion v3.7.3 Reaver".
+
+3.7.2
+Date: 2026-10-04 — "Onslaught"
+Companion 3.7.2 "Onslaught" / bridge 3.7.2. Protocol UNCHANGED: v5 core (35
+cells, nibble 5) + Ext2 (40) + Ext3 (43) stay byte-identical. Arms + Fury
+execution fix: Colossus Smash 167105 is no longer denied, so Arms MAIN can
+encode it again alongside the new MainFallback.lua Arms filler (Mortal Strike
+12294 then Overpower 7384); Ravager 228920 joins MajorCDDeny (never MAIN) and
+the new FlagOffensiveExtra map, which Reader.CategoryOf routes to the
+Offensive slot. TtkPolicy.LiveReleasesHistory releases HistoryWasteGuardHolds
+when a valid live TTK >= need, or (no valid TTK) the target is >=8 s old with
+HP known and >=85%, so Fury Recklessness / Avatar / Ancestral Call fire on
+long-lived rares while trash-learned majors stay conserved. No Lua wire change.
+The title bar reads "MaxDPS Companion v3.7.2 Onslaught".
+
 3.7.1
 Date: 2026-10-03 — "Vigil"
 Companion 3.7.1 "Vigil" / bridge 3.7.1. Protocol UNCHANGED: v5 core (35

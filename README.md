@@ -1,4 +1,4 @@
-# MaxDPS Companion (Retail Midnight 12.1, v3.7.1 "Vigil")
+# MaxDPS Companion (Retail Midnight 12.1, v3.7.3 "Reaver")
 
 Pixel bridge driver for [kaminaris MaxDps](https://www.curseforge.com/wow/addons/maxdps)
 (vendor pin: MaxDps v11.3.49). No memory read, no injection, no OCR, no LLM.
@@ -11,6 +11,32 @@ Two pieces:
  | :--- | :--- |
  | `MaxDpsBridge` (addon, `addon/MaxDpsBridge/`) | Queries the MaxDps rotation engine each frame and encodes suggestions, ability ids and combat context into a 40-cell strip of flat-coloured pixels (35-cell v5 core + additive Ext2 block). |
  | `MaxDpsCompanion.exe` (desktop app, `app/MaxDpsCompanion/`) | Samples those pixels, decodes the frame, evaluates every situational suggestion (USE / HOLD / SKIP / UNAVAILABLE / UNKNOWN) against an embedded ability intelligence registry + explicit candidate providers, schedules one action at a time, and replays the player's own keybinds into the attached game window. |
+
+## v3.7.3 "Reaver" — version-only identity bump (no behaviour or wire change)
+
+A companion **and** bridge version bump with **no protocol change**: `PROTOCOL`
+stays at 5 and every cell is byte-identical. The codename moves to the new
+dedicated **Reaver** (Vigil/Onslaught are never reused). csproj
+`<Version>`/`<Codename>`, the `Native.cs` fallback, `MDB.VERSION`, both TOCs,
+both addon `VERSION.txt` files, the repo `VERSION.txt`, this README,
+`ARCHITECTURE.md`, `docs/UI.md`, `docs/TESTING.md` and `ReleaseIdentityTests`
+all read 3.7.3 / Reaver. The title bar reads `MaxDPS Companion v3.7.3 Reaver`.
+
+## v3.7.2 "Onslaught" — Arms + Fury execution fix (un-deny + offense routing + history release, no wire change)
+
+A companion **and** bridge version bump with **no protocol change**: `PROTOCOL`
+stays at 5 and every cell is byte-identical. Colossus Smash 167105 is no longer
+denied (the 12.1 stale-id guess was wrong — it is a ~45 s Arms rotation button),
+so Arms MAIN can encode it again, with the new `MainFallback.lua` Arms filler
+(Mortal Strike 12294 then Overpower 7384). Ravager 228920 is added to
+`MDB.MajorCDDeny` (never MAIN) and to `MDB.FlagOffensiveExtra`, which
+`Reader.CategoryOf` maps to `"offensive"` so `FirstFlagged("offensive")` routes
+it into the Offensive slot. On the companion, `TtkPolicy.LiveReleasesHistory`
+releases `HistoryWasteGuardHolds` when a valid live TTK >= the need, or (no
+valid live TTK) the target is >= 8 s old with HP known and >= 85%, so Fury
+Recklessness / Avatar / Ancestral Call fire on long-lived rares while
+trash-learned majors stay conserved. The title bar reads
+`MaxDPS Companion v3.7.2 Onslaught`.
 
 ## v3.7.1 "Vigil" — no-downtime MAIN (usable-glow scan + Fury filler, no wire change)
 

@@ -1,5 +1,24 @@
 # Handover — MaxDps-Companion
 
+## 2026-10-04 RELEASE 3.7.3 "REAVER" (version-only identity bump, companion + bridge)
+
+STATUS: version-only release bump **3.7.2 "Onslaught" → 3.7.3 "Reaver"** (new
+dedicated codename; Vigil/Onslaught are never reused). No behaviour, Lua logic,
+catalog or wire change: protocol stays v5 (nibble 5) and every cell is
+byte-identical. Identity updated in: `MaxDpsCompanion.csproj`
+`<Version>`/`<Codename>`, `Native.cs` fallback + comments,
+`ReleaseIdentityTests`, repo `VERSION.txt`, `addon/MaxDpsBridge/Bridge.lua`
+(`MDB.VERSION`), `MaxDpsBridge.toc`, `addon/MaxDpsBridge/VERSION.txt`,
+`addon/MaxDpsBridgeExp/Bridge.lua` (`MDBX.VERSION` 3.7.3-exp),
+`MaxDpsBridgeExp.toc` (3.7.3-exp / Reaver),
+`addon/MaxDpsBridgeExp/VERSION.txt`, `README.md`, `ARCHITECTURE.md`,
+`docs/UI.md`, `docs/TESTING.md`. The title bar reads
+`MaxDPS Companion v3.7.3 Reaver`.
+
+VERIFY (this machine): `dotnet build app/MaxDpsCompanion/MaxDpsCompanion.csproj
+-c Release` 0 warnings / 0 errors; `dotnet test -c Release --filter
+ReleaseIdentity` 3 passed / 0 failed. Static ≠ automated test ≠ live in-game.
+
 ## 2026-10-04 RAVAGER → ARMS OFFENSIVE (fork data patch P-DATA-023; docs-only)
 
 STATUS: T1+T3+T4/T5 of `docs/plans/2026-10-04-ravager-offensive.md`. Ravager 228920
