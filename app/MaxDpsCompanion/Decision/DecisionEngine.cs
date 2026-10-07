@@ -84,7 +84,7 @@ internal static class DecisionEngine
             // a cooldown the same spell is re-suggested with unchanged slot
             // content, and the pressed-since-change bookkeeping must not
             // swallow the new opportunity (parity with ActionScheduler).
-            if (candidate.Slot != Slot.SelfHeal && candidate.IsStale(ctx.NowMs, ctx.StaleAfterMs))
+            if (candidate.Slot is not (Slot.SelfHeal or Slot.Main) && candidate.IsStale(ctx.NowMs, ctx.StaleAfterMs))
                 stale.Add(candidate);
             else fresh.Add(candidate);
         }
@@ -100,7 +100,7 @@ internal static class DecisionEngine
         var reason = ReasonFor(head.Slot);
         var confidence = ConfidenceFor(reason);
         if (!head.Actionable) confidence -= 20;
-        if (head.IsStale(ctx.NowMs, ctx.StaleAfterMs)) confidence -= 40;
+        if (head.Slot != Slot.Main && head.IsStale(ctx.NowMs, ctx.StaleAfterMs)) confidence -= 40;
         if (ctx.OnGcd && head.Slot != Slot.Interrupt)
         {
             reason = DecisionReason.GcdHold;

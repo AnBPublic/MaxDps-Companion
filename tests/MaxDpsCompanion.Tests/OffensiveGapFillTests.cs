@@ -68,7 +68,7 @@ public class OffensiveGapFillTests
     public void Warrior_Lists_Put_Shared_Burst_Before_Spec_Specific()
     {
         var arms = Catalog.OffensiveGapFill("WARRIOR", "Arms");
-        Assert.Equal(new[] { 107574, 228920, 262161 }, arms);   // Avatar + Ravager shared, Warbreaker Arms
+        Assert.Equal(new[] { 107574, 228920, 262161, 260708, 227847 }, arms);   // Avatar + Ravager shared, then Warbreaker/Sweeping Strikes/Bladestorm Arms
         var fury = Catalog.OffensiveGapFill("WARRIOR", "Fury");
         Assert.Equal(new[] { 107574, 228920, 1719 }, fury);      // Avatar + Ravager shared, Recklessness Fury
         // The task's example names Recklessness / Ravager / Avatar; the stale

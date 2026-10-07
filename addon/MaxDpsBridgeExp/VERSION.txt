@@ -1,3 +1,42 @@
+3.7.7-exp
+date: 2026-10-07 "Gallant"
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED — same 43-cell protocol v5 wire as the stable bridge. 3.7.7-exp
+          is a version-only identity bump with no Lua wire change.
+v3.7.7-exp: Companion 3.7.7 "Gallant" / bridge 3.7.7-exp. Version-only identity
+          bump (new dedicated codename; no Lua logic / Catalog.lua / wire change).
+
+3.7.6-exp
+date: 2026-10-07 "Templar"
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED — same 43-cell protocol v5 wire as the stable bridge. 3.7.6-exp
+          is a version-only identity bump with no Lua wire change.
+v3.7.6-exp: Companion 3.7.6 "Templar" / bridge 3.7.6-exp. Version-only identity
+          bump over the 2026-10-07 worktree (new dedicated codename; no Lua logic /
+          wire change). Catalog.lua is a DATA-only refresh of the offensive
+          gap-fill lists (removed live-unverified ids 370452/392060; renamed
+          382245) - no schema/cell change.
+
+3.7.5-exp
+date: 2026-10-06 "Vindicator"
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED — same 43-cell protocol v5 wire as the stable bridge. 3.7.5-exp
+          is a version-only identity bump with no Lua wire change.
+v3.7.5-exp: Companion 3.7.5 "Vindicator" / bridge 3.7.5-exp. Version-only identity
+          bump over the 2026-10-06 worktree (new dedicated codename; no Lua logic /
+          Catalog.lua / wire change).
+3.7.4-exp
+date: 2026-10-06 "Reaver"
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED — same 43-cell protocol v5 wire as the stable bridge. 3.7.4-exp
+          is a version-only identity bump with no Lua wire change.
+v3.7.4-exp: Companion 3.7.4 "Reaver" / bridge 3.7.4-exp. Version-only identity
+          bump over the 2026-10-06 worktree (codename unchanged; no Lua logic /
+          Catalog.lua / wire change).
 3.7.3-exp
 date: 2026-10-04 "Reaver"
 git: <commit placeholder - fill at release>

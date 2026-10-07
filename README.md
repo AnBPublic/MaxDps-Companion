@@ -1,4 +1,4 @@
-# MaxDPS Companion (Retail Midnight 12.1, v3.7.3 "Reaver")
+# MaxDPS Companion (Retail Midnight 12.1, v3.7.7 "Gallant")
 
 Pixel bridge driver for [kaminaris MaxDps](https://www.curseforge.com/wow/addons/maxdps)
 (vendor pin: MaxDps v11.3.49). No memory read, no injection, no OCR, no LLM.
@@ -11,6 +11,50 @@ Two pieces:
  | :--- | :--- |
  | `MaxDpsBridge` (addon, `addon/MaxDpsBridge/`) | Queries the MaxDps rotation engine each frame and encodes suggestions, ability ids and combat context into a 40-cell strip of flat-coloured pixels (35-cell v5 core + additive Ext2 block). |
  | `MaxDpsCompanion.exe` (desktop app, `app/MaxDpsCompanion/`) | Samples those pixels, decodes the frame, evaluates every situational suggestion (USE / HOLD / SKIP / UNAVAILABLE / UNKNOWN) against an embedded ability intelligence registry + explicit candidate providers, schedules one action at a time, and replays the player's own keybinds into the attached game window. |
+
+## v3.7.7 "Gallant" — version-only identity bump (no behaviour or wire change)
+
+Companion **and** bridge version bump with **no protocol change**: `PROTOCOL`
+stays at 5 and every cell is byte-identical. New dedicated codename **Gallant**
+(Vigil/Warden/Fullcover/Holdfast/Onslaught/Reaver/Vindicator/Templar are never
+reused). csproj `<Version>`/`<Codename>`, the `Native.cs` fallback, `MDB.VERSION`,
+`MDBX.VERSION`, both TOCs, both addon `VERSION.txt` files, the repo `VERSION.txt`,
+this README, `ARCHITECTURE.md`, `docs/UI.md`, `docs/TESTING.md` and
+`ReleaseIdentityTests` all read 3.7.7 / Gallant. The title bar reads
+`MaxDPS Companion v3.7.7 Gallant`.
+
+## v3.7.6 "Templar" — identity bump + offensive gap-fill verification fix
+
+Identity bump to the new dedicated codename **Templar**, plus a data-only
+offensive gap-fill fix: `abilities.json` 382245 renamed `Cold Blood` ->
+`Cold Blooded Killer` (live SpellName), and live-unverified ids 370452 (Evoker
+Devastation) / 392060 (Hunter Marksmanship) removed from the companion
+gap-fill lists (rows kept; the MaxDps fork un-comment still routes them on the
+wire). `PROTOCOL` stays at 5 and every cell is byte-identical. csproj
+`<Version>`/`<Codename>`, the `Native.cs` fallback, `MDB.VERSION`, both TOCs,
+both addon `VERSION.txt` files, the repo `VERSION.txt`, this README,
+`ARCHITECTURE.md`, `docs/UI.md`, `docs/TESTING.md` and `ReleaseIdentityTests`
+all read 3.7.6 / Templar. The title bar reads `MaxDPS Companion v3.7.6 Templar`.
+
+## v3.7.5 "Vindicator" — version-only identity bump (no behaviour or wire change)
+
+A companion **and** bridge version bump with **no protocol change**: `PROTOCOL`
+stays at 5 and every cell is byte-identical. The codename moves to the new
+dedicated **Vindicator** (Vigil/Warden/Fullcover/Holdfast/Onslaught/Reaver are
+never reused). csproj `<Version>`/`<Codename>`, the `Native.cs` fallback,
+`MDB.VERSION`, both TOCs, both addon `VERSION.txt` files, the repo `VERSION.txt`,
+this README, `ARCHITECTURE.md`, `docs/UI.md`, `docs/TESTING.md` and
+`ReleaseIdentityTests` all read 3.7.5 / Vindicator. The title bar reads
+`MaxDPS Companion v3.7.5 Vindicator`.
+
+## v3.7.4 "Reaver" — version-only identity bump (no behaviour or wire change)
+
+A companion **and** bridge version bump with **no protocol change**: `PROTOCOL`
+stays at 5 and every cell is byte-identical. The codename stays **Reaver**.
+csproj `<Version>`, `MDB.VERSION`, both TOCs, both addon `VERSION.txt` files, the
+repo `VERSION.txt`, this README, `ARCHITECTURE.md`, `docs/UI.md`,
+`docs/TESTING.md` and `ReleaseIdentityTests` all read 3.7.4 / Reaver. The title
+bar reads `MaxDPS Companion v3.7.4 Reaver`.
 
 ## v3.7.3 "Reaver" — version-only identity bump (no behaviour or wire change)
 
@@ -501,12 +545,17 @@ ring, nothing on disk until you export, no network, no Blizzard values.
 ## Build / install
 
 ```powershell
-.\install-addon.ps1    # copy the bridge into Interface\AddOns (never touches MaxDps*)
-.\build.ps1            # publish MaxDpsCompanion.exe into dist\
+.\tools\install-addon-exp.ps1   # CURRENT: copy MaxDpsBridgeExp into Interface\AddOns (never touches MaxDps*)
+.\build.ps1                     # publish MaxDpsCompanion.exe (legacy dist\ target)
+#     Exp client = the dist-exp\ exe published with InGameConfigMode=1
 ```
 
-Then in game: `/reload`, `/mdb status`, Start in the app. Client must be
+Then in game: `/reload`, `/mdbx status`, Start in the app. Client must be
 windowed/borderless and visible. Tests: `docs/TESTING.md`.
+
+`MaxDpsBridge` + `dist\` + `install-addon.ps1` are **LEGACY/deprecated** (frozen);
+all releases, fixes and deploys target the Exp client unless legacy is explicitly
+requested.
 
 Version locations: addon `MaxDpsBridge.toc` + `addon/MaxDpsBridge/VERSION.txt`,
 app title bar (`ThisAssembly.Gen.cs` stamp), repo `VERSION.txt`.

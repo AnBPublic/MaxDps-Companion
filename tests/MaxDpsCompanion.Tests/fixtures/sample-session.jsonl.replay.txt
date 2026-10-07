@@ -18,12 +18,12 @@ t=10.000s  tick #2  Active  hb=3  target=yes  gcd=no  link=yes  note="sending"
   rejected: Offensive (lower rank #2)
 t=10.001s  send  spell Main E  interval=0ms
 t=11.000s  tick #4  Active  hb=11  target=yes  gcd=no  link=yes  note="sending"
-  slots   : Main=E  Off=2  Def=-  Cons=-  Trin=-  Int=-    
-  cand    : Main       E      enabled actionable  age=3.000s unchanged=3.000s pressed=yes
+  slots   : Main=E  Off=2  Def=D  Cons=-  Trin=-  Int=-    
+  cand    : Defensive  T      enabled actionable  age=3.000s unchanged=3.000s pressed=yes
   cand    : Offensive  2      enabled actionable  age=2.000s unchanged=2.000s pressed=no
   decision: Offensive -> OffensiveCooldown (60%) [stale demoted]
   recorded: Offensive -> OffensiveCooldown (60%) [stale demoted]  OK
-  rejected: Main (lower rank #2, stale)
+  rejected: Defensive (lower rank #2, stale)
   stale   : a pressed candidate was demoted behind a fresh one
   timing  : last send spell Main E 999ms ago
 t=60.000s  link  visible=no  note="no pixel block - client must be windowed or borderless"  fault=Checksum

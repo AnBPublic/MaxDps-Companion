@@ -82,6 +82,23 @@ internal sealed class MainForm : Form
     private readonly ChamferButton _openFolder = new() { Text = "Open Folder", Role = ButtonRole.Ghost };
     private readonly ChamferButton _launchGame = new() { Text = "Launch Game", Role = ButtonRole.Ghost };
 
+    // Exp (in-game-config) shell controls. Built only when
+    // AppSettings.InGameConfigMode is set (spec docs/plans/2026-10-03-ingame-config.md):
+    // four transport buttons reusing the existing handlers and ONE read-only
+    // status pill (state + bridge mask witness + frames). The 14 hero toggles
+    // are never mounted in this shell.
+    private readonly ChamferButton _pauseButton = new() { Text = "Pause", Role = ButtonRole.Ghost };
+    // OPEN GAME: fifth Exp control, last in the transport row. It reuses the
+    // classic LaunchGame() handler / BattleNetLauncher (no new launch logic,
+    // no Wow.exe direct launch, no protocol or key change).
+    private readonly ChamferButton _expLaunchGame = new() { Text = "OPEN GAME", Role = ButtonRole.Ghost };
+    private readonly Label _expStatusPill = new();
+    private TableLayoutPanel _expTransport = null!;
+    private Panel _expConsoleHost = null!;
+    // One-shot latch for the Exp calibration hint: append it to the single
+    // rolling log when the bridge goes invisible, reset when it returns.
+    private bool _expBridgeHintShown;
+
     private BlockLocation? _pendingLocation;
 
     private NotifyIcon? _tray;
@@ -678,15 +695,23 @@ internal sealed class MainForm : Form
         windowLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
         windowLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         windowLayout.Controls.Add(BuildTitleBar(), 0, 0);
-        windowLayout.Controls.Add(BuildBody(), 0, 1);
+        // Exp mode renders the read-only in-game-config shell in place of the
+        // classic body (no toggles). Both paths build the console + popups, so
+        // the debounced save, status timer and tray wiring are unchanged.
+        windowLayout.Controls.Add(_settings.InGameConfigMode ? BuildExpLayout() : BuildBody(), 0, 1);
         Controls.Add(windowLayout);
         // The popup masks live on the top-level Form (not the body canvas) and
         // track the form's client rectangle, so ONE opaque layer covers the
         // whole window inclusive of the canvas padding and the old Form ring.
-        Controls.Add(_advancedOverlay);
-        Controls.Add(_abilitiesOverlay);
-        _advancedOverlay.BringToFront();
-        _abilitiesOverlay.BringToFront();
+        // Exp builds NO popups (toggle authority is in-game), so it never
+        // parents them either.
+        if (!_settings.InGameConfigMode)
+        {
+            Controls.Add(_advancedOverlay);
+            Controls.Add(_abilitiesOverlay);
+            _advancedOverlay.BringToFront();
+            _abilitiesOverlay.BringToFront();
+        }
     }
 
     private Control BuildTitleBar()
@@ -783,11 +808,221 @@ internal sealed class MainForm : Form
         return canvas;
     }
 
+    // ----- Exp (in-game-config) shell (2026-10-03 spec) -----
+
+    /// <summary>
+    /// Minimal read-only in-game-config shell: ONE status pill (running/paused
+    /// + bridge visibility + the ADDON-WINS mask witness + frame count), the
+    /// five transport buttons reusing the classic handlers (START PAUSE STOP
+    /// CALIBRATE OPEN GAME), and the console home restricted to the
+    /// status/last-key line and a single rolling log. None of
+    /// the 14 hero toggles is mounted, no popup is built, and preset writes are
+    /// unreachable: the in-game overlay owns toggle authority.
+    /// </summary>
+    private Control BuildExpLayout()
+    {
+        // Exp ground is the flat terminal token, not the classic gradient.
+        var canvas = new GradientCanvas { Dock = DockStyle.Fill, Padding = Padding.Empty, FlatColor = ExpTheme.Bg };
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 3,
+            BackColor = Color.Transparent,
+            Margin = Padding.Empty,
+            Padding = new Padding(18, 12, 18, 12),
+        };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36F));   // one status pill
+        // Two transport rows (Start/Pause/Stop, Calibrate/Open Game).
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, ExpTheme.ControlHeight * 2F + 14F));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));   // console (one log)
+
+        layout.Controls.Add(BuildExpStatusPill(), 0, 0);
+        _expTransport = BuildExpButtonRow();
+        layout.Controls.Add(_expTransport, 0, 1);
+
+        _expConsoleHost = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
+        _consoleHome = BuildConsoleHome(minimal: true);
+        _expConsoleHost.Controls.Add(_consoleHome);
+        layout.Controls.Add(_expConsoleHost, 0, 2);
+
+        canvas.Controls.Add(layout);
+        _mainBody = layout;
+        _bodyLayout = layout;
+
+        // Contract: the 14 hero toggles never appear in this shell. They are
+        // also never parented here, but pin Visible so the acceptance test and
+        // any future reuse cannot surface them.
+        foreach (var toggle in ExpHeroToggles()) toggle.Visible = false;
+
+        // Exp builds NO popups (the Advanced/Abilities trees carry the toggle
+        // mirrors and the class browser); the fields stay null by contract.
+        return canvas;
+    }
+
+    /// <summary>The 14 hero toggles: 8 slots + 5 mode toggles + Solo.</summary>
+    private IEnumerable<ToggleSwitch> ExpHeroToggles()
+    {
+        yield return _main;
+        yield return _offensive;
+        yield return _defensives;
+        yield return _consumable;
+        yield return _trinket;
+        yield return _outOfCombat;
+        yield return _autoTarget;
+        yield return _autoInteract;
+        yield return _timeToKill;
+        yield return _crowdControl;
+        yield return _interrupt;
+        yield return _mobility;
+        yield return _selfHeal;
+        yield return _solo2;
+    }
+
+    private Control BuildExpStatusPill()
+    {
+        _expStatusPill.AutoSize = false;
+        _expStatusPill.Dock = DockStyle.Fill;
+        _expStatusPill.AutoEllipsis = true;
+        _expStatusPill.TextAlign = ContentAlignment.MiddleLeft;
+        _expStatusPill.Font = DesignTokens.Type(DesignTokens.MetaSize, FontStyle.Bold);
+        _expStatusPill.ForeColor = ExpTheme.Secondary;
+        _expStatusPill.BackColor = ExpTheme.Card;
+        _expStatusPill.Margin = new Padding(0, 2, 0, 2);
+        _expStatusPill.Padding = new Padding(12, 0, 12, 0);
+        // State + rate ONLY: the mask witness lives in the Status card details
+        // line, never in the pill (single-purpose status).
+        _expStatusPill.Text = $"\u25CB Stopped \u00B7 0 fps";
+        // Unique so the acceptance test can count exactly one status pill.
+        _expStatusPill.AccessibleName = "Exp status pill";
+        _expStatusPill.AccessibleDescription = "Read-only running state and sample rate";
+        var row = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
+        row.Controls.Add(_expStatusPill);
+        return row;
+    }
+
+    private TableLayoutPanel BuildExpButtonRow()
+    {
+        // Exp transport: two rows x three columns. Row 1 Start/Pause/Stop,
+        // row 2 Calibrate/Open Game + an empty spacer cell. The wider cells
+        // are what let the full "OPEN GAME" label render unclipped.
+        _start.Text = "\u25B6 Start";              // ▶
+        _pauseButton.Text = "\u23F8 Pause";        // ⏸
+        _stop.Text = "\u25A0 Stop";                // ■
+        _recalibrate.Text = "\u25C9 Calibrate";    // ◉
+        _expLaunchGame.Text = "\u2922 OPEN GAME";  // ⤢
+        _pauseButton.Click += (_, _) =>
+        {
+            TogglePauseFromConsole();
+            UpdateExpReadouts(_status);
+        };
+        _expLaunchGame.Click += (_, _) => OpenGameFromExp();
+
+        _start.Role = ButtonRole.Primary;
+        _stop.Role = ButtonRole.Danger;
+        _pauseButton.Role = ButtonRole.Ghost;
+        _recalibrate.Role = ButtonRole.Ghost;
+        _expLaunchGame.Role = ButtonRole.Ghost;
+        _start.AccentColor = ExpTheme.Accent;
+        _stop.AccentColor = ExpTheme.Danger;
+        _pauseButton.AccentColor = ExpTheme.Accent;
+        _recalibrate.AccentColor = ExpTheme.Accent;
+        _expLaunchGame.AccentColor = ExpTheme.Secondary;
+
+        var row = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 3,
+            RowCount = 2,
+            BackColor = Color.Transparent,
+            Margin = Padding.Empty,
+            Padding = new Padding(0, 5, 0, 5),
+        };
+        for (var i = 0; i < 3; i++) row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F / 3F));
+        row.RowStyles.Add(new RowStyle(SizeType.Percent, 50F));
+        row.RowStyles.Add(new RowStyle(SizeType.Percent, 50F));
+
+        var buttons = new[] { _start, _pauseButton, _stop, _recalibrate, _expLaunchGame };
+        foreach (var button in buttons)
+        {
+            button.AutoSize = false;
+            button.Dock = DockStyle.Fill;
+            button.Margin = new Padding(4);
+            button.Font = DesignTokens.Type(9.5F, FontStyle.Bold);
+            button.GhostSurface = ExpTheme.Card;
+            button.TrailingGlyph = null;
+        }
+        row.Controls.Add(_start, 0, 0);
+        row.Controls.Add(_pauseButton, 1, 0);
+        row.Controls.Add(_stop, 2, 0);
+        row.Controls.Add(_recalibrate, 0, 1);
+        row.Controls.Add(_expLaunchGame, 1, 1);
+        // (2,1) stays empty on purpose: the spacer keeps the 3-column grid.
+        return row;
+    }
+
+    /// <summary>
+    /// Refreshes the single Exp status pill from real engine/mirror state.
+    /// Called on the status-timer path: text writes only, never bounds or child
+    /// changes. The pill folds the sole ADDON-WINS witness
+    /// (<see cref="ToggleSync.EffectiveMask"/>) in as the mask hex.
+    /// </summary>
+    private void UpdateExpReadouts(EngineStatus status)
+    {
+        var running = _engine.IsRunning;
+        var paused = running && _engine.Paused;
+        var calibrating = _calibrating;
+        var state = calibrating ? "Calibrating"
+            : !running ? "Stopped"
+            : paused ? "Paused"
+            : "Running";
+        // Sample rate = the configured poll cadence; 0 when no frames flow.
+        var fps = running && !paused && !calibrating
+            ? (int)Math.Round(1000.0 / Math.Max(1, _settings.PollIntervalMs)) : 0;
+        var ok = running && !paused && !calibrating && status.BridgeVisible;
+        var glyph = ok ? "\u25CF" : "\u25CB"; // ● live / ○ inactive
+        var text = $"{glyph} {state} \u00B7 {fps} fps";
+        if (_expStatusPill.Text != text) _expStatusPill.Text = text;
+        _expStatusPill.ForeColor = calibrating ? ExpTheme.Accent
+            : !running ? ExpTheme.Secondary
+            : paused ? ExpTheme.Accent
+            : status.BridgeVisible ? ExpTheme.Ok : ExpTheme.Danger;
+
+        _pauseButton.Text = _engine.Paused ? "\u25B6 Resume" : "\u23F8 Pause"; // ▶ Resume / ⏸ Pause
+        // Transport enablement mirrors the engine exactly: Stop only runs live.
+        _start.Enabled = !running && !calibrating;
+        _stop.Enabled = running;
+        _pauseButton.Enabled = running;
+        _recalibrate.Enabled = true;
+
+        // The mask is the single ADDON-WINS witness: it lives in the collapsed
+        // Status card "Details" disclosure (bridge + mask hex + sample rate),
+        // never in the always-visible status line or the pill.
+        var mask = _toggleSync.EffectiveMask;
+        _consoleHome.SetDetails(
+            $"bridge {(status.BridgeVisible ? "ok" : "none")} \u00B7 mask 0x{mask:X4} \u00B7 {fps} fps");
+
+        // Keep the calibration hint, but ONLY while the bridge is invisible
+        // (spec): append once per invisible transition to the single log.
+        if (running && !status.BridgeVisible && !_expBridgeHintShown)
+        {
+            _expBridgeHintShown = true;
+            _consoleHome.AppendLog(
+                $"No bridge sample decoding. {BridgeHealth.RepairHint} {BridgeHealth.CalibrateHint}",
+                DesignTokens.Danger);
+        }
+        else if (status.BridgeVisible)
+        {
+            _expBridgeHintShown = false;
+        }
+    }
+
     // ----- v3.5 S7 console home wiring -----
 
-    private ConsoleHome BuildConsoleHome()
+    private ConsoleHome BuildConsoleHome(bool minimal = false)
     {
-        var console = new ConsoleHome();
+        var console = new ConsoleHome(minimal);
         console.PauseRequested += TogglePauseFromConsole;
         console.FolderRequested += OpenAppFolder;
         console.ConsoleToggleRequested += () => console.Visible = !console.Visible;
@@ -826,6 +1061,9 @@ internal sealed class MainForm : Form
     /// </summary>
     private void ApplyPreset(ConsolePreset preset)
     {
+        // Exp mounts no preset chips; presets write hidden toggles, so they are
+        // unreachable in this shell (the in-game overlay owns toggle authority).
+        if (_settings.InGameConfigMode) return;
         var bundle = ConsolePresets.Get(preset);
         _main.Checked = bundle.Main;
         _offensive.Checked = bundle.Offensive;
@@ -850,6 +1088,8 @@ internal sealed class MainForm : Form
 
     private void ShowRotationMenu()
     {
+        // Exp has no Rotation nav item (the menu writes hidden presets).
+        if (_settings.InGameConfigMode) return;
         var menu = new ContextMenuStrip { ShowImageMargin = false };
         menu.Items.Add(new ToolStripMenuItem("Rotation source: MaxDps (suggest-only)") { Enabled = false });
         menu.Items.Add(new ToolStripSeparator());
@@ -1096,6 +1336,15 @@ internal sealed class MainForm : Form
     private void ApplyScale(bool resetHeight, bool keepHeight = false)
     {
         _scale = UiScale.For(ClientSize.Width);
+        if (_settings.InGameConfigMode)
+        {
+            // Exp shell: no hero card/rows to measure; scale the transport, the
+            // console home and the popups. Height is content-free (fills).
+            ApplyExpScale();
+            ApplyPopupScale();
+            PerformLayout();
+            return;
+        }
         _heroCard.Padding = new Padding(_scale.CardPadding);
         foreach (var row in _heroSettingRows) row.ApplyScale(_scale);
         foreach (var header in _heroHeaders) header.ApplyScale(_scale);
@@ -1160,9 +1409,20 @@ internal sealed class MainForm : Form
         ClientSize = new Size(ClientSize.Width, h);
     }
 
+    /// <summary>Exp-shell tier pass: transport buttons, pills, mirror, console.</summary>
+    private void ApplyExpScale()
+    {
+        foreach (var button in new[] { _start, _pauseButton, _stop, _recalibrate, _expLaunchGame })
+            button.ApplyScale(_scale);
+        _expStatusPill.Font = DesignTokens.Type(DesignTokens.MetaSize, FontStyle.Bold);
+        _consoleHome?.ApplyScale(_scale);
+    }
+
     /// <summary>Applies the tier to the Advanced/Abilities popups (D5).</summary>
     private void ApplyPopupScale()
     {
+        // Exp builds no popups; nothing to scale there.
+        if (_advancedPopup is null) return;
         var pad = Math.Max(4, _scale.CardPadding / 3);
         _advancedPopup.Padding = new Padding(pad);
         _abilitiesPopup.Padding = new Padding(pad);
@@ -1386,6 +1646,11 @@ internal sealed class MainForm : Form
 
     private void ShowAdvanced()
     {
+        // Exp (in-game-config) shell: the Advanced popup lazily builds the 10
+        // toggle mirrors, so it is suppressed entirely in this mode. The
+        // in-game overlay owns toggle authority (ADDON-WINS); navigation to
+        // this popup is a no-op.
+        if (_settings.InGameConfigMode) return;
         var openClock = System.Diagnostics.Stopwatch.StartNew();
         _engine.WantDiagnostics = true;
         // A4: each tab is built lazily once (never by a timer), so the window
@@ -1422,6 +1687,8 @@ internal sealed class MainForm : Form
 
     private void ShowAbilities()
     {
+        // Exp shell: popup navigation is a no-op (see ShowAdvanced).
+        if (_settings.InGameConfigMode) return;
         var openClock = System.Diagnostics.Stopwatch.StartNew();
         if (_mainBody is not null) _mainBody.Visible = false;
         _advancedOverlay.Visible = false;
@@ -1498,6 +1765,8 @@ internal sealed class MainForm : Form
     /// </summary>
     private void ShowAbilitiesWithPreset(string tag, string? className = null, string? specName = null)
     {
+        // Exp shell: drill-through to the Abilities popup is a no-op.
+        if (_settings.InGameConfigMode) return;
         ShowAbilities();
         // S6: the Class Browser owns the tab now; the legacy Explorer/Class
         // skills views stay in sync for their standalone test seams.
@@ -2048,7 +2317,9 @@ internal sealed class MainForm : Form
     {
         if (InvokeRequired) { BeginInvoke(new Action<bool>(SetCalibrating), running); return; }
         _calibrating = running;
-        _recalibrate.Text = running ? "Cancel" : "Recalibrate";
+        _recalibrate.Text = running
+            ? (_settings.InGameConfigMode ? "\u25A0 Cancel" : "Cancel")
+            : (_settings.InGameConfigMode ? "\u25C9 Calibrate" : "Recalibrate");
         _recalibrateAdv.Text = running ? "Cancel" : "Recalibrate";
         _learnColors.Text = running ? "Cancel calibration" : "Calibrate colors";
         _learnColors.Enabled = true;
@@ -2283,6 +2554,22 @@ internal sealed class MainForm : Form
             SetStatus(message, DesignTokens.TextPrimary);
         else
             MessageBox.Show(message, "MaxDPS Companion", MessageBoxButtons.OK, MessageBoxIcon.Information);
+    }
+
+    /// <summary>
+    /// Exp OPEN GAME: no settings UI here, so when the [Launch] BNetPath
+    /// override is absent log a one-line hint into the Exp rolling log and then
+    /// reuse <see cref="LaunchGame"/> / <see cref="BattleNetLauncher"/> exactly
+    /// as the classic button does. The launcher auto-detects Battle.net, so an
+    /// empty override is not an error - it is just guidance.
+    /// </summary>
+    private void OpenGameFromExp()
+    {
+        if (string.IsNullOrWhiteSpace(_settings.BNetPath))
+            _consoleHome?.AppendLog(
+                "BNetPath not set - auto-detecting Battle.net (set [Launch] BNetPath in settings.ini to override).",
+                DesignTokens.TextMuted);
+        LaunchGame();
     }
 
     // ----- settings <-> controls -----
@@ -2651,6 +2938,7 @@ internal sealed class MainForm : Form
         }
 
         UpdateHero();
+        if (_settings.InGameConfigMode) UpdateExpReadouts(status);
     }
 
     /// <summary>
@@ -2784,7 +3072,8 @@ internal sealed class MainForm : Form
         _statusLine.ForeColor = DesignTokens.StatusColor(_statusMessageTone);
 
         // S6: funnel the engine's published verdicts into the open browser.
-        if (_classBrowser.Visible) _classBrowser.RefreshLive();
+        // Exp builds no popups, so the class browser is never open there.
+        if (!_settings.InGameConfigMode && _classBrowser.Visible) _classBrowser.RefreshLive();
 
         // v3.5 S7: mirror the same values into the console home. Every call is
         // value-only (text writes / invalidate), so the status timer still
@@ -2793,7 +3082,23 @@ internal sealed class MainForm : Form
         _engine.TryGetLiveClass(out var consoleClass);
         _engine.TryGetLiveSpec(out var consoleSpec);
         _consoleHome.SetSpec(consoleClass, consoleSpec);
-        _consoleHome.SetState(stateText, stateColor);
+        // Exp status card copy: calibration + suggestion readiness, not the
+        // classic engine enum.
+        var consoleState = stateText;
+        var consoleColor = stateColor;
+        if (_settings.InGameConfigMode)
+        {
+            // Exp status card: a SHORT human phrase only. No "Calibrated —"
+            // prefix, no bridge/mask jargon (that lives in the collapsed
+            // Details disclosure).
+            (consoleState, consoleColor) = !running
+                ? ("stopped", ExpTheme.Secondary)
+                : _calibrating ? ("calibrating\u2026", ExpTheme.Accent)
+                : _engine.Paused ? ("paused", ExpTheme.Accent)
+                : action == "-" ? ("waiting for suggestion", ExpTheme.Ok)
+                : (action, ExpTheme.Ok);
+        }
+        _consoleHome.SetState(consoleState, consoleColor);
         _consoleHome.SetBridge(running ? $"Bridge: {status.State}" : "Bridge: stopped");
         _consoleHome.SetNow(action, why);
         _consoleHome.SetPaused(_engine.Paused);
@@ -3069,6 +3374,23 @@ internal sealed class MainForm : Form
     internal string HeaderTitleForTest => _headerTitle?.Text ?? "";
     internal void InvokeLaunchForTest() => LaunchGame();
 
+    // Exp OPEN GAME seam: the fifth transport button, so the acceptance test
+    // can assert it is mounted in the Exp shell and wired to the launcher.
+    internal ChamferButton ExpLaunchGameForTest => _expLaunchGame;
+    // Exp layout seams (approved relayout): the two-row transport grid, the
+    // five buttons, the state pill and the mask details line.
+    internal TableLayoutPanel ExpTransportForTest => _expTransport;
+    internal ChamferButton ExpStartButtonForTest => _start;
+    internal ChamferButton ExpStopButtonForTest => _stop;
+    internal ChamferButton ExpPauseButtonForTest => _pauseButton;
+    internal ChamferButton ExpCalibrateButtonForTest => _recalibrate;
+    internal Label ExpStatusPillForTest => _expStatusPill;
+    internal string ExpDetailsForTest => _consoleHome?.DetailsForTest ?? "";
+    internal string ExpStateLineForTest => _consoleHome?.StateLineForTest ?? "";
+    internal bool ExpDetailsExpandedForTest => _consoleHome?.DetailsExpandedForTest ?? false;
+    internal void ToggleExpDetailsForTest() => _consoleHome?.ToggleDetailsForTest();
+    internal bool EngineRunningForTest => _engine.IsRunning;
+
     // D5 popup-width-tier seams.
     internal RoundedCard AdvancedPopupForTest => _advancedPopup;
     internal RoundedCard AbilitiesPopupForTest => _abilitiesPopup;
@@ -3145,6 +3467,13 @@ internal sealed class MainForm : Form
 
         _intelligencePage.EnsureBuilt();
         findings.AddRange(UiShellValidation.Validate(_mainBody, "Main"));
+
+        // Exp builds no popups; only the minimal shell invariants apply.
+        if (_settings.InGameConfigMode)
+        {
+            Hide();
+            return findings;
+        }
 
         // Each tab must be selected so WinForms lays its content out (a
         // never-shown TabPage keeps its children at 0×0).

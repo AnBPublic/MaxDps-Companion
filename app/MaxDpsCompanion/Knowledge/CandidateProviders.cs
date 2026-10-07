@@ -271,6 +271,7 @@ internal sealed class OffensiveCandidateProvider : ICandidateProvider
         // grace hold (those belong to the T1 waste guard below).
         if (p.Options.Preset == RotationPreset.Burst
             && ability.Purpose == AbilityPurpose.MajorOffensive
+            && !TtkPolicy.SubFiftyBypass(ability)
             && !ctx.TtkValid)
             return D(PolicyDecision.Hold($"burst preset: holding {ability.Name} until a boss TTK is measurable"),
                 src, "burst preset (no valid boss TTK)");
@@ -359,7 +360,14 @@ internal sealed class OffensiveCandidateProvider : ICandidateProvider
         if (ability.TargetRange == RangeRequirement.InMelee && ctx.TargetInMelee == TriState.No)
             return D(PolicyDecision.Unavailable("target outside melee range"), src, "target outside melee range");
         if (p.Range == TriState.No) return D(PolicyDecision.Unavailable("target out of range"), src, "target out of range");
-        if (p.Range == TriState.Unknown && ability.Unknown != UnknownPolicy.Use)
+        // A flagged sub-60s rotational burst (SubFiftyBypass) is never
+        // conserved by any TTK guard, so an unknown range probe must not turn
+        // it into an Uncertain hold that can empty the whole plan (Main empty
+        // => ranked.Count == 0 => PolicyHold). Range == No above still vetoes;
+        // genuinely gated >60s majors / 60s summons keep the Unknown->Uncertain
+        // fail-closed path.
+        if (p.Range == TriState.Unknown && ability.Unknown != UnknownPolicy.Use
+            && !TtkPolicy.SubFiftyBypass(ability))
             return D(PolicyDecision.Uncertain("ability range unknown"), src, "ability range unknown");
         return D(PolicyDecision.Use("offensive candidate; no conflict observed"), src, "no conflict observed");
     }

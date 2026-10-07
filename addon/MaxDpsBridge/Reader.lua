@@ -568,6 +568,12 @@ local function CategoryOf (Id)
     if SetHas(CDs.defensive, Id) then return "defensive"; end
     if SetHas(CDs.offensive, Id) then return "offensive"; end
   end
+  -- 2026-10-04 arms-fury-exec-fix: a few offensives MaxDps glows are absent
+  -- from the static classCooldowns table (e.g. Ravager 228920), so the
+  -- first-wins Flags scan never saw them. MDB.FlagOffensiveExtra (defined in
+  -- MajorCooldowns.lua) adds those ids as an explicit offensive category.
+  local Extra = MDB.FlagOffensiveExtra;
+  if type(Extra) == "table" and Extra[Id] then return "offensive"; end
   return nil;
 end
 

@@ -278,6 +278,24 @@ assert(Strip, "strip frame missing")
 local Update = Strip._scripts.OnUpdate
 assert(type(Update) == "function", "OnUpdate not wired")
 
+-- ================= load the Exp addon (CURRENT client) =================
+-- MaxDpsBridge stable is LEGACY/frozen: its MajorCooldowns/MainFallback no
+-- longer carry the 2026-10-04/06 routing (Ravager/Divine Toll
+-- FlagOffensiveExtra, Arms/Ret MainFallback). Those behaviours are pinned
+-- against the CURRENT client, MaxDpsBridgeExp, loaded into its own table
+-- (MDBX) so the frozen stable files stay untouched. Only the runtime modules
+-- the Reader needs are loaded; the Exp frame/overlay modules are not.
+MDBX = _G.MaxDpsBridgeExp or {}
+_G.MaxDpsBridgeExp = MDBX
+assert(loadfile("addon/MaxDpsBridgeExp/Catalog.lua"))("MaxDpsBridgeExp", MDBX)
+assert(loadfile("addon/MaxDpsBridgeExp/MajorCooldowns.lua"))("MaxDpsBridgeExp", MDBX)
+assert(loadfile("addon/MaxDpsBridgeExp/Keymap.lua"))("MaxDpsBridgeExp", MDBX)
+assert(loadfile("addon/MaxDpsBridgeExp/MainFallback.lua"))("MaxDpsBridgeExp", MDBX)
+MDBX.SpellAliases = MDBX.SpellAliases or { [202168] = { 34428 } }
+assert(loadfile("addon/MaxDpsBridgeExp/Reader.lua"))("MaxDpsBridgeExp", MDBX)
+assert(type(MDBX.GetMainSpellID) == "function")
+assert(type(MDBX.GetOffensiveCandidate) == "function")
+
 -- ================= 1. restricted cooldown shapes =================
 -- active real cooldown: isActive=true, isOnGCD=false; the Duration object
 -- reports 30 s remaining (the live path).
@@ -402,11 +420,13 @@ check("T3 Combustion (needs-move) is denied", MDB.MajorCDDeny[190319] == true)
 check("T3 Avatar (already-correct) is denied", MDB.MajorCDDeny[107574] == true)
 check("T3 non-major id is not denied", MDB.MajorCDDeny[185358] ~= true)
 
--- (a) a denied glow is the ONLY glow -> nil.
+-- (a) a denied glow is the ONLY glow -> never the denied id. Since
+-- 2026-10-04 Arms (the harness spec) has a filler, Main falls through to it.
 MaxDps.SpellsGlowing = { [190319] = 1 }
 MaxDps.Spell = nil
-ok, ready = pcall(MDB.GetMainSpellID)
-check("T3 denied glow only -> nil, no throw", ok and ready == nil)
+ok, ready = pcall(MDBX.GetMainSpellID)
+check("T3 denied glow only -> Arms filler, never the denied id",
+  ok and ready == 12294 and ready ~= 190319)
 
 -- (b) denied glow LOWER than a kept glow: without the denylist the scan would
 -- return the denied 1719; with it the non-denied 185358 wins.
@@ -415,11 +435,13 @@ MaxDps.Spell = nil
 ok, ready = pcall(MDB.GetMainSpellID)
 check("T3 denied glow skipped, non-denied kept", ok and ready == 185358)
 
--- (c) a denied MaxDps.Spell is rejected; a non-denied Spell is still kept.
+-- (c) a denied MaxDps.Spell is rejected (falls to the Arms filler); a
+-- non-denied Spell is still kept.
 MaxDps.SpellsGlowing = nil
 MaxDps.Spell = 107574
-ok, ready = pcall(MDB.GetMainSpellID)
-check("T3 denied MaxDps.Spell rejected", ok and ready == nil)
+ok, ready = pcall(MDBX.GetMainSpellID)
+check("T3 denied MaxDps.Spell rejected -> Arms filler, never the denied id",
+  ok and ready == 12294 and ready ~= 107574)
 MaxDps.Spell = 185358
 ok, ready = pcall(MDB.GetMainSpellID)
 check("T3 non-denied MaxDps.Spell kept", ok and ready == 185358)
@@ -1068,6 +1090,52 @@ local offMuted, offMutedGap = MDB.GetOffensiveCandidate()
 check("r1 offensive gap-fill muted when enableCooldowns off",
   offMuted == nil and offMutedGap == false)
 MaxDps.db.global.enableCooldowns = true
+
+-- 2026-10-04 arms-fury-exec-fix: Ravager 228920 is absent from MaxDps's
+-- static classCooldowns.offensive, so CategoryOf only classifies it through
+-- MDB.FlagOffensiveExtra (MajorCooldowns.lua). A flagged Ravager is now the
+-- Offensive candidate (a MaxDps-wire pick, not a gap-fill), while the denylist
+-- still keeps it out of the MAIN slot.
+MaxDps.classCooldowns.WARRIOR.Arms.offensive = {}
+MaxDps.Spells[228920] = { { HotKey = { GetText = function() return "F" end } } }
+MDBX._BindCache = {}
+MaxDps.Flags = { [228920] = true }
+MDBX.BeginTick()
+local ravCand, ravGap = MDBX.GetOffensiveCandidate()
+check("rv Ravager flagged -> offensive candidate 228920",
+  ravCand == 228920 and ravGap == false)
+check("rv MajorCDDeny holds Ravager out of Main",
+  MDBX.MajorCDDeny ~= nil and MDBX.MajorCDDeny[228920] == true)
+MaxDps.Flags = {}
+
+-- 2026-10-06 divine-toll: Divine Toll 375576 is likewise absent from MaxDps's
+-- static Ret classCooldowns.offensive, so CategoryOf routes it through the same
+-- MDB.FlagOffensiveExtra tail. A flagged Divine Toll on a Paladin Retribution
+-- player is the Offensive candidate (MaxDps-wire, not gap-fill).
+do
+  local savedUnitClass = UnitClass
+  local savedGetSpec = GetSpecialization
+  local savedGetSpecInfo = GetSpecializationInfo
+  MaxDps.idtospec[70] = "Retribution"
+  MaxDps.classCooldowns.PALADIN = { Retribution = { defensive = {}, offensive = {} } }
+  UnitClass = function() return "Paladin", "PALADIN", 2 end
+  GetSpecialization = function() return 1 end
+  GetSpecializationInfo = function() return 70 end
+  MaxDps.Spells[375576] = { { HotKey = { GetText = function() return "G" end } } }
+  MDBX._BindCache = {}
+  MaxDps.Flags = { [375576] = true }
+  MDBX.BeginTick()
+  local dtCand, dtGap = MDBX.GetOffensiveCandidate()
+  check("dt Divine Toll 375576 flagged -> offensive candidate",
+    dtCand == 375576 and dtGap == false)
+  check("dt FlagOffensiveExtra[375576] is offensive",
+    MDBX.FlagOffensiveExtra ~= nil and MDBX.FlagOffensiveExtra[375576] == true)
+  UnitClass = savedUnitClass
+  GetSpecialization = savedGetSpec
+  GetSpecializationInfo = savedGetSpecInfo
+  MaxDps.idtospec[70] = nil
+  MaxDps.Flags = {}
+end
 
 -- Defensive Orange: the short-CD list (defensiveMinor) fires at Orange while
 -- the major list is only consulted at Red (majors still need Red in policy).
@@ -1877,6 +1945,9 @@ RunCcFixTests()
 -- locals do not push the main chunk over Lua's 200-local limit.
 -- =====================================================================
 local function RunMainFallbackTests ()
+  -- CURRENT client (Exp) owns the per-spec fillers pinned here (Arms/Ret were
+  -- added 2026-10-04/06); stable is frozen with Fury only.
+  local MDB = MDBX
   local savedGlow = MaxDps.SpellsGlowing
   local savedSpell = MaxDps.Spell
   local savedUsable = C_Spell.IsSpellUsable
@@ -1933,14 +2004,15 @@ local function RunMainFallbackTests ()
   local ok4, id4 = pcall(MDB.GetMainSpellID)
   check("MF fallback filler power-starved -> nil", ok4 and id4 == nil)
 
-  -- (5) Unverified spec (Arms 71) has no filler -> nil.
+  -- (5) Unverified spec (Protection 73) has no filler -> nil. (Arms now has
+  --     a filler as of 2026-10-04; see (9) below.)
   Usability({ [184367] = true })
-  GetSpecializationInfo = function() return 71 end   -- Arms
+  GetSpecializationInfo = function() return 73 end   -- Protection
   MaxDps.SpellsGlowing = { [184367] = 1 }
   MaxDps.Spell = nil
   MDB.BeginTick()
   local ok5, id5 = pcall(MDB.GetMainSpellID)
-  check("MF unverified spec (Arms) -> nil", ok5 and id5 == nil)
+  check("MF unverified spec (Protection) -> nil", ok5 and id5 == nil)
   GetSpecializationInfo = function() return 72 end
 
   -- (6) secret / nil / throwing usability probes -> fail OPEN (glow kept),
@@ -1980,6 +2052,30 @@ local function RunMainFallbackTests ()
   MDB.BeginTick()
   local ok11, id11 = pcall(MDB.GetMainSpellID)
   check("MF denied-only Spell -> filler, never the denied id", ok11 and id11 == 23881)
+
+  -- (9) 2026-10-04 arms-fury-exec-fix: Arms now has a filler and Colossus
+  --     Smash 167105 is no longer denied.
+  GetSpecializationInfo = function() return 71 end   -- Arms
+  Usability({})
+  -- (a) a plain Colossus Smash glow is encoded as Main (deny removed).
+  MaxDps.SpellsGlowing = { [167105] = 1 }
+  MaxDps.Spell = nil
+  MDB.BeginTick()
+  local ok12, id12 = pcall(MDB.GetMainSpellID)
+  check("MF Arms glow 167105 (Colossus Smash) no longer denied", ok12 and id12 == 167105)
+
+  -- (b) a denied-only glow routes to the Arms filler Mortal Strike 12294.
+  MaxDps.SpellsGlowing = { [190319] = 1 }   -- denied Mage major
+  MDB.BeginTick()
+  local ok13, id13 = pcall(MDB.GetMainSpellID)
+  check("MF Arms denied-only glow -> Arms fallback 12294", ok13 and id13 == 12294)
+
+  -- (c) Ravager 228920 is denied as Main and falls to the Arms filler.
+  MaxDps.SpellsGlowing = { [228920] = 1 }
+  MDB.BeginTick()
+  local ok14, id14 = pcall(MDB.GetMainSpellID)
+  check("MF Arms Ravager-only glow -> fallback, never 228920", ok14 and id14 == 12294)
+  GetSpecializationInfo = function() return 72 end
 
   MaxDps.SpellsGlowing = savedGlow
   MaxDps.Spell = savedSpell

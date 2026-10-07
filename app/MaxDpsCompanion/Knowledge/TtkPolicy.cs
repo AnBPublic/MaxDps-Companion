@@ -114,6 +114,26 @@ internal static class TtkPolicy
     }
 
     /// <summary>
+    /// Sub-60s bypass (2026-10-04, all classes/specs): a companion-gated
+    /// ability with a known cooldown of 60 s or shorter is a rotational button,
+    /// not a major — it must never be conserved by the waste / history / warmup
+    /// / grace / burst-preset guards. Curated warrior <c>cdMs=45000</c> rows
+    /// (Colossus Smash 167105, Warbreaker 262161, Demolish 436358, Odyn's Fury
+    /// 385059, Shield Charge 385952, Demoralizing Shout 1160) and any other
+    /// curated sub-60s row therefore fire on the next tick regardless of target
+    /// TTK. <c>CooldownMs == 0</c> (unknown / uncurated) is deliberately
+    /// <em>not</em> bypassed — fail-closed, never a blanket bypass of unknowns.
+    /// Exception: <see cref="OffensiveUsage.Summon"/> is a true 60 s summon major
+    /// (e.g. Summon Demonic Tyrant 265187) and stays TTK-gated, while the 60 s
+    /// rotational Divine Toll 375576 (<see cref="OffensiveUsage.ShortCooldown"/>)
+    /// still bypasses.
+    /// </summary>
+    public static bool SubFiftyBypass(AbilityDefinition ability) =>
+        ability != null
+        && ability.OffensiveUsage != OffensiveUsage.Summon
+        && ability.CooldownMs > 0 && ability.CooldownMs <= 60_000;
+
+    /// <summary>
     /// The majors whose provisional rate may gate the waste guard. Provisional
     /// input is noisy; only these high-opportunity-cost abilities are held on it,
     /// and no minor is ever held on a provisional rate (spec §2/§3).
@@ -198,6 +218,8 @@ internal static class TtkPolicy
     /// </summary>
     public static bool WarmupHoldHolds(AbilityDefinition a, CombatContext ctx, double warmupSec, double durFactor)
     {
+        // Sub-50s rotational buttons are never conserved in warmup.
+        if (SubFiftyBypass(a)) return false;
         if (warmupSec <= 0) return false;
         if (!ProvisionalWasteEligible(a)) return false;
         if (a.OffensiveUsage == OffensiveUsage.Execute) return false;
@@ -217,12 +239,19 @@ internal static class TtkPolicy
     /// (<see cref="ProvisionalWasteEligible"/>). The execute and kill-secure
     /// carve-outs are applied first and fail the rule open.
     /// </summary>
-    public static bool WasteGuardHolds(AbilityDefinition ability, CombatContext ctx) =>
-        WasteGuardCore(ability, ctx);
+    public static bool WasteGuardHolds(AbilityDefinition ability, CombatContext ctx)
+    {
+        // Sub-50s rotational buttons are never conserved (carve-out first).
+        if (SubFiftyBypass(ability)) return false;
+        return WasteGuardCore(ability, ctx);
+    }
 
     /// <summary>Pre-history core of <see cref="WasteGuardHolds(AbilityDefinition, CombatContext)"/> (kept separate so the v3.7 overload can layer history on top).</summary>
     private static bool WasteGuardCore(AbilityDefinition ability, CombatContext ctx)
     {
+        // Sub-50s rotational buttons are never conserved (choke point for both
+        // the 2-arg and the history/adaptive 4-arg overloads).
+        if (SubFiftyBypass(ability)) return false;
         if (ExecuteWasteBypass(ability, ctx)) return false;
         if (KillSecureBypass(ability, ctx)) return false;
 
@@ -254,20 +283,51 @@ internal static class TtkPolicy
         WasteGuardCore(ability, ctx) || HistoryWasteGuardHolds(ability, ctx, activeDurSec, durFactor);
 
     /// <summary>
+    /// Live-over-history release (2026-10-04 rare-target fix): a trash-learned
+    /// history window must not hold a cooldown against a live target whose own
+    /// observed state already proves the fight is long. Two independent signals:
+    /// <list type="bullet">
+    /// <item><description>(a) a <em>valid</em> live estimate at or above the
+    /// ability's need — the live rate outweighs a short history window;</description></item>
+    /// <item><description>(b) no valid live estimate (rare/elite HP barely
+    /// moves, so the estimator never validates) but the target is at least 8 s
+    /// old, its HP is known and still at or above 85% — a long-lived high-HP
+    /// target is not dying trash, so the history hold is released even though the
+    /// live rate is invalid.</description></item>
+    /// </list>
+    /// Pure over the decoded context; the ability parameter is part of the
+    /// documented signature (the need is passed by the caller).
+    /// </summary>
+    public static bool LiveReleasesHistory(AbilityDefinition a, CombatContext ctx, double need)
+    {
+        if (ctx.TtkValid && ctx.TtkSec >= need) return true;
+        return !ctx.TtkValid
+            && ctx.TargetAgeSec >= 8.0
+            && ctx.TargetHpValid
+            && ctx.TargetHpFrac >= 0.85;
+    }
+
+    /// <summary>
     /// The pure v3.7 history branch of the T1 waste guard: true only when the
     /// window is binding, a usable history estimate exists, the live estimate is
     /// valid (or the ability is provisional-eligible while it is not), and the
     /// history estimate is below <see cref="NeedAdaptive"/>. Carve-outs stay
-    /// authoritative and fail the rule open.
+    /// authoritative and fail the rule open; the live-over-history release
+    /// (<see cref="LiveReleasesHistory"/>) fails it open when the current target
+    /// already proves a long fight.
     /// </summary>
     public static bool HistoryWasteGuardHolds(AbilityDefinition ability, CombatContext ctx, double activeDurSec, double durFactor)
     {
+        // Sub-50s rotational buttons are never conserved on a trash window.
+        if (SubFiftyBypass(ability)) return false;
         if (ExecuteWasteBypass(ability, ctx)) return false;
         if (KillSecureBypass(ability, ctx)) return false;
+        var need = NeedAdaptive(MinTtkSec(ability), activeDurSec, durFactor);
+        if (LiveReleasesHistory(ability, ctx, need)) return false;
         if (!ctx.TtkHistBinding || ctx.TtkHistSec <= 0) return false;
         // Invalid live estimate: only the majors may be held on history.
         if (!ctx.TtkValid && !ProvisionalWasteEligible(ability)) return false;
-        return ctx.TtkHistSec < NeedAdaptive(MinTtkSec(ability), activeDurSec, durFactor);
+        return ctx.TtkHistSec < need;
     }
 
     /// <summary>
@@ -284,6 +344,8 @@ internal static class TtkPolicy
         CombatContext ctx,
         TtkFallback fallback = DefaultFallback)
     {
+        // Sub-50s rotational buttons are never conserved behind a trash pack.
+        if (SubFiftyBypass(ability)) return false;
         if (ability.OffensiveUsage is not (OffensiveUsage.MajorBurst
             or OffensiveUsage.Transformation
             or OffensiveUsage.Summon))

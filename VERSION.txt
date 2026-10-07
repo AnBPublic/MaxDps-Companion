@@ -1,3 +1,38 @@
+3.7.7
+Date: 2026-10-07 — "Gallant"
+Companion 3.7.7 "Gallant" / bridge 3.7.7 (exp 3.7.7-exp). Version-only identity
+bump: no behaviour, Lua logic, catalog or wire change. New dedicated codename
+(Vigil/Warden/Fullcover/Holdfast/Onslaught/Reaver/Vindicator/Templar are never
+reused). Protocol UNCHANGED: v5 core (35 cells, nibble 5) + Ext2 (40) + Ext3 (43)
+stay byte-identical. The title bar reads "MaxDPS Companion v3.7.7 Gallant".
+
+3.7.6
+Date: 2026-10-07 — "Templar"
+Companion 3.7.6 "Templar" / bridge 3.7.6 (exp 3.7.6-exp). Identity bump plus the
+offensive gap-fill verification fix: abilities.json 382245 renamed "Cold Blood"
+-> "Cold Blooded Killer" (live SpellName); ids 370452/392060 removed from the
+companion gap-fill lists because they have no name in the live-client export
+(rows kept, MaxDps fork un-comment still routes them on the wire). New dedicated
+codename (Vigil/Warden/Fullcover/Holdfast/Onslaught/Reaver/Vindicator are never
+reused). Protocol UNCHANGED: v5 core (35 cells, nibble 5) + Ext2 (40) + Ext3 (43)
+stay byte-identical. The title bar reads "MaxDPS Companion v3.7.6 Templar".
+
+3.7.5
+Date: 2026-10-06 — "Vindicator"
+Companion 3.7.5 "Vindicator" / bridge 3.7.5 (exp 3.7.5-exp). Version-only identity
+bump over the 2026-10-06 worktree: no protocol/wire change. New dedicated codename
+(Vigil/Warden/Fullcover/Holdfast/Onslaught/Reaver are never reused). Protocol
+UNCHANGED: v5 core (35 cells, nibble 5) + Ext2 (40) + Ext3 (43) stay
+byte-identical. The title bar reads "MaxDPS Companion v3.7.5 Vindicator".
+
+3.7.4
+Date: 2026-10-06 — "Reaver"
+Companion 3.7.4 "Reaver" / bridge 3.7.4 (exp 3.7.4-exp). Version-only identity
+bump over the 2026-10-06 worktree (Divine Toll immediate + zero-delay core):
+no protocol/wire change. Codename stays Reaver (Vigil/Onslaught are never
+reused). Protocol UNCHANGED: v5 core (35 cells, nibble 5) + Ext2 (40) + Ext3
+(43) stay byte-identical. The title bar reads "MaxDPS Companion v3.7.4 Reaver".
+
 3.7.3
 Date: 2026-10-04 — "Reaver"
 Companion 3.7.3 "Reaver" / bridge 3.7.3 (exp 3.7.3-exp). Version-only identity

@@ -84,6 +84,17 @@ internal sealed class AppSettings
     /// <summary>Layout tag (classic3 = v3 classic shell); forces size reset on shell change.</summary>
     public string WindowLayout { get; set; } = "";
 
+    /// <summary>
+    /// Exp (in-game-config) shell flag (2026-10-03 spec
+    /// docs/plans/2026-10-03-ingame-config.md). When ON the companion hides the
+    /// 14 hero toggles and renders the read-only Exp layout instead of the
+    /// classic body: status pills, Start/Pause/Stop/Calibrate, and an addon-mask
+    /// mirror. The in-game overlay owns toggle authority. Default OFF (stable
+    /// shell); <c>InGameConfigMode=1</c> in settings.ini or <c>--exp</c> turns it
+    /// on. Never changes the wire, KeySender, scheduler or decisions.
+    /// </summary>
+    public bool InGameConfigMode { get; set; } = false;
+
     // [Pause] — global toggle hotkey, parsed as a System.Windows.Forms.Keys name.
     public string PauseHotkey { get; set; } = "Pause";
 
@@ -394,6 +405,7 @@ internal sealed class AppSettings
             case ("window", "width"): WindowWidth = Math.Clamp(ParseInt(value, WindowWidth), 0, 8000); break;
             case ("window", "height"): WindowHeight = Math.Clamp(ParseInt(value, WindowHeight), 0, 8000); break;
             case ("window", "layout"): WindowLayout = value.Trim(); break;
+            case ("window", "ingameconfigmode"): InGameConfigMode = ParseBool(value, InGameConfigMode); break;
             case ("pause", "button"): PauseHotkey = value; break;
             case ("spells", "spell1"): SlotEnabled[0] = ParseBool(value, SlotEnabled[0]); break;
             case ("spells", "spell2"): SlotEnabled[1] = ParseBool(value, SlotEnabled[1]); break;
@@ -490,6 +502,9 @@ internal sealed class AppSettings
             .AppendLine($"Height={WindowHeight}")
             .AppendLine("; Layout tag (classic3 = v3 classic shell); forces size reset on shell change.")
             .AppendLine($"Layout={WindowLayout}")
+            .AppendLine("; 1 = experimental in-game-config (Exp) shell: no toggles, read-only")
+            .AppendLine("; addon-mask mirror; --exp forces it on. 0 = stable shell.")
+            .AppendLine($"InGameConfigMode={(InGameConfigMode ? 1 : 0)}")
             .AppendLine()
             .AppendLine("[Pause]")
             .AppendLine($"Button={PauseHotkey}")

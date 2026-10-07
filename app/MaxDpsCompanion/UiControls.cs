@@ -74,6 +74,12 @@ internal sealed class ChamferButton : Button
 
     private Color? _accent;
 
+    /// <summary>
+    /// Optional ghost fill override (Exp theme). Null keeps the classic
+    /// <see cref="DesignTokens.Surface"/> so the classic shell is untouched.
+    /// </summary>
+    public Color? GhostSurface { get; set; }
+
     private float _pressScale = 1f;
     private System.Windows.Forms.Timer? _pressTimer;
 
@@ -222,7 +228,7 @@ internal sealed class ChamferButton : Button
         var ghost = _role == ButtonRole.Ghost;
         if (ghost)
         {
-            using var fill = new SolidBrush(DesignTokens.Blend(Color.White, DesignTokens.Surface, _hover ? 0.07f : 0.035f));
+            using var fill = new SolidBrush(DesignTokens.Blend(Color.White, GhostSurface ?? DesignTokens.Surface, _hover ? 0.07f : 0.035f));
             using var border = new Pen(Focused ? DesignTokens.Accent : DesignTokens.Hairline, Focused ? 2F : 1F);
             e.Graphics.FillPath(fill, path);
             e.Graphics.DrawPath(border, path);
@@ -335,6 +341,12 @@ internal static class WindowChrome
 
 internal sealed class GradientCanvas : Panel
 {
+    /// <summary>
+    /// Optional flat fill (Exp theme). Null keeps the classic gradient so only
+    /// the Exp shell changes ground colour.
+    /// </summary>
+    public Color? FlatColor { get; set; }
+
     public GradientCanvas()
     {
         DoubleBuffered = true;
@@ -343,6 +355,12 @@ internal sealed class GradientCanvas : Panel
 
     protected override void OnPaintBackground(PaintEventArgs e)
     {
+        if (FlatColor is { } flat)
+        {
+            using var solid = new SolidBrush(flat);
+            e.Graphics.FillRectangle(solid, ClientRectangle);
+            return;
+        }
         using var brush = new LinearGradientBrush(ClientRectangle, Color.FromArgb(15, 56, 76), Color.FromArgb(48, 47, 19), 38F);
         e.Graphics.FillRectangle(brush, ClientRectangle);
         using var overlay = new LinearGradientBrush(ClientRectangle, Color.FromArgb(0, 8, 31, 42), Color.FromArgb(150, 8, 35, 49), 145F);
@@ -352,6 +370,15 @@ internal sealed class GradientCanvas : Panel
 
 internal sealed class RoundedCard : Panel
 {
+    /// <summary>Card fill; defaults to the classic glass tint. Exp sets the opaque card token.</summary>
+    public Color FillColor { get; set; } = Color.FromArgb(78, 244, 247, 249);
+
+    /// <summary>Card hairline; Exp sets an opaque keyline over its card token.</summary>
+    public Color BorderColor { get; set; } = Color.FromArgb(52, 255, 255, 255);
+
+    /// <summary>Corner radius; Exp uses the tighter <c>ExpTheme.RadiusOuter</c>.</summary>
+    public int CornerRadius { get; set; } = 20;
+
     public RoundedCard()
     {
         DoubleBuffered = true;
@@ -363,9 +390,9 @@ internal sealed class RoundedCard : Panel
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
         e.Graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
         var bounds = new Rectangle(1, 1, Math.Max(1, Width - 3), Math.Max(1, Height - 3));
-        using var path = Rounded(bounds, 20);
-        using var fill = new SolidBrush(Color.FromArgb(78, 244, 247, 249));
-        using var border = new Pen(Color.FromArgb(52, 255, 255, 255), 1F);
+        using var path = Rounded(bounds, CornerRadius);
+        using var fill = new SolidBrush(FillColor);
+        using var border = new Pen(BorderColor, 1F);
         e.Graphics.FillPath(fill, path);
         e.Graphics.DrawPath(border, path);
         base.OnPaint(e);

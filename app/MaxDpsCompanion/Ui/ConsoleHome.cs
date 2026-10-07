@@ -141,6 +141,52 @@ internal sealed class PresetChip : UiClickable
     }
 }
 
+/// <summary>
+/// Exp: collapsed disclosure that reveals the read-only bridge/mask/fps
+/// diagnostics. Small, dim and closed by default, so the default status card
+/// shows zero hex/bridge jargon until the user asks for it.
+/// </summary>
+internal sealed class DetailsDisclosure : UiClickable
+{
+    public const string CollapsedText = "Details \u25B8"; // ▸
+    public const string ExpandedText = "Details \u25BE";  // ▾
+
+    private bool _expanded;
+
+    public DetailsDisclosure()
+    {
+        Font = ExpTheme.Mono(DesignTokens.MicroSize);
+        ForeColor = ExpTheme.MonoStamp;
+        Cursor = Cursors.Hand;
+        TabStop = true;
+        AccessibleRole = AccessibleRole.PushButton;
+        AccessibleName = "Details";
+        AccessibleDescription = "Expand the read-only bridge, mask and rate details";
+        Text = CollapsedText;
+    }
+
+    public bool Expanded
+    {
+        get => _expanded;
+        set
+        {
+            if (_expanded == value) return;
+            _expanded = value;
+            Text = value ? ExpandedText : CollapsedText;
+            Invalidate();
+        }
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        e.Graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+        var bounds = new Rectangle(0, 0, Math.Max(1, Width), Math.Max(1, Height));
+        TextRenderer.DrawText(e.Graphics, Text, Font, bounds, ForeColor,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter
+            | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
+    }
+}
+
 /// <summary>Inferred-role capsule for the spec header.</summary>
 internal sealed class RoleBadge : Control
 {
@@ -204,6 +250,17 @@ internal sealed class RollingLog : Control
 
     public int Capacity { get; set; } = 200;
 
+    /// <summary>Exp: leading "HH:mm:ss  " stamps are drawn in this tone.</summary>
+    public Color? StampTone { get; set; }
+
+    /// <summary>Exp: copy drawn in place of the lines while the log is empty.</summary>
+    public string? EmptyText { get; set; }
+
+    public Color EmptyTone { get; set; } = DesignTokens.TextMuted;
+
+    /// <summary>Exp: render the terminal body in the monospace family.</summary>
+    public bool UseMono { get; set; }
+
     public RollingLog()
     {
         DoubleBuffered = true;
@@ -230,24 +287,61 @@ internal sealed class RollingLog : Control
         Invalidate();
     }
 
-    public void ApplyScale(UiScale scale) => Font = DesignTokens.Type(Math.Max(8f, scale.BaseFont - 2f));
+    public void ApplyScale(UiScale scale) => Font = UseMono
+        ? ExpTheme.Mono(Math.Max(8f, scale.BaseFont - 2f))
+        : DesignTokens.Type(Math.Max(8f, scale.BaseFont - 2f));
 
     protected override void OnPaint(PaintEventArgs e)
     {
         e.Graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
         var lineHeight = Math.Max(12, Font.Height + 3);
+        if (_lines.Count == 0)
+        {
+            if (!string.IsNullOrEmpty(EmptyText))
+                TextRenderer.DrawText(e.Graphics, EmptyText, Font,
+                    new Rectangle(0, 0, Width, lineHeight), EmptyTone,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter
+                    | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
+            return;
+        }
         var visible = Math.Max(1, Height / lineHeight);
         var first = Math.Max(0, _lines.Count - visible);
         var y = Height - (Math.Min(visible, _lines.Count) * lineHeight);
         for (var i = first; i < _lines.Count; i++)
         {
             var (text, tone) = _lines[i];
-            TextRenderer.DrawText(e.Graphics, text, Font,
-                new Rectangle(0, y, Width, lineHeight), tone,
-                TextFormatFlags.Left | TextFormatFlags.VerticalCenter
-                | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
+            var rect = new Rectangle(0, y, Width, lineHeight);
+            if (StampTone is { } stampTone && TrySplitStamp(text, out var stamp, out var rest))
+            {
+                var stampWidth = TextRenderer.MeasureText(stamp, Font,
+                    new Size(int.MaxValue, lineHeight), TextFormatFlags.NoPrefix).Width;
+                TextRenderer.DrawText(e.Graphics, stamp, Font, rect, stampTone,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter
+                    | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
+                TextRenderer.DrawText(e.Graphics, rest, Font,
+                    new Rectangle(stampWidth, y, Math.Max(10, Width - stampWidth), lineHeight), tone,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter
+                    | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
+            }
+            else
+            {
+                TextRenderer.DrawText(e.Graphics, text, Font, rect, tone,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter
+                    | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
+            }
             y += lineHeight;
         }
+    }
+
+    /// <summary>True when the line starts with a leading "HH:mm:ss  " stamp.</summary>
+    private static bool TrySplitStamp(string text, out string stamp, out string rest)
+    {
+        stamp = "";
+        rest = text;
+        if (text.Length <= 10 || text[2] != ':' || text[5] != ':' || text[8] != ' ') return false;
+        stamp = text[..10];
+        rest = text[10..];
+        return true;
     }
 }
 
@@ -259,6 +353,11 @@ internal sealed class ConsoleHome : Panel
     private const int TopBarHeight = 46;
     private const int SpecHeaderHeight = 82;
     private const int PresetStripHeight = 54;
+    // Exp status card: the bridge/mask/fps witness lives in a collapsed
+    // "Details" disclosure (advanced view). Row 2 is the disclosure row.
+    private const int ExpDetailsRow = 2;
+    private const float ExpDetailsCollapsed = 24F;
+    private const float ExpDetailsExpanded = 54F;
 
     private readonly ConsoleNavItem _pause = new("Pause");
     private readonly ConsoleNavItem _folder = new("Folder");
@@ -275,6 +374,7 @@ internal sealed class ConsoleHome : Panel
     private readonly RollingLog _updateLog = new();
     private readonly Label _stateValue = new();
     private readonly Label _bridgeValue = new();
+    private readonly DetailsDisclosure _detailsToggle = new();
     private readonly Label _nowValue = new();
     private readonly Label _logSpecValue = new();
     private readonly Label _lastChangeValue = new();
@@ -285,13 +385,25 @@ internal sealed class ConsoleHome : Panel
     private string _className = "";
     private string _specName = "";
     private bool _paused;
+    // Exp: the outer status-card table (row-height toggle) and the disclosure
+    // state. Collapsed by default so the default card shows zero hex/bridge.
+    private TableLayoutPanel? _expStatusTable;
+    private bool _detailsExpanded;
 
-    public ConsoleHome()
+    // Exp (in-game-config) shell: minimal chrome — status console + one rolling
+    // log only. The classic shell (default) keeps the spec header, preset strip
+    // and the update-history log.
+    private readonly bool _minimal;
+
+    public ConsoleHome() : this(false) { }
+
+    public ConsoleHome(bool minimal)
     {
+        _minimal = minimal;
         DoubleBuffered = true;
         SetStyle(ControlStyles.ResizeRedraw | ControlStyles.OptimizedDoubleBuffer
             | ControlStyles.AllPaintingInWmPaint, true);
-        BackColor = DesignTokens.Background;
+        BackColor = _minimal ? ExpTheme.Bg : DesignTokens.Background;
 
         Build();
         SeedLog();
@@ -342,7 +454,9 @@ internal sealed class ConsoleHome : Panel
             ? "Waiting for the bridge to report a class and spec."
             : $"{cls} \u00b7 {spec}  ({role})";
         AppendLog($"[spec] {_specTitle.Text} - role {role}", DesignTokens.Info);
-        NoteChange($"Spec detected: {_specTitle.Text} (role inferred: {role}).");
+        // Exp has one log only: the history feed is dropped, the rolling log
+        // keeps the single spec line.
+        if (!_minimal) NoteChange($"Spec detected: {_specTitle.Text} (role inferred: {role}).");
     }
 
     public void SetState(string state, Color tone)
@@ -357,8 +471,34 @@ internal sealed class ConsoleHome : Panel
 
     public void SetBridge(string text)
     {
+        // Exp drops the classic bridge-state line: the bridge/mask/fps witness
+        // lives only in the collapsed Details disclosure (see SetDetails).
+        if (_minimal) return;
         if (_bridgeValue.Text != text) _bridgeValue.Text = text;
     }
+
+    /// <summary>
+    /// Exp details line: the sole ADDON-WINS witness (bridge + mask + rate),
+    /// small and dim inside the collapsed "Details" disclosure. No-op in the
+    /// classic shell.
+    /// </summary>
+    public void SetDetails(string text)
+    {
+        if (!_minimal) return;
+        if (_bridgeValue.Text != text) _bridgeValue.Text = text;
+    }
+
+    /// <summary>Exp test seam: the rendered details line (mask witness).</summary>
+    public string DetailsForTest => _bridgeValue.Text;
+
+    /// <summary>Exp test seam: the short human state phrase (no hex/bridge).</summary>
+    public string StateLineForTest => _stateValue.Text;
+
+    /// <summary>Exp test seam: true when the Details disclosure is open.</summary>
+    public bool DetailsExpandedForTest => _detailsExpanded;
+
+    /// <summary>Exp test seam: raise the disclosure toggle exactly as a click.</summary>
+    public void ToggleDetailsForTest() => ToggleDetails();
 
     public void SetNow(string action, string why)
     {
@@ -383,6 +523,8 @@ internal sealed class ConsoleHome : Panel
 
     public void SetActivePreset(ConsolePreset? preset)
     {
+        // Exp mounts no preset chips and must never write the hero toggles.
+        if (_minimal) return;
         foreach (var chip in _presetChips) chip.Active = preset == chip.Preset;
         _presetNote.Text = preset is { } p
             ? $"{ConsolePresets.Get(p).Summary}"
@@ -394,7 +536,9 @@ internal sealed class ConsoleHome : Panel
         _specTitle.Font = DesignTokens.Type(scale.BaseFont + 4f, FontStyle.Bold);
         _specSummary.Font = DesignTokens.Type(Math.Max(8f, scale.BaseFont - 1f));
         _stateValue.Font = DesignTokens.Type(scale.BaseFont);
-        _bridgeValue.Font = DesignTokens.Type(Math.Max(8f, scale.BaseFont - 1f));
+        _bridgeValue.Font = _minimal
+            ? ExpTheme.Mono(Math.Max(8f, scale.BaseFont - 2f))
+            : DesignTokens.Type(Math.Max(8f, scale.BaseFont - 1f));
         _nowValue.Font = DesignTokens.Type(Math.Max(8f, scale.BaseFont - 1f));
         _logSpecValue.Font = DesignTokens.Type(DesignTokens.BodySize);
         _lastChangeValue.Font = DesignTokens.Type(DesignTokens.BodySize);
@@ -429,12 +573,26 @@ internal sealed class ConsoleHome : Panel
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 4,
             BackColor = DesignTokens.Background,
             Margin = Padding.Empty,
             Padding = Padding.Empty,
         };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+
+        // Exp: one body only (status console with the single rolling log). The
+        // classic tab bar (Pause/Folder/Console) is deliberately NOT built in
+        // this shell; no spec header, no preset strip, no update-history log.
+        if (_minimal)
+        {
+            grid.BackColor = ExpTheme.Bg;
+            grid.RowCount = 1;
+            grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            grid.Controls.Add(BuildBody(), 0, 0);
+            Controls.Add(grid);
+            return;
+        }
+
+        grid.RowCount = 4;
         grid.RowStyles.Add(new RowStyle(SizeType.Absolute, TopBarHeight));
         grid.RowStyles.Add(new RowStyle(SizeType.Absolute, SpecHeaderHeight));
         grid.RowStyles.Add(new RowStyle(SizeType.Absolute, PresetStripHeight));
@@ -468,7 +626,12 @@ internal sealed class ConsoleHome : Panel
         _settings.Click += (_, _) => SettingsRequested?.Invoke();
         _rotation.Click += (_, _) => RotationRequested?.Invoke();
         _debug.Click += (_, _) => DebugRequested?.Invoke();
-        foreach (var item in new[] { _pause, _folder, _console, _binds, _settings, _rotation, _debug })
+        // Exp: Pause/Folder/Console only. Binds/Settings/Rotation/Debug opened
+        // popups or wrote hidden toggles and are dropped from this shell.
+        var items = _minimal
+            ? new[] { _pause, _folder, _console }
+            : new[] { _pause, _folder, _console, _binds, _settings, _rotation, _debug };
+        foreach (var item in items)
             flow.Controls.Add(item);
         bar.Controls.Add(flow);
         return bar;
@@ -568,15 +731,22 @@ internal sealed class ConsoleHome : Panel
         var body = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 2,
+            ColumnCount = _minimal ? 1 : 2,
             RowCount = 1,
-            BackColor = DesignTokens.Background,
-            Padding = new Padding(14, 0, 14, 12),
+            BackColor = _minimal ? ExpTheme.Bg : DesignTokens.Background,
+            Padding = _minimal ? new Padding(14, 14, 14, 14) : new Padding(14, 0, 14, 12),
             Margin = Padding.Empty,
         };
+        body.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+        // Exp: one full-width status console (state / last key / single log).
+        if (_minimal)
+        {
+            body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            body.Controls.Add(BuildStatusConsole(), 0, 0);
+            return body;
+        }
         body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 58F));
         body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 42F));
-        body.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
         body.Controls.Add(BuildStatusConsole(), 0, 0);
         body.Controls.Add(BuildUpdateLog(), 1, 0);
         return body;
@@ -585,6 +755,14 @@ internal sealed class ConsoleHome : Panel
     private Control BuildStatusConsole()
     {
         var card = new RoundedCard { Dock = DockStyle.Fill, Padding = new Padding(14, 12, 14, 12), Margin = new Padding(0, 6, 6, 0) };
+        if (_minimal)
+        {
+            card.FillColor = ExpTheme.Card;
+            card.BorderColor = ExpTheme.Border;
+            card.CornerRadius = ExpTheme.RadiusOuter;
+            card.Padding = new Padding(16, 14, 16, 14);
+            card.Margin = Padding.Empty;
+        }
         var table = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -602,14 +780,16 @@ internal sealed class ConsoleHome : Panel
         table.RowStyles.Add(new RowStyle(SizeType.Absolute, 22F));
         table.RowStyles.Add(new RowStyle(SizeType.Absolute, 20F));
         table.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+        // Exp: the details row starts collapsed (toggle only, no witness line).
+        if (_minimal) table.RowStyles[ExpDetailsRow].Height = ExpDetailsCollapsed;
 
         var header = new Label
         {
-            Text = "Status console",
+            Text = _minimal ? "Status" : "Status console",
             AutoSize = false,
             Dock = DockStyle.Fill,
             Font = DesignTokens.Type(DesignTokens.LabelSize, FontStyle.Bold),
-            ForeColor = ConsolePalette.Bone,
+            ForeColor = _minimal ? ExpTheme.Text : ConsolePalette.Bone,
             BackColor = Color.Transparent,
             TextAlign = ContentAlignment.MiddleLeft,
         };
@@ -628,31 +808,90 @@ internal sealed class ConsoleHome : Panel
         stateRow.Controls.Add(_lamp);
 
         StyleValue(_bridgeValue, "-");
-        _bridgeValue.AccessibleName = "Bridge state";
+        _bridgeValue.AccessibleName = _minimal ? "Details" : "Bridge state";
+        if (_minimal)
+        {
+            // Exp: the mask witness lives in the collapsed Details disclosure,
+            // small and dim, out of the default status card view.
+            _bridgeValue.ForeColor = ExpTheme.MonoStamp;
+            _bridgeValue.Font = ExpTheme.Mono(DesignTokens.MicroSize);
+            _bridgeValue.Visible = false;
+        }
         StyleValue(_nowValue, "Now: idle - waiting for a MaxDps suggestion.");
         _nowValue.AccessibleName = "Current suggestion";
 
         var logHeader = new Label
         {
-            Text = "Rolling log",
+            Text = _minimal ? "Log" : "Rolling log",
             AutoSize = false,
             Dock = DockStyle.Fill,
             Font = DesignTokens.Type(DesignTokens.MetaSize, FontStyle.Bold),
-            ForeColor = DesignTokens.TextMuted,
+            ForeColor = _minimal ? ExpTheme.MonoStamp : DesignTokens.TextMuted,
             BackColor = Color.Transparent,
             TextAlign = ContentAlignment.BottomLeft,
         };
         _statusLog.Dock = DockStyle.Fill;
+        if (_minimal)
+        {
+            _statusLog.UseMono = true;
+            _statusLog.Font = ExpTheme.Mono(DesignTokens.MetaSize);
+            _statusLog.StampTone = ExpTheme.MonoStamp;
+            _statusLog.EmptyText = "No events yet - waiting for bridge samples.";
+            _statusLog.EmptyTone = ExpTheme.MonoStamp;
+        }
 
         table.Controls.Add(header, 0, 0);
         table.Controls.Add(stateRow, 0, 1);
-        table.Controls.Add(_bridgeValue, 0, 2);
+        if (_minimal)
+        {
+            // Exp: bridge/mask/fps jargon moves out of the default Status card
+            // into a collapsed "Details" disclosure (advanced view).
+            _detailsToggle.Dock = DockStyle.Fill;
+            _detailsToggle.Click += (_, _) => ToggleDetails();
+            _bridgeValue.Dock = DockStyle.Fill;
+            var details = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 2,
+                BackColor = Color.Transparent,
+                Margin = Padding.Empty,
+                Padding = Padding.Empty,
+            };
+            details.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            details.RowStyles.Add(new RowStyle(SizeType.Absolute, 22F));
+            details.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            details.Controls.Add(_detailsToggle, 0, 0);
+            details.Controls.Add(_bridgeValue, 0, 1);
+            table.Controls.Add(details, 0, ExpDetailsRow);
+            _expStatusTable = table;
+        }
+        else
+        {
+            table.Controls.Add(_bridgeValue, 0, 2);
+        }
         table.Controls.Add(_nowValue, 0, 3);
         table.Controls.Add(logHeader, 0, 4);
         table.Controls.Add(new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent, Height = 0 }, 0, 5);
         table.Controls.Add(_statusLog, 0, 6);
         card.Controls.Add(table);
         return card;
+    }
+
+    /// <summary>
+    /// Exp: flips the collapsed "Details" disclosure. The witness line is only
+    /// shown when open; the outer card row grows/shrinks to match. Click-path
+    /// only (never the 250 ms status timer), so the value-only refresh rule is
+    /// preserved.
+    /// </summary>
+    private void ToggleDetails()
+    {
+        if (_expStatusTable is null) return;
+        _detailsExpanded = !_detailsExpanded;
+        _detailsToggle.Expanded = _detailsExpanded;
+        _bridgeValue.Visible = _detailsExpanded;
+        _expStatusTable.RowStyles[ExpDetailsRow].Height =
+            _detailsExpanded ? ExpDetailsExpanded : ExpDetailsCollapsed;
     }
 
     private Control BuildUpdateLog()
@@ -726,6 +965,10 @@ internal sealed class ConsoleHome : Panel
 
     private void SeedLog()
     {
+        // Exp starts on the empty-state line ("no events yet"); its single log
+        // is fed by the engine, never pre-seeded. The classic shell keeps its
+        // greeting + history note.
+        if (_minimal) return;
         AppendLog("Console ready. Suggest-only: the companion relays the addon's strip.", DesignTokens.TextMuted);
         NoteChange("Console home loaded. Presets are named bundles of the existing toggles.");
     }

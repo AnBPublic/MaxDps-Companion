@@ -8656,7 +8656,7 @@
     },
     {
       "id": 370452,
-      "name": "",
+      "name": "Shattering Star",
       "icon": "",
       "verified": false
     },
@@ -10603,6 +10603,12 @@
       "name": "Improved Earthliving Weapon",
       "icon": "spell_shaman_giftearthmother",
       "verified": true
+    },
+    {
+      "id": 382411,
+      "name": "Eternity Surge",
+      "icon": "",
+      "verified": false
     },
     {
       "id": 382424,
@@ -13591,6 +13597,12 @@
       "name": "Piercing Fangs",
       "icon": "inv_misc_monsterfang_02",
       "verified": true
+    },
+    {
+      "id": 392060,
+      "name": "Wailing Arrow",
+      "icon": "",
+      "verified": false
     },
     {
       "id": 392099,

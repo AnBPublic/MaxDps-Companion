@@ -5,9 +5,15 @@ backups/
 *.pdb
 dist/*
 !dist/.gitkeep
+# dist-exp/ is the experimental (in-game-config) publish output, ignored
+# exactly like dist/ (tools/install-addon-exp.ps1 never touches dist/).
+dist-exp/*
+!dist-exp/.gitkeep
 # custom/out: generated patched vendor tree (tools/Sync-CustomMaxDps.ps1)
 custom/out/
 .vs/
 *.user
 # settings.ini: tracked default at repo root. Per-machine copy in dist\ is
 # covered by dist/ above — never commit local edits.
+# TestResults: machine-specific .trx test output (never commit)
+tests/**/TestResults/*.trx

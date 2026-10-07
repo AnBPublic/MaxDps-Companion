@@ -1,6 +1,6 @@
 # Ability Registry Audit
 
-Generated (UTC): 2026-10-03 12:37:00  
+Generated (UTC): 2026-10-07 12:57:38  
 Game patch: 12.1 (interface 120100)  
 MaxDps version: 11.3.49  
 Registry verified: 2026-09-28  
@@ -12,24 +12,24 @@ registry. Do not hand-edit; regenerate after any curated change.
 
 | Metric | Count |
 |---|---|
-| Registry entries | 3313 |
-| Automatic (eligible) | 3228 |
+| Registry entries | 3315 |
+| Automatic (eligible) | 3230 |
 | Manual / never automatic | 85 |
 | Defensive capability | 197 |
 | Interrupt capability | 15 |
-| Offensive capability | 235 |
+| Offensive capability | 282 |
 | Self-sustain capability | 41 |
 | Mobility capability | 43 |
 | Utility (CC/purge/threat/dispel) | 37 |
-| Companion-generated eligible (Autonomous) | 263 |
-| MaxDps-only (delegated) | 2965 |
+| Companion-generated eligible (Autonomous) | 317 |
+| MaxDps-only (delegated) | 2913 |
 
 ## Intelligence ownership (v2.7)
 
 | Ownership | Count |
 |---|---|
 | Companion (rules decide) | 58 |
-| MaxDps (delegated) | 3092 |
+| MaxDps (delegated) | 3094 |
 | Shared (MaxDps surfaces, companion gates) | 78 |
 | Manual (user decides) | 85 |
 | Unavailable (audit violation) | 0 |
@@ -42,15 +42,15 @@ Live verified: 0; live unverified (automatic, companion/shared): 136.
 
 | Class | Count |
 |---|---|
-| DISCOVERED (union of sources) | 3313 |
-| REGISTERED | 3313 |
-| AUTOMATABLE | 3228 |
+| DISCOVERED (union of sources) | 3315 |
+| REGISTERED | 3315 |
+| AUTOMATABLE | 3230 |
 | COMPANION-GENERATED | 58 |
-| MAXDPS-DELEGATED | 3092 |
+| MAXDPS-DELEGATED | 3094 |
 | SHARED-GATED | 78 |
 | MANUAL | 85 |
 | UNOBSERVABLE | 0 |
-| RESEARCH-PENDING | 2965 |
+| RESEARCH-PENDING | 2913 |
 | STALE | 0 |
 | MISSING | 0 |
 | FILTERED (documented exclusions) | 318 |
@@ -85,11 +85,11 @@ Duplicate-name findings (105 total; link them with relations instead of merging 
 | Status | Count |
 |---|---|
 | Verified | 0 |
-| ResearchBacked | 80 |
-| MaxDpsBacked | 60 |
+| ResearchBacked | 138 |
+| MaxDpsBacked | 56 |
 | CompanionRule | 123 |
 | ManualByDesign | 85 |
-| Incomplete | 2965 |
+| Incomplete | 2913 |
 | Unknown | 0 |
 
 **Violations: 0** (row violations 0 + missing 0 + stale 0; must be 0).  
@@ -103,19 +103,19 @@ acted on only when MaxDps itself suggests them.
 
 | Class | Specs | Entries (class total) | Automatic | Interrupt | Defensive | Offensive | Sustain | Mobility | Utility |
 |---|---|---|---|---|---|---|---|---|---|
-| DEATHKNIGHT | 3 | 478 | 466 | 3 | 35 | 33 | 6 | 9 | 6 |
-| DEMONHUNTER | 3 | 294 | 283 | 3 | 17 | 35 | 0 | 5 | 6 |
-| DRUID | 4 | 851 | 821 | 4 | 28 | 37 | 12 | 16 | 12 |
-| EVOKER | 3 | 512 | 498 | 3 | 18 | 22 | 8 | 3 | 9 |
-| HUNTER | 3 | 512 | 501 | 3 | 17 | 24 | 3 | 6 | 6 |
-| MAGE | 3 | 505 | 495 | 3 | 34 | 11 | 0 | 3 | 6 |
-| MONK | 3 | 649 | 623 | 3 | 37 | 16 | 8 | 15 | 9 |
-| PALADIN | 3 | 547 | 529 | 3 | 82 | 29 | 9 | 9 | 9 |
-| PRIEST | 3 | 510 | 496 | 1 | 36 | 20 | 10 | 6 | 6 |
-| ROGUE | 3 | 289 | 271 | 3 | 19 | 13 | 3 | 12 | 9 |
-| SHAMAN | 3 | 564 | 535 | 3 | 46 | 33 | 9 | 18 | 9 |
-| WARLOCK | 3 | 536 | 521 | 6 | 27 | 39 | 9 | 6 | 9 |
-| WARRIOR | 3 | 480 | 473 | 3 | 19 | 36 | 6 | 7 | 6 |
+| DEATHKNIGHT | 3 | 472 | 460 | 3 | 35 | 33 | 6 | 9 | 6 |
+| DEMONHUNTER | 3 | 291 | 280 | 3 | 17 | 38 | 0 | 5 | 6 |
+| DRUID | 4 | 845 | 815 | 4 | 28 | 39 | 12 | 16 | 12 |
+| EVOKER | 3 | 511 | 497 | 3 | 18 | 24 | 8 | 3 | 9 |
+| HUNTER | 3 | 505 | 494 | 3 | 17 | 26 | 3 | 6 | 6 |
+| MAGE | 3 | 497 | 487 | 3 | 34 | 15 | 0 | 3 | 6 |
+| MONK | 3 | 643 | 617 | 3 | 37 | 19 | 8 | 15 | 9 |
+| PALADIN | 3 | 545 | 527 | 3 | 82 | 33 | 9 | 9 | 9 |
+| PRIEST | 3 | 508 | 494 | 1 | 36 | 21 | 10 | 6 | 6 |
+| ROGUE | 3 | 273 | 255 | 3 | 19 | 21 | 3 | 12 | 9 |
+| SHAMAN | 3 | 555 | 526 | 3 | 46 | 36 | 9 | 18 | 9 |
+| WARLOCK | 3 | 518 | 503 | 6 | 27 | 45 | 9 | 6 | 9 |
+| WARRIOR | 3 | 476 | 469 | 3 | 19 | 44 | 6 | 7 | 6 |
 
 ## Violations
 
@@ -191,7 +191,7 @@ None.
 | 1098 | Subjugate Demon | Utility | ManualByDesign | Manual | NotSurfaced | None | Unknown | 0 | - | - | - |
 | 1122 | Summon Infernal | Offensive | ResearchBacked | Autonomous | OffensiveBucket | None | Unknown | 0 | - | Summon | - |
 | 1126 | Mark of the Wild | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 1160 | Demoralizing Shout | Offensive | MaxDpsBacked | Autonomous | OffensiveBucket | None | Unknown | 0 | - | Unknown | - |
+| 1160 | Demoralizing Shout | Offensive | ResearchBacked | Autonomous | OffensiveBucket | None | Unknown | 45000 | - | MajorBurst | - |
 | 1161 | Challenging Shout | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 1329 | Mutilate | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 1449 | Arcane Explosion | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -263,7 +263,7 @@ None.
 | 6201 | Create Healthstone | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 6262 | Healthstone | Defensive | CompanionRule | Autonomous | DefensiveBucket | None | OffGcd | 0 | - | - | - |
 | 6343 | Thunder Clap | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 6353 | Soul Fire | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 6353 | Soul Fire | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 45000 | - | ShortCooldown | - |
 | 6544 | Heroic Leap | Mobility | ResearchBacked | Autonomous | NotSurfaced | None | OffGcd | 45000 | - | - | GapCloser |
 | 6552 | Pummel | Interrupt | ResearchBacked | Autonomous | InterruptBucket | None | OffGcd | 15000 | Dedicated | - | - |
 | 6572 | Revenge | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -297,7 +297,7 @@ None.
 | 12975 | Last Stand | Defensive | CompanionRule | Autonomous | DefensiveBucket | Major | OffGcd | 180000 | - | - | - |
 | 12982 | Shatter | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 13750 | Adrenaline Rush | Offensive | ResearchBacked | Autonomous | OffensiveBucket | None | Unknown | 180000 | - | MajorBurst | - |
-| 13877 | Blade Flurry | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 13877 | Blade Flurry | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 30000 | - | ShortCooldown | - |
 | 14190 | Seal Fate | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 14914 | Holy Fire | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 15286 | Vampiric Embrace | Defensive | CompanionRule | Autonomous | DefensiveBucket | None | OffGcd | 180000 | - | - | - |
@@ -316,7 +316,7 @@ None.
 | 18562 | Swiftmend | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 19236 | Desperate Prayer | Defensive | ResearchBacked | Autonomous | DefensiveBucket | None | OffGcd | 90000 | - | - | - |
 | 19434 | Aimed Shot | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 19574 | Bestial Wrath | Offensive | Incomplete | MaxDpsOnly | NotSurfaced | None | Unknown | 0 | - | Unknown | - |
+| 19574 | Bestial Wrath | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 120000 | - | MajorBurst | - |
 | 19577 | Intimidation | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 19647 | Spell Lock | Interrupt | MaxDpsBacked | Autonomous | InterruptBucket | None | OffGcd | 0 | Dedicated | - | - |
 | 19750 | Flash of Light | SelfHeal | CompanionRule | Autonomous | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -436,15 +436,15 @@ None.
 | 50977 | Death Gate | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 51052 | Anti-Magic Zone | Defensive | CompanionRule | Autonomous | DefensiveBucket | Major | OffGcd | 120000 | - | - | - |
 | 51128 | Killing Machine | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 51271 | Pillar of Frost | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 51271 | Pillar of Frost | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 60000 | - | ShortCooldown | - |
 | 51462 | Runic Corruption | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 51485 | Earthgrab Totem | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 51490 | Thunderstorm | Mobility | ManualByDesign | Manual | NotSurfaced | None | OffGcd | 45 | - | - | Unknown |
 | 51505 | Lava Burst | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 51514 | Hex | Utility | ManualByDesign | Manual | NotSurfaced | None | Unknown | 30000 | - | - | - |
-| 51533 | Feral Spirit | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 51533 | Feral Spirit | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 90000 | - | MajorBurst | - |
 | 51564 | Tidal Waves | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 51690 | Killing Spree | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 51690 | Killing Spree | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 90000 | - | MajorBurst | - |
 | 51723 | Fan of Knives | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 51886 | Cleanse Spirit | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 51986 | On a Pale Horse | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -488,7 +488,7 @@ None.
 | 61999 | Raise Ally | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 62124 | Hand of Reckoning | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 62618 | Power Word: Barrier | Defensive | CompanionRule | Autonomous | DefensiveBucket | Major | OffGcd | 180000 | - | - | - |
-| 63560 | Dark Transformation | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 63560 | Dark Transformation | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 45000 | - | ShortCooldown | - |
 | 63733 | Serendipity | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 64044 | Psychic Horror | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 64129 | Body and Soul | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -523,7 +523,7 @@ None.
 | 81333 | Might of the Frozen Wastes | Offensive | Incomplete | MaxDpsOnly | NotSurfaced | None | Unknown | 0 | - | Unknown | - |
 | 81749 | Atonement | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 82326 | Holy Light | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 84714 | Frozen Orb | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 84714 | Frozen Orb | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 60000 | - | ShortCooldown | - |
 | 85043 | Grand Crusader | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 85222 | Light of Dawn | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 85256 | Templar's Verdict | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -599,7 +599,7 @@ None.
 | 111400 | Burning Rush | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 111673 | Control Undead | Utility | ManualByDesign | Manual | NotSurfaced | None | Unknown | 0 | - | - | - |
 | 111771 | Demonic Gateway | Mobility | ManualByDesign | Manual | NotSurfaced | None | OffGcd | 60000 | - | - | Teleport |
-| 111898 | Grimoire: Felguard | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 111898 | Grimoire: Felguard | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 120000 | - | MajorBurst | - |
 | 112965 | Fingers of Frost | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 113043 | Omen of Clarity | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 113656 | Fists of Fury | Offensive | Incomplete | MaxDpsOnly | NotSurfaced | None | Unknown | 0 | - | Unknown | - |
@@ -692,13 +692,13 @@ None.
 | 132578 | Invoke Niuzao, the Black Ox | Defensive | CompanionRule | Autonomous | DefensiveBucket | Major | OffGcd | 180000 | - | - | - |
 | 135288 | Tooth and Claw | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 137384 | Combo Breaker | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 137639 | Storm, Earth, and Fire | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 137639 | Storm, Earth, and Fire | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 90000 | - | MajorBurst | - |
 | 145108 | Ysera's Gift | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 145205 | Efflorescence | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 146956 | Light's Revocation | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 147362 | Counter Shot | Interrupt | ResearchBacked | Autonomous | InterruptBucket | None | OffGcd | 24000 | Dedicated | - | - |
 | 148039 | Barrier of Faith | Defensive | Incomplete | MaxDpsOnly | NotSurfaced | Major | OffGcd | 0 | - | - | - |
-| 152108 | Cataclysm | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 152108 | Cataclysm | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 30000 | - | ShortCooldown | - |
 | 152173 | Serenity | Offensive | MaxDpsBacked | Autonomous | OffensiveBucket | None | Unknown | 0 | - | Unknown | - |
 | 152175 | Whirling Dragon Punch | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 152261 | Holy Shield | Defensive | Incomplete | MaxDpsOnly | NotSurfaced | Major | OffGcd | 0 | - | - | - |
@@ -706,7 +706,7 @@ None.
 | 152279 | Breath of Sindragosa | Offensive | MaxDpsBacked | Autonomous | OffensiveBucket | None | Unknown | 0 | - | Unknown | - |
 | 152280 | Defile | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 153561 | Meteor | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 153595 | Comet Storm | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 153595 | Comet Storm | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 30000 | - | ShortCooldown | - |
 | 153626 | Arcane Orb | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 154742 | Arcane Acuity | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 154743 | Brawn | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -737,7 +737,7 @@ None.
 | 162794 | Chaos Strike | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 163201 | Execute | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 164862 | Flap | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 167105 | Colossus Smash | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 167105 | Colossus Smash | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 45000 | - | MajorBurst | - |
 | 167895 | Logging | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 170374 | Earthen Rage | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 173841 | Pool of Mists | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -757,7 +757,7 @@ None.
 | 185123 | Throw Glaive | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 185245 | Torment | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 185311 | Crimson Vial | Defensive | ResearchBacked | Autonomous | DefensiveBucket | None | OffGcd | 30000 | - | - | - |
-| 185313 | Shadow Dance | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 185313 | Shadow Dance | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 60000 | - | ShortCooldown | - |
 | 185314 | Deepening Shadows | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 185358 | Arcane Shot | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 185438 | Shadowstrike | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -792,7 +792,7 @@ None.
 | 191034 | Starfall | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 191384 | Aspect of the Beast | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 191427 | Metamorphosis | Offensive | ResearchBacked | Autonomous | OffensiveBucket | None | OffGcd | 120000 | - | Transformation | - |
-| 191634 | Stormkeeper | Offensive | Incomplete | MaxDpsOnly | NotSurfaced | None | Unknown | 0 | - | Unknown | - |
+| 191634 | Stormkeeper | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 60000 | - | ShortCooldown | - |
 | 191717 | Fury of the Storms | Offensive | Incomplete | MaxDpsOnly | NotSurfaced | None | Unknown | 0 | - | Unknown | - |
 | 191861 | Power of the Maelstrom | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 192058 | Capacitor Totem | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -802,7 +802,7 @@ None.
 | 192088 | Graceful Spirit | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 192106 | Lightning Shield | Defensive | Incomplete | MaxDpsOnly | NotSurfaced | Major | OffGcd | 0 | - | - | - |
 | 192222 | Liquid Magma Totem | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 192249 | Storm Elemental | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 192249 | Storm Elemental | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 150000 | - | MajorBurst | - |
 | 193063 | Protective Light | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 193134 | Castigation | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 193155 | Enlightenment | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -839,7 +839,7 @@ None.
 | 196406 | Backdraft | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 196408 | Fire and Brimstone | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 196412 | Eradication | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 196447 | Channel Demonfire | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 196447 | Channel Demonfire | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 25000 | - | ShortCooldown | - |
 | 196555 | Netherwalk | Defensive | CompanionRule | Autonomous | DefensiveBucket | Immunity | OffGcd | 180000 | - | - | - |
 | 196704 | Psychic Voice | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 196707 | Afterlife | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -859,7 +859,7 @@ None.
 | 197045 | Shield Discipline | Defensive | Incomplete | MaxDpsOnly | NotSurfaced | Major | OffGcd | 0 | - | - | - |
 | 197061 | Stonebark | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 197073 | Inner Peace | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 197214 | Sundering | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 197214 | Sundering | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 40000 | - | ShortCooldown | - |
 | 197446 | Beacon of the Lightbringer | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 197524 | Astral Influence | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 197626 | Starsurge | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -870,9 +870,9 @@ None.
 | 197900 | Mist Wrap | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 197915 | Lifecycles | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 197995 | Wellspring | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 198013 | Eye Beam | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 198013 | Eye Beam | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 40000 | - | ShortCooldown | - |
 | 198034 | Divine Hammer | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 198067 | Fire Elemental | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 198067 | Fire Elemental | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 150000 | - | MajorBurst | - |
 | 198068 | Power of the Dark Side | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 198103 | Earth Elemental | Defensive | CompanionRule | Autonomous | DefensiveBucket | Major | OffGcd | 300000 | - | - | - |
 | 198304 | Intervene | Mobility | ManualByDesign | Manual | NotSurfaced | None | OffGcd | 30000 | - | - | Unknown |
@@ -921,14 +921,14 @@ None.
 | 202345 | Starlord | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 202347 | Stellar Flare | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 202424 | Chrysalis | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 202425 | Warrior of Elune | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 202425 | Warrior of Elune | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 45000 | - | ShortCooldown | - |
 | 202430 | Nature's Balance | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 202560 | Best Served Cold | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 202577 | Dome of Mist | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 202603 | Into the Fray | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 202719 | Arcane Torrent | Offensive | CompanionRule | Autonomous | NotSurfaced | None | OffGcd | 90000 | - | MinorBurst | - |
 | 202743 | Booming Voice | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 202770 | Fury of Elune | Offensive | Incomplete | MaxDpsOnly | NotSurfaced | None | Unknown | 0 | - | Unknown | - |
+| 202770 | Fury of Elune | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 60000 | - | ShortCooldown | - |
 | 202918 | Light of the Sun | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 203177 | Heavy Repercussions | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 203201 | Crackling Thunder | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -958,9 +958,9 @@ None.
 | 204254 | Shattered Souls | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 204268 | Voodoo Mastery | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 204403 | Traveling Storms | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 204596 | Sigil of Flame | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 204596 | Sigil of Flame | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 30000 | - | ShortCooldown | - |
 | 204909 | Soul Rending | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 205021 | Ray of Frost | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 205021 | Ray of Frost | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 60000 | - | ShortCooldown | - |
 | 205022 | Arcane Familiar | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 205024 | Lonely Winter | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 205025 | Presence of Mind | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -973,7 +973,7 @@ None.
 | 205037 | Flame Patch | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 205145 | Demonic Calling | Offensive | Incomplete | MaxDpsOnly | NotSurfaced | None | Unknown | 0 | - | Unknown | - |
 | 205148 | Reverse Entropy | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 205179 | Phantom Singularity | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 205179 | Phantom Singularity | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 45000 | - | ShortCooldown | - |
 | 205180 | Summon Darkglare | Offensive | ResearchBacked | Autonomous | OffensiveBucket | None | Unknown | 0 | - | Summon | - |
 | 205184 | Roaring Blaze | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 205364 | Dominate Mind | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -1002,7 +1002,7 @@ None.
 | 207264 | Bursting Sores | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 207269 | Ebon Fever | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 207272 | Infected Claws | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 207289 | Unholy Assault | Offensive | ResearchBacked | Autonomous | OffensiveBucket | None | Unknown | 0 | - | ShortCooldown | - |
+| 207289 | Unholy Assault | Offensive | ResearchBacked | Autonomous | OffensiveBucket | None | Unknown | 75000 | - | ShortCooldown | - |
 | 207311 | Clawing Shadows | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 207317 | Epidemic | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 207347 | Aura of Pain | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -1011,7 +1011,7 @@ None.
 | 207387 | Painbringer | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 207399 | Ancestral Protection Totem | Defensive | Incomplete | MaxDpsOnly | NotSurfaced | Major | OffGcd | 0 | - | - | - |
 | 207401 | Ancestral Vigor | Offensive | Incomplete | MaxDpsOnly | NotSurfaced | None | Unknown | 0 | - | Unknown | - |
-| 207407 | Soul Carver | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 207407 | Soul Carver | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 60000 | - | ShortCooldown | - |
 | 207548 | Agonizing Flames | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 207684 | Sigil of Misery | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 207697 | Feast of Souls | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -1034,7 +1034,7 @@ None.
 | 212056 | Absolution | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 212084 | Fel Devastation | Defensive | CompanionRule | Autonomous | DefensiveBucket | Major | OnGcd | 60000 | - | - | - |
 | 212182 | Smoke Bomb | Defensive | CompanionRule | Autonomous | DefensiveBucket | Major | OffGcd | 180000 | - | - | - |
-| 212283 | Symbols of Death | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 212283 | Symbols of Death | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 30000 | - | ShortCooldown | - |
 | 212431 | Explosive Shot | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 212436 | Butchery | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 212552 | Wraith Walk | Mobility | ManualByDesign | Manual | NotSurfaced | None | OffGcd | 60000 | - | - | SpeedBurst |
@@ -1066,7 +1066,7 @@ None.
 | 223413 | Teleportation Nexus | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 223817 | Divine Purpose | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 227174 | Fallout | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 227847 | Bladestorm | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 227847 | Bladestorm | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 90000 | - | MajorBurst | - |
 | 228260 | Voidform | Offensive | ResearchBacked | Autonomous | OffensiveBucket | None | Unknown | 90000 | - | Transformation | - |
 | 228264 | Voidform | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 228266 | Void Bolt | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -1121,17 +1121,17 @@ None.
 | 255544 | Poison Bomb | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 255647 | Light's Judgment | Offensive | CompanionRule | Autonomous | NotSurfaced | None | OffGcd | 150000 | - | MajorBurst | - |
 | 255654 | Bull Rush | Mobility | ManualByDesign | Manual | NotSurfaced | None | OffGcd | 120000 | - | - | Unknown |
-| 255937 | Wake of Ashes | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 255937 | Wake of Ashes | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 30000 | - | ShortCooldown | - |
 | 255989 | Master Assassin | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 256165 | Blinding Powder | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 257044 | Rapid Fire | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 257044 | Rapid Fire | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 20000 | - | ShortCooldown | - |
 | 257284 | Hunter's Mark | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 257505 | Shot in the Dark | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 257541 | Phoenix Flames | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 257620 | Multi-Shot | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 257621 | Trick Shots | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 257944 | Thrill of the Hunt | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 258860 | Essence Break | Offensive | ResearchBacked | Autonomous | OffensiveBucket | None | Unknown | 0 | - | WindowDriven | - |
+| 258860 | Essence Break | Offensive | ResearchBacked | Autonomous | OffensiveBucket | None | Unknown | 40000 | - | WindowDriven | - |
 | 258876 | Insatiable Hunger | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 258881 | Trail of Ruin | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 258887 | Cycle of Hatred | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -1141,7 +1141,7 @@ None.
 | 259489 | Kill Command | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 259495 | Wildfire Bomb | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 260240 | Precise Shots | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 260243 | Volley | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 260243 | Volley | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 45000 | - | ShortCooldown | - |
 | 260248 | Bloodseeker | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 260285 | Tip of the Spear | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 260309 | Master Marksman | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -1149,21 +1149,21 @@ None.
 | 260367 | Streamline | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 260404 | Calling the Shots | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 260643 | Skullsplitter | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 260708 | Sweeping Strikes | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 260708 | Sweeping Strikes | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 60000 | - | ShortCooldown | - |
 | 260878 | Spirit Wolf | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 262150 | Dreadnaught | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 262161 | Warbreaker | Offensive | ResearchBacked | Autonomous | OffensiveBucket | None | Unknown | 0 | - | MajorBurst | - |
+| 262161 | Warbreaker | Offensive | ResearchBacked | Autonomous | OffensiveBucket | None | Unknown | 45000 | - | MajorBurst | - |
 | 262231 | War Machine | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 262624 | Elemental Spirits | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 262647 | Forceful Winds | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 263165 | Void Torrent | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 263165 | Void Torrent | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 30000 | - | ShortCooldown | - |
 | 263642 | Fracture | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 263648 | Soul Barrier | Defensive | CompanionRule | Autonomous | DefensiveBucket | Minor | OnGcd | 0 | - | - | - |
 | 263716 | Last Word | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 264000 | Creeping Death | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 264078 | Dreadlash | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 264119 | Summon Vilefiend | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 264130 | Power Siphon | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 264130 | Power Siphon | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 30000 | - | ShortCooldown | - |
 | 264178 | Demonbolt | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 264332 | Guerrilla Tactics | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 264348 | Tiger Tail Sweep | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -1179,7 +1179,7 @@ None.
 | 267102 | Demonic Core | Offensive | Incomplete | MaxDpsOnly | NotSurfaced | None | Unknown | 0 | - | Unknown | - |
 | 267116 | Animal Companion | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 267170 | Wicked Maw | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 267171 | Demonic Strength | Offensive | Incomplete | MaxDpsOnly | NotSurfaced | None | Unknown | 0 | - | Unknown | - |
+| 267171 | Demonic Strength | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 60000 | - | ShortCooldown | - |
 | 267211 | Bilescourge Bombers | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 267214 | Sacrificed Souls | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 267216 | Inner Demons | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -1203,7 +1203,7 @@ None.
 | 274281 | New Moon | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 274586 | Invigorating Mists | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 274738 | Ancestral Call | Offensive | CompanionRule | Autonomous | NotSurfaced | None | OffGcd | 120000 | - | MajorBurst | - |
-| 274837 | Feral Frenzy | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 274837 | Feral Frenzy | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 45000 | - | ShortCooldown | - |
 | 274902 | Photosynthesis | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 274909 | Rising Mist | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 275334 | Punish | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -1221,9 +1221,9 @@ None.
 | 277953 | Night Terrors | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 278309 | Chain Reaction | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 278326 | Consume Magic | Utility | ManualByDesign | Manual | NotSurfaced | None | Unknown | 10000 | - | - | - |
-| 278350 | Vile Taint | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 278350 | Vile Taint | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 30000 | - | ShortCooldown | - |
 | 278386 | Demonic Wards | Offensive | Incomplete | MaxDpsOnly | NotSurfaced | None | Unknown | 0 | - | Unknown | - |
-| 279302 | Frostwyrm's Fury | Offensive | Incomplete | MaxDpsOnly | NotSurfaced | None | Unknown | 0 | - | Unknown | - |
+| 279302 | Frostwyrm's Fury | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 120000 | - | MajorBurst | - |
 | 279423 | Seasoned Soldier | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 279620 | Twin Moons | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 280001 | Bolster | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -1232,7 +1232,7 @@ None.
 | 280391 | Sins of the Many | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 280392 | Meat Cleaver | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 280515 | Bob and Weave | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 280719 | Secret Technique | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 280719 | Secret Technique | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 60000 | - | ShortCooldown | - |
 | 280721 | Sudden Death | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 280735 | Execute | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 280752 | Hallucinations | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -1257,9 +1257,9 @@ None.
 | 312411 | Bag of Tricks | Offensive | CompanionRule | Autonomous | NotSurfaced | None | OffGcd | 90000 | - | MinorBurst | - |
 | 312924 | Hyper Organic Light Originator | SelfHeal | CompanionRule | Autonomous | NotSurfaced | None | OffGcd | 150000 | - | - | - |
 | 314867 | Shadow Covenant | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 315341 | Between the Eyes | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 315341 | Between the Eyes | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 30000 | - | ShortCooldown | - |
 | 315496 | Slice and Dice | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 315508 | Roll the Bones | Offensive | ResearchBacked | Autonomous | OffensiveBucket | None | Unknown | 0 | - | ProcDriven | - |
+| 315508 | Roll the Bones | Offensive | ResearchBacked | Autonomous | OffensiveBucket | None | Unknown | 45000 | - | ProcDriven | - |
 | 315720 | Onslaught | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 315924 | Hand of the Protector | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 316239 | Rune Strike | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -1305,9 +1305,9 @@ None.
 | 321387 | Enlightened | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 321460 | Deadeye | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 321468 | Binding Shackles | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 321507 | Touch of the Magi | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 321507 | Touch of the Magi | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 45000 | - | ShortCooldown | - |
 | 321526 | Mana Adept | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 321530 | Bloodshed | Offensive | ResearchBacked | Autonomous | OffensiveBucket | None | Unknown | 0 | - | WindowDriven | - |
+| 321530 | Bloodshed | Offensive | ResearchBacked | Autonomous | OffensiveBucket | None | Unknown | 60000 | - | ShortCooldown | - |
 | 322101 | Expel Harm | Defensive | CompanionRule | Autonomous | DefensiveBucket | None | OnGcd | 0 | - | - | - |
 | 322109 | Touch of Death | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 322115 | Light's Promise | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -1322,7 +1322,7 @@ None.
 | 324536 | Malefic Rapture | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 324631 | Fleshcraft | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 325093 | Light Brewing | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 325153 | Exploding Keg | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 325153 | Exploding Keg | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 60000 | - | ShortCooldown | - |
 | 325197 | Invoke Chi-Ji, the Red Crane | Offensive | ResearchBacked | Autonomous | OffensiveBucket | None | Unknown | 180000 | - | MajorBurst | - |
 | 325201 | Dance of Chi-Ji | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 326512 | Runeforged Spurs | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -1376,10 +1376,10 @@ None.
 | 343248 | Deathblow | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 343294 | Soul Reaper | Offensive | MaxDpsBacked | Autonomous | OffensiveBucket | None | Unknown | 0 | - | Unknown | - |
 | 343311 | Furious Gaze | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 343527 | Execution Sentence | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 343527 | Execution Sentence | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 60000 | - | ShortCooldown | - |
 | 343647 | Solstice | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 343655 | Celestial Harmony | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 343721 | Final Reckoning | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 0 | - | WindowDriven | - |
+| 343721 | Final Reckoning | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 60000 | - | ShortCooldown | - |
 | 344357 | Stormflurry | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 344359 | Ancient Arts | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 345208 | Infected Wounds | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -1413,7 +1413,7 @@ None.
 | 360823 | Naturalize | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 360827 | Blistering Scales | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 360952 | Coordinated Assault | Offensive | ResearchBacked | Autonomous | OffensiveBucket | None | Unknown | 120000 | - | MajorBurst | - |
-| 360966 | Spearhead | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 360966 | Spearhead | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 90000 | - | MajorBurst | - |
 | 360995 | Verdant Embrace | Defensive | CompanionRule | Autonomous | DefensiveBucket | None | OnGcd | 0 | - | - | - |
 | 361021 | Sense Power | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 361178 | Mass Return | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -1449,6 +1449,7 @@ None.
 | 369939 | Leaping Flames | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 369990 | Ancient Flame | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 370062 | Field of Dreams | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 370452 | Shattering Star | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 20000 | - | ShortCooldown | - |
 | 370455 | Charged Blast | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 370537 | Stasis | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 370553 | Tip the Scales | Offensive | ResearchBacked | Autonomous | OffensiveBucket | None | Unknown | 0 | - | WindowDriven | - |
@@ -1546,7 +1547,7 @@ None.
 | 375556 | Tailwind | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 375561 | Lush Growth | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 375574 | Foci of Life | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 375576 | Divine Toll | Offensive | ResearchBacked | Autonomous | OffensiveBucket | None | Unknown | 0 | - | MajorBurst | - |
+| 375576 | Divine Toll | Offensive | ResearchBacked | Autonomous | OffensiveBucket | None | Unknown | 60000 | - | ShortCooldown | - |
 | 375577 | Fire Within | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 375618 | Arcane Intensity | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 375721 | Azure Essence Burst | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -1561,7 +1562,7 @@ None.
 | 375801 | Burnout | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 375888 | Shadowy Insight | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 375891 | Death Chakram | Offensive | MaxDpsBacked | Autonomous | OffensiveBucket | None | Unknown | 0 | - | Unknown | - |
-| 375982 | Primordial Wave | Offensive | ResearchBacked | Autonomous | OffensiveBucket | None | Unknown | 0 | - | ShortCooldown | - |
+| 375982 | Primordial Wave | Offensive | ResearchBacked | Autonomous | OffensiveBucket | None | Unknown | 45000 | - | ShortCooldown | - |
 | 375994 | Mental Decay | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 376079 | Champion's Spear | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 376138 | Empath | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -1721,10 +1722,10 @@ None.
 | 382197 | Ancestral Wolf Affinity | Offensive | Incomplete | MaxDpsOnly | NotSurfaced | None | Unknown | 0 | - | Unknown | - |
 | 382201 | Totemic Focus | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 382215 | Winds of Al'Akir | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 382245 | Cold Blooded Killer | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 382245 | Cold Blooded Killer | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 45000 | - | ShortCooldown | - |
 | 382258 | Leeching Strikes | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 382260 | Fast Footwork | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 382266 | Fire Breath | Offensive | MaxDpsBacked | Autonomous | OffensiveBucket | None | Unknown | 0 | - | Unknown | - |
+| 382266 | Fire Breath | Offensive | ResearchBacked | Autonomous | OffensiveBucket | None | Unknown | 30000 | - | ShortCooldown | - |
 | 382268 | Flow of Time | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 382270 | Diverted Energy | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 382289 | Tempest Barrier | Defensive | Incomplete | MaxDpsOnly | NotSurfaced | Major | OffGcd | 0 | - | - | - |
@@ -1732,7 +1733,7 @@ None.
 | 382293 | Incantation of Swiftness | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 382297 | Quick Witted | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 382309 | Ancestral Awakening | Offensive | Incomplete | MaxDpsOnly | NotSurfaced | None | Unknown | 0 | - | Unknown | - |
-| 382411 | Eternity Surge | Offensive | MaxDpsBacked | Autonomous | OffensiveBucket | None | Unknown | 0 | - | Unknown | - |
+| 382411 | Eternity Surge | Offensive | ResearchBacked | Autonomous | OffensiveBucket | None | Unknown | 30000 | - | ShortCooldown | - |
 | 382424 | Winter's Protection | Defensive | Incomplete | MaxDpsOnly | NotSurfaced | Major | OffGcd | 0 | - | - | - |
 | 382440 | Shifting Power | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 382481 | Rigid Ice | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -1879,7 +1880,7 @@ None.
 | 384914 | Recompense | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 384969 | Thunderous Words | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 385008 | Test of Might | Offensive | Incomplete | MaxDpsOnly | NotSurfaced | None | Unknown | 0 | - | Unknown | - |
-| 385059 | Odyn's Fury | Offensive | Incomplete | MaxDpsOnly | NotSurfaced | None | Unknown | 0 | - | Unknown | - |
+| 385059 | Odyn's Fury | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 45000 | - | MajorBurst | - |
 | 385125 | Of Dusk and Dawn | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 385167 | Everlasting Frost | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 385408 | Sepsis | Offensive | MaxDpsBacked | Autonomous | OffensiveBucket | None | Unknown | 0 | - | Unknown | - |
@@ -1891,7 +1892,7 @@ None.
 | 385512 | Storm of Swords | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 385515 | Holy Aegis | Defensive | Incomplete | MaxDpsOnly | NotSurfaced | Major | OffGcd | 0 | - | - | - |
 | 385539 | Rejuvenating Wind | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 385627 | Kingsbane | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 385627 | Kingsbane | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 60000 | - | ShortCooldown | - |
 | 385633 | Auras of the Resolute | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 385695 | Ranger | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 385696 | Flow State | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -1906,7 +1907,7 @@ None.
 | 385881 | Teachings of the Black Harvest | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 385888 | Tough as Nails | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 385899 | Soulburn | Offensive | MaxDpsBacked | Autonomous | OffensiveBucket | None | Unknown | 0 | - | Unknown | - |
-| 385952 | Shield Charge | Offensive | MaxDpsBacked | Autonomous | OffensiveBucket | None | Unknown | 0 | - | Unknown | - |
+| 385952 | Shield Charge | Offensive | ResearchBacked | Autonomous | OffensiveBucket | None | Unknown | 45000 | - | MajorBurst | - |
 | 386027 | Enduring Defenses | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 386030 | Brace For Impact | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 386071 | Disrupting Shout | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -1951,7 +1952,7 @@ None.
 | 386965 | Charred Passions | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 386976 | Withering Bolt | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 386986 | Sacrolash's Dark Strike | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 386997 | Soul Rot | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 386997 | Soul Rot | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 60000 | - | ShortCooldown | - |
 | 387016 | Dark Harvest | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 387044 | Fervent Flickering | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 387046 | Elusive Footwork | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -2209,6 +2210,7 @@ None.
 | 391972 | Lion's Strength | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 391978 | Veinripper | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 392053 | Piercing Fangs | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 392060 | Wailing Arrow | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 60000 | - | ShortCooldown | - |
 | 392099 | Nurturing Dormancy | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 392116 | Regenerative Heartwood | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 392124 | Embrace of the Dream | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -2245,7 +2247,7 @@ None.
 | 392961 | Imbued Infusions | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 392979 | Jade Ignition | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 392982 | Shadowboxing Treads | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 392983 | Strike of the Windlord | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 392983 | Strike of the Windlord | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 30000 | - | ShortCooldown | - |
 | 392985 | Thunderfist | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 392986 | Xuen's Bond | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 392988 | Divine Image | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
@@ -2290,14 +2292,14 @@ None.
 | 394930 | Double Dance | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 394931 | Thrill Seeking | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 394983 | Lightweight Shiv | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 395152 | Ebon Might | Offensive | Incomplete | MaxDpsOnly | NotSurfaced | None | Unknown | 0 | - | Unknown | - |
+| 395152 | Ebon Might | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 30000 | - | ShortCooldown | - |
 | 395153 | Sands of Time | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 395160 | Eruption | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 395446 | Soul Sigils | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 396043 | Close as Clutchmates | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 396166 | Fury of Xuen | Offensive | Incomplete | MaxDpsOnly | NotSurfaced | None | Unknown | 0 | - | Unknown | - |
 | 396187 | Essence Burst | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 396286 | Upheaval | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 396286 | Upheaval | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 40000 | - | ShortCooldown | - |
 | 396571 | Tempered Scales | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 396749 | Reckless Abandon | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 397103 | Defender's Aegis | Defensive | Incomplete | MaxDpsOnly | NotSurfaced | Major | OffGcd | 0 | - | - | - |
@@ -2654,7 +2656,7 @@ None.
 | 436162 | Storm Bolts | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 436201 | Gathering Clouds | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 436335 | Mass Disintegrate | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
-| 436358 | Demolish | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
+| 436358 | Demolish | Offensive | ResearchBacked | Autonomous | NotSurfaced | None | Unknown | 45000 | - | MajorBurst | - |
 | 436687 | Dark Talons | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 436707 | Crashing Thunder | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |
 | 437068 | Strength of the Mountain | Main | Incomplete | MaxDpsOnly | NotSurfaced | None | OnGcd | 0 | - | - | - |

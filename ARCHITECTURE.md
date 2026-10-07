@@ -14,7 +14,7 @@ Vendor discovery (read-only): MaxDps:GlowDefensiveHPMidnight (Buttons.lua:1056)
   curve's own control points — see docs/research/ABILITY_RESEARCH.md §6.
        │
        ▼
-MaxDpsBridge addon — 43-cell pixel strip (bridge 3.7.3; v5 + Ext2 layout
+MaxDpsBridge addon — 43-cell pixel strip (bridge 3.7.7; v5 + Ext2 layout
   unchanged from 3.0.0, Ext3 shipped by T1/T2). Ext3: a 43-cell strip
   (cells 40-42 = 14-bit app toggle mask + epoch + blocked nibble + cell-42
   checksum/commit, presence cell 28 B bit2); a pre-3.5 companion ignores it
@@ -262,12 +262,14 @@ Situational policy (Knowledge/PolicyEvaluator) — [Intelligence] Enabled=1
       kill-secure / zero-need / long-history carve-outs fail open. The
       adaptive-need input is now the ability's own **buff duration**
       (`max(MinTtk, min(DurFactor·buffDur, 20))`, the research 1/2 rule) rather
-      than the T2 2·cd+dur window. 2026-10-04 adds a **sub-50s bypass**
-      (`TtkPolicy.SubFiftyBypass`): a curated `CooldownMs` in (0, 50 s) fails
-      the waste/history/warmup/grace guards (and the Burst preset) open, so a
-      rotational short CD (Colossus Smash/Warbreaker/Demolish/Odyn's Fury/
-      Shield Charge/Demoralizing Shout 45 s, Essence Break 40 s) fires
-      regardless of target TTK; `CooldownMs == 0` stays gated (fail-closed)
+      than the T2 2·cd+dur       window. 2026-10-04 adds a **sub-50s bypass**, widened 2026-10-06 to
+      **≤60 s** (`TtkPolicy.SubFiftyBypass`): a curated `CooldownMs` in (0, 60 s]
+      fails the waste/history/warmup/grace guards (and the Burst preset) open,
+      so a rotational short CD (Colossus Smash/Warbreaker/Demolish/Odyn's Fury/
+      Shield Charge/Demoralizing Shout 45 s, Essence Break 40 s, Divine Toll
+      60 s) fires regardless of target TTK; `CooldownMs == 0` stays gated
+      (fail-closed), and `OffensiveUsage.Summon` is excluded so the true 60 s
+      summon major Summon Demonic Tyrant 265187 stays TTK-gated
     · mobility: gap closers need a confirmed out-of-melee target + in-range
       ability; escapes/movement are never automatic
     · self-heals: emergency self-heal (HP <= EmergencyHpPct, default 35) is a
@@ -316,7 +318,9 @@ Action scheduler (Scheduler/ActionScheduler) — deterministic state machine
   policy verdicts (Use / Hold / Skip / Unavailable / Unknown; Hold+Unknown =
   held, Skip+Unavailable = skipped, only Use scheduled)
   → rank (interrupt > emergency > defensive > self-sustain > main > mobility
-  > offensive > consumable > trinket) → duplicate collapse → stale and
+  > offensive > consumable > trinket) → duplicate collapse (a collapsed Main
+  is kept aside and re-admitted when the same-stroke press that replaced it is
+  held, not emitted) → stale and
   pending-confirm demotion (never for SelfHeal, r2) → GCD → min interval →
   unavailable/retry suppression → ordered plan + reason/confidence (one action
   per tick). A transient failed SelfHeal press is capped at 1.5 s with no
@@ -376,7 +380,10 @@ The fork corrects 12.1 stale major-cooldown ids without editing `vendor/`.
 an optional, reversible vendor patch set for the same symptom. P-DATA-023
 (2026-10-04) additionally inserts Ravager 228920 into the Arms `offensive`
 table — an **addition**, not an id move — so the vendor glow reaches the
-bridge's Offensive slot while `MDB.MajorCDDeny` keeps it out of Main. Scope is
+bridge's Offensive slot while `MDB.MajorCDDeny` keeps it out of Main. P-DATA-024
+(2026-10-06) applies the same addition pattern to Divine Toll 375576 in the
+Retribution `offensive` table (not denied from Main: a 60 s on-GCD core button
+may legitimately be a Main suggestion). Scope is
 **Arms only**: Fury/Protection list Ravager in the bridge catalog but their
 vendor `offensive` tables lack it, so adding those is a separate patch if
 wanted. Neither changes the wire: cells, `PROTOCOL_VERSION` and the bridge
@@ -393,7 +400,9 @@ Reader.GetMainSpellID (addon; only what MaxDps already glows)
        └─ first id with C_Spell.IsSpellUsable (power veto only:
           usable==false AND noPower==true; secret/nil/throw fail OPEN) ──► MAIN
        └─ all denied/power-starved ⇒ MDB.MainFallback[specID | "CLASS:Spec"]
-          (MainFallback.lua; Fury 72 / "WARRIOR:Fury" → Bloodthirst 23881) ──► MAIN
+          (MainFallback.lua; Fury 72 / "WARRIOR:Fury" → Bloodthirst 23881;
+          Ret 70 / "PALADIN:Retribution" → Judgment 20271, Blade of Justice
+          184575, Crusader Strike 35395) ──► MAIN
        └─ no candidate at all / unlisted spec ⇒ nil (idle by design)
 
 ActionScheduler (companion)
@@ -433,10 +442,20 @@ Main gate table (`Scheduler/ActionScheduler.cs`):
 
 `Decision/DecisionEngine.cs` mirrors C1: Main is exempt from stale demotion
 (`:87`) and takes no stale confidence penalty (`:103`), so a Main candidate is
-never demoted behind a fresh Offensive/Trinket/Consumable. Live checks OWED
-(`docs/TESTING.md` §3j).
+never demoted behind a fresh Offensive/Trinket/Consumable. 2026-10-06
+zero-delay core: a Main that shares a physical stroke with a higher-ranked
+collapsed candidate is re-admitted when that press is held, and `NoteAttempt`
+suppresses a non-emitted Main at `MainReprobeMs` (150 ms), not the 500 ms
+situational window. Live checks OWED (`docs/TESTING.md` §3j).
 
-## MaxDpsBridgeExp (experimental in-game-config fork, no wire change)
+## MaxDpsBridgeExp (CURRENT in-game-config fork, no wire change)
+
+**`addon/MaxDpsBridge` = LEGACY (frozen). `addon/MaxDpsBridgeExp` = CURRENT.**
+Exp is the stable sources renamed `MDB→MDBX` / `MaxDpsBridge→MaxDpsBridgeExp`,
+with a manual copy of the stable catalog/fallback/flag files; ports had to be
+applied to BOTH only until the freeze — from now on Exp-only (stable gets no
+further ports unless explicitly requested). The shared MaxDps fork pipeline
+below is unchanged.
 
 A second, separate addon (`addon/MaxDpsBridgeExp/`) implements the approved
 `docs/plans/2026-10-03-ingame-config.md` fork: the player configures the
@@ -608,7 +627,7 @@ MainForm (borderless; 660-wide fixed frame; no frame ring; tray; pause
 
 ```
 MaxDps-Companion/
-  addon/MaxDpsBridge/        bridge addon 3.7.3 (v5 + Ext2 + additive Ext3
+  addon/MaxDpsBridge/        bridge addon 3.7.7 (v5 + Ext2 + additive Ext3
                              encoder, candidate rotation, in-game toggle UI,
                              /mdb commands)
     Catalog.lua              GENERATED class/spec ids + extras (--gen-catalog,
@@ -626,8 +645,9 @@ MaxDps-Companion/
                              ExtraCandidates (mobility/selfHeal/defensive/cc),
                               MDB.GetCrowdControlCandidate (slot-6 CC source),
                               CategoryOf tail also consults
-                              MDB.FlagOffensiveExtra (2026-10-04), so a flagged
-                              offensive absent from
+                              MDB.FlagOffensiveExtra (228920 Ravager
+                              2026-10-04; 375576 Divine Toll 2026-10-06), so a
+                              flagged offensive absent from
                               MaxDps.classCooldowns.offensive is still
                               classified for the Offensive Flags scan,
                               v3.5 MDB.IsInterruptPinReady (casting-gated
@@ -669,30 +689,37 @@ MaxDps-Companion/
                               Colossus Smash UN-denied (vendor/live-verified as a
                               ~45 s Arms rotation button), 228920 Ravager denied
                               for MAIN and added to the new
-                              `MDB.FlagOffensiveExtra` (Reader.CategoryOf maps
-                              it to "offensive" so the Flags scan can still route
-                              it to the Offensive slot though it is absent from
-                              `MaxDps.classCooldowns.offensive`). Bridge-side
+                               `MDB.FlagOffensiveExtra` (228920 Ravager). Reader
+                              CategoryOf maps a flagged id to "offensive" so the
+                              Flags scan still routes it though it is absent from
+                              `MaxDps.classCooldowns.offensive`. 2026-10-06 adds
+                              375576 Divine Toll to the flag and deliberately
+                              NOT to D (60 s on-GCD core button). Bridge-side
                               PRIMARY fix; no vendor edit, no wire change.
      MainFallback.lua         no-downtime MAIN fallback (plan 2026-10-03): when
                               every non-denied Main glow is denied/power-starved,
                               Reader returns the first castable per-spec filler
                               here instead of an empty slot. Fury 72 /
-                              "WARRIOR:Fury" → Bloodthirst 23881; 2026-10-04
-                              Arms 71 / "WARRIOR:Arms" → Mortal Strike 12294 then
-                              Overpower 7384 (all vendor name-verified). Unlisted
+                               "WARRIOR:Fury" → Bloodthirst 23881; 2026-10-04
+                               Arms 71 / "WARRIOR:Arms" → Mortal Strike 12294 then
+                               Overpower 7384; 2026-10-06 Ret 70 /
+                               "PALADIN:Retribution" → Judgment 20271, Blade of
+                               Justice 184575, Crusader Strike 35395 — all vendor
+                               name-verified). Unlisted
                               specs stay nil. Deliberate exception to
                               "encode only what MaxDps suggests".
    custom/                    custom MaxDps fork (read-only vendor preserved):
      upstream-pristine/        untouched v11.3.49 snapshot + MANIFEST.json
                               (fileSha256 churn baseline; captured 2026-10-03)
-      patches.json              declarative patch manifest (76: 23 data +
-                               40 guard + 13 canary); P-DATA = Cooldowns.lua id
-                               moves (22) plus the Ravager 228920 Arms-offensive
-                               addition (P-DATA-023; anchor = commented
-                               Sweeping Strikes line), P-GUARD =
-                               Specialization ACSpells bypass, canary =
-                               `local setSpell` sentinel
+      patches.json              declarative patch manifest (77: 24 data +
+                                40 guard + 13 canary); P-DATA = Cooldowns.lua id
+                                moves (22) plus the Ravager 228920 Arms-offensive
+                                addition (P-DATA-023; anchor = commented
+                                Sweeping Strikes line) and the Divine Toll 375576
+                                Retribution-offensive addition (P-DATA-024;
+                                anchor = commented Wake of Ashes line), P-GUARD =
+                                Specialization ACSpells bypass, canary =
+                                `local setSpell` sentinel
      out/                      GENERATED patched tree (build artifact, absent
                               until a sync run; never hand-edited)
    tools/Sync-CustomMaxDps.ps1 T2 sync tool: churn-diff a new upstream drop vs
@@ -779,13 +806,15 @@ MaxDps-Companion/
                                valid TTK + target age ≥8 s + known HP ≥85%) fails
                                `HistoryWasteGuardHolds` open, so a trash-learned
                                window never holds a major against a long-lived
-                               rare/elite; 2026-10-04 sub-50s `SubFiftyBypass`
-                               (`CooldownMs > 0 && < 50_000`, fail-closed on 0)
+                               rare/elite; 2026-10-06 sub-60s `SubFiftyBypass`
+                               (`CooldownMs > 0 && <= 60_000` and not
+                               `OffensiveUsage.Summon`, fail-closed on 0)
                                fails the waste/history/warmup/grace guards open so
-                               curated rotational short CDs (Warbreaker 262161
-                               etc.) are never TTK-conserved; the
-                               `CandidateProviders` burst-preset hold is gated
-                               the same way
+                               curated rotational short CDs (Warbreaker 262161,
+                               Divine Toll 375576, ...) are never TTK-conserved
+                               while Summon Demonic Tyrant 265187 stays gated;
+                               the `CandidateProviders` burst-preset hold is
+                               gated the same way
       SoloBandLatch.cs       v3.3.0 Solo HP-band hysteresis latch (enter band,
                              then stay eligible to enter+5 once engaged; with no
                              prior engagement it is the plain enter threshold)
@@ -1222,8 +1251,8 @@ MaxDps-Companion/
   canvas, so it stays the default opaque view over the classic body — no
   background menu or ring peeks at any edge. No wire/format change;
   `PROTOCOL_VERSION` stays 5 and the Ext3 layout is byte-identical.
-  **3.7.3 "Reaver"** is the release; the title renders
-  `v3.7.3 Reaver` and `InstallDoctor` agrees with the bridge 3.7.3.
+  **3.7.7 "Gallant"** is the release; the title renders
+  `v3.7.7 Gallant` and `InstallDoctor` agrees with the bridge 3.7.7.
 - **M-route unified mask (UI only, no wire change).** `MainForm.BuildUnifiedPopup`
   is the single shell every mask must call (opaque scrim + `RoundedCard` +
   `SegmentedTabs`, main-window tokens). `Center` fills `client-24 × client-24`

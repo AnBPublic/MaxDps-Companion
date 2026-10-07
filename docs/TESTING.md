@@ -86,6 +86,11 @@ throw on compare/arithmetic), loads Catalog + Keymap + Reader + Bridge, fires
 
 ## 3. Live in-game E2E (retail) — OWED
 
+> DEPLOY: the **CURRENT** client is Exp — install with
+> `tools/install-addon-exp.ps1` and run the `dist-exp\` exe (`InGameConfigMode=1`,
+> `/mdbx`). Any `install-addon.ps1` step below is **LEGACY** (stable/frozen); use it
+> only when the step explicitly targets legacy.
+
 Static (parses/builds) ≠ automated test ≠ live validation. The following are
 **required** in a real client and cannot be automated offline:
 
@@ -363,7 +368,7 @@ as `ttkw` and the replay must reproduce the hold.
 Offline evidence is static only — `luac -p addon/MaxDpsBridge/*.lua`, the T2
 fixture suite (`pwsh tests/sync/Sync-CustomMaxDps.Tests.ps1`) and the
 `MDB.MajorCDDeny` table — never live proof. There is no automated in-game test
-for the fork. Observe in a real client with the bridge 3.7.3 addon loaded
+for the fork. Observe in a real client with the bridge 3.7.7 addon loaded
 (`/reload`, `/mdb status` shows `protocol=5`):
 
 1. **Avatar / Combustion no longer Main.** Play a Warrior and a Fire Mage with
@@ -400,7 +405,7 @@ stationary no-op ticks keep every gap; no filler is invented when `ranked==0`)
 plus the Q1 block in `lua tests/secret_harness.lua` (glowing∩usable scan,
 denied/power-starved fall-through, per-spec filler, fail-open on secret/nil/
 throw) — never live proof. Observe in a real client with a Fury Warrior and the
-bridge 3.7.3 addon loaded:
+bridge 3.7.7 addon loaded:
 
 1. **Rampage only at Rage ≥ 80.** While Rampage (184367) is suggested but the
    player is below 80 Rage, it must **not** be pressed; the MAIN slot carries
@@ -425,7 +430,7 @@ Main no MinInterval wait after a different slot/spell; identical repeat held
 exactly `MinKeyIntervalMs`; Main failure sets no `_failedUntil`; SawGcd resets
 the cap; non-Main backoff unchanged; GCD/cast/range/melee/NoTarget still hold;
 fallback Main identical) — never live proof. Observe in a real client with the
-bridge 3.7.3 addon loaded, Intelligence ON, Main toggle ON:
+bridge 3.7.7 addon loaded, Intelligence ON, Main toggle ON:
 
 1. **Main first tick post-GCD.** With an enemy in range + sight and a WHITE
    core suggestion live, the Main key is sent on the first tick after the GCD

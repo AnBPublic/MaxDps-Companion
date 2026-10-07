@@ -176,8 +176,11 @@ public class TtkPolicyHistoryTests
         Assert.True(TtkPolicy.HistoryWasteGuardHolds(major, invalidLive, 20, 0.5));
         Assert.False(TtkPolicy.HistoryWasteGuardHolds(minor, invalidLive, 20, 0.5));
 
-        // A valid live estimate applies the branch to every T1 class.
-        var validLive = HistCombat(1, ttkValid: true, ttkSec: 300);
+        // A valid live estimate applies the branch to every T1 class — but only
+        // while that live rate is still below the adaptive need (10 s here); the
+        // 2026-10-04 live-over-history release fires once a valid live rate
+        // reaches the need, so 7 s keeps exercising the branch.
+        var validLive = HistCombat(1, ttkValid: true, ttkSec: 7);
         Assert.True(TtkPolicy.HistoryWasteGuardHolds(minor, validLive, 20, 0.5));
 
         // Not binding -> the branch never fires (fail open).

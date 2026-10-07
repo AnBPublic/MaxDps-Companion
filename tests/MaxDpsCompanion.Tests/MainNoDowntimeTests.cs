@@ -6,9 +6,10 @@ namespace MaxDpsCompanion.Tests;
 /// T4 (spec <c>docs/plans/2026-10-03-no-downtime-main.md</c>): the MAIN slot
 /// must never be stranded. These tests pin the scheduler half of the fix — a
 /// repeated no-op Main press re-arms at <see cref="ActionScheduler.MainReprobeMs"/>
-/// (400 ms) instead of the old 1.5 s / 3 s ladder, a changed Main identity
-/// drops the superseded backoff and presses the next tick, and the companion
-/// scheduler never invents a filler of its own (the per-spec filler lives in
+/// (150 ms) instead of the old 1.5 s / 3 s ladder, a changed Main identity
+/// presses the next tick, and a failed Main press arms no companion
+/// suppression window at all. The companion scheduler never invents a filler
+/// of its own (the per-spec filler lives in
 /// <c>addon/MaxDpsBridge/MainFallback.lua</c>). The addon half is pinned by the
 /// Q1 block in <c>tests/secret_harness.lua</c>.
 ///
@@ -72,28 +73,28 @@ public class MainNoDowntimeTests
         scheduler.NoteSent(240, Slot.Main, KeyE, RampageSpellId);
 
         // Next tick: the repeat backs off, but the Main floor is the fast
-        // MainReprobeMs (<= 400), never the old 1.5 s / 3 s ladder.
+        // MainReprobeMs (150 ms), never the old 1.5 s / 3 s ladder.
         var backoff = scheduler.Advance(Input(360, Frame([(Slot.Main, KeyE)], 4), rampage));
         Assert.Null(backoff.Selected);
         Assert.Equal(ScheduleReason.RetryBackoff, backoff.Reason);
-        Assert.True(ActionScheduler.MainReprobeMs <= 400);
+        Assert.Equal(150, ActionScheduler.MainReprobeMs);
         Assert.Equal(360 + ActionScheduler.MainReprobeMs,
             scheduler.FailedUntilFor(Slot.Main, KeyE, RampageSpellId));
 
         // Silent until the floor expires, then re-probed: the pacing gate still
         // enforces MinKeyInterval and the hold is bounded by floor + interval.
-        Assert.Null(scheduler.Advance(Input(759, Frame([(Slot.Main, KeyE)], 5), rampage)).Selected);
-        var reprobe = scheduler.Advance(Input(760, Frame([(Slot.Main, KeyE)], 6), rampage));
+        Assert.Null(scheduler.Advance(Input(509, Frame([(Slot.Main, KeyE)], 5), rampage)).Selected);
+        var reprobe = scheduler.Advance(Input(510, Frame([(Slot.Main, KeyE)], 6), rampage));
         Assert.Equal(Slot.Main, reprobe.Selected);
         Assert.Equal(KeyE, reprobe.Actions[0].Stroke);
         Assert.Equal(RampageSpellId, reprobe.Actions[0].SpellId);
-        Assert.True(760 - 240 >= 120, "re-probe must respect MinKeyInterval");
-        Assert.True(760 - 360 <= ActionScheduler.MainReprobeMs + 120,
+        Assert.True(510 - 240 >= 120, "re-probe must respect MinKeyInterval");
+        Assert.True(510 - 360 <= ActionScheduler.MainReprobeMs + 120,
             "Main must never stay silent beyond MainReprobeMs + MinKeyInterval");
     }
 
     [Fact]
-    public void Changed_Main_Pick_Clears_The_Superseded_Backoff_And_Presses_Next_Tick()
+    public void Changed_Main_Pick_Presses_The_Very_Next_Tick()
     {
         var scheduler = new ActionScheduler();
         var rampage = Candidate(Slot.Main, KeyE, RampageSpellId);
@@ -104,17 +105,16 @@ public class MainNoDowntimeTests
             scheduler.Advance(Input(0, Frame([(Slot.Main, KeyE)], 1), rampage)).Selected);
         scheduler.NoteSent(0, Slot.Main, KeyE, RampageSpellId);
 
-        // The press failed silently: Rampage is suppressed for the base window.
+        // A failed Main press arms no companion suppression window at all.
         scheduler.NoteFailure(Slot.Main, KeyE, 0, RampageSpellId);
-        Assert.Equal(ActionScheduler.RejectedSuppressMs,
-            scheduler.FailedUntilFor(Slot.Main, KeyE, RampageSpellId));
+        Assert.Equal(0, scheduler.FailedUntilFor(Slot.Main, KeyE, RampageSpellId));
 
-        // Same suggestion -> still held (the backoff is real).
+        // Same suggestion 100 ms later: held only by the min-interval
+        // double-fire guard (an identical repeat), never by a backoff.
         Assert.Null(scheduler.Advance(Input(100, Frame([(Slot.Main, KeyE)], 2), rampage)).Selected);
 
-        // The bridge now offers a DIFFERENT Main (Bloodthirst): the identity
-        // change drops Rampage's failure memory, and the new pick presses the
-        // very next tick once MinKeyInterval has elapsed.
+        // The bridge now offers a DIFFERENT Main (Bloodthirst): the changed
+        // press is not the identical repeat, so it fires the very next tick.
         var plan = scheduler.Advance(Input(120, Frame([(Slot.Main, KeyF)], 3), bloodthirst));
         Assert.Equal(Slot.Main, plan.Selected);
         Assert.Equal(KeyF, plan.Actions[0].Stroke);

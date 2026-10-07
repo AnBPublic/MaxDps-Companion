@@ -1,5 +1,167 @@
 # Handover — MaxDps-Companion
 
+## CLIENT STATUS: Exp is current, stable is LEGACY
+
+**MaxDpsBridgeExp is the CURRENT client; MaxDpsBridge is LEGACY (frozen).**
+- Exp = `dist-exp\MaxDpsCompanion.exe` + `AddOns\MaxDpsBridgeExp`, `InGameConfigMode=1`.
+  Mutually exclusive per character with stable (`/mdbx` only; disable stable bridge).
+- Stable = `addon/MaxDpsBridge` + `dist\` exe: LEGACY, frozen at its last state,
+  no future ports/fixes unless the user explicitly asks for legacy/stable.
+- All future workers: implement in `app/` + `addon/MaxDpsBridgeExp/*` files, deploy
+  via `tools/install-addon-exp.ps1` + `dist-exp` publish, verify **Exp** hashes.
+  `install-addon.ps1` / `dist\` are legacy-only.
+
+## 2026-10-07 RELEASE 3.7.7 "GALLANT" (version-only identity bump)
+
+STATUS: release bump **3.7.6 "Templar" → 3.7.7 "Gallant"**. No protocol/wire
+change: protocol stays v5 (nibble 5) and every cell is byte-identical. New
+dedicated codename **Gallant**
+(Vigil/Warden/Fullcover/Holdfast/Onslaught/Reaver/Vindicator/Templar are never
+reused). Identity updated in: `MaxDpsCompanion.csproj` `<Version>`/`<Codename>`,
+`Native.cs` fallback + comments, `ReleaseIdentityTests`, repo `VERSION.txt`,
+stable `addon/MaxDpsBridge/Bridge.lua` (`MDB.VERSION` 3.7.7), `MaxDpsBridge.toc`,
+`addon/MaxDpsBridge/VERSION.txt`, `addon/MaxDpsBridgeExp/Bridge.lua`
+(`MDBX.VERSION` 3.7.7-exp), `MaxDpsBridgeExp.toc` (3.7.7-exp / Gallant),
+`addon/MaxDpsBridgeExp/VERSION.txt`, `README.md`, `ARCHITECTURE.md`,
+`docs/UI.md`, `docs/TESTING.md`. The title bar reads
+`MaxDPS Companion v3.7.7 Gallant`.
+
+## 2026-10-07 RELEASE 3.7.6 "TEMPLAR" (identity bump + offensive gap-fill verification fix)
+
+STATUS: release bump **3.7.5 "Vindicator" → 3.7.6 "Templar"** on top of the
+2026-10-07 offensive-audit worktree (R1/R2 gap-fill, next section). No
+protocol/wire change: protocol stays v5 (nibble 5) and every cell is
+byte-identical. New dedicated codename **Templar**
+(Vigil/Warden/Fullcover/Holdfast/Onslaught/Reaver/Vindicator are never reused).
+
+DATA FIX (test-driven, no wire change):
+- `abilities.json` 382245 renamed `Cold Blood` → `Cold Blooded Killer` (live
+  DB2 SpellName in `spell-verification.json`); `custom/patches.json`
+  P-DATA-052 `spellName` matches (the fork anchor/apply text still keys the
+  vendor `["Cold Blood"]` token, id unchanged).
+- Live-unverified ids **370452** (Evoker/Devastation) and **392060**
+  (Hunter/Marksmanship) removed from the `extras.offensive` gap-fill lists;
+  their rows stay catalogued ("rows only", like 382411). The MaxDps fork
+  un-comment still routes them on the wire. Rationale: the
+  `Ever_Present_Offensive_Id_Matches_Its_Live_Client_Name` invariant requires a
+  live-client name; 370452 has an empty verification name and 392060 is absent.
+- Catalog.lua (stable + Exp MDB→MDBX copy + test fixture) regenerated
+  data-only.
+
+Identity updated in: `MaxDpsCompanion.csproj` `<Version>`/`<Codename>`,
+`Native.cs` fallback + comments, `ReleaseIdentityTests`, repo `VERSION.txt`,
+`addon/MaxDpsBridge/Bridge.lua` (`MDB.VERSION`), `MaxDpsBridge.toc`,
+`addon/MaxDpsBridge/VERSION.txt`, `addon/MaxDpsBridgeExp/Bridge.lua`
+(`MDBX.VERSION` 3.7.6-exp), `MaxDpsBridgeExp.toc` (3.7.6-exp / Templar),
+`addon/MaxDpsBridgeExp/VERSION.txt`, `README.md`, `ARCHITECTURE.md`,
+`docs/UI.md`, `docs/TESTING.md`. The title bar reads
+`MaxDPS Companion v3.7.6 Templar`.
+
+## 2026-10-07 REVIEW LEFTOVERS (stable frozen / Exp current)
+
+STATUS: the offline bar is green again. `tests/secret_harness.lua` now loads the
+CURRENT client (`addon/MaxDpsBridgeExp/*` into its own `MDBX` table) alongside
+frozen stable and retargets the Ravager / Divine Toll / Arms-filler checks there
+(the DT `FlagOffensiveExtra` check is nil-guarded): **282 passed / 0 failed**.
+ACCEPTED DRIFT (stable stays frozen): `pwsh tools/ability_audit.ps1` reports
+Violations 0 / Warnings 0 / Missing 0 / Stale 0 but **exit 2**, because stable
+`addon/MaxDpsBridge/Catalog.lua` is frozen at an older data revision while
+`--gen-catalog` emits the current Exp data (Exp Catalog is byte-identical to
+generated modulo the `MDB`→`MDBX` rename).
+PRIOR-APPROVED (not 2026-10-07 audit scope): the `Scheduler/ActionScheduler.cs`,
+`Knowledge/TtkPolicy.cs` and `Knowledge/CandidateProviders.cs` diffs are exactly
+the 2026-10-06 zero-delay-core / Divine Toll specs (`MainReprobeMs 150`,
+`collapsedMains`, `SubFiftyBypass <=60s` + `Summon` opt-out, range-Unknown
+bypass); the offensive audit changed none of them.
+
+## 2026-10-06 RELEASE 3.7.5 "VINDICATOR" (version-only identity bump, companion + bridge)
+
+STATUS: release bump **3.7.4 "Reaver" → 3.7.5 "Vindicator"** on top of the
+2026-10-06 worktree (Divine Toll immediate + zero-delay core, next section).
+No protocol/wire change: protocol stays v5 (nibble 5) and every cell is
+byte-identical. New dedicated codename **Vindicator**
+(Vigil/Warden/Fullcover/Holdfast/Onslaught/Reaver are never reused). Identity
+updated in: `MaxDpsCompanion.csproj` `<Version>`/`<Codename>`, `Native.cs`
+fallback + comments, `ReleaseIdentityTests`, repo `VERSION.txt`,
+`addon/MaxDpsBridge/Bridge.lua` (`MDB.VERSION`), `MaxDpsBridge.toc`,
+`addon/MaxDpsBridge/VERSION.txt`, `addon/MaxDpsBridgeExp/Bridge.lua`
+(`MDBX.VERSION` 3.7.5-exp), `MaxDpsBridgeExp.toc` (3.7.5-exp / Vindicator),
+`addon/MaxDpsBridgeExp/VERSION.txt`, `README.md`, `ARCHITECTURE.md`,
+`docs/UI.md`, `docs/TESTING.md`. The title bar reads
+`MaxDPS Companion v3.7.5 Vindicator`.
+
+## 2026-10-06 RELEASE 3.7.4 "REAVER" (version-only identity bump, companion + bridge)
+
+STATUS: release bump **3.7.3 "Reaver" → 3.7.4 "Reaver"** on top of the
+2026-10-06 worktree (Divine Toll immediate + zero-delay core, next section).
+No protocol/wire change: protocol stays v5 (nibble 5) and every cell is
+byte-identical. Codename stays **Reaver**. Identity updated in:
+`MaxDpsCompanion.csproj` `<Version>`, `ReleaseIdentityTests`, repo `VERSION.txt`,
+`addon/MaxDpsBridge/Bridge.lua` (`MDB.VERSION`), `MaxDpsBridge.toc`,
+`addon/MaxDpsBridge/VERSION.txt`, `addon/MaxDpsBridgeExp/Bridge.lua`
+(`MDBX.VERSION` 3.7.4-exp), `MaxDpsBridgeExp.toc` (3.7.4-exp),
+`addon/MaxDpsBridgeExp/VERSION.txt`, `README.md`, `ARCHITECTURE.md`,
+`docs/UI.md`, `docs/TESTING.md`. The title bar reads
+`MaxDPS Companion v3.7.4 Reaver`.
+
+## 2026-10-06 DIVINE TOLL IMMEDIATE + ZERO-DELAY CORE (bridge + policy + scheduler; no wire change)
+
+STATUS: T5 docs for `docs/plans/2026-10-06-divine-toll.md` and
+`docs/plans/2026-10-06-zero-delay-core.md` (T1-T4 in the worktree).
+
+Divine Toll 375576 (Paladin) joins `MDB.FlagOffensiveExtra`
+(`addon/MaxDpsBridge/MajorCooldowns.lua`) so `Reader.CategoryOf` routes its glow
+to the Offensive slot though it is absent from
+`MaxDps.classCooldowns.offensive`; it is deliberately NOT in `MDB.MajorCDDeny`
+(a 60 s on-GCD core button may legitimately be a Main suggestion, and Holy/Prot
+APLs glow it too). `TtkPolicy.SubFiftyBypass` threshold moved 50 s → **≤60 s**
+so curated 60 s rotational rows fire regardless of target TTK, with an explicit
+`OffensiveUsage.Summon` opt-out so the true 60 s summon major Summon Demonic
+Tyrant 265187 stays TTK-gated. `abilities.json` 375576 is now
+`offensiveUsage: ShortCooldown`, `cdMs 60000`, `minTtkSec 3`, `enemyCountMin 1`;
+generated `Catalog.lua` carries 375576 in Ret + Prot (+ Holy) offensive.
+`P-DATA-024` (`custom/patches.json`) inserts the row into the vendor Retribution
+commented `offensive` line (the P-DATA-023 Ravager addition pattern).
+
+Zero-delay core: `MainFallback.lua` gains Retribution (specID 70 /
+`"PALADIN:Retribution"`) → Judgment 20271, Blade of Justice 184575, Crusader
+Strike 35395 (Holy-Power generators; finishers/talent forms excluded);
+`ActionScheduler.NoteAttempt` suppresses a non-emitted Main at `MainReprobeMs`
+(150 ms), not the 500 ms situational window; and the duplicate-stroke collapse
+keeps a collapsed Main aside, re-admitting it in the send loop when the
+higher-ranked same-stroke press is held rather than emitted (all timing /
+suppression gates still apply). No wire change — `docs/PROTOCOL.md`,
+`PixelProtocol.cs`, `KeySender.cs`, `vendor/` untouched.
+
+CHANGED: `addon/MaxDpsBridge/MajorCooldowns.lua`, `MainFallback.lua`,
+`Catalog.lua` (GENERATED, never hand-edited), `Knowledge/TtkPolicy.cs`,
+`Knowledge/abilities.json`, `Scheduler/ActionScheduler.cs`, `custom/patches.json`,
+tests (`TtkSubFiftyBypassTests`, scheduler/MainNoDowntime tests),
+`tests/secret_harness.lua`, `ARCHITECTURE.md`, this section.
+
+VERIFY (this machine): `dotnet build app/MaxDpsCompanion/MaxDpsCompanion.csproj
+-c Release` **0 warnings / 0 errors** (the bare root `dotnet build -c Release`
+binds nothing — the repo has no `.sln`; use the csproj / test project);
+`dotnet test -c Release` from `tests\MaxDpsCompanion.Tests` **983 passed /
+3 failed / 986** — all three are the known environmental STA/timing family
+(`ClassicUi_PopupOpen_Fast_StaticOpaqueScrim` 1907.7 ms > 500,
+`ClassicUi_WidthTiers_ScaleFontAndRowHeight` and
+`ClassicUi_Toggle_Writes_Its_Settings_Key` "STA UI thread timed out"); they also
+fail standalone here (no interactive STA), so pre-existing environment, not a
+regression. `lua tests/secret_harness.lua` **282 passed / 0 failed**;
+`luac -p` 10 bridge files exit 0; `pwsh tools/ability_audit.ps1` exit 0
+(Violations 0 / Warnings 0 / Missing 0 / Stale 0, committed `Catalog.lua`
+matches); `pwsh tools/Sync-CustomMaxDps.ps1 -NewUpstream vendor -WhatIf` exit 0
+(**APPLIED 64 / CONFLICT 0 / FIXED-UPSTREAM 13** = 77 entries; P-DATA-024
+applied); `git status vendor/` clean.
+
+OWED (live retail 12.1): Ret Divine Toll fires via the Offensive slot on
+cooldown when the APL glows it (Holy Power ≤2; AW/Crusade >15 s or ttd <8) and
+with no TTK data; DT never double-fires from Main; Ravager routing unchanged;
+Ret Main never idles >1 GCD + ~150 ms on a melee pull (filler fires with Holy
+Power <3 while a finisher glows; ≤3 presses/150 ms on a true no-op).
+Static ≠ automated test ≠ live in-game.
+
 ## 2026-10-04 RELEASE 3.7.3 "REAVER" (version-only identity bump, companion + bridge)
 
 STATUS: version-only release bump **3.7.2 "Onslaught" → 3.7.3 "Reaver"** (new

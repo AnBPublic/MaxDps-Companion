@@ -1,0 +1,20 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <!-- MaxDpsBridgeExp load order. Toggles first; the Bridge.lua runtime
+         dependencies (Catalog/MajorCooldowns/Keymap/Bars/MainFallback/Reader)
+         follow so the renamed encoder has its companion-only helpers; then
+         Bridge.lua itself, then the Exp modules in expansion order. -->
+    <Script file="Toggles.lua"/>
+    <Script file="Catalog.lua"/>
+    <Script file="MajorCooldowns.lua"/>
+    <Script file="Keymap.lua"/>
+    <Script file="Bars.lua"/>
+    <Script file="MainFallback.lua"/>
+    <Script file="Reader.lua"/>
+    <Script file="Bridge.lua"/>
+    <Script file="Exp/Core.lua"/>
+    <Script file="Exp/Profiles.lua"/>
+    <Script file="Exp/Overlay.lua"/>
+    <Script file="Exp/Settings.lua"/>
+    <Script file="Exp/Config.lua"/>
+    <Script file="Exp/Slash.lua"/>
+</Ui>

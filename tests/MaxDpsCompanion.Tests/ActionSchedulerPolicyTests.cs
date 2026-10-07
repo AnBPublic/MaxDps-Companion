@@ -404,26 +404,28 @@ public class ActionSchedulerPolicyTests
     [Fact]
     public void Failed_Press_Without_Gcd_Is_Suppressed()
     {
+        // T4 (main-immediate): Main never arms a suppression window, so the
+        // generic failed-press contract is pinned on a non-Main slot.
         var scheduler = new ActionScheduler();
-        Assert.Equal(Slot.Main, scheduler.Advance(Input(
-            1000, Frame([(Slot.Main, KeyE)], heartbeat: 1), Context(), PolicyOptions.Standard,
-            Candidate(Slot.Main, KeyE))).Selected);
-        scheduler.NoteSent(1000, Slot.Main, KeyE);
+        Assert.Equal(Slot.Offensive, scheduler.Advance(Input(
+            1000, Frame([(Slot.Offensive, KeyR)], heartbeat: 1), null, null,
+            Candidate(Slot.Offensive, KeyR))).Selected);
+        scheduler.NoteSent(1000, Slot.Offensive, KeyR);
 
         // A pace tick, then one retry (a transient failure is allowed one).
         Assert.Null(scheduler.Advance(Input(
-            1100, Frame([(Slot.Main, KeyE)], heartbeat: 2), Context(), PolicyOptions.Standard,
-            Candidate(Slot.Main, KeyE))).Selected);
-        Assert.Equal(Slot.Main, scheduler.Advance(Input(
-            1500, Frame([(Slot.Main, KeyE)], heartbeat: 3), Context(), PolicyOptions.Standard,
-            Candidate(Slot.Main, KeyE))).Selected);
-        scheduler.NoteSent(1500, Slot.Main, KeyE);
+            1100, Frame([(Slot.Offensive, KeyR)], heartbeat: 2), null, null,
+            Candidate(Slot.Offensive, KeyR))).Selected);
+        Assert.Equal(Slot.Offensive, scheduler.Advance(Input(
+            1500, Frame([(Slot.Offensive, KeyR)], heartbeat: 3), null, null,
+            Candidate(Slot.Offensive, KeyR))).Selected);
+        scheduler.NoteSent(1500, Slot.Offensive, KeyR);
 
         // The retry also never starts a GCD: suppress the stroke briefly
         // instead of hammering it.
         var plan = scheduler.Advance(Input(
-            2200, Frame([(Slot.Main, KeyE)], heartbeat: 4), Context(), PolicyOptions.Standard,
-            Candidate(Slot.Main, KeyE)));
+            2200, Frame([(Slot.Offensive, KeyR)], heartbeat: 4), null, null,
+            Candidate(Slot.Offensive, KeyR)));
 
         Assert.Null(plan.Selected);
         Assert.Equal(1, scheduler.RejectionsDetected);
@@ -526,16 +528,17 @@ public class ActionSchedulerPolicyTests
     public void Suppressed_Rejection_Does_Not_Block_Other_Ranks()
     {
         var scheduler = new ActionScheduler();
-        var slots = new (Slot Slot, KeyStroke? Stroke)[] { (Slot.Main, KeyE), (Slot.Offensive, KeyR) };
-        scheduler.Advance(Input(1000, Frame(slots, heartbeat: 1), Context(), PolicyOptions.Standard,
-            Candidate(Slot.Main, KeyE), Candidate(Slot.Offensive, KeyR, spellId: 1719)));
-        scheduler.NoteSent(1000, Slot.Main, KeyE);
+        var slots = new (Slot Slot, KeyStroke? Stroke)[] { (Slot.Offensive, KeyR), (Slot.Trinket, KeyF) };
+        scheduler.Advance(Input(1000, Frame(slots, heartbeat: 1), null, null,
+            Candidate(Slot.Offensive, KeyR), Candidate(Slot.Trinket, KeyF)));
+        scheduler.NoteSent(1000, Slot.Offensive, KeyR);
 
-        var plan = scheduler.Advance(Input(1700, Frame(slots, heartbeat: 2), Context(), PolicyOptions.Standard,
-            Candidate(Slot.Main, KeyE), Candidate(Slot.Offensive, KeyR, spellId: 1719)));
+        var plan = scheduler.Advance(Input(1700, Frame(slots, heartbeat: 2), null, null,
+            Candidate(Slot.Offensive, KeyR), Candidate(Slot.Trinket, KeyF)));
 
-        // Main is suppressed as failed; the fresh offensive still fires.
-        Assert.Equal(Slot.Offensive, plan.Selected);
+        // The Offensive is suppressed as failed; the lower-ranked trinket fires.
+        Assert.Equal(Slot.Trinket, plan.Selected);
+        Assert.Equal(ScheduleReason.Trinket, plan.Reason);
     }
 
     // ---- Main backoff cap + decay + target-clear (Arms stuck fix) ---------
@@ -544,7 +547,7 @@ public class ActionSchedulerPolicyTests
         Frame([(Slot.Main, KeyE)], heartbeat: (int)now, hasTarget: hasTarget);
 
     [Fact]
-    public void Failed_Main_Is_Re_Armed_After_A_Target_Change()
+    public void Failed_Main_Press_Is_Immediately_Re_Armed()
     {
         var scheduler = new ActionScheduler();
         var e = Candidate(Slot.Main, KeyE);
@@ -553,40 +556,32 @@ public class ActionSchedulerPolicyTests
             1000, MainE(1000), null, null, e)).Selected);
         scheduler.NoteSent(1000, Slot.Main, KeyE, 0);
 
-        // The press never produced a GCD: Main is suppressed (1.5 s).
-        Assert.Null(scheduler.Advance(Input(1600, MainE(1600), null, null, e)).Selected);
-
-        // Target lost, then regained: the edge clears the Main failure memory.
-        scheduler.Advance(Input(1700, MainE(1700, hasTarget: false), null, null, e));
-        Assert.Equal(Slot.Main, scheduler.Advance(Input(
-            1800, MainE(1800), null, null, e)).Selected);
+        // The press never produced a GCD: the failure is counted, but Main
+        // carries no suppression window and re-presses on the very next tick.
+        Assert.Equal(Slot.Main, scheduler.Advance(Input(1600, MainE(1600), null, null, e)).Selected);
+        Assert.Equal(1, scheduler.RejectionsDetected);
+        Assert.Equal(0, scheduler.FailedUntilFor(Slot.Main, KeyE));
     }
 
     [Fact]
-    public void Another_Main_Send_Resets_A_Siblings_Failure_Ladder()
+    public void Repeated_Main_Send_Cap_Rearms_At_MainReprobeMs()
     {
         var scheduler = new ActionScheduler();
         var e = Candidate(Slot.Main, KeyE);
-        var f = Candidate(Slot.Main, KeyF);
 
-        scheduler.Advance(Input(1000, MainE(1000), null, null, e));
-        scheduler.NoteSent(1000, Slot.Main, KeyE, 0);
-        Assert.Null(scheduler.Advance(Input(1600, MainE(1600), null, null, e)).Selected); // until 3100
+        // Three identical Main sends without a GCD trip the no-op cap; the
+        // hold is the fast MainReprobeMs floor, never the old ladder.
+        scheduler.NoteSent(0, Slot.Main, KeyE, 0);
+        scheduler.NoteSent(10, Slot.Main, KeyE, 0);
+        scheduler.NoteSent(20, Slot.Main, KeyE, 0);
 
-        // A sibling Main key fires while E is still suppressed, proving the
-        // rotation is alive; NoteSent(Main) drops E's ladder.
-        var sibling = scheduler.Advance(Input(3099,
-            Frame([(Slot.Main, KeyE), (Slot.Main, KeyF)], heartbeat: 3099), null, null, e, f));
-        Assert.Equal(KeyF, sibling.Actions[0].Stroke);
-        scheduler.NoteSent(3099, Slot.Main, KeyF, 0);
+        var backoff = scheduler.Advance(Input(100, MainE(100), null, null, e));
+        Assert.Null(backoff.Selected);
+        Assert.Equal(ScheduleReason.RetryBackoff, backoff.Reason);
+        Assert.Equal(100 + ActionScheduler.MainReprobeMs, scheduler.FailedUntilFor(Slot.Main, KeyE));
 
-        // E fires again, then fails a second time: without the sibling reset
-        // this would be the 3 s rung; with it, 1.5 s again (until 5400).
-        Assert.Equal(Slot.Main, scheduler.Advance(Input(3300, MainE(3300), null, null, e)).Selected);
-        scheduler.NoteSent(3300, Slot.Main, KeyE, 0);
-        Assert.Null(scheduler.Advance(Input(3900, MainE(3900), null, null, e)).Selected);
-        Assert.Null(scheduler.Advance(Input(5399, MainE(5399), null, null, e)).Selected);
-        Assert.Equal(Slot.Main, scheduler.Advance(Input(5400, MainE(5400), null, null, e)).Selected);
+        // After the floor the rotation re-arms on the next eligible tick.
+        Assert.Equal(Slot.Main, scheduler.Advance(Input(250, MainE(250), null, null, e)).Selected);
     }
 
     [Fact]
@@ -619,25 +614,23 @@ public class ActionSchedulerPolicyTests
     }
 
     [Fact]
-    public void Main_Failure_Ladder_Uses_The_Fast_Reprobe_Floor()
+    public void Main_Failure_Never_Writes_A_Suppression_Window()
     {
         var s = new ActionScheduler();
 
-        // Base reject window: the first Main failure is still 1.5 s.
-        s.NoteFailure(Slot.Main, KeyE, 1600);
-        Assert.Equal(3100, s.FailedUntilFor(Slot.Main, KeyE));
+        // T2 (main-immediate): the fast no-op reprobe floor is 150 ms.
+        Assert.Equal(150, ActionScheduler.MainReprobeMs);
 
-        // T2 (no-downtime Main): every later Main failure re-arms at the fast
-        // MainReprobeMs floor, never the old 3 s rung. The effective re-press
-        // is at most MainReprobeMs + MinKeyInterval (the pacing gate).
-        Assert.Equal(400, ActionScheduler.MainReprobeMs);
+        // Repeated Main failures advance the telemetry streak/decay counters
+        // but never arm _failedUntil: the WHITE rotation re-arms next tick.
+        // (The only Main hold is the no-op send cap, pinned separately at
+        // MainReprobeMs.)
+        s.NoteFailure(Slot.Main, KeyE, 1600);
+        Assert.Equal(0, s.FailedUntilFor(Slot.Main, KeyE));
         s.NoteFailure(Slot.Main, KeyE, 2000);
-        Assert.Equal(2000 + ActionScheduler.MainReprobeMs, s.FailedUntilFor(Slot.Main, KeyE));
-        Assert.True(s.FailedUntilFor(Slot.Main, KeyE) - 2000 <= ActionScheduler.MainReprobeMs + 120);
+        Assert.Equal(0, s.FailedUntilFor(Slot.Main, KeyE));
         s.NoteFailure(Slot.Main, KeyE, 2400);
-        Assert.Equal(2400 + ActionScheduler.MainReprobeMs, s.FailedUntilFor(Slot.Main, KeyE));
-        s.NoteFailure(Slot.Main, KeyE, 2800);
-        Assert.Equal(2800 + ActionScheduler.MainReprobeMs, s.FailedUntilFor(Slot.Main, KeyE));
+        Assert.Equal(0, s.FailedUntilFor(Slot.Main, KeyE));
     }
 
     [Fact]
@@ -656,14 +649,16 @@ public class ActionSchedulerPolicyTests
     }
 
     [Fact]
-    public void A_Long_Silence_Resets_The_Main_Failure_Ladder()
+    public void A_Long_Silence_Resets_The_NonMain_Failure_Ladder()
     {
+        // T4 (main-immediate): Main has no suppression ladder, so the decay
+        // contract is pinned on the unchanged non-Main ladder.
         var s = new ActionScheduler();
-        s.NoteFailure(Slot.Main, KeyE, 1600);
-        Assert.Equal(3100, s.FailedUntilFor(Slot.Main, KeyE)); // streak 1
+        s.NoteFailure(Slot.Offensive, KeyR, 1600);
+        Assert.Equal(3100, s.FailedUntilFor(Slot.Offensive, KeyR)); // streak 1
 
         // 7 s later the stale streak is dropped -> base 1.5 s (not the 3 s rung).
-        s.NoteFailure(Slot.Main, KeyE, 9000);
-        Assert.Equal(10500, s.FailedUntilFor(Slot.Main, KeyE));
+        s.NoteFailure(Slot.Offensive, KeyR, 9000);
+        Assert.Equal(10_500, s.FailedUntilFor(Slot.Offensive, KeyR));
     }
 }

@@ -86,7 +86,7 @@ internal sealed class ActionScheduler
     /// this fast floor instead of the escalating 1.5 s/3 s ladder, so the
     /// rotation is never stranded on a silent Main slot.
     /// </summary>
-    internal const int MainReprobeMs = 400;
+    internal const int MainReprobeMs = 150;
 
     /// <summary>
     /// T2 (no-downtime Main): consecutive no-op sends of the SAME Main spell
@@ -114,6 +114,7 @@ internal sealed class ActionScheduler
     private long _lastSentAt;
     private Slot _lastSentSlot;
     private KeyStroke _lastSentStroke;
+    private int _lastSentSpellId;
 
     // Diagnostics only: the most recent attempted (not necessarily sent) action.
     private bool _hasAttempt;
@@ -211,6 +212,7 @@ internal sealed class ActionScheduler
         _lastSentAt = nowMs;
         _lastSentSlot = slot;
         _lastSentStroke = stroke;
+        _lastSentSpellId = spellId;
 
         var key = (slot, stroke, spellId);
         // A successful send proves the stroke works: reset the failure state.
@@ -227,10 +229,22 @@ internal sealed class ActionScheduler
         {
             _failureStreak.Remove(key);
         }
-        if (_attempts.TryGetValue(key, out var attempt) && nowMs - attempt.WindowStartMs <= AttemptWindowMs)
+        // T2 (main-immediate): a Main send only counts toward the no-op cap
+        // when the PREVIOUS Main press never produced a GCD. A GCD-observed
+        // press landed (the rotation advanced), so it resets the streak instead
+        // of accumulating toward MainSameSpellNoOpCap.
+        if (slot == Slot.Main && _pendingConfirm is { SawGcd: true })
+        {
+            _attempts.Remove(key);
+        }
+        else if (_attempts.TryGetValue(key, out var attempt) && nowMs - attempt.WindowStartMs <= AttemptWindowMs)
+        {
             _attempts[key] = (attempt.Count + 1, attempt.WindowStartMs);
+        }
         else
+        {
             _attempts[key] = (1, nowMs);
+        }
 
         _pendingConfirm = (slot, stroke, spellId, nowMs, SawGcd: false, RidesGcd: RidesGcdHeuristic(slot, spellId));
         if (slot == Slot.SelfHeal) _lastSelfHealTriedMs = nowMs;
@@ -264,7 +278,13 @@ internal sealed class ActionScheduler
         _lastAttemptOutcome = outcome;
         if (slot == Slot.SelfHeal) _lastSelfHealTriedMs = nowMs;
         if (outcome != AttemptOutcome.Sent)
-            _blockedUntil[(slot, stroke, spellId)] = nowMs + UnavailableSuppressMs;
+        {
+            // T2 (no-downtime Main): an OS-gate rejection re-arms the Main slot
+            // at the fast MainReprobeMs floor instead of the 500 ms situational
+            // suppression; every other slot keeps UnavailableSuppressMs.
+            var ms = slot == Slot.Main ? MainReprobeMs : UnavailableSuppressMs;
+            _blockedUntil[(slot, stroke, spellId)] = nowMs + ms;
+        }
     }
 
     /// <summary>Drops all history (engine Start; a fresh session must not inherit state).</summary>
@@ -277,6 +297,7 @@ internal sealed class ActionScheduler
         _lastSentAt = 0;
         _lastSentSlot = default;
         _lastSentStroke = default;
+        _lastSentSpellId = 0;
         _hasAttempt = false;
         _lastAttemptSlot = default;
         _lastAttemptStroke = default;
@@ -614,6 +635,11 @@ internal sealed class ActionScheduler
         // 7. Duplicate collapse: one physical stroke, one press (highest
         //    rank wins; the list is already rank-ordered).
         var unique = new List<(ActionCandidate Candidate, PolicyDecision? Policy)>(ordered.Count);
+        // T2 (main-immediate): a Main collapsed into a higher-ranked candidate
+        // that shares its physical stroke is kept aside (not discarded) and is
+        // re-admitted in the send loop below when that higher-ranked press is
+        // held rather than emitted. It still passes every timing/suppression gate.
+        var collapsedMains = new List<(ActionCandidate Candidate, PolicyDecision? Policy)>();
         foreach (var entry in ordered)
         {
             var duplicate = false;
@@ -622,6 +648,7 @@ internal sealed class ActionScheduler
                 if (kept.Candidate.Stroke == entry.Candidate.Stroke) { duplicate = true; break; }
             }
             if (!duplicate) unique.Add(entry);
+            else if (entry.Candidate.Slot == Slot.Main) collapsedMains.Add(entry);
         }
 
         // 8. Stale demotion: pressed-since-change AND unchanged for the whole
@@ -636,7 +663,10 @@ internal sealed class ActionScheduler
             // the wire slot content never changed, so the pressed-since-change
             // bookkeeping would otherwise swallow the new opportunity and demote
             // the heal behind Main. A heal that is ready again is a fresh action.
-            if (entry.Candidate.Slot != Slot.SelfHeal
+            // T2 (main-immediate): the Main rotation is NEVER stale-demoted
+            // either — the WHITE core rotation is the player's own spell-queue
+            // behaviour and must stay ahead of fresh situational alternatives.
+            if (entry.Candidate.Slot is not (Slot.SelfHeal or Slot.Main)
                 && entry.Candidate.IsStale(input.NowMs, Math.Max(250, input.StaleAfterMs)))
                 stale.Add(entry);
             else fresh.Add(entry);
@@ -681,6 +711,11 @@ internal sealed class ActionScheduler
             }
         }
 
+        // T2 (main-immediate): append the collapsed Mains behind the surviving
+        // candidates. The send loop only acts on one when no earlier candidate
+        // emitted the same stroke, so a held higher-rank press cannot strand Main.
+        if (collapsedMains.Count > 0) final.AddRange(collapsedMains);
+
         // 9. Timing gates. GCD: v4+ encode it; the interrupt is off the GCD
         //    and always bypasses. Min key interval: one press per interval —
         //    the interrupt bypasses it too (time-critical kick must not wait
@@ -694,6 +729,10 @@ internal sealed class ActionScheduler
         var intervalElapsed = !_hasSent || input.NowMs - _lastSentAt >= minInterval;
 
         var actions = new List<ScheduledAction>(final.Count);
+        // T2 (main-immediate): strokes already emitted this tick. A re-admitted
+        // collapsed Main whose stroke was emitted by the press that replaced it
+        // is skipped; one whose replacement was held is allowed through the gates.
+        var emittedStrokes = new HashSet<KeyStroke>();
         var suppressed = 0;
         var firstHold = ScheduleReason.NoCandidate;
         var hasHold = false;
@@ -705,6 +744,7 @@ internal sealed class ActionScheduler
         foreach (var (candidate, policy) in final)
         {
             var slot = candidate.Slot;
+            if (emittedStrokes.Contains(candidate.Stroke)) continue;
             // GCD bypass (RC6): the interrupt is off-GCD by design; v3.5 also
             // exempts an emergency survival verdict and any ability the
             // registry marks off-GCD, so a time-critical situational action is
@@ -737,14 +777,14 @@ internal sealed class ActionScheduler
                 NoteHold(ScheduleReason.RetryBackoff);
                 continue;
             }
-            // The interrupt bypasses the min interval only when its stroke
-            // CHANGED (a genuine new kick must land immediately, even right
-            // after a DPS press). An identical repeated interrupt suggestion
-            // is the same physical key again — held for the interval so a
-            // failed/persisting kick cannot machine-gun at poll rate.
-            if (!intervalElapsed
-                && (slot != Slot.Interrupt
-                    || (_hasSent && slot == _lastSentSlot && candidate.Stroke == _lastSentStroke)))
+            // T2 (main-immediate): the min key interval is a double-fire guard
+            // only. The interrupt (a genuine changed kick must land immediately,
+            // even right after a DPS press) and the Main rotation (WHITE
+            // core-rotation executes immediately) bypass it for any DIFFERENT
+            // press; only an identical slot+stroke+spell repeat inside the
+            // interval is held, which covers the pre-GCD-flip window. Every
+            // other slot keeps the one-press-per-interval pacing.
+            if (MinIntervalApplies(slot, candidate, intervalElapsed))
             {
                 NoteHold(ScheduleReason.MinInterval);
                 continue;
@@ -777,6 +817,7 @@ internal sealed class ActionScheduler
                 Provider = policy?.Provider ?? "",
                 Evidence = policy?.Evidence ?? [],
             });
+            emittedStrokes.Add(candidate.Stroke);
         }
 
         // T2 (no-downtime Main): remember the Main identity that won this tick;
@@ -892,9 +933,10 @@ internal sealed class ActionScheduler
 
     /// <summary>
     /// Records a failed press: escalating suppression window per consecutive
-    /// failure — Main 1.5 s then the fast <see cref="MainReprobeMs"/> floor,
-    /// every other slot 1.5/3/6/10 s — reset by the next successful send or a
-    /// &gt;6 s silence.
+    /// failure — every non-Main slot 1.5/3/6/10 s, reset by the next successful
+    /// send or a &gt;6 s silence. Main is never written to suppression (the
+    /// WHITE core rotation re-arms next tick); its streak/decay counters still
+    /// advance so telemetry and replay diagnostics stay truthful.
     /// </summary>
     internal void NoteFailure(Slot slot, KeyStroke stroke, long nowMs, int spellId = 0)
     {
@@ -922,22 +964,15 @@ internal sealed class ActionScheduler
         _lastFailureAt[key] = nowMs;
         streak++;
         _failureStreak[key] = streak;
-        // Main (Arms stuck fix): 1.5 / 3 / 3 / 3 s — the rotation key is
-        // re-armed hard at 3 s. Every other slot keeps the escalating
-        // 1.5 / 3 / 6 / 10 s ladder.
-        long windowMs;
-        if (slot == Slot.Main)
-        {
-            // T2 (no-downtime Main): re-arm the rotation hard at the fast
-            // MainReprobeMs floor after the base reject window instead of the
-            // old 1.5/3 s ladder, so a silent Main is never stranded.
-            windowMs = streak <= 1 ? RejectedSuppressMs : MainReprobeMs;
-        }
-        else
-        {
-            var shift = Math.Min(Math.Max(0, streak - 1), 3);
-            windowMs = Math.Min(RejectedSuppressMs << shift, MaxFailedSuppressMs);
-        }
+        // T2 (main-immediate): a failed Main press is NEVER written to
+        // _failedUntil — the WHITE core rotation is re-pressed on the very
+        // next tick (only the no-op send cap above may hold it briefly at
+        // MainReprobeMs). The streak/decay counters still advance so telemetry
+        // and replay diagnostics stay truthful. Every other slot keeps the
+        // escalating 1.5 / 3 / 6 / 10 s ladder.
+        if (slot == Slot.Main) return;
+        var shift = Math.Min(Math.Max(0, streak - 1), 3);
+        var windowMs = Math.Min(RejectedSuppressMs << shift, MaxFailedSuppressMs);
         _failedUntil[key] = nowMs + windowMs;
     }
 
@@ -1012,6 +1047,24 @@ internal sealed class ActionScheduler
         if (policy is { Emergency: true }) return true;
         if (spellId > 0 && _catalogForNotes?.TryGet(spellId) is { Gcd: GcdKind.OffGcd }) return true;
         return false;
+    }
+
+    /// <summary>
+    /// T2 (main-immediate): does the min key interval hold this candidate?
+    /// The interrupt and the Main rotation are exempt — any different press may
+    /// land immediately (the engine's per-slot OS gates stay authoritative).
+    /// Only an identical slot+stroke+spell repeat inside the interval is held,
+    /// covering the pre-GCD-flip double-fire window. Every other slot keeps the
+    /// original one-press-per-interval pacing.
+    /// </summary>
+    private bool MinIntervalApplies(Slot slot, ActionCandidate candidate, bool intervalElapsed)
+    {
+        if (intervalElapsed) return false;
+        if (slot is not (Slot.Interrupt or Slot.Main)) return true;
+        return _hasSent
+            && slot == _lastSentSlot
+            && candidate.Stroke == _lastSentStroke
+            && candidate.SpellId == _lastSentSpellId;
     }
 
     /// <summary>The exact candidate behind the scheduled head action (fallback: the slot's first).</summary>
