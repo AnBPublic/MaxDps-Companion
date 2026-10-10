@@ -6,6 +6,24 @@
 > `MaxDpsBridgeExp` + `dist-exp`. See [`LEGACY.md`](LEGACY.md) and
 > [`docs/plans/2026-10-10-rust-companion.md`](docs/plans/2026-10-10-rust-companion.md).
 
+> [!TIP]
+> **Rust Companion (Beta) — `v3.8.0-rust-beta`:** the new Rust companion
+> (`companion-rs/` → `dist-exp/mdc-app.exe` + `mdc-cli.exe`) targets
+> **`MaxDpsBridgeExp` + `dist-exp`** and is the current experimental build
+> (supersedes `v3.8.0-rust-alpha`). Requirements: **Windows 11 x64**, WoW
+> **retail**, and the **MaxDps** + **`MaxDpsBridgeExp`** addons installed via
+> `pwsh tools/install-addon-exp.ps1`; run `mdc-app.exe` with `settings.ini`
+> beside it, then use the console transport (Start/Pause/Stop/Calibrate/OPEN GAME)
+> and the Settings / Doctor / Class Browser / Telemetry panels.
+> **Works (offline-verified):** `cargo build`/`test`/`clippy` clean, Gallant
+> parity console + real panels. **OWED (live retail, unproven):** full
+> Start → sample → decode → keypress loop, the mouse/wheel foreground gate, and
+> Calibrate against real DPI/borders. Static build ≠ automated test ≠ live E2E.
+> **Download:** [v3.8.0-rust-beta](https://github.com/AnBPublic/MaxDps-Companion/releases/tag/v3.8.0-rust-beta);
+> see [`dist-exp/README.md`](dist-exp/README.md),
+> [`docs/plans/2026-10-10-rust-companion.md`](docs/plans/2026-10-10-rust-companion.md)
+> and [`docs/plans/2026-10-10-gallant-parity.md`](docs/plans/2026-10-10-gallant-parity.md).
+
 # MaxDPS Companion (Retail Midnight 12.1, v3.7.7 "Gallant")
 
 Pixel bridge driver for [kaminaris MaxDps](https://www.curseforge.com/wow/addons/maxdps)

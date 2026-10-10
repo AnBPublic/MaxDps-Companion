@@ -161,17 +161,112 @@ pub fn default_registry() -> CommandRegistry {
         ok(json!({ "requested_slots": slots, "status": "stub" }))
     });
 
-    for (id, panel) in [
-        ("ui.panel.console", "Console"),
-        ("ui.panel.class_browser", "Class Browser"),
-        ("ui.panel.doctor", "Doctor"),
-        ("ui.panel.telemetry", "Telemetry"),
-        ("ui.panel.settings", "Settings"),
-    ] {
-        reg.register(id, &format!("Open the {panel} panel (stub)"), move |_| {
-            ok(json!({ "panel": panel, "status": "stub" }))
-        });
-    }
+    reg.register(
+        "ui.panel.console",
+        "Open the Gallant console (runtime transport + log)",
+        |_| {
+            ok(json!({
+                "panel": "console",
+                "title": "Console",
+                "implemented": true,
+                "surface": "runtime transport (start/stop/pause/calibrate/open game) + log",
+            }))
+        },
+    );
+
+    reg.register(
+        "ui.panel.settings",
+        "Read the live settings.ini into structured settings-panel data",
+        |input| {
+            let path = input
+                .get("path")
+                .and_then(Value::as_str)
+                .unwrap_or("settings.ini");
+            let settings = mdc_settings::Settings::load(path.to_string());
+            ok(json!({
+                "panel": "settings",
+                "title": "Settings",
+                "implemented": true,
+                "path": settings.path,
+                "exists": std::path::Path::new(&settings.path).exists(),
+                "process_name": settings.process_name,
+                "cell_size": settings.cell_size,
+                "poll_interval_ms": settings.poll_interval_ms,
+                "min_key_interval_ms": settings.min_key_interval_ms,
+                "key_press_ms": settings.key_press_ms,
+                "slot_enabled": settings.slot_enabled,
+                "combat_only": settings.combat_only,
+                "scheduler_enabled": settings.scheduler_enabled,
+                "intelligence_enabled": settings.intelligence_enabled,
+                "ttk_enabled": settings.ttk_enabled,
+                "bnet_path": settings.bnet_path,
+                "load_warnings": settings.load_warnings,
+            }))
+        },
+    );
+
+    reg.register(
+        "ui.panel.doctor",
+        "Environment + contract health check for the Doctor panel",
+        |_| {
+            let exe_dir = std::env::current_exe()
+                .ok()
+                .and_then(|exe| exe.parent().map(|dir| dir.display().to_string()))
+                .unwrap_or_default();
+            ok(json!({
+                "panel": "doctor",
+                "title": "Doctor",
+                "implemented": true,
+                "version": "v3.7.7 Gallant",
+                "cwd": std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default(),
+                "exe_dir": exe_dir,
+                "protocol_versions": [5, 4, 1],
+                "slot_count": SLOT_COUNT,
+                "telemetry_schema": SCHEMA_VERSION,
+                "telemetry_local_only": LOCAL_ONLY,
+            }))
+        },
+    );
+
+    reg.register(
+        "ui.panel.class_browser",
+        "List the 8 action slots + enable state for the Class Browser panel",
+        |_| {
+            const SLOTS: [&str; 8] = [
+                "Main", "Offensive", "Defensive", "Consumable", "Trinket", "Interrupt",
+                "Mobility", "SelfHeal",
+            ];
+            let slots: Vec<Value> = SLOTS
+                .iter()
+                .enumerate()
+                .map(|(i, name)| json!({ "index": i + 1, "name": name }))
+                .collect();
+            ok(json!({
+                "panel": "class_browser",
+                "title": "Class Browser",
+                "implemented": true,
+                "class_registry": false,
+                "detail": "mdc-engine exposes the 8-slot contract only; class knowledge is not ported yet.",
+                "slots": slots,
+            }))
+        },
+    );
+
+    reg.register(
+        "ui.panel.telemetry",
+        "Local-only JSONL recorder + replay contract for the Telemetry panel",
+        |_| {
+            ok(json!({
+                "panel": "telemetry",
+                "title": "Telemetry",
+                "implemented": true,
+                "local_only": LOCAL_ONLY,
+                "schema": SCHEMA_VERSION,
+                "recorder": "JsonlRecorder",
+                "replay": "replay",
+            }))
+        },
+    );
 
     // Fill in the concrete list now that every id exists.
     let listing: Vec<Value> = reg
@@ -219,5 +314,26 @@ mod tests {
         }
         let v: Value = serde_json::from_str(&reg.invoke("commands.list", "{}")).unwrap();
         assert!(v["result"].as_array().map(|a| a.len() >= 5).unwrap_or(false));
+    }
+
+    #[test]
+    fn panel_commands_return_real_structured_data() {
+        let reg = default_registry();
+        for id in [
+            "ui.panel.console",
+            "ui.panel.settings",
+            "ui.panel.doctor",
+            "ui.panel.class_browser",
+            "ui.panel.telemetry",
+        ] {
+            let v: Value = serde_json::from_str(&reg.invoke(id, "{}")).unwrap();
+            assert_eq!(v["ok"], true, "{id} failed");
+            assert_eq!(v["result"]["implemented"], true, "{id} not implemented");
+            assert!(v["result"].get("status").is_none(), "{id} is still a stub");
+            assert!(v["result"]["title"].is_string(), "{id} missing title");
+        }
+        // The class browser lists the 8 wire slots.
+        let v: Value = serde_json::from_str(&reg.invoke("ui.panel.class_browser", "{}")).unwrap();
+        assert_eq!(v["result"]["slots"].as_array().map(Vec::len), Some(8));
     }
 }

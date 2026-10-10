@@ -653,6 +653,71 @@ Win32 FFI). Offline bar: `cargo build --workspace`, `cargo test --workspace`,
 window/capture and real captured golden vectors remain OWED.
 Static ≠ automated test ≠ live in-game.
 
+### Gallant console (mdc-app, 2026-10-10)
+
+`crates/mdc-app` opens the Gallant console
+(`docs/plans/2026-10-10-gallant-parity.md` §1/§3/§5) as its default view; the
+pro-panel dock is kept behind a default-off `Tools` checkbox.
+
+```
+mdc-app/src/main.rs      eframe shell: window title `MaxDPS Companion v3.7.7
+                         Gallant`, resizable viewport inner 720x780 / min 460x400,
+                         theme::apply_theme, settings_path() ->
+                         Settings::load(exe_dir/settings.ini), default_platform()
+                         -> Runtime::new, console as the default view; Viewer
+                         dispatches dock tabs to the real panels (no stubs)
+mdc-app/src/console.rs   Console: owns Runtime + local state (details_expanded,
+                         cached Snapshot, capacity-200 VecDeque log ring); header
+                         (title + gear `Settings` + widgets::pill), tight 2x3
+                         transport grid (local item_spacing 6, full-width buttons)
+                         wired to runtime start/stop/toggle_pause/calibrate/
+                         open_game, and the status card (hero | Details | Now |
+                         Log HH:mm:ss MONO_STAMP mono). ui() returns
+                         ConsoleActions { open_settings }; snapshot() exposes the
+                         cached Snapshot. tick() polls + requests a 10 Hz repaint;
+                         the engine thread never touches egui
+mdc-app/src/panels/      REAL panels (<300 LOC each): panel_settings.rs (edits
+                         settings.ini, clamp + Settings::save + Revert),
+                         panel_doctor.rs (labelled rows: settings path/exists,
+                         probe_wow window, protocol, exe dir, version, commands,
+                         build profile; Re-run + Copy), panel_classbrowser.rs
+                         (8 wire slots + enable checkboxes + Snapshot::
+                         suggested_slot marker; no class registry yet),
+                         panel_telemetry.rs (JsonlRecorder start/stop, <=50 live
+                         log tail, replay summary; local-only). mod.rs holds
+                         PanelEnv, Panels, InfoRow/Tone, probe_wow, exe_dir
+mdc-app/src/theme.rs     Gallant tokens + apply_theme; install_fonts appends
+                         Windows system symbol faces (seguisym.ttf `Segoe UI
+                         Symbol`, then segmdl2.ttf `Segoe MDL2 Assets`) to the
+                         Proportional + Monospace fallback lists so transport
+                         glyphs render instead of tofu; has_glyphs(ctx, s) guards
+                         button labels (drop icon when no font covers it)
+mdc-app/src/widgets.rs   RunState (From<mdc_runtime::RunState>), pill,
+                         transport_button (fills column width, glyph-gated), card
+```
+
+Settings map to the runtime engine config at Start/Calibrate; the Settings panel
+writes `settings.ini` via `mdc-settings` (unknown keys/comments preserved) and
+the Class Browser writes `[Spells]` enable flags; `mdc-commands` `ui.panel.*`
+handlers return real structured panel data (never `status:stub`). `OPEN GAME`
+executes the runtime launcher (`[Launch] BNetPath`, auto-detect fallback). No
+wire change. Live window/render OWED. Static ≠ automated test ≠ live in-game.
+
+### 2026-10-10 Gallant console UI polish (mdc-app)
+
+- **Resizable window**: viewport is now `.with_resizable(true)` with a modest
+  `.with_min_inner_size([460, 400])` and `.with_inner_size([720, 780])` (was a
+  hard `[900, 600]` floor that blocked shrinking); the transport grid and status
+  card reflow via full-width buttons and the scrolling log.
+- **Tight transport grid**: `console.rs` saves/restores `item_spacing` (6,6)
+  locally around the 2x3 grid and both `start_button` and
+  `widgets::transport_button` size to `ui.available_width()` (no fixed 96px
+  gutter); vertical gaps between header/grid/card reduced 8 -> 6.
+- **Icons**: `theme::install_fonts` appends Segoe UI Symbol (covers
+  `▶ ■ ⏸ ◉ ⚙ ⤢`) and Segoe MDL2 Assets to the font fallback chain; every icon
+  is gated through `theme::has_glyphs`, so a missing font yields a text-only
+  label (never a tofu box).
+
 ### 2026-10-10 legacy declaration — C# client frozen, Rust is the future
 
 **`app/MaxDpsCompanion/` + `dist/` are LEGACY/FROZEN** repo-wide (`LEGACY.md`,

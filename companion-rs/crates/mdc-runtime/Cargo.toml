@@ -1,6 +1,6 @@
 [package]
-name = "mdc-commands"
-description = "Single command registry (register + invoke JSON->JSON) shared by the UI, CLI and control surface."
+name = "mdc-runtime"
+description = "Engine runtime: background worker thread, sampler, decode adapter and UI-facing snapshot state."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,8 +8,8 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+mdc-protocol = { path = "../mdc-protocol" }
+mdc-platform = { path = "../mdc-platform" }
 mdc-engine = { path = "../mdc-engine" }
 mdc-settings = { path = "../mdc-settings" }
 mdc-telemetry = { path = "../mdc-telemetry" }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"

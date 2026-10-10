@@ -1,16 +1,31 @@
 //! `mdc-app` — thin `eframe`/`egui` shell for egui 0.36 (root-`Ui` layout).
 //!
-//! The UI holds almost no logic: every action routes through the shared
-//! [`mdc_commands::CommandRegistry`]. Layout is a dense pro-panel tool frame —
-//! top menu, left tool rail, centre dock canvas (`egui_dock`), bottom status
-//! bar and a Ctrl+K command palette. Dark theme, no branding.
+//! The UI holds almost no logic: the Gallant console owns the runtime transport
+//! and every action routes through the shared [`mdc_commands::CommandRegistry`].
+//! The dock hosts the real Settings / Doctor / Class Browser / Telemetry panels
+//! ([`panels`]) — no stubs, and no raw JSON is ever shown to the user. Layout is
+//! a dense pro-panel tool frame — top menu, left tool rail, centre dock canvas
+//! (`egui_dock`), bottom status bar and a Ctrl+K command palette. Dark theme,
+//! no branding.
 
 #![forbid(unsafe_code)]
 
 use eframe::egui;
 use egui_dock::{DockArea, DockState, TabViewer};
 use mdc_commands::{default_registry, CommandRegistry};
-use serde_json::json;
+use mdc_runtime::{Runtime, Snapshot};
+use mdc_settings::Settings;
+
+mod console;
+mod panels;
+mod theme;
+mod widgets;
+
+use console::{Console, ConsoleActions};
+use panels::{PanelEnv, Panels};
+
+/// Window title (plan §1): `MaxDPS Companion v3.7.7 Gallant`.
+const WINDOW_TITLE: &str = "MaxDPS Companion v3.7.7 Gallant";
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 enum Panel {
@@ -22,8 +37,8 @@ enum Panel {
 }
 
 impl Panel {
-    const ALL: [Panel; 5] = [
-        Panel::Console,
+    /// Panels the tool rail offers (Console is reached by leaving Tools).
+    const DOCK: [Panel; 4] = [
         Panel::ClassBrowser,
         Panel::Doctor,
         Panel::Telemetry,
@@ -40,13 +55,15 @@ impl Panel {
         }
     }
 
-    fn command_id(self) -> &'static str {
-        match self {
-            Panel::Console => "ui.panel.console",
-            Panel::ClassBrowser => "ui.panel.class_browser",
-            Panel::Doctor => "ui.panel.doctor",
-            Panel::Telemetry => "ui.panel.telemetry",
-            Panel::Settings => "ui.panel.settings",
+    /// Maps a `ui.panel.*` registry command id to the panel it opens.
+    fn from_command(id: &str) -> Option<Panel> {
+        match id {
+            "ui.panel.console" => Some(Panel::Console),
+            "ui.panel.class_browser" => Some(Panel::ClassBrowser),
+            "ui.panel.doctor" => Some(Panel::Doctor),
+            "ui.panel.telemetry" => Some(Panel::Telemetry),
+            "ui.panel.settings" => Some(Panel::Settings),
+            _ => None,
         }
     }
 }
@@ -56,27 +73,60 @@ struct CompanionApp {
     dock: DockState<Panel>,
     palette_open: bool,
     palette_query: String,
-    last_result: String,
     status: String,
+    console: Console,
+    /// Last polled engine snapshot, cloned once per frame for the panels.
+    snapshot: Snapshot,
+    panels: Panels,
+    /// Live settings model edited by the Settings / Class Browser panels.
+    settings: Settings,
+    settings_path: String,
+    /// Tools rail + dock are kept behind a default-off flag; the Gallant
+    /// console is the default view.
+    show_tools: bool,
 }
 
 impl CompanionApp {
     fn new() -> Self {
-        let mut dock = DockState::new(vec![Panel::Console]);
-        dock.push_to_focused_leaf(Panel::Doctor);
+        let settings_path = settings_path();
+        let settings = Settings::load(settings_path.clone());
+        let config_summary = config_summary(&settings);
+        let runtime = Runtime::new(default_platform(), settings.clone());
+        let mut dock = DockState::new(vec![Panel::Doctor]);
+        dock.push_to_focused_leaf(Panel::ClassBrowser);
+        dock.push_to_focused_leaf(Panel::Telemetry);
+        dock.push_to_focused_leaf(Panel::Settings);
         Self {
             registry: default_registry(),
             dock,
             palette_open: false,
             palette_query: String::new(),
-            last_result: "(no command run yet)".to_string(),
             status: "idle".to_string(),
+            console: Console::new(runtime, config_summary),
+            snapshot: Snapshot::default(),
+            panels: Panels::default(),
+            settings,
+            settings_path,
+            show_tools: false,
         }
     }
 
-    fn run(&mut self, id: &str, input: serde_json::Value) {
-        self.last_result = self.registry.invoke(id, &input.to_string());
-        self.status = format!("ran {id}");
+    /// Shows the tools dock and focuses `panel`.
+    fn open_panel(&mut self, panel: Panel) {
+        self.show_tools = true;
+        self.dock.push_to_focused_leaf(panel);
+        self.status = format!("opened {}", panel.title());
+    }
+
+    /// Opens a `ui.panel.*` command's view, or runs any other command and keeps
+    /// only a short human status (never the raw JSON envelope).
+    fn invoke_command(&mut self, id: &str) {
+        if let Some(panel) = Panel::from_command(id) {
+            self.open_panel(panel);
+            return;
+        }
+        let out = self.registry.invoke(id, "{}");
+        self.status = summarize(&out);
     }
 
     fn toggle_palette(&mut self, ctx: &egui::Context) {
@@ -89,11 +139,9 @@ impl CompanionApp {
         ui.add_space(4.0);
         ui.heading("Tools");
         ui.separator();
-        for panel in Panel::ALL {
+        for panel in Panel::DOCK {
             if ui.button(panel.title()).clicked() {
-                self.dock.push_to_focused_leaf(panel);
-                let id = panel.command_id();
-                self.run(id, json!({}));
+                self.open_panel(panel);
             }
         }
         ui.separator();
@@ -114,6 +162,7 @@ impl CompanionApp {
             return;
         }
         let mut open = self.palette_open;
+        let mut chosen: Option<String> = None;
         egui::Window::new("Command Palette")
             .open(&mut open)
             .resizable(true)
@@ -129,19 +178,26 @@ impl CompanionApp {
                         .filter(|id| query.is_empty() || id.to_lowercase().contains(&query))
                     {
                         if ui.button(id).clicked() {
-                            self.run(id, json!({}));
+                            chosen = Some(id.clone());
                         }
                     }
                 });
                 ui.separator();
-                ui.monospace(&self.last_result);
+                ui.label(format!("status: {}", self.status));
             });
         self.palette_open = open;
+        if let Some(id) = chosen {
+            self.invoke_command(&id);
+        }
     }
 }
 
 impl eframe::App for CompanionApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // Poll the engine snapshot + schedule the next 10 Hz repaint. The
+        // engine thread only ever touches its own mpsc/Mutex, never egui.
+        self.console.tick(ui.ctx());
+        self.snapshot = self.console.snapshot().clone();
         self.toggle_palette(ui.ctx());
 
         egui::Panel::top("menu").show(ui, |ui| {
@@ -151,35 +207,73 @@ impl eframe::App for CompanionApp {
                 }
                 ui.separator();
                 if ui.button("Doctor").clicked() {
-                    self.run("doctor", json!({}));
+                    self.open_panel(Panel::Doctor);
                 }
                 if ui.button("Audit").clicked() {
-                    self.run("audit", json!({}));
+                    self.open_panel(Panel::Doctor);
                 }
+                ui.separator();
+                ui.checkbox(&mut self.show_tools, "Tools");
             });
         });
 
-        egui::Panel::left("rail").default_size(180.0).show(ui, |ui| self.ui_rail(ui));
-
-        egui::Panel::bottom("status").show(ui, |ui| self.ui_status(ui));
-
         self.ui_palette(ui.ctx());
 
-        egui::CentralPanel::default().show(ui, |ui| {
-            let Self { dock, registry, last_result, status, .. } = self;
-            DockArea::new(dock).show_inside(ui, &mut Viewer { registry, last_result, status });
-        });
+        let mut open_settings = false;
+        if self.show_tools {
+            egui::Panel::left("rail").default_size(180.0).show(ui, |ui| self.ui_rail(ui));
+            egui::Panel::bottom("status").show(ui, |ui| self.ui_status(ui));
+            egui::CentralPanel::default().show(ui, |ui| {
+                let Self {
+                    dock,
+                    registry,
+                    status,
+                    snapshot,
+                    settings,
+                    settings_path,
+                    panels,
+                    console,
+                    ..
+                } = self;
+                let mut env = PanelEnv {
+                    snapshot,
+                    settings,
+                    settings_path: settings_path.as_str(),
+                    command_count: registry.ids().len(),
+                    status,
+                };
+                let mut viewer = Viewer {
+                    panels,
+                    console,
+                    env: &mut env,
+                    open_settings: &mut open_settings,
+                };
+                DockArea::new(dock).show_inside(ui, &mut viewer);
+            });
+        } else {
+            egui::CentralPanel::default().show(ui, |ui| {
+                let ConsoleActions { open_settings: requested } = self.console.ui(ui);
+                if requested {
+                    open_settings = true;
+                }
+            });
+        }
+
+        if open_settings {
+            self.open_panel(Panel::Settings);
+        }
     }
 }
 
-/// Dock tab renderer. Panels are stubs that call the registry.
-struct Viewer<'a> {
-    registry: &'a CommandRegistry,
-    last_result: &'a mut String,
-    status: &'a mut String,
+/// Dock tab renderer: dispatches each tab to its real panel.
+struct Viewer<'a, 'e> {
+    panels: &'a mut Panels,
+    console: &'a mut Console,
+    env: &'a mut PanelEnv<'e>,
+    open_settings: &'a mut bool,
 }
 
-impl TabViewer for Viewer<'_> {
+impl TabViewer for Viewer<'_, '_> {
     type Tab = Panel;
 
     fn id(&mut self, tab: &mut Panel) -> egui::Id {
@@ -191,15 +285,36 @@ impl TabViewer for Viewer<'_> {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Panel) {
-        let id = tab.command_id();
-        ui.heading(tab.title());
-        ui.label("Panel stub — routed through the shared command registry.");
-        ui.separator();
-        if ui.button("Run panel command").clicked() {
-            *self.last_result = self.registry.invoke(id, "{}");
-            *self.status = format!("ran {id}");
+        match tab {
+            Panel::Console => {
+                if self.console.ui(ui).open_settings {
+                    *self.open_settings = true;
+                }
+            }
+            Panel::Settings => self.panels.settings.ui(ui, self.env),
+            Panel::Doctor => self.panels.doctor.ui(ui, self.env),
+            Panel::ClassBrowser => self.panels.class_browser.ui(ui, self.env),
+            Panel::Telemetry => self.panels.telemetry.ui(ui, self.env),
         }
-        ui.monospace(&*self.last_result);
+    }
+}
+
+/// Short human status for a non-panel command result (never the raw JSON).
+fn summarize(json: &str) -> String {
+    match serde_json::from_str::<serde_json::Value>(json) {
+        Ok(value) => {
+            if value.get("ok").and_then(|ok| ok.as_bool()).unwrap_or(false) {
+                let command = value.get("command").and_then(|c| c.as_str()).unwrap_or("");
+                format!("ran {command}")
+            } else {
+                let error = value
+                    .get("error")
+                    .and_then(|e| e.as_str())
+                    .unwrap_or("unknown error");
+                format!("error: {error}")
+            }
+        }
+        Err(_) => "error: invalid command response".to_string(),
     }
 }
 
@@ -218,30 +333,57 @@ fn load_window_icon() -> egui::IconData {
     }
 }
 
-fn configure_theme(ctx: &egui::Context) {
-    let mut visuals = egui::Visuals::dark();
-    visuals.panel_fill = egui::Color32::from_rgb(24, 26, 30);
-    visuals.window_fill = egui::Color32::from_rgb(30, 33, 38);
-    visuals.faint_bg_color = egui::Color32::from_rgb(33, 36, 42);
-    visuals.selection.bg_fill = egui::Color32::from_rgb(38, 92, 140);
-    visuals.selection.stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(120, 180, 240));
-    ctx.set_visuals(visuals);
+/// `settings.ini` next to the executable (the C# `dist\` convention), falling
+/// back to the working directory when the exe path is unavailable.
+fn settings_path() -> String {
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join("settings.ini")))
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "settings.ini".to_string())
+}
+
+/// One-line config summary for the console `Details` disclosure.
+fn config_summary(settings: &Settings) -> String {
+    let bnet = if settings.bnet_path.trim().is_empty() {
+        "bnet auto-detect".to_string()
+    } else {
+        format!("bnet {}", settings.bnet_path)
+    };
+    format!(
+        "process {} \u{00B7} cell {}px \u{00B7} poll {}ms \u{00B7} {bnet}",
+        settings.process_name, settings.cell_size, settings.poll_interval_ms
+    )
+}
+
+/// The platform backend for this build: Win32 on Windows, the macOS stub
+/// elsewhere (both compile everywhere; the non-native one returns
+/// `Unsupported` at runtime).
+#[cfg(target_os = "windows")]
+fn default_platform() -> mdc_platform_win::WinPlatform {
+    mdc_platform_win::WinPlatform::new()
+}
+
+#[cfg(not(target_os = "windows"))]
+fn default_platform() -> mdc_platform_mac::MacPlatform {
+    mdc_platform_mac::MacPlatform::new()
 }
 
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1280.0, 800.0])
-            .with_min_inner_size([900.0, 600.0])
+            .with_inner_size([720.0, 780.0])
+            .with_min_inner_size([460.0, 400.0])
+            .with_resizable(true)
             .with_icon(std::sync::Arc::new(load_window_icon()))
-            .with_title("Companion (Rust port)"),
+            .with_title(WINDOW_TITLE),
         ..Default::default()
     };
     eframe::run_native(
         "companion-rs",
         options,
         Box::new(|cc| {
-            configure_theme(&cc.egui_ctx);
+            theme::apply_theme(&cc.egui_ctx);
             Ok(Box::new(CompanionApp::new()))
         }),
     )

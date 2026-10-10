@@ -61,6 +61,65 @@ OWED: `mdc-app` live window/render + capture/PostMessage into a real client
 (same live-retail bar as the C# shell); real captured golden vectors (task
 2/3). Static ≠ automated test ≠ live in-game.
 
+## 2026-10-10 GALLANT CONSOLE (companion-rs crate C: mdc-app console)
+
+STATUS: `mdc-app` now opens the **Gallant console** as its default view
+(`docs/plans/2026-10-10-gallant-parity.md` §1/§3/§5) instead of the dock shell.
+Window title is `MaxDPS Companion v3.7.7 Gallant`. New
+`companion-rs/crates/mdc-app/src/console.rs` owns the `mdc-runtime::Runtime`
+handle plus local UI state (`details_expanded`, cached `Snapshot`, a
+capacity-200 `VecDeque` log ring). It renders the header (title + status pill),
+the 2×3 transport grid (`Start` accent/dark-text, `Pause↔Resume`, `Stop`,
+`Calibrate`, `OPEN GAME`; enable rules per §1) wired to
+`start/stop/toggle_pause/calibrate/open_game`, and the status card (hero
+`stopped`/`calibrating…`/`paused`/`waiting`/action, `Details ▸/▾`, `Now`,
+rolling `Log` with `HH:mm:ss` `MONO_STAMP` mono). Repaint is 10 Hz
+(`request_repaint_after(100ms)`); the engine thread never touches egui (the UI
+reads the runtime `Snapshot`). `theme::apply_theme` is installed at startup;
+settings load from `exe_dir/settings.ini` via `mdc-settings` and feed
+`Runtime::new`; OPEN GAME reuses the runtime launcher (`[Launch] BNetPath` +
+auto-detect hint). The Tools rail/dock is kept behind a default-off `Tools`
+checkbox. `widgets::RunState` maps 1:1 from `mdc_runtime::RunState`; the
+`mdc-app` dead-code allow on `widgets.rs` is dropped (all items consumed);
+`theme.rs`'s allow is also dropped (all tokens now referenced).
+
+VERIFY (this machine, WinLibs bin on PATH): `cargo build -p mdc-app` exit 0;
+`cargo test --workspace` exit 0 (53 passed / 0 failed / 1 ignored);
+`cargo clippy --workspace --all-targets -- -D warnings` exit 0.
+
+OWED: live retail window/render + transport/OPEN GAME behaviour (static ≠
+automated test ≠ live in-game).
+
+## 2026-10-10 GALLANT CONSOLE UI POLISH (companion-rs mdc-app)
+
+STATUS: three console defects fixed in `companion-rs/crates/mdc-app`:
+
+1. **Window could not shrink** (`main.rs` viewport): `.with_min_inner_size`
+   `[900,600]` -> `[460,400]`, `.with_inner_size` `[1280,800]` -> `[720,780]`,
+   and `.with_resizable(true)` added to the **viewport** builder (the existing
+   `.resizable(true)` was only on the Ctrl+K palette window).
+2. **Huge transport-button gutter** (`console.rs` + `widgets.rs`): the 2x3 grid
+   now saves/restores `item_spacing` as `(6,6)` locally, and `start_button` /
+   `widgets::transport_button` size to `ui.available_width()` instead of a fixed
+   `min_size([96,42])`, so each button fills its column (42px height, 12 radius
+   kept). Section `add_space` reduced 8 -> 6.
+3. **Missing/wrong button icons** (`theme.rs`): `FontDefinitions::default()`
+   alone lacks the transport glyphs. `theme::install_fonts` now appends
+   `C:\Windows\Fonts\seguisym.ttf` ("Segoe UI Symbol", verified cmap coverage
+   for all six glyphs) then `segmdl2.ttf` ("Segoe MDL2 Assets") to the
+   Proportional + Monospace fallback lists. `theme::has_glyphs(ctx, s)` gates
+   every icon so a missing font degrades to a text-only label (no tofu).
+
+VERIFY (this machine, WinLibs bin on PATH): `cargo build -p mdc-app` exit 0;
+`cargo test --workspace` exit 0 (all pass, 0 failed, 1 ignored);
+`cargo clippy --workspace --all-targets -- -D warnings` exit 0;
+`cargo build --release --workspace` exit 0. Launched
+`target/release/mdc-app.exe` -> Responding True, window title
+`MaxDPS Companion v3.7.7 Gallant`.
+
+OWED: live visual confirmation that all six glyphs paint (static cmap coverage
++ `has_glyphs` guard only; static != live in-game). No wire/addon/C# change.
+
 UPDATE 2026-10-10 (mouse parity): `mdc-platform` gained `MouseButton`/`MouseEvent`
 + `post_mouse`/`is_foreground`; `mdc-platform-win` now mirrors the `KeySender.cs`
 hybrid — keyboard stays PostMessage-only, mouse/wheel go through `SendInput`
@@ -70,6 +129,80 @@ VERIFY: `cargo build -p mdc-platform -p mdc-platform-win` exit 0;
 `cargo test -p mdc-platform-win` 8 passed/0 failed;
 `cargo clippy -p mdc-platform -p mdc-platform-win --all-targets -- -D warnings`
 exit 0. Mouse/wheel live retail validation stays OWED; static ≠ live.
+
+## 2026-10-10 REAL DOCK PANELS (companion-rs mdc-app, no more stubs)
+
+STATUS: the four dock panels that previously rendered `Panel stub — routed
+through the shared command registry` + a raw `last_result` JSON dump now render
+real functions. New `companion-rs/crates/mdc-app/src/panels/`:
+`mod.rs` (`PanelEnv`, `Panels`, `InfoRow`/`Tone`, `probe_wow`, `exe_dir`,
+`build_profile`), `panel_settings.rs`, `panel_doctor.rs`,
+`panel_classbrowser.rs`, `panel_telemetry.rs` (each <300 LOC).
+
+- **Settings**: real form over `settings.ini` (ProcessName, CellSize, Poll/
+  MinKey/KeyHold, 8 `SlotEnabled` checkboxes, CombatOnly, Scheduler/
+  Intelligence/TTK toggles, TTK fallback, BNetPath). `Save` clamps like
+  `MainForm.cs:114-117` (2-64 / 10-1000 / 20-5000 / 0-200) then
+  `Settings::save` (writes `exe_dir/settings.ini`, keeps unknown keys/comments);
+  `Revert` reloads. Status is a plain sentence, never JSON.
+- **Doctor**: labelled rows — settings.ini path + exists, WoW window via
+  `probe_wow` (handle or "not found - start WoW"), protocol decode readiness,
+  exe dir, version `v3.7.7 Gallant`, registry command count, Rust build profile,
+  fallback order; `Re-run` + optional `Copy diagnostics`.
+- **Class Browser**: the 8 wire slots (`Main, Offensive, Defensive, Consumable,
+  Trinket, Interrupt, Mobility, SelfHeal`) with enable checkboxes writing
+  `settings.slot_enabled`, a `now` marker from `Snapshot::suggested_slot`, and an
+  explicit note that `mdc-engine` has no class registry yet (no fake data).
+- **Telemetry**: `Start/Stop` drive `mdc_telemetry::JsonlRecorder` (session
+  open/close, path shown), live ≤50-line log tail from the runtime snapshot, and
+  `Replay` summarises a JSONL file (counts, no raw dump). Local-only.
+
+WIRING: `main.rs` `Viewer` dispatches to the panels (stub + monospace JSON dump
+removed); the rail/menu/Tools-dock open real views; menu `Doctor`/`Audit` open
+the Doctor panel instead of dumping JSON; the Gallant console header gained a
+`⚙ Settings` button (`console.rs`) that opens/focuses the Settings tab, and
+`Console::ui` now returns `ConsoleActions`; `Console::snapshot()` exposes the
+cached snapshot (cloned once/frame for the panels). `mdc-commands`
+`ui.panel.*` handlers now return real structured data
+(`mdc-commands` depends on `mdc-settings`); a regression test pins
+`implemented:true` / no `status:stub`. `mdc-runtime::Snapshot` gained
+`suggested_slot` (additive). No wire/`settings.ini` (tracked)/`addon`/`app`
+change; `#![forbid(unsafe_code)]` intact (platform-win unchanged).
+
+VERIFY (this machine, WinLibs bin on PATH): `cargo build -p mdc-app` exit 0;
+`cargo test --workspace` exit 0 (54 passed / 0 failed / 1 ignored);
+`cargo clippy --workspace --all-targets -- -D warnings` exit 0;
+`cargo build --release --workspace` exit 0; launched
+`target/release/mdc-app.exe` (30.87 MB), `Get-Process` MainWindowTitle =
+`MaxDPS Companion v3.7.7 Gallant`, Responding True.
+
+OWED: live retail window/render + panel interaction (static ≠ automated test ≠
+live in-game).
+
+## 2026-10-10 RUST COMPANION BETA RELEASE (v3.8.0-rust-beta, dist-exp, GitHub)
+
+STATUS: the current Exp build is released as a **BETA** on GitHub. Assets:
+`mdc-app.exe` (30.89 MB / 32,388,797 B) + `mdc-cli.exe` (1.88 MB / 1,973,537 B);
+tag **`v3.8.0-rust-beta`**; targets `MaxDpsBridgeExp` + `dist-exp`; supersedes
+`v3.8.0-rust-alpha` (scaffold + icon only). `dist-exp/` (gitignored, local-only)
+now holds the Rust beta binaries alongside the frozen legacy
+`MaxDpsCompanion.exe` (3.7.3 "Reaver", rollback only — NOT deleted) and a new
+`dist-exp/README.md`; `dist-exp/VERSION.txt` gained a top BETA banner; the
+tracked `settings.ini` default and the local `dist-exp/settings.ini` are
+untouched. README.md gained a top "Rust Companion (Beta)" callout. The
+`companion-rs/**` UI-resize/spacing/icon-fix + real-panel work (prior session)
+ships in the same commit. No wire/PROTOCOL/`addon/`/`app/` change; `vendor/`
+untouched.
+
+VERIFY (this machine, WinLibs bin on PATH): `cargo build --release --workspace`
+exit 0 ("Finished release profile" 2.61s, already up to date);
+`target/release/mdc-app.exe` 30.89 MB, `mdc-cli.exe` 1.88 MB; binaries copied
+into `dist-exp/`; `gh release view v3.8.0-rust-beta` OK; `git status --short`
+clean tracked tree. Static ≠ automated test ≠ live in-game.
+
+OWED: live retail **Start → sample → decode → keypress**; the mouse/wheel
+`SendInput` foreground gate; Calibrate against real DPI/borders. Static build ≠
+automated test ≠ live in-game E2E.
 
 ## 2026-10-07 RELEASE 3.7.7 "GALLANT" (version-only identity bump)
 

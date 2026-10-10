@@ -15,6 +15,7 @@ members = [
     "crates/mdc-engine",
     "crates/mdc-settings",
     "crates/mdc-telemetry",
+    "crates/mdc-runtime",
     "crates/mdc-commands",
     "crates/mdc-cli",
     "crates/mdc-app",
@@ -35,4 +36,5 @@ mdc-platform-mac = { path = "crates/mdc-platform-mac" }
 mdc-engine = { path = "crates/mdc-engine" }
 mdc-settings = { path = "crates/mdc-settings" }
 mdc-telemetry = { path = "crates/mdc-telemetry" }
+mdc-runtime = { path = "crates/mdc-runtime" }
 mdc-commands = { path = "crates/mdc-commands" }
