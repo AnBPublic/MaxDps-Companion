@@ -1,3 +1,16 @@
+3.7.9-exp
+date: 2026-10-10 "Unyielding"
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED - same 43-cell protocol v5 wire as the stable bridge.
+v3.7.9-exp: Companion 3.7.9 "Unyielding" / bridge 3.7.9-exp. Companion policy
+          change (not a Lua change): the companion no longer conserves
+          MaxDps-offered core-rotation offensives; a MaxDps-flagged
+          Main/Offensive candidate is used unless a game-truth/structural gate
+          applies (power, range, melee, cast/channel, GCD, user policy, addon
+          toggles/presets). TTK conservation for offensives removed. Wire
+          unchanged. Stable bridge + dist stay frozen at 3.7.7.
+
 3.7.8-exp
 date: 2026-10-10 "Steadfast"
 git: <commit placeholder - fill at release>

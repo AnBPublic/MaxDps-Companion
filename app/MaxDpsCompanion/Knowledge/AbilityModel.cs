@@ -720,15 +720,18 @@ internal sealed record AbilityDefinition(
     /// <summary>Offensives: minimum enemies the use condition assumes (null = none; not observable today).</summary>
     public int? EnemyCountMin { get; init; }
 
-    /// <summary>Offensives: the ability is planned around a burst/buff window, not used on sight.</summary>
+    /// <summary>Offensives: the ability is planned around a burst/buff window, not used on sight. Retained for replay/telemetry schema and curation; not enforced since 3.7.9.</summary>
     public bool HoldForBurst { get; init; }
 
     // ---- v3.2.0 TTK intelligence (all optional; tier defaults in TtkPolicy) ----
+    // Retained for replay/telemetry schema and the ability inspector; the TTK
+    // conservation guards that read these were removed in 3.7.9 (MaxDps authority).
 
     /// <summary>
-    /// Offensives: do not fire this ability while a valid time-to-kill is below
-    /// this many seconds (the cooldown would not pay for itself). Null = the
-    /// per-<see cref="OffensiveUsage"/> default in <see cref="TtkPolicy"/>.
+    /// Offensives: the curated minimum time-to-kill (seconds). Retained for
+    /// replay/telemetry schema and the ability inspector; the policy no longer
+    /// conserves a cooldown on it since 3.7.9. Null = the per-<see cref="OffensiveUsage"/>
+    /// default in <see cref="TtkPolicy"/>.
     /// </summary>
     public double? MinTtkSec { get; init; }
 
@@ -746,9 +749,10 @@ internal sealed record AbilityDefinition(
 
     /// <summary>
     /// Offensives: a curated major/summon confirmed to secure a kill when the
-    /// target is genuinely dying (long fight, low HP, short TTK). Enables the
-    /// kill-secure exception that bypasses the waste guard (spec §2); default
-    /// false, parsed like <see cref="ExecuteFavored"/>.
+    /// target is genuinely dying (long fight, low HP, short TTK). Retained for
+    /// replay/telemetry schema and curation; the kill-secure waste-guard
+    /// exception it once enabled was removed in 3.7.9. Default false, parsed
+    /// like <see cref="ExecuteFavored"/>.
     /// </summary>
     public bool KillSecure { get; init; }
 

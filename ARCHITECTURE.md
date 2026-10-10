@@ -14,7 +14,7 @@ Vendor discovery (read-only): MaxDps:GlowDefensiveHPMidnight (Buttons.lua:1056)
   curve's own control points — see docs/research/ABILITY_RESEARCH.md §6.
        │
        ▼
-MaxDpsBridge addon — 43-cell pixel strip (bridge 3.7.8; v5 + Ext2 layout
+MaxDpsBridge addon — 43-cell pixel strip (bridge 3.7.9; v5 + Ext2 layout
   unchanged from 3.0.0, Ext3 shipped by T1/T2). Ext3: a 43-cell strip
   (cells 40-42 = 14-bit app toggle mask + epoch + blocked nibble + cell-42
   checksum/commit, presence cell 28 B bit2); a pre-3.5 companion ignores it
@@ -174,32 +174,35 @@ TTK estimator (Knowledge/TtkEstimator) — v3.2.0, fed pre-policy
   from the decoded target percent). frac = (band+0.5)/15; resets on no target,
   >10 s unknown, or a >0.12 upward jump; feeds real declines from the last FED
   anchor into a 3 s EWMA (first sample seeds it). The result is attached via
-  CombatContext.WithTtk (no scheduler signature change) and feeds the T1–T4
-  gates; an invalid estimate fails open (every gate skipped).
-  v3.6 adds early paths so the guard still covers fast trash: a **provisional**
-  estimate (`Provisional=true`, `Valid` still false) from a fast drop (≥3 bands
-  over ≥0.5 s within 2.5 s) or a low first sight (band ≤3 in combat), plus
-  `AgeSec` (time on the current target) and a **fast-pack latch** set by two
-  quick kills (≤12 s life, last frac ≤0.25) within 20 s and cleared by any
-  target reaching age ≥12 s with frac >0.5 or TTK ≥30 s. The policy uses
-  `EffectiveTtkKnown = TtkValid || TtkProvisional`; no-target/unknown-HP clears
-  provisional but keeps the latch.
+  CombatContext.WithTtk (no scheduler signature change). **3.7.9:** the
+  estimator is retained for telemetry and the defensive T4 `DyingTargetHolds`
+  (Solo Minor <6 s / Major <10 s / Immunity <15 s; group Minor only valid <4 s
+  + urgency below Orange + fast-pack latch; group Major/Immunity never gated).
+  The entire **offensive conservation cluster is removed** — T1 waste guard
+  (valid/provisional + the v3.7 `ttk-hist` branch), the v3.8 warmup hold
+  (`"warming up TTK"`), the v3.6 grace hold (`"fast pack, waiting for TTK"`),
+  and the enemy-count / unknown-range `Uncertain` holds. An invalid estimate
+  still fails open. `minTtkSec`/`holdForBurst` are informational metadata for
+  offensives and `[TimeToKill]` values are retained for telemetry/defensive use.
+  --- history (dated; the mechanics below are retained feeds, no longer
+  offensive gates) ---
+  v3.6 adds early paths: a **provisional** estimate (`Provisional=true`,
+  `Valid` still false) from a fast drop (≥3 bands over ≥0.5 s within 2.5 s) or
+  a low first sight (band ≤3 in combat), plus `AgeSec` (time on the current
+  target) and a **fast-pack latch** set by two quick kills (≤12 s life, last
+  frac ≤0.25) within 20 s and cleared by any target reaching age ≥12 s with
+  frac >0.5 or TTK ≥30 s. no-target/unknown-HP clears provisional but keeps the
+  latch.
   v3.7 adds an adaptive-history stage: every valid kill (a low-HP departure with
   life ≥2 s and a ≥0.15 frac loss) is appended to a bounded rolling KillHistory
   (last N=8 kills, 240 s max age, cleared after 90 s of no target + out of
   combat). The window's nearest-rank p75 burn rate (frac/s, deliberately
   pessimistic) blends with the live EWMA — `w = clamp((spanSec-2.5)/6, 0, 1)` —
   so a fresh pull starts on the trash-learned rate and the live rate wins by
-  ~8.5 s. With no trusted live rate but a target, in combat and a usable frac,
+  ~8.5 s; with no trusted live rate but a target, in combat and a usable frac,
   the history rate alone yields a provisional estimate (`HistProvisional`).
-  The policy's `NeedAdaptive = max(MinTtkSec, min(DurFactor·activeDur, 20))`
-  then holds a T1 offensive while `HistTtkSec` is below it (reason `ttk-hist`),
-  restricted to the provisional-eligible majors while the live estimate is
-  invalid. 2026-10-04: `LiveReleasesHistory` fails that history hold open when a
-  valid live TTK ≥ the need, or (no valid live TTK) the target is ≥8 s old with
-  known HP ≥85% — a trash-learned window cannot hold
-  Recklessness/Avatar/Ancestral Call on a long-lived rare/elite.
-  `History=0` reproduces the pre-history estimator exactly.
+  `History=0` reproduces the pre-history estimator exactly. These feeds still
+  drive the T4 hold and telemetry only.
         │
         ▼
 Execution safety (Knowledge/PolicyEvaluator.ExecutionSafety) — ALWAYS
@@ -241,35 +244,22 @@ Situational policy (Knowledge/PolicyEvaluator) — [Intelligence] Enabled=1
     interruptible or has already ended (v5 sensors); 12.1 kinds (13 Dedicated
     + Silence for 15487 / 119910); bridge suggests only while MaxDps flags a
     live cast — never blind spam
-  · offensives: no casts/channels, no curated pairing window, own-buff skip,
-    melee/range gates, curated EnemyCountMin for companion-backed rows
-    (MaxDps-backed rows delegate); "ready never means use now"
-    · TTK gates (v3.2.0, extended v3.6): T1 holds an offensive when
-      valid/provisional TTK < minTtkSec (usage default or curated; the
-      provisional guard holds only MajorBurst/Transformation/Summon/
-      WindowDriven, never minors); T2 bypasses the pairing hold when valid TTK
-      ≥ 2·cd+dur (absent cd skips); T3 bypasses it when executeFavored and target
-      HP ≤ executeBelowPct. Invalid TTK skips all three (fail open) **except**
-      the v3.6 grace hold — MajorBurst/Transformation/Summon with no estimate,
-      the fast-pack latch set and age <4 s holds `"fast pack, waiting for TTK"`
-      (never without the latch). A v3.6 kill-secure bypass fires either
-      MajorBurst/Summon or a curated `killSecure:true` major when the estimate
-      is valid, age ≥20 s, target ≤35% and TTK 3–20 s; execute range also
-      bypasses the guard when TTK ≥3 s or unknown. v3.8 adds a **warmup hold**
-      (`"warming up TTK"`): a provisional-eligible major with no valid/provisional
-      estimate, target age < `[TimeToKill] WarmupSec` (default 3 s; 0 = legacy)
-      and a binding history short of its buff-aware need is held; execute /
-      kill-secure / zero-need / long-history carve-outs fail open. The
-      adaptive-need input is now the ability's own **buff duration**
-      (`max(MinTtk, min(DurFactor·buffDur, 20))`, the research 1/2 rule) rather
-      than the T2 2·cd+dur       window. 2026-10-04 adds a **sub-50s bypass**, widened 2026-10-06 to
-      **≤60 s** (`TtkPolicy.SubFiftyBypass`): a curated `CooldownMs` in (0, 60 s]
-      fails the waste/history/warmup/grace guards (and the Burst preset) open,
-      so a rotational short CD (Colossus Smash/Warbreaker/Demolish/Odyn's Fury/
-      Shield Charge/Demoralizing Shout 45 s, Essence Break 40 s, Divine Toll
-      60 s) fires regardless of target TTK; `CooldownMs == 0` stays gated
-      (fail-closed), and `OffensiveUsage.Summon` is excluded so the true 60 s
-      summon major Summon Demonic Tyrant 265187 stays TTK-gated
+  · offensives (3.7.9): a Main/Offensive ability the bridge offers is used
+    unless a game-truth/structural gate applies — power starvation
+    (`MainUsable`), out-of-range (`Range == No`), melee requirement, player
+    cast/channel, GCD/scheduler timing, user Never/Manual, addon toggles, and
+    the user-selected Burst/AoE presets. Also kept: own-buff skip, the pair
+    window (retained but inert — no offensive groups), the gap-fill
+    out-of-combat hold, and the melee/range gates.
+    · **Offensive TTK conservation is removed** (3.7.9): the T1 waste guard
+      (valid/provisional TTK < `minTtkSec`, the usage-default/curated table, and
+      the v3.7 `ttk-hist` branch), the v3.8 warmup hold (`"warming up TTK"`),
+      the v3.6 grace hold (`"fast pack, waiting for TTK"`), the enemy-count
+      `Uncertain` hold and the unknown-range `Uncertain` hold are gone.
+      `minTtkSec`/`holdForBurst` are now informational metadata for offensives.
+      The estimator and its provisional/history feeds remain for the defensive
+      T4 `DyingTargetHolds` and telemetry (the v3.6/v3.7/v3.8 offensive-gate
+      mechanics are history, not current behaviour)
     · mobility: gap closers need a confirmed out-of-melee target + in-range
       ability; escapes/movement are never automatic
     · self-heals: emergency self-heal (HP <= EmergencyHpPct, default 35) is a
@@ -302,13 +292,14 @@ Candidate providers (Knowledge/CandidateProviders.cs) — v2.7
   explicit per-category owners instead of inline branches: MaxDpsRotation
   (Main/Consumable/Trinket + fail-open tail), Offensive (source = MaxDps wire
   or, v3.0.0, curated catalog gap-fill detected by id membership, combat/Solo
-  gated), Defensive (source = MaxDps recommendation or catalog gap-fill,
-  Red majors / Orange short-CDs; v3.3.0 Solo ladder adds HP-banded
-  Minor/Major/Immunity gap-fill with urgency substitution), Interrupt, Mobility
-  (BridgeExtra), SelfSustain (BridgeExtra), Utility (structurally incapable
-  of Use). Every decision carries Provider + CandidateSourceKind
-  (MaxDpsWire/BridgeExtra/CompanionGapFill/None) + structured evidence;
-  verdicts and reason strings are unchanged (pinned byte-for-byte).
+  gated; **3.7.9** removed offensive TTK conservation, so a MaxDps-offered
+  offensive is used unless a game-truth/structural gate applies), Defensive
+  (source = MaxDps recommendation or catalog gap-fill, Red majors / Orange
+  short-CDs; v3.3.0 Solo ladder adds HP-banded Minor/Major/Immunity gap-fill
+  with urgency substitution), Interrupt, Mobility (BridgeExtra), SelfSustain
+  (BridgeExtra), Utility (structurally incapable of Use). Every decision carries
+  Provider + CandidateSourceKind (MaxDpsWire/BridgeExtra/CompanionGapFill/None)
+  + structured evidence; evidence and reason strings remain the replay contract.
         │
         ▼
 Action scheduler (Scheduler/ActionScheduler) — deterministic state machine
@@ -431,7 +422,8 @@ unlisted specs stay nil and are OWED. See
 2026-10-04, spec `docs/plans/2026-10-04-main-immediate.md`. The WHITE core
 rotation (Main slot) executes immediately when the bridge reports enemy in
 range/sight/castable; only the game-forbidden holds remain. No wire change,
-bridge untouched; Offensive keeps TTK/burst/pair. `DecisionEngine` mirrors the
+bridge untouched; Offensive keeps burst (**3.7.9**: its TTK conservation is
+removed and the pair window is inert). `DecisionEngine` mirrors the
 stale exemption on the legacy path.
 
 Main gate table (`Scheduler/ActionScheduler.cs`):
@@ -891,14 +883,15 @@ MaxDps-Companion/
                              + live-verified classes) and stale/newer detection
       CandidateProviders.cs  v2.7 explicit candidate providers + candidate
                              source identity + structured decision evidence;
-                             v3.2.0 T1-T4 TTK gates; v3.3.0 Burst/AoE preset
-                             holds + Solo HP-banded escalation (SoloBandLatch);
-                               v3.6 provisional waste guard + grace hold +
-                               kill-secure + execute carve-out + tiered defensive
-                               lookup; v3.7 ttk-hist adaptive branch + consumable/
-                               trinket Burst release above a 5 s binding history;
-                               v3.8 buff-aware need (buffDur, not T2 window) +
-                               warmup hold before the gap-fill/pair gates
+                             v3.3.0 Burst/AoE preset holds + Solo HP-banded
+                             escalation (SoloBandLatch); v3.6 tiered defensive
+                             lookup; v3.7 consumable/trinket Burst release
+                             above a 5 s binding history; **3.7.9 offensive TTK
+                             conservation removed** (T1 waste/ttk-hist, warmup,
+                             grace, enemy-count/unknown-range Uncertain holds);
+                             kept offensive gates: own-buff skip, pair window
+                             (inert), gap-fill OOC hold, melee/range, presets;
+                             TTK feeds T4 + telemetry only
       KillHistory.cs         v3.7 pure/fake-clock bounded rolling kill window
                              (KillRecord AtMs/LifeSec/StartFrac/EndFrac;
                              Add/Prune/Clear/Count, nearest-rank
@@ -914,26 +907,16 @@ MaxDps-Companion/
                              History=1/Kills=8/MinKills=3/MaxAgeSec=240/
                              Quantile=75/DurFactor=0.5; `History=0` = exact
                              pre-history behaviour)
-       TtkPolicy.cs           v3.2.0 MinTtkSec usage defaults + TTK field
-                              forwarding for the T1-T4 gates; v3.6 tiered
-                              thresholds, grace-hold/kill-secure helpers and the
-                              `[TimeToKill] Fallback` mode; v3.7 NeedAdaptive
-                              (max(base, min(DurFactor·activeDur, 20))) and the
-                              `ttk-hist` T1 branch; v3.8 BuffNeed (buff duration)
-                              + `DefaultWarmupSec`/`WarmupHoldHolds`; 2026-10-04
-                               `LiveReleasesHistory` (valid live TTK ≥ need, or no
-                               valid TTK + target age ≥8 s + known HP ≥85%) fails
-                               `HistoryWasteGuardHolds` open, so a trash-learned
-                               window never holds a major against a long-lived
-                               rare/elite; 2026-10-06 sub-60s `SubFiftyBypass`
-                               (`CooldownMs > 0 && <= 60_000` and not
-                               `OffensiveUsage.Summon`, fail-closed on 0)
-                               fails the waste/history/warmup/grace guards open so
-                               curated rotational short CDs (Warbreaker 262161,
-                               Divine Toll 375576, ...) are never TTK-conserved
-                               while Summon Demonic Tyrant 265187 stays gated;
-                               the `CandidateProviders` burst-preset hold is
-                               gated the same way
+      TtkPolicy.cs           v3.7.9 surviving API: `SubFiftyBypass`,
+                             `TwoUsesAvailable`, `ExecuteRange` (the paired-
+                             window T2/T3 bypasses), the defensive T4
+                             `DyingTargetHolds` + its thresholds/constants,
+                             and `MinTtkSec`/`DefaultMinTtkSec` retained for the
+                             inspector display (informational, no longer
+                             enforced). The estimator is retained for the
+                             defensive T4 and telemetry; the offensive
+                             conservation helpers (grace/waste/history/warmup)
+                             are removed.
       SoloBandLatch.cs       v3.3.0 Solo HP-band hysteresis latch (enter band,
                              then stay eligible to enter+5 once engaged; with no
                              prior engagement it is the plain enter threshold)
@@ -1086,28 +1069,35 @@ MaxDps-Companion/
                              heal/no-target/sustained-unknown, coarse-band
                              staircase, noise, clamp, determinism; v3.6
                              provisional paths, AgeSec and fast-pack latch
-    TtkPolicyTests.cs        v3.2.0 T1-T4 gate matrix (waste hold, two-uses,
-                             execute, Solo T4 + emergency override, unknown
-                             fail-open, kill-switch); v3.6 provisional/grace
-                             hold, kill-secure, execute carve-out, tiered
-                             defensive lookup, Fallback mode; v3.8 BuffNeed +
-                             WarmupHoldHolds (young unknown major, carve-outs,
-                             history release, provider wiring)
+    TtkPolicyTests.cs        v3.2.0 TtkPolicy thresholds/defaults,
+                             `TwoUsesAvailable`, `ExecuteRange` and the v3.7.9
+                             no-conservation behaviour, the paired-window T2/T3
+                             bypasses, defensive T4 `DyingTargetHolds`
+                             (Solo/NonSolo/unknown) and Fallback threading
+                             (`ConserveMajors` no longer holds an unknown-TTK
+                             major). The former T1 waste/grace/kill-secure/
+                             BuffNeed/WarmupHoldHolds offensive-gate tests were
+                             removed in 3.7.9.
     TtkCurationTests.cs      raw-JSON TTK field schema conformance (defaults,
                              ranges, execute pairing, v3.6 killSecure)
     TtkEstimatorHistoryTests.cs  v3.7 fake-clock history: kill filter, window
                              cap/prune/idle-clear, nearest-rank quantile,
                              below-MinKills fail-open identity, blend weights,
                              history-only provisional
-    TtkPolicyHistoryTests.cs v3.7 NeedAdaptive, ttk-hist hold/use, invalid-live
-                             restriction, carve-outs, consumable Burst release,
-                             [TimeToKill] parse/clamp, replay hk/hs reproduce
+    TtkPolicyHistoryTests.cs v3.7 history schema retained: `[TimeToKill]`
+                             parse/clamp, hk/hs/hprov telemetry export, replay
+                             reproduction and the consumable/trinket Burst
+                             release. The adaptive-history decision layer
+                             (NeedAdaptive, the `ttk-hist` hold and its
+                             carve-outs) was removed in 3.7.9.
     TtkReplayTests.cs        v3.2.0 recorded-series estimator rebuild (in-memory
                              + the checked-in ttk fixture, 0 mismatches)
-    fixtures/ttk-warrior-burst.jsonl  canonical v3.2.0/v3.8 TTK recording (0
-                             mismatches; warmup hold / trash hold / boss fire)
+    fixtures/ttk-warrior-burst.jsonl  canonical TTK recording, updated in 3.7.9
+                             for the no-conservation behaviour (offensives fire
+                             on a MaxDps offer; estimator/T4 feeds pinned)
     fixtures/ttk-trash-pack.jsonl     v3.6 dying-trash recording (6 mobs each
-                             <5 s; 0 mismatches; latch / grace hold)
+                             <5 s), retained as history of the removed
+                             offensive latch/grace holds
     SoloEscalationTests.cs   v3.3.0 Solo HP-band escalation: ValidateSoloBands
                              ordering, Minor/Major/Immunity ladder verdicts,
                              group behaviour unchanged
@@ -1257,22 +1247,22 @@ MaxDps-Companion/
   frame, the send history and settings — fake-clock testable, no clock/OS
   reads inside. Telemetry replay recomputes the decision layer with 0
   mismatches; policy verdicts are recorded with reasons.
-- **TTK knowledge is advisory; v3.6 guards dying trash without failing open.**
+- **TTK knowledge is advisory; offensive conservation was removed in 3.7.9.**
   The estimator is pure and fake-clock (built only from decoded fields), **no
   wire field and no Lua change** — it reuses the target HP band already on the
-  wire. v3.2.0 skipped every T1–T4 gate on an invalid estimate (fast trash was
-  never valid, so the guard never applied); v3.6 adds provisional estimates and
-  the fast-pack latch so the waste guard covers fast trash, with the grace hold
-  as the **only** fail-open exception (latch + age <4 s, majors only). A long
-  fight still fires: the latch clears on age ≥12 s/frac >0.5 or TTK ≥30 s, and
-  the kill-secure exception covers a long fight ending. T1 is a hold, never a
-  lockout: MaxDps re-suggests next tick. The `[TimeToKill]` kill-switch (labelled
-  **"TTK guard"**) disables the estimator and all gates; OFF forces band 15
-  (UNKNOWN) and therefore also blinds the execute gate and Burst consumers, not
-  just the TTK gates (documented collateral). `[TimeToKill]
-  Fallback=ConserveMajors` holds any unknown-TTK major even without a latch.
-  Live retail remains OWED (M+ trash→boss no-hold check; dungeon tank Minor
-  check).
+  wire. Since 3.7.9 its only decision consumer is the defensive T4
+  `DyingTargetHolds` (Solo Minor <6 s / Major <10 s / Immunity <15 s; group
+  Minor only valid <4 s + urgency below Orange + fast-pack latch; group
+  Major/Immunity never gated) plus telemetry. A Main/Offensive ability the
+  bridge offers is never held for TTK reasons; `minTtkSec`/`holdForBurst` are
+  informational metadata and `[TimeToKill] Fallback=ConserveMajors` no longer
+  conserves offensive majors. Removed offensive cluster: T1 waste guard
+  (valid/provisional + `ttk-hist`), warmup hold, grace hold, and the
+  enemy-count/unknown-range `Uncertain` holds. The `[TimeToKill]` kill-switch
+  (labelled **"TTK guard"**) still disables the estimator and the T4 hold; OFF
+  forces band 15 (UNKNOWN) and therefore also blinds the execute gate and Burst
+  consumers, not just the TTK hold (documented collateral). Live retail remains
+  OWED (M+ trash→boss no-hold check; dungeon tank Minor check).
 - **Execution safety before intelligence.** Cast/channel protection is not
   knowledge filtering: it runs in every mode (policy on/off, scheduler
   on/off, v5 frames) and is the *only* thing allowed to hold the main
@@ -1370,8 +1360,8 @@ MaxDps-Companion/
   canvas, so it stays the default opaque view over the classic body — no
   background menu or ring peeks at any edge. No wire/format change;
   `PROTOCOL_VERSION` stays 5 and the Ext3 layout is byte-identical.
-  **3.7.8 "Steadfast"** is the release; the title renders
-  `v3.7.8 Steadfast` and `InstallDoctor` agrees with the Exp bridge 3.7.8.
+  **3.7.9 "Unyielding"** is the release; the title renders
+  `v3.7.9 Unyielding` and `InstallDoctor` agrees with the Exp bridge 3.7.9.
 - **M-route unified mask (UI only, no wire change).** `MainForm.BuildUnifiedPopup`
   is the single shell every mask must call (opaque scrim + `RoundedCard` +
   `SegmentedTabs`, main-window tokens). `Center` fills `client-24 × client-24`

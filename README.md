@@ -24,7 +24,7 @@
 > [`docs/plans/2026-10-10-rust-companion.md`](docs/plans/2026-10-10-rust-companion.md)
 > and [`docs/plans/2026-10-10-gallant-parity.md`](docs/plans/2026-10-10-gallant-parity.md).
 
-# MaxDPS Companion (Retail Midnight 12.1, v3.7.8 "Steadfast")
+# MaxDPS Companion (Retail Midnight 12.1, v3.7.9 "Unyielding")
 
 Pixel bridge driver for [kaminaris MaxDps](https://www.curseforge.com/wow/addons/maxdps)
 (vendor pin: MaxDps v11.3.49). No memory read, no injection, no OCR, no LLM.
@@ -37,6 +37,32 @@ Two pieces:
  | :--- | :--- |
  | `MaxDpsBridge` (addon, `addon/MaxDpsBridge/`) | Queries the MaxDps rotation engine each frame and encodes suggestions, ability ids and combat context into a 40-cell strip of flat-coloured pixels (35-cell v5 core + additive Ext2 block). |
  | `MaxDpsCompanion.exe` (desktop app, `app/MaxDpsCompanion/`) | Samples those pixels, decodes the frame, evaluates every situational suggestion (USE / HOLD / SKIP / UNAVAILABLE / UNKNOWN) against an embedded ability intelligence registry + explicit candidate providers, schedules one action at a time, and replays the player's own keybinds into the attached game window. |
+
+## v3.7.9 "Unyielding" — MaxDps recommendations are used; offensive TTK conservation removed (no wire change)
+
+A behaviour change in the **companion** with **no protocol change**: `PROTOCOL`
+stays at 5 and every cell is byte-identical. The hard TTK conservation gates on
+offensive candidates are removed, so a Main/Offensive ability the bridge offers
+is **used unless a game-truth/structural gate applies**. Gate removal: the T1
+waste guard (valid/provisional + `ttk-hist`), the warmup hold
+(`"warming up TTK"`), the grace hold (`"fast pack, waiting for TTK"`), the
+enemy-count `Uncertain` hold, and the unknown-range `Uncertain` hold. Retained
+gates: power starvation (`MainUsable`), out-of-range (`Range == No`), melee
+requirement, player cast/channel, GCD/scheduler timing, user Never/Manual,
+addon toggles, and the user-selected Burst/AoE presets. Also kept: own-buff
+skip, the pair window (retained but inert — no offensive groups), the gap-fill
+out-of-combat hold, melee/range gates. The TTK **estimator itself stays** for
+the defensive T4 `DyingTargetHolds` and telemetry; `minTtkSec`/`holdForBurst`
+become informational metadata for offensives. Offline audit: 161
+vendor-offensive ids across all 13 classes carry no `neverAutomatic`/
+`ManualByDesign`/`UnsafeToAutomate`, and after the removal no
+vendor-recommended core-rotation id remains hard-blocked (only 212084 Fel
+Devastation and 98008 Spirit Link Totem route to the Defensive slot by
+`classOf` precedence — a documented deviation). The bridge is untouched; the
+stable bridge (`addon/MaxDpsBridge/`) and `dist\` remain **frozen**. Live
+retail validation is **OWED**: Avatar 107574 / Ravager 228920 / Recklessness /
+Bladestorm must press on a MaxDps recommendation against a ≤15 s-TTK target and
+in trash. Static ≠ automated test ≠ live in-game.
 
 ## v3.7.8 "Steadfast" — MAIN trusts the MaxDps core rotation (deny list removed, no wire change)
 

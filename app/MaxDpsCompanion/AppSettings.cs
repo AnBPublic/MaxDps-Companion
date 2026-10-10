@@ -683,8 +683,8 @@ internal sealed class AppSettings
 
     private static double ParseDouble(string value, double fallback) =>
         // NaN/Infinity parse successfully but must never reach a Math.Clamp:
-        // Clamp(NaN) is NaN, which would propagate (e.g. NeedAdaptive=NaN). A
-        // non-finite token falls back exactly like an unparseable one.
+        // Clamp(NaN) is NaN, which would propagate through any clamped setting.
+        // A non-finite token falls back exactly like an unparseable one.
         double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
         && double.IsFinite(parsed)
             ? parsed

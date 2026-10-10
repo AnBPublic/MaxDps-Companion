@@ -1,5 +1,59 @@
 # Handover — MaxDps-Companion
 
+## 2026-10-10 RELEASE 3.7.9 "UNYIELDING" (MaxDps recommendations = used; offensive TTK conservation removed)
+
+STATUS: **companion behaviour change**, no wire change. The hard TTK
+conservation gates on offensive candidates are removed, so a Main/Offensive
+ability the bridge offers is used unless a game-truth/structural gate applies:
+power starvation (`MainUsable`), out-of-range (`Range == No`), melee
+requirement, player cast/channel, GCD/scheduler timing, user Never/Manual,
+addon toggles, and the user-selected Burst/AoE presets. Removed from
+`OffensiveCandidateProvider`: the T1 waste guard (valid/provisional +
+`ttk-hist`), the warmup hold (`"warming up TTK"`), the grace hold (`"fast pack,
+waiting for TTK"`), the enemy-count `Uncertain` hold, and the unknown-range
+`Uncertain` hold. Kept: own-buff skip, the pair window (retained, inert — no
+offensive groups), the gap-fill out-of-combat hold, melee/range gates, presets.
+The TTK estimator itself stays for the defensive T4 `DyingTargetHolds` +
+telemetry; `minTtkSec`/`holdForBurst` become informational metadata for
+offensives. `PROTOCOL` stays at 5 and every cell is byte-identical; the bridge
+is untouched; stable `addon/MaxDpsBridge/` + `dist\` stay **frozen**. New
+dedicated codename **Unyielding** (Vigil/Warden/Fullcover/Holdfast/Onslaught/
+Reaver/Vindicator/Templar/Gallant/Steadfast are never reused).
+
+AUDIT (offline): 161 vendor-offensive ids across all 13 classes extracted from
+`vendor/MaxDps_*/Specialization/TWW/*.lua` + `vendor/MaxDps/Cooldowns.lua`; 0
+carry `neverAutomatic`/`ManualByDesign`/`UnsafeToAutomate`; after the gate
+removal no vendor-recommended core-rotation id remains hard-blocked; only
+`212084` Fel Devastation and `98008` Spirit Link Totem route to the Defensive
+slot by `classOf` precedence (documented deviation); 49/161 vendor-only rows
+resolve to `MaxDpsBacked` vendor catalog rows (not blocked).
+
+CHANGED: companion candidate/provider + policy code and tests (parallel worker
+diff), `settings.ini` comments, and docs — `README.md`, `ARCHITECTURE.md`,
+`docs/UI.md`, `docs/KNOWLEDGE.md`, `docs/TESTING.md`,
+`docs/plans/2026-10-10-maxdps-recommendation-authority.md` and this section.
+Identity files (csproj / `Native.cs` / `MDB.VERSION` / `MDBX.VERSION` / TOCs /
+`VERSION.txt` / `ReleaseIdentityTests`) are updated by the identity worker.
+Stable bridge/TOC/VERSION untouched.
+
+VERIFY (this machine): `dotnet build app/MaxDpsCompanion/MaxDpsCompanion.csproj
+-c Release` **0 warnings / 0 errors**; `dotnet test -c Release` **974 passed /
+0 failed / 974**; replay filter **41 passed / 0 mismatches** (regenerated
+`fixtures/ttk-warrior-burst.jsonl`); `lua tests/secret_harness.lua` **283 passed
+/ 0 failed**; `luac -p` clean (Exp top-level + Exp/ + stable); `pwsh
+tools/ability_audit.ps1` clean (Violations 0 / Warnings 0 / Missing 0 / Stale 0;
+exit 2 is the documented pre-existing stable-Catalog drift - stable stays frozen
+at 3.7.7). Published: `dist-exp` exe **3.7.9.0** (`InGameConfigMode=1`
+preserved) and `tools/install-addon-exp.ps1` installed **3.7.9-exp** into the
+retail AddOns. Static ≠ automated test ≠ live in-game.
+
+OWED (live retail 12.1): (1) Avatar 107574 / Ravager 228920 / Recklessness /
+Bladestorm (and peers) ARE pressed on a MaxDps Offensive recommendation
+against a ≤15 s-TTK target and in trash — no TTK hold; (2) the Burst preset
+still holds majors until a boss TTK is measurable; (3) gap-fill majors still
+only fire when the bridge offers them (MaxDps silent); (4) record + export +
+replay 0 mismatches. Static ≠ automated test ≠ live in-game.
+
 ## 2026-10-10 RELEASE 3.7.8 "STEADFAST" (Main = MaxDps core rotation, deny list removed)
 
 STATUS: **Exp bridge behaviour change**, no wire change. MAIN now presses

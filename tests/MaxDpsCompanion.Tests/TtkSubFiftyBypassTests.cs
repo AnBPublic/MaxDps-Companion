@@ -7,15 +7,15 @@ namespace MaxDpsCompanion.Tests;
 /// widened 2026-10-06 to <c>&lt;= 60 s</c> for Divine Toll
 /// (<c>docs/plans/2026-10-06-divine-toll.md</c>): a companion-gated ability
 /// whose curated cooldown is 60 s or shorter is a rotational button, never a
-/// major, so it must not be held by the waste / history / warmup / grace /
-/// burst-preset guards. Covers the warrior <c>cdMs=45000</c> backfill
-/// (Colossus Smash 167105, Warbreaker 262161, Demolish 436358, Odyn's Fury
-/// 385059, Shield Charge 385952, Demoralizing Shout 1160), a non-warrior
-/// sub-50s row (Essence Break 258860, 40 s), the 60 s boundary (Divine Toll
-/// 375576) and the fail-closed cases: 60 001 ms / 90 s majors still hold,
-/// <c>CooldownMs == 0</c> is never bypassed, and a 60 s
-/// <see cref="OffensiveUsage.Summon"/> (Summon Demonic Tyrant 265187) is
-/// explicitly opted out.
+/// major, so the Burst preset must not conserve it. Covers the warrior
+/// <c>cdMs=45000</c> backfill (Colossus Smash 167105, Warbreaker 262161,
+/// Demolish 436358, Odyn's Fury 385059, Shield Charge 385952, Demoralizing
+/// Shout 1160), a non-warrior sub-50s row (Essence Break 258860, 40 s), the
+/// 60 s boundary (Divine Toll 375576) and the fail-closed cases: 60 001 ms /
+/// 90 s majors stay non-bypassed, <c>CooldownMs == 0</c> is never bypassed, and
+/// a 60 s <see cref="OffensiveUsage.Summon"/> (Summon Demonic Tyrant 265187) is
+/// explicitly opted out. Since 3.7.9 the remaining TTK conservation guards are
+/// gone, so the provider-level tests assert every row fires.
 /// </summary>
 public class TtkSubFiftyBypassTests
 {
@@ -27,9 +27,6 @@ public class TtkSubFiftyBypassTests
         Assert.NotNull(ability);
         return ability!;
     }
-
-    private static double BuffDurSec(AbilityDefinition a) =>
-        a.DurationMs > 0 ? a.DurationMs / 1000.0 : 0.0;
 
     /// <summary>Young target + short binding trash history + fast-pack latch.</summary>
     private static CombatContext Ctx(
@@ -153,30 +150,18 @@ public class TtkSubFiftyBypassTests
         Assert.False(TtkPolicy.SubFiftyBypass(tyrant));
     }
 
-    // ----- Divine Toll 375576: every offensive guard short-circuits ---------
+    // ----- Divine Toll 375576: the Burst preset still short-circuits ---------
 
     [Fact]
-    public void DivineToll_60s_ShortCooldown_Not_Held_When_Ttk_Invalid()
+    public void DivineToll_60s_ShortCooldown_Not_Held_By_The_Burst_Preset()
     {
         var dt = Ability(375576);
         Assert.Equal(AbilityCategory.Offensive, dt.Category);
         Assert.Equal(OffensiveUsage.ShortCooldown, dt.OffensiveUsage);
+        Assert.True(TtkPolicy.SubFiftyBypass(dt));
 
-        // Waste: a valid-but-short live TTK would hold a major.
-        Assert.False(TtkPolicy.WasteGuardHolds(dt, Ctx(ttkValid: true, ttkSec: 2), BuffDurSec(dt), 0.5));
-        Assert.False(TtkPolicy.WasteGuardHolds(dt, Ctx(ttkValid: true, ttkSec: 2)));
-
-        // History: invalid live, young target, short binding trash window.
-        Assert.False(TtkPolicy.HistoryWasteGuardHolds(dt, Ctx(ttkValid: false, ageSec: 5), BuffDurSec(dt), 0.5));
-
-        // Warmup: invalid live + young target (< 3 s).
-        Assert.False(TtkPolicy.WarmupHoldHolds(dt, Ctx(ttkValid: false, ageSec: 2), 3.0, 0.5));
-
-        // Grace: invalid live + fast-pack latch + age < 4 s.
-        Assert.False(TtkPolicy.GraceHoldHolds(dt, Ctx(ttkValid: false, ageSec: 2, latch: true), TtkFallback.FailOpen));
-
-        // Burst preset: an invalid boss TTK would hold a major; the 60s button
-        // still fires.
+        // Burst preset: an invalid boss TTK would hold a major; the 60 s button
+        // still fires because SubFiftyBypass short-circuits the preset.
         var burst = new PolicyOptions { Preset = RotationPreset.Burst };
         var ctx = Ctx(ttkValid: false, ageSec: 60, histBinding: false, latch: false);
         var verdict = CandidateProviders.Offensive.Evaluate(OffensiveInput(dt, ctx, burst));
@@ -221,40 +206,38 @@ public class TtkSubFiftyBypassTests
         Assert.DoesNotContain("range unknown", verdict.Evidence);
     }
 
-    // ----- Warbreaker 262161: every offensive guard short-circuits ----------
+    // ----- Warbreaker 262161: a sub-50 s rotational button is never conserved --
 
     [Fact]
-    public void Warbreaker_Sub50_Bypasses_Waste_History_Warmup_And_Grace()
+    public void Warbreaker_Sub50_Is_Not_Conserved()
     {
         var war = Ability(262161);
+        Assert.True(TtkPolicy.SubFiftyBypass(war));
+        Assert.True(TtkPolicy.SubFiftyBypass(Ability(262161)));
 
-        // Waste: a valid-but-short live TTK would hold a major.
-        Assert.False(TtkPolicy.WasteGuardHolds(war, Ctx(ttkValid: true, ttkSec: 2), BuffDurSec(war), 0.5));
-        Assert.False(TtkPolicy.WasteGuardHolds(war, Ctx(ttkValid: true, ttkSec: 2)));
+        // A valid-but-short live TTK no longer holds the rotational button.
+        var shortLive = CandidateProviders.Offensive.Evaluate(
+            OffensiveInput(war, Ctx(ttkValid: true, ttkSec: 2), new PolicyOptions()));
+        Assert.Equal(PolicyVerdict.Use, shortLive.Verdict);
 
-        // History: invalid live, young-enough target, short binding trash window.
-        Assert.False(TtkPolicy.HistoryWasteGuardHolds(war, Ctx(ttkValid: false, ageSec: 5), BuffDurSec(war), 0.5));
-
-        // Warmup: invalid live + young target (< 3 s).
-        Assert.False(TtkPolicy.WarmupHoldHolds(war, Ctx(ttkValid: false, ageSec: 2), 3.0, 0.5));
-
-        // Grace: invalid live + fast-pack latch + age < 4 s, both fallbacks.
-        Assert.False(TtkPolicy.GraceHoldHolds(war, Ctx(ttkValid: false, ageSec: 2, latch: true), TtkFallback.FailOpen));
-        Assert.False(TtkPolicy.GraceHoldHolds(war, Ctx(ttkValid: false, ageSec: 2, latch: false), TtkFallback.ConserveMajors));
+        // Young trash with no estimate is also a Use.
+        var youngTrash = CandidateProviders.Offensive.Evaluate(
+            OffensiveInput(war, Ctx(ttkValid: false, ageSec: 2), new PolicyOptions()));
+        Assert.Equal(PolicyVerdict.Use, youngTrash.Verdict);
     }
 
     // ----- non-warrior sub-50s row: Essence Break 258860 ---------------------
 
     [Fact]
-    public void Non_Warrior_Sub50_EssenceBreak_Bypasses_Every_Guard()
+    public void Non_Warrior_Sub50_EssenceBreak_Is_Not_Conserved()
     {
         var eb = Ability(258860);
         Assert.Equal(AbilityCategory.Offensive, eb.Category);
+        Assert.True(TtkPolicy.SubFiftyBypass(eb));
 
-        Assert.False(TtkPolicy.WasteGuardHolds(eb, Ctx(ttkValid: true, ttkSec: 2), BuffDurSec(eb), 0.5));
-        Assert.False(TtkPolicy.HistoryWasteGuardHolds(eb, Ctx(ttkValid: false, ageSec: 5), BuffDurSec(eb), 0.5));
-        Assert.False(TtkPolicy.WarmupHoldHolds(eb, Ctx(ttkValid: false, ageSec: 2), 3.0, 0.5));
-        Assert.False(TtkPolicy.GraceHoldHolds(eb, Ctx(ttkValid: false, ageSec: 2, latch: true), TtkFallback.FailOpen));
+        var shortLive = CandidateProviders.Offensive.Evaluate(
+            OffensiveInput(eb, Ctx(ttkValid: true, ttkSec: 2), new PolicyOptions()));
+        Assert.Equal(PolicyVerdict.Use, shortLive.Verdict);
     }
 
     // ----- burst preset: bypasses sub-50s, still holds 90s ------------------
@@ -279,32 +262,31 @@ public class TtkSubFiftyBypassTests
         Assert.Contains("burst preset", avatar.Reason);
     }
 
-    // ----- 90s majors still hold on a short live TTK ------------------------
+    // ----- 90s majors are used on a short live TTK (no conservation) --------
 
     [Fact]
-    public void Ninety_Second_Majors_Still_Hold_On_A_Short_Live_Ttk()
+    public void Ninety_Second_Majors_Are_Used_On_A_Short_Live_Ttk()
     {
         foreach (var id in new[] { 1719, 107574 })
         {
             var major = Ability(id);
             Assert.False(TtkPolicy.SubFiftyBypass(major));
             var ctx = Ctx(ttkValid: true, ttkSec: 5, ageSec: 10);
-            Assert.True(TtkPolicy.WasteGuardHolds(major, ctx, BuffDurSec(major), 0.5));
-            Assert.True(TtkPolicy.WasteGuardHolds(major, ctx));
+            var d = CandidateProviders.Offensive.Evaluate(OffensiveInput(major, ctx, new PolicyOptions()));
+            Assert.Equal(PolicyVerdict.Use, d.Verdict);
         }
     }
 
-    // ----- CooldownMs == 0 stays fail-closed --------------------------------
+    // ----- CooldownMs == 0 is no longer held either -------------------------
 
     [Fact]
-    public void Zero_Cooldown_Still_Holds_Every_Guard()
+    public void Zero_Cooldown_Major_Is_Used()
     {
         var zero = Synthesized(0);
         Assert.False(TtkPolicy.SubFiftyBypass(zero));
 
-        Assert.True(TtkPolicy.WasteGuardHolds(zero, Ctx(ttkValid: true, ttkSec: 2), 0.0, 0.5));
-        Assert.True(TtkPolicy.HistoryWasteGuardHolds(zero, Ctx(ttkValid: false, ageSec: 5), 0.0, 0.5));
-        Assert.True(TtkPolicy.WarmupHoldHolds(zero, Ctx(ttkValid: false, ageSec: 2), 3.0, 0.5));
-        Assert.True(TtkPolicy.GraceHoldHolds(zero, Ctx(ttkValid: false, ageSec: 2, latch: true), TtkFallback.FailOpen));
+        var d = CandidateProviders.Offensive.Evaluate(
+            OffensiveInput(zero, Ctx(ttkValid: true, ttkSec: 2), new PolicyOptions()));
+        Assert.Equal(PolicyVerdict.Use, d.Verdict);
     }
 }

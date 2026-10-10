@@ -10,11 +10,11 @@ namespace MaxDpsCompanion.Tests;
 /// reconstruct the estimator from the recorded target-HP series and re-derive
 /// every policy verdict with zero mismatches.
 ///
-/// Covers: a trash target held by the T1 waste guard (Avatar into a target that
-/// dies in ~1.5 s), a long-lived target where the same burst fires, and a Solo
-/// defensive held by the T4 dying-target rule. Execute-range bypass needs a
-/// curated <c>executeFavored</c> row (workstream T-B) and is covered by
-/// <see cref="TtkPolicyTests"/> at the rule level.
+/// Covers: Avatar now fires on the fast trash target (the T1 waste guard that
+/// once held it was removed in 3.7.9), a long-lived target where the same burst
+/// fires, and a Solo defensive held by the T4 dying-target rule. Execute-range
+/// bypass needs a curated <c>executeFavored</c> row (workstream T-B) and is
+/// covered by <see cref="TtkPolicyTests"/> at the rule level.
 /// </summary>
 public class TtkReplayTests
 {
@@ -61,8 +61,8 @@ public class TtkReplayTests
             var estimate = estimator.Update(now, frame.HasTarget, frame.TargetHpPct >= 0,
                 TtkEstimator.BandFromPercent(frame.TargetHpPct));
             var combat = CombatContext.FromFrame(frame).WithTtk(estimate);
-            // v3.8: the warmup hold is opt-in in PolicyOptions; the app enables
-            // it by default via FromSettings. Record it so replay reproduces it.
+            // v3.8: TtkWarmupSec is recorded so replay reproduces the ttkw
+            // field; the warmup hold itself was removed in 3.7.9.
             var options = new PolicyOptions { SoloEnabled = solo, TtkWarmupSec = TtkPolicy.DefaultWarmupSec };
             var plan = scheduler.Advance(new ScheduleInput
             {
@@ -84,9 +84,9 @@ public class TtkReplayTests
                 TelemetryEvent.BuildPolicy(plan, true, combat, options), ttkFeedMs: now);
         }
 
-        // Phase 1 — trash pack: target HP collapses fast. The estimate becomes
-        // valid at ~1.5 s remaining, so Avatar is held by T1 and, in Solo, the
-        // defensive is held by T4.
+        // Phase 1 — trash pack: target HP collapses fast. v3.7.9 removed the T1
+        // waste guard, so Avatar fires; in Solo, the defensive is still held by
+        // T4.
         events.Add(Tick(0, 14, withDefensive: true, solo: true, "trash t=0"));
         events.Add(Tick(500, 13, true, true, "trash t=500"));
         events.Add(Tick(1000, 11, true, true, "trash t=1000"));
@@ -95,8 +95,7 @@ public class TtkReplayTests
         events.Add(Tick(2500, 5, true, true, "trash t=2500 - hold expected"));
 
         // Phase 2 — boss: a fresh full-HP target (frac jump resets learning),
-        // then a slow decline. The estimate lands well past the 12 s minimum,
-        // so the same burst fires.
+        // then a slow decline, so the same burst fires.
         events.Add(Tick(3000, 14, withDefensive: false, solo: false, "boss t=3000 (reset)"));
         events.Add(Tick(4000, 14, false, false, "boss t=4000"));
         events.Add(Tick(5000, 14, false, false, "boss t=5000"));

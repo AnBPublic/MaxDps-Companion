@@ -478,15 +478,16 @@ public class CandidateProviderTests
     }
 
     [Fact]
-    public void Offensive_Enemy_Count_Unknown_Not_Observable()
+    public void Offensive_Enemy_Count_Unobservable_Is_Used()
     {
         // A companion-owned row (not MaxDpsBacked) with a curated enemy count.
+        // v3.7.9: an unobservable count no longer produces an Uncertain hold —
+        // MaxDps authority means the candidate is used.
         var ability = Ability(900012, AbilityCategory.Offensive, AbilityPurpose.MajorOffensive,
             enemyCountMin: 3);
         var result = Via(CandidateProviders.Offensive, ability, Slot.Offensive,
             Context(range: Range((Slot.Offensive, TriState.Yes))));
-        Assert.Equal(PolicyVerdict.Unknown, result.Verdict);
-        Assert.Contains("enemy count not observable", result.Reason);
+        Assert.Equal(PolicyVerdict.Use, result.Verdict);
     }
 
     [Fact]
@@ -501,12 +502,13 @@ public class CandidateProviderTests
     }
 
     [Fact]
-    public void Offensive_Target_State_Unknown_Uncertain()
+    public void Offensive_Target_State_Unknown_Is_Used()
     {
+        // v3.7.9: an unknown range probe no longer produces an Uncertain hold;
+        // only a confirmed out-of-range / out-of-melee target is structural.
         var ability = Ability(900014, AbilityCategory.Offensive, AbilityPurpose.MajorOffensive);
         var result = Via(CandidateProviders.Offensive, ability, Slot.Offensive, Context());
-        Assert.Equal(PolicyVerdict.Unknown, result.Verdict);
-        Assert.Contains("range unknown", result.Reason);
+        Assert.Equal(PolicyVerdict.Use, result.Verdict);
     }
 
     [Fact]

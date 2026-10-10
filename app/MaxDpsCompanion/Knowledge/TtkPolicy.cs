@@ -1,36 +1,30 @@
 namespace MaxDpsCompanion;
 
 /// <summary>
-/// Frozen TTK gate thresholds and tier defaults (v3.6.0 "dying-trash guard").
+/// Frozen policy thresholds (v3.6.0 "dying-trash guard", slimmed in v3.7.9).
 /// The estimator owns the *measurement*; this class owns the *decision
 /// constants* so the providers stay byte-identical and the defaults are
 /// testable in one place.
 ///
-/// A valid estimate always fails open is NOT a rule: an invalid estimate skips
-/// every TTK gate (the ability keeps its pre-TTK verdict). Holding on an unknown
-/// target is exactly the "holding cooldowns too long" DPS loss the feature
-/// exists to avoid.
-///
-/// v3.6.0 changes (architect spec §2, <c>docs/plans/2026-10-01-ttk-intelligence.md</c>):
+/// v3.7.9 (MaxDps authority): the companion's offensive TTK *conservation*
+/// cluster was removed. A MaxDps-offered or companion gap-fill offensive is
+/// used unless a game-truth/structural gate applies, so the old T1 waste guard,
+/// fast-pack grace hold, warmup hold and adaptive-history branch no longer
+/// exist. What remains here:
 /// <list type="bullet">
-/// <item><description>Thresholds retuned (MajorBurst 15, Execute 3, AoeOnly/Hybrid 0)
-/// and short-cooldown (&lt;=45 s) abilities drop to 3 s. Curated
-/// <see cref="AbilityDefinition.MinTtkSec"/> still wins.</description></item>
-/// <item><description>The waste guard now also applies to a *provisional*
-/// estimate, but only for the majors (MajorBurst/Transformation/Summon/WindowDriven);
-/// it never holds minors on a provisional rate.</description></item>
-/// <item><description>A documented grace hold protects a fast trash pack:
-/// unknown TTK + <see cref="CombatContext.FastPackLatch"/> + age&lt;4 s holds a
-/// major burst. <c>[TimeToKill] Fallback=ConserveMajors</c> applies the same
-/// hold to any unknown-TTK major without needing the latch.</description></item>
-/// <item><description>Kill-secure and execute carve-outs let a confirmed
-/// finishing ability bypass the waste guard.</description></item>
-/// <item><description>Dying-target defensive gating is now a per-tier / scope
-/// lookup (Solo Minor 6 / Major 10 / Immunity 15; Group Minor only) instead of
-/// the single <see cref="DyingTargetSec"/> constant.</description></item>
+/// <item><description><see cref="SubFiftyBypass"/> — a sub-60s rotational
+/// ability is never treated as a major (still consumed by the Burst preset).</description></item>
+/// <item><description><see cref="TwoUsesAvailable"/> / <see cref="ExecuteRange"/>
+/// — the paired-window second-use / execute bypass.</description></item>
+/// <item><description><see cref="DyingTargetHolds(AbilityDefinition, CombatContext, bool, bool, int, int)"/>
+/// — the defensive dying-target gate.</description></item>
 /// </list>
-/// All rules remain pure C# over the decoded context; live retail behaviour
-/// stays OWED (offline replay parity only).
+///
+/// <see cref="MinTtkSec"/> / <see cref="DefaultMinTtkSec"/> are retained only to
+/// render the curated values in the ability inspector (<c>--ability-info</c>);
+/// the v3.7.9 policy no longer enforces a minimum TTK. All rules remain pure
+/// C# over the decoded context; live retail behaviour stays OWED (offline
+/// replay parity only).
 /// </summary>
 internal static class TtkPolicy
 {
@@ -58,28 +52,23 @@ internal static class TtkPolicy
     /// <summary>A second full cooldown use needs this many cooldowns plus its duration.</summary>
     public const int TwoUsesFactor = 2;
 
-    /// <summary>The reason text emitted when the fast-pack grace hold fires (spec §2).</summary>
-    public const string GraceHoldReason = "fast pack, waiting for TTK";
-
     /// <summary>
-    /// Default warmup window (seconds) for the v3.8 TTK-aware buff gating: a
-    /// major offensive is held for this long after first sight while the target
-    /// TTK is still unknown, so a trash mob that dies before an estimate exists
-    /// cannot spend a full cooldown. 0 disables the warmup hold (legacy
-    /// fail-open).
+    /// Warmup window default (seconds) mirrored from <c>[TimeToKill] WarmupSec</c>.
+    /// Retained for replay/telemetry schema; not enforced since 3.7.9 (the
+    /// offensive warmup hold was removed). Kept as the typed default for
+    /// <c>AppSettings.TimeToKillWarmupSec</c> so the recorded <c>ttkw</c> field
+    /// and older recordings still parse.
     /// </summary>
     public const double DefaultWarmupSec = 3.0;
 
-    /// <summary>The reason text emitted when the warmup hold fires.</summary>
-    public const string WarmupHoldReason = "warming up TTK";
-
-    /// <summary>Default unknown-TTK fallback for <see cref="GraceHoldHolds"/> (documented fail-open).</summary>
+    /// <summary>Default unknown-TTK fallback mirrored from <c>[TimeToKill] Fallback</c>; retained for replay/telemetry schema, not enforced since 3.7.9.</summary>
     public const TtkFallback DefaultFallback = TtkFallback.FailOpen;
 
     /// <summary>
     /// Default minimum TTK per offensive usage (§3.3), used when the ability has
     /// no curated <see cref="AbilityDefinition.MinTtkSec"/>. A value of 0 means
     /// "never gate on TTK" (AoE-only and the defensive-offensive hybrid path).
+    /// Display/curation only since 3.7.9 — the policy no longer enforces it.
     /// </summary>
     public static double DefaultMinTtkSec(OffensiveUsage usage) => usage switch
     {
@@ -98,10 +87,12 @@ internal static class TtkPolicy
     };
 
     /// <summary>
-    /// The effective minimum TTK for an ability. A curated
+    /// The curated/usage-default minimum TTK for an ability. Retained for the
+    /// ability inspector (<c>--ability-info</c>) and the curation parse tests;
+    /// not enforced by the policy since 3.7.9. A curated
     /// <see cref="AbilityDefinition.MinTtkSec"/> always wins; otherwise the
     /// usage default applies, with short-cooldown abilities (&lt;=45 s) using
-    /// <c>min(threshold, 3)</c> so a cheap button is not over-conserved.
+    /// <c>min(threshold, 3)</c>.
     /// </summary>
     public static double MinTtkSec(AbilityDefinition ability)
     {
@@ -116,17 +107,16 @@ internal static class TtkPolicy
     /// <summary>
     /// Sub-60s bypass (2026-10-04, all classes/specs): a companion-gated
     /// ability with a known cooldown of 60 s or shorter is a rotational button,
-    /// not a major — it must never be conserved by the waste / history / warmup
-    /// / grace / burst-preset guards. Curated warrior <c>cdMs=45000</c> rows
-    /// (Colossus Smash 167105, Warbreaker 262161, Demolish 436358, Odyn's Fury
-    /// 385059, Shield Charge 385952, Demoralizing Shout 1160) and any other
-    /// curated sub-60s row therefore fire on the next tick regardless of target
-    /// TTK. <c>CooldownMs == 0</c> (unknown / uncurated) is deliberately
-    /// <em>not</em> bypassed — fail-closed, never a blanket bypass of unknowns.
-    /// Exception: <see cref="OffensiveUsage.Summon"/> is a true 60 s summon major
-    /// (e.g. Summon Demonic Tyrant 265187) and stays TTK-gated, while the 60 s
-    /// rotational Divine Toll 375576 (<see cref="OffensiveUsage.ShortCooldown"/>)
-    /// still bypasses.
+    /// not a major — it must never be conserved by the Burst preset. Curated
+    /// warrior <c>cdMs=45000</c> rows (Colossus Smash 167105, Warbreaker 262161,
+    /// Demolish 436358, Odyn's Fury 385059, Shield Charge 385952, Demoralizing
+    /// Shout 1160) and any other curated sub-60s row therefore fire on the next
+    /// tick regardless of target TTK. <c>CooldownMs == 0</c> (unknown /
+    /// uncurated) is deliberately <em>not</em> bypassed — fail-closed, never a
+    /// blanket bypass of unknowns. Exception: <see cref="OffensiveUsage.Summon"/>
+    /// is a true 60 s summon major (e.g. Summon Demonic Tyrant 265187) and stays
+    /// gated by the Burst preset, while the 60 s rotational Divine Toll 375576
+    /// (<see cref="OffensiveUsage.ShortCooldown"/>) still bypasses.
     /// </summary>
     public static bool SubFiftyBypass(AbilityDefinition ability) =>
         ability != null
@@ -134,226 +124,11 @@ internal static class TtkPolicy
         && ability.CooldownMs > 0 && ability.CooldownMs <= 60_000;
 
     /// <summary>
-    /// The majors whose provisional rate may gate the waste guard. Provisional
-    /// input is noisy; only these high-opportunity-cost abilities are held on it,
-    /// and no minor is ever held on a provisional rate (spec §2/§3).
-    /// </summary>
-    public static bool ProvisionalWasteEligible(AbilityDefinition ability) =>
-        ability.OffensiveUsage is OffensiveUsage.MajorBurst
-            or OffensiveUsage.Transformation
-            or OffensiveUsage.Summon
-            or OffensiveUsage.WindowDriven;
-
-    /// <summary>
-    /// Kill-secure exception (spec §2): a genuinely dying, long-lived target with
-    /// a short-but-real TTK — pop a confirmed major/summon to secure the kill.
-    /// Requires a *valid* estimate; a provisional or young target never qualifies.
-    /// </summary>
-    public static bool KillSecureBypass(AbilityDefinition ability, CombatContext ctx) =>
-        (ability.OffensiveUsage is OffensiveUsage.MajorBurst or OffensiveUsage.Summon
-            || ability.KillSecure)
-        && ctx.TtkValid
-        && ctx.TargetAgeSec >= 20.0
-        && ctx.TargetHpFrac <= 0.35
-        && ctx.TtkSec is >= 3.0 and <= 20.0;
-
-    /// <summary>
-    /// Execute carve-out (spec §2): an execute-favored ability in execute range
-    /// bypasses the waste guard once its TTK is at least 3 s (or unknown).
-    /// Below 3 s the guard still holds — the cooldown cannot pay for itself.
-    /// </summary>
-    public static bool ExecuteWasteBypass(AbilityDefinition ability, CombatContext ctx) =>
-        ExecuteRange(ability, ctx)
-        && (ctx.TtkSec >= 3.0 || !ctx.EffectiveTtkKnown);
-
-    /// <summary>
-    /// Default adaptive-need duration factor (v3.7 spec §14): a cooldown is held
-    /// until the expected target life covers the configured fraction of its own
-    /// active duration.
+    /// Default adaptive-need duration factor (v3.7 spec §14). Retained for the
+    /// replay/telemetry schema (<c>PolicyOptions.TtkHistoryDurFactor</c>);
+    /// the adaptive-need hold itself was removed in 3.7.9.
     /// </summary>
     public const double DefaultNeedDurFactor = 0.5;
-
-    /// <summary>
-    /// v3.7 adaptive need: at least the ability's own policy minimum, raised to
-    /// <paramref name="durFactor"/> of its active duration and capped at 20 s —
-    /// <c>max(base, min(durFactor · activeDur, 20))</c>. So a 20 s active
-    /// duration at the 0.5 default needs ≥10 s of expected life.
-    /// </summary>
-    public static double NeedAdaptive(double baseNeedSec, double activeDurSec, double durFactor) =>
-        Math.Max(baseNeedSec, Math.Min(durFactor * activeDurSec, 20.0));
-
-    /// <summary>
-    /// v3.8 buff-aware need: the adaptive need computed from the ability's own
-    /// <em>buff duration</em> (not the T2 second-use window). A curated
-    /// <see cref="AbilityDefinition.DurationMs"/> of 0 (or negated) falls back
-    /// to the base need, so an ability with no buff duration keeps
-    /// <see cref="MinTtkSec"/>. This is the "research 1/2 rule":
-    /// <c>max(MinTtk, min(DurFactor · buffDur, 20))</c>.
-    /// </summary>
-    public static double BuffNeed(AbilityDefinition a, double durFactor)
-    {
-        var durSec = a.DurationMs > 0 ? a.DurationMs / 1000.0 : 0.0;
-        return NeedAdaptive(MinTtkSec(a), durSec, durFactor);
-    }
-
-    /// <summary>
-    /// v3.8 warmup hold: a major offensive is held while the target's TTK is
-    /// still unknown and the target is younger than <paramref name="warmupSec"/>.
-    /// This is the "do not spend a full cooldown on a target that may die before
-    /// an estimate exists" guard; it is deliberately restricted to the
-    /// provisional-eligible majors and fails open on every carve-out:
-    /// <list type="bullet">
-    /// <item><description><paramref name="warmupSec"/> &lt;= 0 disables the hold entirely.</description></item>
-    /// <item><description>Only <see cref="ProvisionalWasteEligible"/> usages are held (majors / windows).</description></item>
-    /// <item><description>Execute-usage and kill-secure abilities are never held (they secure a kill).</description></item>
-    /// <item><description>A zero <see cref="MinTtkSec"/> is never held (AoE-only / hybrids).</description></item>
-    /// <item><description>A valid or provisional estimate releases the hold.</description></item>
-    /// <item><description>A binding history window that already predicts the fight
-    /// covers <see cref="BuffNeed"/> releases the hold.</description></item>
-    /// <item><description>The execute carve-out (execute range with TTK &gt;= 3 s or
-    /// unknown) releases the hold.</description></item>
-    /// </list>
-    /// The target age is per-target (the estimator resets it on a target swap or
-    /// an upward HP jump), so the hold intentionally re-fires on a swap.
-    /// </summary>
-    public static bool WarmupHoldHolds(AbilityDefinition a, CombatContext ctx, double warmupSec, double durFactor)
-    {
-        // Sub-50s rotational buttons are never conserved in warmup.
-        if (SubFiftyBypass(a)) return false;
-        if (warmupSec <= 0) return false;
-        if (!ProvisionalWasteEligible(a)) return false;
-        if (a.OffensiveUsage == OffensiveUsage.Execute) return false;
-        // Kill-secure abilities secure the kill — never conserve them in warmup.
-        if (a.KillSecure) return false;
-        if (MinTtkSec(a) <= 0) return false;
-        if (ctx.EffectiveTtkKnown) return false;
-        if (ctx.TargetAgeSec >= warmupSec) return false;
-        if (ctx.TtkHistBinding && ctx.TtkHistSec >= BuffNeed(a, durFactor)) return false;
-        if (ExecuteWasteBypass(a, ctx)) return false;
-        return true;
-    }
-
-    /// <summary>
-    /// T1 waste guard (v3.6.0): a valid OR provisional TTK below the minimum
-    /// means the cooldown will not pay off. Provisional only gates the majors
-    /// (<see cref="ProvisionalWasteEligible"/>). The execute and kill-secure
-    /// carve-outs are applied first and fail the rule open.
-    /// </summary>
-    public static bool WasteGuardHolds(AbilityDefinition ability, CombatContext ctx)
-    {
-        // Sub-50s rotational buttons are never conserved (carve-out first).
-        if (SubFiftyBypass(ability)) return false;
-        return WasteGuardCore(ability, ctx);
-    }
-
-    /// <summary>Pre-history core of <see cref="WasteGuardHolds(AbilityDefinition, CombatContext)"/> (kept separate so the v3.7 overload can layer history on top).</summary>
-    private static bool WasteGuardCore(AbilityDefinition ability, CombatContext ctx)
-    {
-        // Sub-50s rotational buttons are never conserved (choke point for both
-        // the 2-arg and the history/adaptive 4-arg overloads).
-        if (SubFiftyBypass(ability)) return false;
-        if (ExecuteWasteBypass(ability, ctx)) return false;
-        if (KillSecureBypass(ability, ctx)) return false;
-
-        var need = MinTtkSec(ability);
-        if (ctx.TtkValid && ctx.TtkSec < need) return true;
-        if (ctx.TtkProvisional && ProvisionalWasteEligible(ability) && ctx.TtkSec < need) return true;
-        return false;
-    }
-
-    /// <summary>
-    /// T1 waste guard with the v3.7 adaptive-history branch (spec §14). The
-    /// execute/kill-secure carve-outs fail open first; then the pre-history
-    /// Valid||Provisional gate runs; then, while the kill window is binding, the
-    /// *history-blended* estimate is compared against
-    /// <see cref="NeedAdaptive"/> instead of the flat minimum. A history hold
-    /// carries the reason <c>ttk-hist</c> (owned by the provider).
-    ///
-    /// While the live estimate is invalid, the history branch is restricted to
-    /// the provisional-eligible majors (<see cref="ProvisionalWasteEligible"/>);
-    /// a valid live estimate applies it to all T1 classes (spec §14).
-    /// </summary>
-    /// <param name="activeDurSec">
-    /// v3.8: the ability's own <em>buff duration</em> in seconds (curated
-    /// <see cref="AbilityDefinition.DurationMs"/> / 1000, 0 when absent) — the
-    /// provider passes <c>buffDurSec</c> here. The parameter name is kept for
-    /// source/API compatibility with the earlier T2 second-use window callers.
-    /// </param>
-    public static bool WasteGuardHolds(AbilityDefinition ability, CombatContext ctx, double activeDurSec, double durFactor) =>
-        WasteGuardCore(ability, ctx) || HistoryWasteGuardHolds(ability, ctx, activeDurSec, durFactor);
-
-    /// <summary>
-    /// Live-over-history release (2026-10-04 rare-target fix): a trash-learned
-    /// history window must not hold a cooldown against a live target whose own
-    /// observed state already proves the fight is long. Two independent signals:
-    /// <list type="bullet">
-    /// <item><description>(a) a <em>valid</em> live estimate at or above the
-    /// ability's need — the live rate outweighs a short history window;</description></item>
-    /// <item><description>(b) no valid live estimate (rare/elite HP barely
-    /// moves, so the estimator never validates) but the target is at least 8 s
-    /// old, its HP is known and still at or above 85% — a long-lived high-HP
-    /// target is not dying trash, so the history hold is released even though the
-    /// live rate is invalid.</description></item>
-    /// </list>
-    /// Pure over the decoded context; the ability parameter is part of the
-    /// documented signature (the need is passed by the caller).
-    /// </summary>
-    public static bool LiveReleasesHistory(AbilityDefinition a, CombatContext ctx, double need)
-    {
-        if (ctx.TtkValid && ctx.TtkSec >= need) return true;
-        return !ctx.TtkValid
-            && ctx.TargetAgeSec >= 8.0
-            && ctx.TargetHpValid
-            && ctx.TargetHpFrac >= 0.85;
-    }
-
-    /// <summary>
-    /// The pure v3.7 history branch of the T1 waste guard: true only when the
-    /// window is binding, a usable history estimate exists, the live estimate is
-    /// valid (or the ability is provisional-eligible while it is not), and the
-    /// history estimate is below <see cref="NeedAdaptive"/>. Carve-outs stay
-    /// authoritative and fail the rule open; the live-over-history release
-    /// (<see cref="LiveReleasesHistory"/>) fails it open when the current target
-    /// already proves a long fight.
-    /// </summary>
-    public static bool HistoryWasteGuardHolds(AbilityDefinition ability, CombatContext ctx, double activeDurSec, double durFactor)
-    {
-        // Sub-50s rotational buttons are never conserved on a trash window.
-        if (SubFiftyBypass(ability)) return false;
-        if (ExecuteWasteBypass(ability, ctx)) return false;
-        if (KillSecureBypass(ability, ctx)) return false;
-        var need = NeedAdaptive(MinTtkSec(ability), activeDurSec, durFactor);
-        if (LiveReleasesHistory(ability, ctx, need)) return false;
-        if (!ctx.TtkHistBinding || ctx.TtkHistSec <= 0) return false;
-        // Invalid live estimate: only the majors may be held on history.
-        if (!ctx.TtkValid && !ProvisionalWasteEligible(ability)) return false;
-        return ctx.TtkHistSec < need;
-    }
-
-    /// <summary>
-    /// Grace hold (spec §2, the only fail-open exception): a major burst on a
-    /// fast trash pack, before any estimate exists. Fires when the usage is a
-    /// major, no estimate (valid or provisional) exists, the fast-pack latch is
-    /// set, and the target is younger than 4 s. With
-    /// <paramref name="fallback"/> = <see cref="TtkFallback.ConserveMajors"/> the
-    /// same hold applies to any unknown-TTK major and needs no latch.
-    /// Never fires without the latch under the default fail-open fallback.
-    /// </summary>
-    public static bool GraceHoldHolds(
-        AbilityDefinition ability,
-        CombatContext ctx,
-        TtkFallback fallback = DefaultFallback)
-    {
-        // Sub-50s rotational buttons are never conserved behind a trash pack.
-        if (SubFiftyBypass(ability)) return false;
-        if (ability.OffensiveUsage is not (OffensiveUsage.MajorBurst
-            or OffensiveUsage.Transformation
-            or OffensiveUsage.Summon))
-            return false;
-        if (ctx.EffectiveTtkKnown) return false;
-        if (fallback == TtkFallback.ConserveMajors) return true;
-        return ctx.FastPackLatch && ctx.TargetAgeSec < 4.0;
-    }
 
     /// <summary>
     /// T2 two-uses: the fight is long enough for a second full cooldown (plus
@@ -367,8 +142,7 @@ internal static class TtkPolicy
 
     /// <summary>
     /// T3 execute: the burst is confirmed favored in execute range and the
-    /// target is at/below the curated threshold. Bypasses the pairing hold
-    /// (and, via <see cref="ExecuteWasteBypass"/>, the waste guard).
+    /// target is at/below the curated threshold. Bypasses the pairing hold.
     /// </summary>
     public static bool ExecuteRange(AbilityDefinition ability, CombatContext ctx) =>
         ability.ExecuteFavored

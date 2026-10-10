@@ -215,8 +215,8 @@ internal sealed record TelemetryOptions
 
     /// <summary>
     /// v3.8 additive: [TimeToKill] WarmupSec; omitted at 0 (legacy fail-open) so
-    /// legacy lines replay unchanged. Replay rebuilds the warmup hold from this
-    /// value.
+    /// legacy lines replay unchanged. Retained for replay/telemetry schema; not
+    /// enforced since 3.7.9 (the warmup hold was removed).
     /// </summary>
     [JsonPropertyName("ttkw")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -355,6 +355,7 @@ internal sealed record TelemetryPolicy
     /// <summary>
     /// v3.7 additive: kills in the adaptive history window for this tick (hk).
     /// Omitted when the window is not binding (null = not recorded/not binding).
+    /// Retained for replay/telemetry schema; not enforced since 3.7.9.
     /// </summary>
     [JsonPropertyName("hk")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -362,7 +363,8 @@ internal sealed record TelemetryPolicy
 
     /// <summary>
     /// v3.7 additive: the window's pessimistic p-quantile burn rate in frac/s
-    /// (hr). Omitted when the window is not binding.
+    /// (hr). Omitted when the window is not binding. Retained for
+    /// replay/telemetry schema; not enforced since 3.7.9.
     /// </summary>
     [JsonPropertyName("hr")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -370,7 +372,8 @@ internal sealed record TelemetryPolicy
 
     /// <summary>
     /// v3.7 additive: the history-blended estimate in seconds (hs). Omitted when
-    /// the window produced no usable value this tick.
+    /// the window produced no usable value this tick. Retained for
+    /// replay/telemetry schema; not enforced since 3.7.9.
     /// </summary>
     [JsonPropertyName("hs")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -380,7 +383,8 @@ internal sealed record TelemetryPolicy
     /// v3.7 additive: the history estimate is history-only, the live rate is not
     /// yet trusted (hp in the spec table; emitted as <c>hprov</c> because
     /// <c>hp</c> already means the player health percent on this record).
-    /// Omitted when false.
+    /// Omitted when false. Retained for replay/telemetry schema; not enforced
+    /// since 3.7.9.
     /// </summary>
     [JsonPropertyName("hprov")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

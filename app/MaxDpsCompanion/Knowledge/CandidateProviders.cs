@@ -265,10 +265,10 @@ internal sealed class OffensiveCandidateProvider : ICandidateProvider
         // Stream 3 preset (restrict-only, default Full = no-op): Burst conserves
         // major offensive cooldowns until the target's TTK is measurable. The
         // preset only ever HOLDs; an invalid TTK (including TimeToKill off) is
-        // exactly the "not a boss" case it protects against. v3.6.0 wiring note:
-        // this preset hold stays UNCHANGED — it still requires a *Valid*
-        // estimate only and does not read the provisional rate or the fast-pack
-        // grace hold (those belong to the T1 waste guard below).
+        // exactly the "not a boss" case it protects against. v3.7.9: this is the
+        // only remaining TTK-aware hold on the Offensive path — the companion's
+        // T1 waste guard, grace hold and warmup hold were removed (MaxDps is the
+        // authority on whether an offensive belongs in the core rotation).
         if (p.Options.Preset == RotationPreset.Burst
             && ability.Purpose == AbilityPurpose.MajorOffensive
             && !TtkPolicy.SubFiftyBypass(ability)
@@ -284,59 +284,15 @@ internal sealed class OffensiveCandidateProvider : ICandidateProvider
             return D(PolicyDecision.Hold($"AoE preset: conserving single-target {ability.Name}"),
                 src, "AoE preset (single-target conserved)");
 
-        // T1 (v3.6.0) waste guard: a Valid OR provisional TTK shorter than the
-        // ability's minimum means the cooldown cannot pay for itself on this
-        // target. <see cref="TtkPolicy.WasteGuardHolds"/> applies the
-        // Valid||Provisional gate (provisional only for MajorBurst /
-        // Transformation / Summon / WindowDriven — never a minor) and the
-        // execute carve-out (ExecuteRange bypasses with TtkSec>=3 or unknown)
-        // plus the kill-secure bypass, both failing the rule open. Holds BOTH
-        // MaxDps-sourced and companion gap-fill offensives; MaxDps simply
-        // re-suggests next tick, so there is no lockout. An unknown TTK fails
-        // open (never holds).
-        // buffDurSec is the v3.8 buff-aware need input: the ability's own
-        // *buff duration* (curated DurationMs / 1000, 0 when absent), NOT the
-        // T2 second-use window. The history branch compares the learned fight
-        // length against max(MinTtk, min(durFactor·buffDur, 20)) — the research
-        // 1/2 rule — so a long buff is held until the fight can cover it.
-        var buffDurSec = ability.DurationMs > 0 ? ability.DurationMs / 1000.0 : 0.0;
-        if (TtkPolicy.WasteGuardHolds(ability, ctx, buffDurSec, ctx.TtkHistDurFactor))
-        {
-            var need = TtkPolicy.MinTtkSec(ability);
-            if (TtkPolicy.HistoryWasteGuardHolds(ability, ctx, buffDurSec, ctx.TtkHistDurFactor))
-            {
-                var needAdapt = TtkPolicy.NeedAdaptive(need, buffDurSec, ctx.TtkHistDurFactor);
-                return D(PolicyDecision.Hold(
-                        $"ttk-hist: target ~{ctx.TtkHistSec:0.#}s to die; saving {ability.Name} (needs {needAdapt:0.#}s)"),
-                    src, $"ttk-hist {ctx.TtkHistSec:0.#}s below adaptive {needAdapt:0.#}s");
-            }
-            return D(PolicyDecision.Hold(
-                    $"target ~{ctx.TtkSec:0.#}s to die; saving {ability.Name} (needs {need:0.#}s)"),
-                src, $"TTK {ctx.TtkSec:0.#}s below minimum {need:0.#}s");
-        }
-
-        // Grace hold (v3.6.0, spec §2): the only fail-open exception to the
-        // unknown-TTK rule. No estimate exists (valid or provisional), but the
-        // fast-pack latch says the last two targets died inside 20 s and this
-        // one is younger than 4 s — hold a major rather than spend it on what is
-        // probably the next trash mob. Never fires without the latch under the
-        // default FailOpen fallback; [TimeToKill] Fallback=ConserveMajors
-        // applies it to any unknown-TTK major with no latch needed. Minors are
-        // never held here (GraceHoldHolds restricts the usages itself).
-        if (TtkPolicy.GraceHoldHolds(ability, ctx, p.Fallback))
-            return D(PolicyDecision.Hold(TtkPolicy.GraceHoldReason),
-                src, "fast pack (unknown TTK, latch set, age < 4s)");
-
-        // Warmup hold (v3.8, spec §1/§2): while the target's TTK is still
-        // unknown and the target was first seen less than [TimeToKill]
-        // WarmupSec ago, hold a major offensive rather than spending a full
-        // cooldown on something that may die before an estimate exists. Sits
-        // after the fast-pack grace hold and before the gap-fill/pair gates.
-        // Restricted to the provisional-eligible majors and fails open on every
-        // carve-out (execute, kill-secure, zero need, binding-long history).
-        if (TtkPolicy.WarmupHoldHolds(ability, ctx, p.Options.TtkWarmupSec, ctx.TtkHistDurFactor))
-            return D(PolicyDecision.Hold(TtkPolicy.WarmupHoldReason),
-                src, $"TTK unknown, target age < {p.Options.TtkWarmupSec:0.#} s");
+        // v3.7.9 contract: a MaxDps-offered (or companion gap-fill) offensive
+        // candidate is USED unless a game-truth/structural gate applies. The
+        // companion no longer conserves a cooldown from a target time-to-kill
+        // estimate — the T1 waste guard, the fast-pack grace hold and the
+        // warmup hold were removed because MaxDps is the authority on whether
+        // an offensive belongs in the core rotation. What remains below are the
+        // out-of-combat gap-fill hold, the paired-window hold and the
+        // structural range/melee gates; the restrict-only presets above stay
+        // opt-in.
 
         // A companion offensive gap-fill never fires out of combat in Normal
         // mode — Solo mode is the only out-of-combat path (mirrors the
@@ -353,22 +309,14 @@ internal sealed class OffensiveCandidateProvider : ICandidateProvider
             && !TtkPolicy.TwoUsesAvailable(ability, ctx)
             && !TtkPolicy.ExecuteRange(ability, ctx))
             return D(PolicyDecision.Hold($"paired cooldown window active ({ability.ConflictGroup})"), src, $"paired window active ({ability.ConflictGroup})");
-        if (ability.EnemyCountMin is > 1 && ability.Status != IntelligenceStatus.MaxDpsBacked)
-            return D(PolicyDecision.Uncertain(
-                $"enemy count not observable (use condition needs {ability.EnemyCountMin})"),
-                src, $"enemy count not observable (needs {ability.EnemyCountMin})");
         if (ability.TargetRange == RangeRequirement.InMelee && ctx.TargetInMelee == TriState.No)
             return D(PolicyDecision.Unavailable("target outside melee range"), src, "target outside melee range");
         if (p.Range == TriState.No) return D(PolicyDecision.Unavailable("target out of range"), src, "target out of range");
-        // A flagged sub-60s rotational burst (SubFiftyBypass) is never
-        // conserved by any TTK guard, so an unknown range probe must not turn
-        // it into an Uncertain hold that can empty the whole plan (Main empty
-        // => ranked.Count == 0 => PolicyHold). Range == No above still vetoes;
-        // genuinely gated >60s majors / 60s summons keep the Unknown->Uncertain
-        // fail-closed path.
-        if (p.Range == TriState.Unknown && ability.Unknown != UnknownPolicy.Use
-            && !TtkPolicy.SubFiftyBypass(ability))
-            return D(PolicyDecision.Uncertain("ability range unknown"), src, "ability range unknown");
+        // v3.7.9: an unobservable enemy count or range probe is no longer an
+        // Uncertain hold. Only a confirmed out-of-range / out-of-melee target is
+        // structural; unknown observations fail open to Use (MaxDps already
+        // offered the candidate), so a flagged rotational burst can never empty
+        // the whole plan (Main empty => ranked.Count == 0 => PolicyHold).
         return D(PolicyDecision.Use("offensive candidate; no conflict observed"), src, "no conflict observed");
     }
 

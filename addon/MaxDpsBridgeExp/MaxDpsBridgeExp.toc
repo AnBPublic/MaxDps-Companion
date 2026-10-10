@@ -2,8 +2,8 @@
 ## Title: MaxDps Bridge Exp
 ## Notes: Experimental in-game-config fork of MaxDpsBridge. Owns its toggles (overlay-wins, SlotAllowed gate), adds a RICE-style insecure overlay, a 6-tab Settings canvas and /mdbx. Mutually exclusive with the stable MaxDpsBridge: if the stable bridge is loaded this addon stays inert. No secure templates, no protected Lua. Same 43-cell protocol v5 wire as the stable bridge.
 ## Author: AnBPublic
-## Version: 3.7.8-exp
-## X-Codename: Steadfast
+## Version: 3.7.9-exp
+## X-Codename: Unyielding
 ## OptionalDeps: MaxDps, GW2_UI
 ## SavedVariables: MaxDpsBridgeExpDB
 ## SavedVariablesPerCharacter: MaxDpsBridgeExpCharDB

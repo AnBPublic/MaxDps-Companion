@@ -92,10 +92,11 @@ internal sealed class PolicyOptions
     public TargetPreset TargetPreset { get; init; } = TargetPreset.SingleTarget;
 
     /// <summary>
-    /// [TimeToKill] Fallback (v3.6.0, spec §4): what the TTK guard does when no
-    /// estimate is available. Threaded by the evaluator into
-    /// <see cref="ProviderInput.Fallback"/> so <c>ConserveMajors</c> reaches the
-    /// offensive grace hold; default is the documented fail-open.
+    /// [TimeToKill] Fallback (v3.6.0, spec §4). Retained for replay/telemetry
+    /// schema; not enforced since 3.7.9 (the offensive grace hold it once fed
+    /// was removed). Still threaded into <see cref="ProviderInput.Fallback"/>
+    /// and recorded so older recordings parse; default stays the documented
+    /// fail-open.
     /// </summary>
     public TtkFallback TimeToKillFallback { get; init; } = TtkPolicy.DefaultFallback;
 
@@ -125,11 +126,11 @@ internal sealed class PolicyOptions
     /// <summary>
     /// v3.8 TTK-aware cooldown gating: hold a major offensive for this many
     /// seconds after first sight while the target TTK is unknown
-    /// (<c>[TimeToKill] WarmupSec</c>, clamp 0..10). The default is 0 = legacy
-    /// fail-open, so manually-built options (tests / older replays) keep the
-    /// pre-warmup behaviour; <see cref="FromSettings"/> carries the app's
-    /// configured default. Non-zero values are recorded in telemetry and
-    /// rebuilt by the replay runner.
+    /// (<c>[TimeToKill] WarmupSec</c>, clamp 0..10). Retained for
+    /// replay/telemetry schema; not enforced since 3.7.9. Kept so telemetry
+    /// records <c>ttkw</c> and older recordings replay; the default is 0 =
+    /// legacy fail-open. <see cref="FromSettings"/> carries the app's
+    /// configured value.
     /// </summary>
     public double TtkWarmupSec { get; init; }
 

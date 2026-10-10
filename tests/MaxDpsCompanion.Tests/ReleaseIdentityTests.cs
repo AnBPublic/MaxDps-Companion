@@ -3,20 +3,20 @@ using Xunit;
 namespace MaxDpsCompanion.Tests;
 
 /// <summary>
-/// 3.7.8 "Steadfast" release identity: the assembly version is single-sourced
+/// 3.7.9 "Unyielding" release identity: the assembly version is single-sourced
 /// from the csproj, the codename from AssemblyMetadata, and the window title is
-/// exactly "MaxDPS Companion v3.7.8 Steadfast" with NO build hash/time (those
+/// exactly "MaxDPS Companion v3.7.9 Unyielding" with NO build hash/time (those
 /// moved to the Advanced Diagnostics install doctor card).
 /// </summary>
 public class ReleaseIdentityTests
 {
     [Fact]
-    public void Release_AppVersion_Is_3_7_8()
-        => Assert.Equal("3.7.8", Native.AppVersion);
+    public void Release_AppVersion_Is_3_7_9()
+        => Assert.Equal("3.7.9", Native.AppVersion);
 
     [Fact]
     public void Release_DisplayVersion_Includes_Codename()
-        => Assert.Equal("v3.7.8 Steadfast", Native.DisplayVersion);
+        => Assert.Equal("v3.7.9 Unyielding", Native.DisplayVersion);
 
     [Fact]
     public void Release_HeaderTitle_Is_Version_And_Codename_No_Hash()
@@ -40,7 +40,7 @@ public class ReleaseIdentityTests
         Assert.True(thread.Join(TimeSpan.FromSeconds(60)), "STA UI thread timed out");
 
         Assert.Null(error);
-        Assert.Equal("MaxDPS Companion v3.7.8 Steadfast", title);
+        Assert.Equal("MaxDPS Companion v3.7.9 Unyielding", title);
         Assert.DoesNotContain("(", title);
         Assert.DoesNotContain("[", title);
     }

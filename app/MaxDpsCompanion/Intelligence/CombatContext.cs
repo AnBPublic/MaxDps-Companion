@@ -91,8 +91,8 @@ internal sealed class CombatContext
     /// <summary>
     /// v3.6.0 dying-trash guard: true when the estimator has only an early
     /// (provisional) rate for the current target while <see cref="TtkValid"/>
-    /// is still false. Provisional never holds minors — the policy gates it
-    /// like a valid estimate only for the majors named in the spec.
+    /// is still false. Retained for replay/telemetry schema; not enforced since
+    /// 3.7.9 (the offensive waste guard was removed).
     /// </summary>
     public bool TtkProvisional { get; init; }
 
@@ -101,35 +101,37 @@ internal sealed class CombatContext
 
     /// <summary>
     /// True while the fast-pack latch is set (two fast kills inside the latch
-    /// window). Survives target swaps; the policy's documented fail-open
-    /// exception reads it for the age&lt;4s grace hold.
+    /// window). Survives target swaps. Retained for replay/telemetry schema;
+    /// not enforced since 3.7.9 (the offensive grace hold was removed). Still
+    /// read by the group Minor defensive dying-target gate.
     /// </summary>
     public bool FastPackLatch { get; init; }
 
-    /// <summary>True when a valid OR provisional estimate exists — the gate the waste guard reads.</summary>
+    /// <summary>True when a valid OR provisional estimate exists. Retained for replay/telemetry schema; the offensive waste guard that read it was removed in 3.7.9.</summary>
     public bool EffectiveTtkKnown => TtkValid || TtkProvisional;
 
     /// <summary>
     /// v3.7 adaptive TTK: true when the rolling kill window holds at least
-    /// <c>[TimeToKill] HistoryMinKills</c> kills, so the learned burn rate may
-    /// gate a cooldown. False on every legacy/replay frame and with History=0.
+    /// <c>[TimeToKill] HistoryMinKills</c> kills. Retained for replay/telemetry
+    /// schema; not enforced since 3.7.9 (the adaptive-history offensive hold
+    /// was removed). False on every legacy/replay frame and with History=0.
     /// </summary>
     public bool TtkHistBinding { get; init; }
 
-    /// <summary>v3.7: the window's pessimistic p-quantile burn-rate (frac/s); 0 when not binding.</summary>
+    /// <summary>v3.7: the window's pessimistic p-quantile burn-rate (frac/s); 0 when not binding. Retained for replay/telemetry schema; not enforced since 3.7.9.</summary>
     public double TtkHistRate { get; init; }
 
     /// <summary>
     /// v3.7: the history-blended estimate in seconds (clamp 0..300); 0 when no
-    /// usable history value was produced this tick. The adaptive-need hold reads
-    /// this instead of <see cref="TtkSec"/> while the window is binding.
+    /// usable history value was produced this tick. Retained for replay/telemetry
+    /// schema; not enforced since 3.7.9.
     /// </summary>
     public double TtkHistSec { get; init; }
 
-    /// <summary>v3.7: the history value is history-only (no trusted live rate yet).</summary>
+    /// <summary>v3.7: the history value is history-only (no trusted live rate yet). Retained for replay/telemetry schema; not enforced since 3.7.9.</summary>
     public bool TtkHistProvisional { get; init; }
 
-    /// <summary>v3.7: number of kills currently in the rolling window (0 when not binding).</summary>
+    /// <summary>v3.7: number of kills currently in the rolling window (0 when not binding). Retained for replay/telemetry schema; not enforced since 3.7.9.</summary>
     public int TtkHistKills { get; init; }
 
     /// <summary>

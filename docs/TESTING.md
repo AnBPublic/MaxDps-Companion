@@ -306,62 +306,74 @@ Stale 0; addon Catalog.lua matches).
 
 ### 3e. TTK v3.6 dying-trash guard acceptance (live 12.1 retail, OWED)
 
+**3.7.9: the offensive conservation verified here was removed — see §3k. This
+section is retained as v3.6 history (the T4/defensive parts still apply).**
+
 Offline evidence is the estimator/policy/curation tests plus the
 `ttk-trash-pack.jsonl` replay (6 mobs, each <5 s) and the unchanged legacy
-replays at 0 mismatches; that is never live proof. Observe in a real client
-with Intelligence ON, TTK guard ON (or observe the documented OFF collateral):
+replays at 0 mismatches; that is never live proof. What a v3.6 client showed in
+a real client with Intelligence ON, TTK guard ON (or the documented OFF
+collateral):
 
-1. **M+ trash → boss (no-hold check).** Clear a trash pack where individual
-   mobs die in <5 s, then pull the boss. During trash the major burst must be
-   **held** (`"fast pack, waiting for TTK"` after the second quick kill, or the
-   provisional waste hold); against the boss it must **fire normally** — the
-   latch must clear on the long fight (telemetry: no Major held vs the boss,
-   estimate valid and TTK ≥30 s). Confirm a kill-secure major still fires late
-   in a long fight (age ≥20 s, target ≤35%, TTK 3–20 s).
-2. **Dungeon tank Minor check.** As a tank with a short-CD Minor defensive,
-   confirm group-scope gating is conservative: a group Minor may only be held
-   when the estimate is valid <4 s, urgency is below Orange and the fast-pack
-   latch is set; group Major/Immunity must **never** be gated, and emergency HP
-   always overrides. (Rationale: enemy count is unobservable; the tank may be
-   dying to other mobs.)
-3. **Toggle semantics.** Confirm the hero/`/mdb` label reads **"TTK guard"**
-   and the tooltip says *OFF = cooldowns fire without dying-target protection*.
-   With it OFF, band 15 blanks the execute gate and Burst consumers as well as
-   the TTK gates (documented collateral); `[TimeToKill] Fallback=ConserveMajors`
-   holds an unknown-TTK major even with no latch.
-4. **No false holds.** Confirm a normal single-target boss pull (long, slow
-   decline) is never held by the grace hold/provisional path, and that the
-   kill-secure exception cannot fire before age 20 s.
+1. **M+ trash → boss (no-hold check) — superseded in 3.7.9, no longer
+   applies.** Mobs dying in <5 s used to hold the major burst (`"fast pack,
+   waiting for TTK"` after the second quick kill, or the provisional waste
+   hold); the latch then cleared on the long boss fight and it fired (telemetry:
+   no Major held vs the boss, estimate valid and TTK ≥30 s), and a kill-secure
+   major could fire late (age ≥20 s, target ≤35%, TTK 3–20 s). 3.7.9 removed all
+   offensive TTK holds, so a MaxDps-offered burst now fires regardless of the
+   pack — there is nothing to observe here.
+2. **Dungeon tank Minor check — T4 retained.** As a tank with a short-CD Minor
+   defensive, confirm group-scope gating is conservative: a group Minor may only
+   be held when the estimate is valid <4 s, urgency is below Orange and the
+   fast-pack latch is set; group Major/Immunity must **never** be gated, and
+   emergency HP always overrides. (Rationale: enemy count is unobservable; the
+   tank may be dying to other mobs.)
+3. **Toggle semantics.** Confirm the hero/`/mdb` label reads **"TTK guard"** and
+   the tooltip says *OFF = cooldowns fire without dying-target protection*. The
+   former band-15 collateral (blanking the execute gate/Burst consumers and the
+   `[TimeToKill] Fallback=ConserveMajors` unknown-TTK hold) is **superseded in
+   3.7.9 — no longer applies**; ConserveMajors no longer conserves offensives.
+4. **No false holds — superseded in 3.7.9, no longer applies.** The grace
+   hold/provisional path and the kill-secure exception were removed; there is no
+   offensive TTK hold left to false-trigger.
 5. Record + export + replay the run: 0 mismatches for decisions and policy
    verdicts (`ttkp`/latch fields included).
 
 ### 3f. TTK v3.7 adaptive real-data history (live 12.1 retail, OWED)
 
+**3.7.9: the `ttk-hist` offensive hold was removed — see §3k. The estimator
+history feeds remain (T4/telemetry).**
+
 Offline evidence is `TtkEstimatorHistoryTests` (kill filter, window
 cap/prune/idle-clear, nearest-rank quantile, below-MinKills fail-open identity,
-blend weights, history-only provisional) and `TtkPolicyHistoryTests`
-(NeedAdaptive, `ttk-hist` hold/use, invalid-live restriction, carve-outs,
-consumable/trinket Burst release, `[TimeToKill]` parse/clamp, replay hk/hs
-reproduce) — never live proof. One history line: with Intelligence ON and
-`[TimeToKill] History=1`, clear a fast trash pack then pull a boss; the first
-~8.5 s of the boss may be held on the trash-learned rate (reason `ttk-hist`),
-then the live rate wins and the major fires. Telemetry carries `hk`/`hr`/`hs`/
-`hprov` and the replay report must read `adaptive-history reconstruction 0
-mismatch(es)`. `History=0` reproduces the pre-history behaviour exactly.
+blend weights, history-only provisional). The former `TtkPolicyHistoryTests`
+decision-layer coverage (`NeedAdaptive`, `ttk-hist` hold/use, invalid-live
+restriction, carve-outs) was **removed in 3.7.9**; the retained test now covers
+the consumable/trinket Burst release, `[TimeToKill]` parse/clamp and replay
+hk/hs reproduction - never live proof. The pre-3.7.9 history line was: with
+Intelligence ON and `[TimeToKill] History=1`, clear a fast trash pack then pull
+a boss; the first ~8.5 s of the boss could be held on the trash-learned rate
+(reason `ttk-hist`) before the live rate won and the major fired. Telemetry
+still carries `hk`/`hr`/`hs`/`hprov` and the replay report must read
+`adaptive-history reconstruction 0 mismatch(es)`. `History=0` reproduces the
+pre-history behaviour exactly.
 
 ### 3g. TTK v3.8 warmup + buff-aware gating (live 12.1 retail, OWED)
 
-Offline evidence is `TtkPolicyTests` (`BuffNeed` half-buff/cap-20/zero-fallback,
+**3.7.9: the warmup offensive hold was removed — see §3k.**
+
+The former `TtkPolicyTests` coverage (`BuffNeed` half-buff/cap-20/zero-fallback,
 `WarmupHoldHolds` young-unknown major hold, window close, valid/provisional/
-execute/AoE/minor/kill-secure carve-outs, binding-history release, provider
-Hold `"warming up TTK"` vs Use) and the regenerated `ttk-warrior-burst.jsonl`
-fixture (warmup holds from t=0, then the T1 hold, then the boss fire, 0
-mismatches). Never live proof. One live line: with Intelligence ON and
-`[TimeToKill]` defaults (WarmupSec=3), pull a target whose TTK is not yet
-measurable; a major is held `"warming up TTK"` for ~3 s after first sight, then
-the estimate/history takes over and the major fires on a long fight.
-`WarmupSec=0` reproduces the legacy fail-open exactly; the setting is recorded
-as `ttkw` and the replay must reproduce the hold.
+execute/AoE/minor/kill-secure carve-outs, binding-history release, provider Hold
+`"warming up TTK"` vs Use) and the regenerated `ttk-warrior-burst.jsonl`
+warmup-hold expectation were **removed in 3.7.9**. Never live proof. The
+pre-3.7.9 live line was: with Intelligence ON and `[TimeToKill]` defaults
+(WarmupSec=3), pull a target whose TTK is not yet measurable; a major was held
+`"warming up TTK"` for ~3 s after first sight, then the estimate/history took
+over and the major fired on a long fight. `WarmupSec=0` reproduced the legacy
+fail-open exactly; the setting was recorded as `ttkw` and the replay had to
+reproduce the hold.
 
 ### 3h. Main = MaxDps core rotation, deny list removed (3.7.8; live 12.1 retail, OWED)
 
@@ -369,7 +381,7 @@ Offline evidence is static only — `luac -p addon/MaxDpsBridgeExp/*.lua`, `lua
 tests/secret_harness.lua` (the former `MDBX.MajorCDDeny` pins are inverted for
 3.7.8) and the `MDBX.FlagOffensiveExtra` routing checks — never live proof.
 There is no automated in-game test. Observe in a real client with the Exp bridge
-**3.7.8** addon loaded (`/reload`, `/mdb status` shows `protocol=5`):
+**3.7.9** addon loaded (`/reload`, `/mdb status` shows `protocol=5`):
 
 1. **Formerly denied core-rotation recommendations ARE Main.** Play a Warrior
    and a Fire Mage with the relevant ability available; while MaxDps glows it as
@@ -401,7 +413,7 @@ stationary no-op ticks keep every gap; no filler is invented when `ranked==0`)
 plus the Q1 block in `lua tests/secret_harness.lua` (glowing∩usable scan,
 denied/power-starved fall-through, per-spec filler, fail-open on secret/nil/
 throw) — never live proof. Observe in a real client with a Fury Warrior and the
-bridge 3.7.8 addon loaded:
+bridge 3.7.9 addon loaded:
 
 1. **Rampage only at Rage ≥ 80.** While Rampage (184367) is suggested but the
    player is below 80 Rage, it must **not** be pressed; the MAIN slot carries
@@ -426,7 +438,7 @@ Main no MinInterval wait after a different slot/spell; identical repeat held
 exactly `MinKeyIntervalMs`; Main failure sets no `_failedUntil`; SawGcd resets
 the cap; non-Main backoff unchanged; GCD/cast/range/melee/NoTarget still hold;
 fallback Main identical) — never live proof. Observe in a real client with the
-bridge 3.7.8 addon loaded, Intelligence ON, Main toggle ON:
+bridge 3.7.9 addon loaded, Intelligence ON, Main toggle ON:
 
 1. **Main first tick post-GCD.** With an enemy in range + sight and a WHITE
    core suggestion live, the Main key is sent on the first tick after the GCD
@@ -450,6 +462,35 @@ bridge 3.7.8 addon loaded, Intelligence ON, Main toggle ON:
    Defensive/interrupt on another stroke still fires.
 8. Record + export + replay the run: 0 mismatches for decisions and policy
    verdicts. Static ≠ automated test ≠ live in-game.
+
+### 3k. Offensive TTK conservation removed (3.7.9; live 12.1 retail, OWED)
+
+Offline evidence is the candidate/provider + policy test updates and the
+regenerated TTK fixtures/replays for the no-conservation behaviour, plus the
+offline vendor-offensive audit (161 ids across all 13 classes; 0 carrying
+`neverAutomatic`/`ManualByDesign`/`UnsafeToAutomate`; 49/161 vendor-only rows
+resolve to `MaxDpsBacked`) — never live proof. Observe in a real client with the
+Exp bridge **3.7.9** addon loaded, Intelligence ON:
+
+1. **No TTK hold on a MaxDps offer.** Against a target whose TTK is ≤15 s (and
+   in trash), a MaxDps-recommended offensive — Avatar 107574, Ravager 228920,
+   Recklessness, Bladestorm (and peers) — must **press** when the bridge offers
+   it; there must be no `"target ~Xs to die; saving <name>"`,
+   `"warming up TTK"` or `"fast pack, waiting for TTK"` hold.
+2. **Burst preset still conserves.** With the user's **Burst** preset selected,
+   majors are still held until a boss TTK is measurable; selecting Normal/None
+   restores the no-conservation behaviour. The AoE preset still conserves
+   catalogued single-target-only cooldowns.
+3. **Gap-fill unchanged.** A companion gap-fill major still fires only when the
+   bridge offers it (MaxDps silent) and stays inside the gap-fill
+   out-of-combat hold; melee/range and the other game-truth/structural gates
+   still apply. Only 212084 Fel Devastation and 98008 Spirit Link Totem route
+   to the Defensive slot by `classOf` precedence (documented deviation).
+4. Record + export + replay the run: 0 mismatches for decisions and policy
+   verdicts. Static ≠ automated test ≠ live in-game.
+
+This supersedes the offensive parts of §3e/§3f/§3g, which remain as the
+v3.2–v3.8 history of the removed conservation.
 
 ## Benchmarks / diagnostics (no game)
 

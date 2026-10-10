@@ -376,7 +376,7 @@ internal static class AbilityIntelligence
             var minTtk = TtkPolicy.MinTtkSec(ability);
             var ttkNote = ability.MinTtkSec is null ? " (usage default)" : " (curated)";
             var execNote = ability.ExecuteFavored && ability.ExecuteBelowPct is { } exec ? $", execute <= {exec}%" : "";
-            sb.AppendLine($"TTK           : hold below {minTtk:0.#}s{ttkNote}{execNote}");
+            sb.AppendLine($"TTK           : hold below {minTtk:0.#}s{ttkNote}{execNote} (curated; not enforced since 3.7.9)");
         }
         if (ability.HasMobilityCapability) sb.AppendLine($"Mobility      : {ability.MobilityKind}");
         if (ability.TalentNote is { Length: > 0 } talent) sb.AppendLine($"Talent        : {talent}");

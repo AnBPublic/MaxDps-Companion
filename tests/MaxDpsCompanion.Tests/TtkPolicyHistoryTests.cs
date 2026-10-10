@@ -4,10 +4,11 @@ using Xunit;
 namespace MaxDpsCompanion.Tests;
 
 /// <summary>
-/// v3.7 adaptive-history decision layer: the pure <see cref="TtkPolicy.NeedAdaptive"/>
-/// formula, the T1 <c>ttk-hist</c> branch (hold vs use, invalid-live restriction,
-/// carve-outs) and the consumable/trinket Burst release. Also pins the
-/// [TimeToKill] history setting parse/clamp and the replay hk/hs reproduction.
+/// Retained v3.7 history schema: the [TimeToKill] history setting parse/clamp,
+/// the telemetry hk/hs/hprov export and the replay reproduction. The adaptive
+/// decision layer itself (NeedAdaptive, the T1 <c>ttk-hist</c> branch and its
+/// carve-outs) was removed in 3.7.9; the consumable/trinket Burst release lives
+/// in MaxDpsRotation and is pinned here.
 /// </summary>
 public class TtkPolicyHistoryTests
 {
@@ -114,78 +115,10 @@ public class TtkPolicyHistoryTests
             TtkHistDurFactor = 0.5,
         };
 
-    // ----- NeedAdaptive -----
-
-    [Fact]
-    public void NeedAdaptive_Is_Max_Of_Base_And_Capped_Duration_Fraction()
-    {
-        // Spec examples.
-        Assert.Equal(12.5, TtkPolicy.NeedAdaptive(10, 25, 0.5), 6);
-        Assert.Equal(20.0, TtkPolicy.NeedAdaptive(10, 60, 0.5), 6);
-        // The 20 s cap binds; the ability's own minimum wins when higher.
-        Assert.Equal(10.0, TtkPolicy.NeedAdaptive(10, 20, 0.5), 6);
-        Assert.Equal(15.0, TtkPolicy.NeedAdaptive(15, 20, 0.5), 6);
-        // A zero factor disables the adaptive raise (keeps the base need).
-        Assert.Equal(15.0, TtkPolicy.NeedAdaptive(15, 200, 0.0), 6);
-    }
-
-    // ----- guard: 20 s active duration, history 6 s vs 14 s -----
-
-    [Fact]
-    public void Guard_20s_Active_Duration_Holds_At_6_And_Uses_At_14()
-    {
-        // WindowDriven base need 10 s, so NeedAdaptive(10,20,0.5) = 10 s.
-        var ability = Offensive(OffensiveUsage.WindowDriven);
-        Assert.Equal(10.0, TtkPolicy.MinTtkSec(ability));
-
-        Assert.True(TtkPolicy.WasteGuardHolds(ability, HistCombat(6), activeDurSec: 20, durFactor: 0.5));
-        Assert.False(TtkPolicy.WasteGuardHolds(ability, HistCombat(14), activeDurSec: 20, durFactor: 0.5));
-        Assert.False(TtkPolicy.WasteGuardHolds(ability, HistCombat(10), activeDurSec: 20, durFactor: 0.5));
-    }
-
-    // ----- carve-outs -----
-
-    [Fact]
-    public void Guard_Carve_Outs_Bypass_The_History_Branch()
-    {
-        // Execute-favored in execute range with TtkSec >= 3 bypasses the guard.
-        var execute = Offensive(OffensiveUsage.WindowDriven, executeBelowPct: 30, executeFavored: true);
-        var executeCtx = HistCombat(1, targetHpValid: true, targetHpPct: 20);
-        Assert.True(TtkPolicy.ExecuteWasteBypass(execute, executeCtx));
-        Assert.False(TtkPolicy.HistoryWasteGuardHolds(execute, executeCtx, 20, 0.5));
-        Assert.False(TtkPolicy.WasteGuardHolds(execute, executeCtx, 20, 0.5));
-
-        // Curated killSecure on a dying, long-lived target bypasses it too.
-        var killSecure = Offensive(OffensiveUsage.WindowDriven, killSecure: true);
-        var dying = HistCombat(1, ttkValid: true, ttkSec: 12, ageSec: 25,
-            targetHpValid: true, targetHpPct: 30, targetHpFrac: 0.30);
-        Assert.True(TtkPolicy.KillSecureBypass(killSecure, dying));
-        Assert.False(TtkPolicy.HistoryWasteGuardHolds(killSecure, dying, 20, 0.5));
-        Assert.False(TtkPolicy.WasteGuardHolds(killSecure, dying, 20, 0.5));
-    }
-
-    // ----- invalid-live restricts the history hold to provisional-eligible -----
-
-    [Fact]
-    public void Invalid_Live_Restricts_History_Hold_To_Provisional_Eligible()
-    {
-        var major = Offensive(OffensiveUsage.WindowDriven);   // eligible
-        var minor = Offensive(OffensiveUsage.ShortCooldown);  // not eligible (base 5 s)
-
-        var invalidLive = HistCombat(1);
-        Assert.True(TtkPolicy.HistoryWasteGuardHolds(major, invalidLive, 20, 0.5));
-        Assert.False(TtkPolicy.HistoryWasteGuardHolds(minor, invalidLive, 20, 0.5));
-
-        // A valid live estimate applies the branch to every T1 class — but only
-        // while that live rate is still below the adaptive need (10 s here); the
-        // 2026-10-04 live-over-history release fires once a valid live rate
-        // reaches the need, so 7 s keeps exercising the branch.
-        var validLive = HistCombat(1, ttkValid: true, ttkSec: 7);
-        Assert.True(TtkPolicy.HistoryWasteGuardHolds(minor, validLive, 20, 0.5));
-
-        // Not binding -> the branch never fires (fail open).
-        Assert.False(TtkPolicy.HistoryWasteGuardHolds(major, HistCombat(1, binding: false), 20, 0.5));
-    }
+    // ----- NeedAdaptive / adaptive-history guard -----
+    // Removed in 3.7.9: the adaptive-history offensive hold and its need
+    // formula no longer exist (MaxDps authority). The retained history fields
+    // (settings parse, telemetry, replay) are pinned below.
 
     // ----- consumable/trinket Burst history rule -----
 
@@ -363,24 +296,6 @@ public class TtkPolicyHistoryTests
         Assert.Equal(5, ctx.TtkHistKills);
         Assert.Equal(0.5, ctx.TtkHistDurFactor, 6);
         Assert.True(ctx.TtkHistProvisional);
-    }
-
-    // ----- a zero buff duration keeps the base need (buffDur = 0) -----
-
-    [Fact]
-    public void Zero_Cooldown_Active_Duration_Keeps_Base_Need()
-    {
-        Assert.Equal(10.0, TtkPolicy.NeedAdaptive(10, 0, 0.5), 6);
-
-        var ability = Offensive(OffensiveUsage.WindowDriven, cooldownMs: 0, durationMs: 0);
-        // v3.8: the adaptive need now reads the ability's own BUFF duration, not
-        // the T2 second-use window; a zero duration keeps the base need.
-        var buffDurSec = ability.DurationMs > 0 ? ability.DurationMs / 1000.0 : 0.0;
-        Assert.Equal(0.0, buffDurSec, 6);
-        Assert.Equal(TtkPolicy.MinTtkSec(ability), TtkPolicy.BuffNeed(ability, 0.5), 6);
-        // base need stays 10 s: 9 s holds, exactly 10 s uses.
-        Assert.True(TtkPolicy.WasteGuardHolds(ability, HistCombat(9), buffDurSec, 0.5));
-        Assert.False(TtkPolicy.WasteGuardHolds(ability, HistCombat(10), buffDurSec, 0.5));
     }
 
     // ----- telemetry export: hr/hprov beside hk/hs -----
