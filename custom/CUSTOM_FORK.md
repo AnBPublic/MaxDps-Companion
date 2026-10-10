@@ -1,9 +1,11 @@
 # Custom MaxDps Fork (12.1 / Midnight)
 
 Status: **T4 docs** — provenance, manifest, patch authoring and the sync tool
-are done (T1-T3); this pass fills the behavior/design sections. The bridge-side
-denylist is live; the live 12.1 spell-ID check and the publish run stay **OWED**
-(see the bottom of this file).
+are done (T1-T3); this pass fills the behavior/design sections. In Exp 3.7.8 the
+bridge-side denylist was **removed** (Main trusts the MaxDps core rotation); the
+fork's remaining job is the vendor offensive-table un-comments / id routing
+(P-DATA). The live 12.1 spell-ID check and the publish run stay **OWED** (see the
+bottom of this file).
 
 ## Attribution
 
@@ -53,16 +55,18 @@ declarative and reversible; there are no hand edits to any MaxDps Lua in
 sync run materialises it). `custom/patches.json` is the source of truth for
 what a patch does.
 
-## Behavior model: P-DATA / P-GUARD / bridge denylist
+## Behavior model: P-DATA / P-GUARD / bridge Offensive flags
 
 Three layers, in precedence order:
 
-1. **Bridge denylist (primary fix, applied last but authoritative at runtime).**
-   `addon/MaxDpsBridge/MajorCooldowns.lua` populates `MDB.MajorCDDeny`; the
-   bridge's `GetMainSpellID` skips every denied id in the `SpellsGlowing` scan
-   and rejects a denied `MaxDps.Spell`, falling through to the next allowed
-   source or `nil`. This needs no vendor edit and survives an unpatched
-   `out/`, so it is the fix that actually ships first. See below.
+1. **Bridge Offensive flags (runtime, no vendor edit).**
+   `addon/MaxDpsBridgeExp/MajorCooldowns.lua` populates
+   `MDBX.FlagOffensiveExtra`; `Reader.CategoryOf` maps a flagged id to
+   `"offensive"` so the `FirstFlagged("offensive")` scan routes an offensive
+   that is absent from `MaxDps.classCooldowns.offensive`. **3.7.8 removed the
+   former `MDBX.MajorCDDeny` denylist** — MAIN now trusts the MaxDps core
+   rotation with no exception; only the game-truth power veto + `MainFallback`
+   filler remain. Stable `addon/MaxDpsBridge/` keeps its frozen deny. See below.
 2. **P-GUARD** (`kind: "guard"`, 40 entries) — `*/Specialization/*.lua`
    patch that replaces the Assisted-Combat suppression branch
    (`if not MaxDps.FrameData.ACSpells or not MaxDps.FrameData.ACSpells[spellID] then`)
@@ -73,34 +77,41 @@ Three layers, in precedence order:
    offensive-table spell-ID moves. Since the new 12.1 IDs are **not known
    offline**, `newSpellId` stays `null`; the patch annotates the stale
    `v11.3.49` row with a comment (`-- P-DATA-0NN stale-v11.3.49 id; 12.1 move
-   pending`) so a future drop/re-capture is obvious. It is a marker, not a
-   fix — the bridge denylist is what corrects behavior today.
+   pending`) so a future drop/re-capture is obvious. It is a marker (and, for
+   the un-comment entries, the actual id routing the fork relies on) — Exp has
+   no bridge denylist.
 
 All three are declared once in `custom/patches.json`. `P-GUARD` and `P-DATA`
-are evaluation-order patches owned by the sync tool; the denylist is Lua that
-the addon loads directly and does not depend on a sync run.
+are evaluation-order patches owned by the sync tool; the bridge Offensive flags
+(`MDBX.FlagOffensiveExtra`) are Lua that the addon loads directly and do not
+depend on a sync run.
 
-## Bridge primary fix: `MajorCooldowns.lua` denylist
+## Bridge Offensive routing: `MajorCooldowns.lua`
 
-`MajorCooldowns.lua` (loaded from the TOC alongside Catalog/Keymap/Reader) sets
-`MDB.MajorCDDeny[id] = true` for two groups:
+In Exp 3.7.8 `MajorCooldowns.lua` (loaded from the TOC alongside
+Catalog/Keymap/Reader) holds **only** `MDBX.FlagOffensiveExtra` — the non-vendor
+ids `Reader.CategoryOf` classifies as `"offensive"` so the
+`FirstFlagged("offensive")` scan still routes them.
 
-- **Needs move (22)** — the stale `v11.3.49` major-CD ids from the move table,
-  kept as a belt-and-braces guard against a stale glow.
-- **Already correct (majors)** — Avatar 107574, Recklessness 1719, Void
-  Eruption 228260, plus the remainder of the current majors: ids that did not
-  move but must still never be encoded as the MAIN rotation slot.
+The former `MDBX.MajorCDDeny` denylist — the stale `v11.3.49` "needs move" set
+and the "already correct" majors (Avatar 107574, Recklessness 1719, Void
+Eruption 228260, …) — and the `GetMainSpellID` deny scan were **removed in
+3.7.8**: MAIN now trusts the MaxDps core rotation with no exception, and the
+only vetoes are game truth (`usable == false AND noPower == true`) plus the
+per-spec `MainFallback` filler. Stable `addon/MaxDpsBridge/` keeps its frozen
+3.7.7 deny. The fork's purpose is now only the vendor offensive-table
+un-comments / id routing (P-DATA below).
 
-Every id was vendor-verified by spell **name** against
-`vendor/MaxDps/SpellData.lua` and `vendor/MaxDps/Cooldowns.lua` (v11.3.49).
-The live 12.1 mapping is OWED.
+Every denylisted id was vendor-verified by spell **name** against
+`vendor/MaxDps/SpellData.lua` and `vendor/MaxDps/Cooldowns.lua` (v11.3.49);
+the live 12.1 mapping is OWED.
 
 There is **no deadlock on an empty Main**: the Offensive slot is an independent
 `MaxDps.Flags` scan (`Reader.GetOffensiveCandidate`) and never routes through
 `GetMainSpellID`. `ActionScheduler` holds only when no candidate of *any* slot
 survives; an empty Main simply makes the Main slot absent and does not veto the
-Offensive candidate. Holds are re-evaluated every tick, so denying a Main pick
-removes exactly one wrong key and cannot strand the rotation.
+Offensive candidate. Holds are re-evaluated every tick, so an empty Main cannot
+strand the rotation.
 
 ## `patches.json`
 
@@ -191,10 +202,10 @@ custom/out/  ──(Sync -PublishTo)──►  <WoW>\_retail_\Interface\AddOns\M
 
 ## Spell-ID move table (22 moves + 1 addition, from the 23 `data` patches)
 
-New 12.1 IDs are **not yet known offline**; `newSpellId` is `null`. The bridge
-denylist is the behavior fix; the vendor data patch is a marker. The 22 moves
-below are stale-id markers; P-DATA-023 is a **new row addition**, not a move
-(see the Additions table after the move table).
+New 12.1 IDs are **not yet known offline**; `newSpellId` is `null`. The vendor
+data patch is the id-routing fix (the bridge denylist is gone in Exp 3.7.8). The
+22 moves below are stale-id markers; P-DATA-023 is a **new row addition**, not a
+move (see the Additions table after the move table).
 
 | Ability | Old ID | Class | Spec |
 |---|---|---|---|
@@ -229,9 +240,10 @@ below are stale-id markers; P-DATA-023 is a **new row addition**, not a move
 
 P-DATA-023 inserts `["Ravager"] = 228920` into the Arms `offensive` table
 (anchored on the commented Sweeping Strikes line) so the vendor glow lands in
-the bridge's Offensive slot. The bridge deny-list (`MDB.MajorCDDeny`) keeps it
-out of Main. This is an **addition**, not one of the 22 move-table entries, so
-the moves count is unchanged.
+the bridge's Offensive slot. Since Exp 3.7.8 removed the denylist, Ravager is no
+longer kept out of Main (the stable bridge's frozen deny still holds it). This
+is an **addition**, not one of the 22 move-table entries, so the moves count is
+unchanged.
 
 Scope is **Arms only.** Fury and Protection both list Ravager in the generated
 `Catalog.lua`, but their vendor `offensive` tables lack it (`Cooldowns.lua`
@@ -245,8 +257,10 @@ Celestial/Incarnation, Ascendance, Infernal, Shadow Blades.
 ## OWED
 
 - [ ] **Live 12.1 id check** — resolve the true 12.1 ids for the 22 moves and
-      the "already correct" majors against a real client; fill `newSpellId`
-      and refresh `MDB.MajorCDDeny`. Static vendor names are not live proof.
+      the "already correct" majors against a real client and fill `newSpellId`.
+      (Exp 3.7.8 deleted `MDBX.MajorCDDeny`; there is no deny table left to
+      refresh, and stable `addon/MaxDpsBridge/` keeps its frozen deny.) Static
+      vendor names are not live proof.
 - [x] **Publish run** — DONE 2026-10-04: `Sync-CustomMaxDps.ps1` end-to-end
       onto the real `AddOns` folder. APPLIED 63 / CONFLICT 0 / FIXED-UPSTREAM
       13; published hash == `custom/out/`; backup

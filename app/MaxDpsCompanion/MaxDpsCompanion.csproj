@@ -17,8 +17,8 @@
     <AssemblyTitle>MaxDPS Companion</AssemblyTitle>
     <Product>MaxDPS Companion</Product>
     <RootNamespace>MaxDpsCompanion</RootNamespace>
-    <Version>3.7.7</Version>
-    <Codename>Gallant</Codename>
+    <Version>3.7.8</Version>
+    <Codename>Steadfast</Codename>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Pixel coordinates must be physical, not DPI-virtualised. -->
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>

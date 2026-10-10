@@ -359,13 +359,11 @@ function MDBX.GetMainSpellID ()
   -- EMPTY + Idle downstream — correct, not a failure.
   local MaxDps = MaxDpsEngine();
   if not MaxDps then return nil; end
-  -- T3 (custom MaxDps 12.1 fork): Majors must never be encoded as MAIN. The
-  -- denylist is our own plain table (MajorCooldowns.lua); scrub only protects
-  -- the upstream tables, the index below is a plain number compare.
-  -- Denying a Main pick cannot deadlock the rotation: the Offensive slot is an
-  -- independent Flags-scan candidate (GetOffensiveCandidate, below) and the
-  -- scheduler holds only when NO slot survives, re-evaluated every tick.
-  local Deny = MDBX.MajorCDDeny;
+  -- 3.7.8 — MaxDps core rotation wins: whatever upstream (MaxDps +
+  -- MaxDps_<Class>) glows or picks encodes as MAIN, including former
+  -- major-cooldown ids; the only game-truth veto is MainUsable (power-starved
+  -- -> fall through to the next glow or the filler). See
+  -- docs/plans/2026-10-10-main-no-deny-3.7.8.md.
   local HadCandidate = false;
   local Glowing = MaxDps.SpellsGlowing;
   if type(Glowing) == "table" then
@@ -376,19 +374,19 @@ function MDBX.GetMainSpellID ()
     end
     local OkScan, Found, HadAny = pcall(function ()
       if type(dropsecretaccess) == "function" then dropsecretaccess(); end
-      -- Q1: collect EVERY non-denied glowing id, sort ascending, then take
-      -- the first still castable. The old lowest-id pick could land on a
-      -- power-starved pick (Rampage with no Rage) and hold the Main slot
-      -- EMPTY; MainUsable skips it and the next glow (Bloodthirst) wins.
-      -- `Any` counts a glow even when denied: an engine that is glowing
-      -- something (major CD / power-starved) must still fall through to the
-      -- spec filler rather than leave a dead Main slot (plan Q1).
+      -- Q1: collect EVERY glowing id, sort ascending, then take the first
+      -- still castable. The old lowest-id pick could land on a power-starved
+      -- pick (Rampage with no Rage) and hold the Main slot EMPTY; MainUsable
+      -- skips it and the next glow (Bloodthirst) wins.
+      -- `Any` counts a glow even when power-starved: an engine that is glowing
+      -- something must still fall through to the spec filler rather than leave
+      -- a dead Main slot (plan Q1).
       local Ids = {};
       local Any = false;
       for ID, On in pairs(Clean) do
         if type(ID) == "number" and ID ~= 0 and On == 1 then
           Any = true;
-          if not (Deny and Deny[ID]) then Ids[#Ids + 1] = ID; end
+          Ids[#Ids + 1] = ID;
         end
       end
       table.sort(Ids);
@@ -402,24 +400,24 @@ function MDBX.GetMainSpellID ()
   end
   local Spell = MaxDps.Spell;
   if type(Spell) == "number" and Spell ~= 0 then
-    if not (Deny and Deny[Spell]) and MainUsable(Spell) then return Spell; end
-    -- A denied or power-starved Spell is still a Main candidate the engine
-    -- named; fall through to the filler rather than return nil (plan Q1).
+    if MainUsable(Spell) then return Spell; end
+    -- A power-starved Spell is still a Main candidate the engine named;
+    -- fall through to the filler rather than return nil (plan Q1).
     HadCandidate = true;
   end
   -- Q1 FALLBACK: the engine was glowing (or naming) a Main candidate, yet
-  -- none survived the denylist + MainUsable — all denied or power-starved.
-  -- Encode the first castable per-spec filler (Fury -> Bloodthirst,
-  -- vendor-verified in MainFallback.lua) instead of a dead Main slot.
-  -- Idle-by-design (no candidate at all) still returns nil; unverified specs
-  -- have no filler and stay EMPTY. MainUsable gates the filler too.
+  -- none survived MainUsable — all power-starved. Encode the first castable
+  -- per-spec filler (Fury -> Bloodthirst, vendor-verified in
+  -- MainFallback.lua) instead of a dead Main slot. Idle-by-design (no
+  -- candidate at all) still returns nil; unverified specs have no filler and
+  -- stay EMPTY. MainUsable gates the filler too.
   if HadCandidate then
     local Fallback = MainFallbackList and MainFallbackList();
     if Fallback then
       for i = 1, #Fallback do
         local Id = Fallback[i];
         if type(Id) == "number" and Id ~= 0
-          and not (Deny and Deny[Id]) and MainUsable(Id) then
+          and MainUsable(Id) then
           return Id;
         end
       end

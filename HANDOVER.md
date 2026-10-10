@@ -1,5 +1,44 @@
 # Handover — MaxDps-Companion
 
+## 2026-10-10 RELEASE 3.7.8 "STEADFAST" (Main = MaxDps core rotation, deny list removed)
+
+STATUS: **Exp bridge behaviour change**, no wire change. MAIN now presses
+whatever the official MaxDps addon (core MaxDps + every `MaxDps_<Class>` module,
+all classes) recommends as its core rotation — `SpellsGlowing` / `MaxDps.Spell`
+— with **no exception**. The `MDBX.MajorCDDeny` major-cooldown deny table is
+**deleted** from `addon/MaxDpsBridgeExp/MajorCooldowns.lua`, and
+`Reader.GetMainSpellID` no longer skips denied ids / rejects a denied
+`MaxDps.Spell`. Only game-truth vetoes remain: `usable == false AND noPower ==
+true` (secret/nil/throw fail open) plus the per-spec `MainFallback` filler.
+Offensive / Defensive / Interrupt routing (`MDBX.FlagOffensiveExtra`) is
+unchanged. New dedicated codename **Steadfast** (Vigil/Warden/Fullcover/
+Holdfast/Onslaught/Reaver/Vindicator/Templar/Gallant are never reused).
+`PROTOCOL` stays at 5 and every cell is byte-identical. Stable
+`addon/MaxDpsBridge/` + `dist\` stay **frozen** at 3.7.7.
+
+CHANGED: `addon/MaxDpsBridgeExp/Reader.lua` (no deny scan),
+`addon/MaxDpsBridgeExp/MajorCooldowns.lua` (`D[]` deleted; only
+`FlagOffensiveExtra` left), `tests/secret_harness.lua` (deny pins inverted),
+identity in `MaxDpsBridgeExp.toc` / `addon/MaxDpsBridgeExp/VERSION.txt` / repo
+`VERSION.txt` (`MDBX.VERSION` 3.7.8-exp), and docs — `README.md`,
+`ARCHITECTURE.md`, `docs/UI.md`, `docs/TESTING.md` §3h, `custom/CUSTOM_FORK.md`,
+`docs/plans/2026-10-10-main-no-deny-3.7.8.md` and this section. Stable
+addon/TOC/VERSION untouched.
+
+VERIFY: docs-only in this pass (no build/test/addon run here). The offline bar
+is run as part of the implementing release — `dotnet build/test -c Release`,
+`lua tests/secret_harness.lua`, `luac -p addon/MaxDpsBridgeExp/*.lua`,
+`pwsh tools/ability_audit.ps1` (see `VERSION.txt` at commit time). Static ≠
+automated test ≠ live in-game.
+
+OWED (live retail 12.1): (1) formerly denied MaxDps core-rotation
+recommendations (e.g. Combustion 190319, Avatar 107574, Ravager 228920) ARE
+pressed as MAIN when MaxDps glows them; (2) Offensive routing unchanged vs 3.7.7
+(`FlagOffensiveExtra` ids still reach the Offensive slot); (3) no stall / never a
+dead MAIN on an off-GCD major or a power-starved glow (falls through to the next
+glow or the filler); (4) record + export + replay 0 mismatches. Static ≠
+automated test ≠ live in-game.
+
 ## CLIENT STATUS: Exp is current, stable is LEGACY
 
 **MaxDpsBridgeExp is the CURRENT client; MaxDpsBridge is LEGACY (frozen).**

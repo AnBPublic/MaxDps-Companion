@@ -24,7 +24,7 @@
 > [`docs/plans/2026-10-10-rust-companion.md`](docs/plans/2026-10-10-rust-companion.md)
 > and [`docs/plans/2026-10-10-gallant-parity.md`](docs/plans/2026-10-10-gallant-parity.md).
 
-# MaxDPS Companion (Retail Midnight 12.1, v3.7.7 "Gallant")
+# MaxDPS Companion (Retail Midnight 12.1, v3.7.8 "Steadfast")
 
 Pixel bridge driver for [kaminaris MaxDps](https://www.curseforge.com/wow/addons/maxdps)
 (vendor pin: MaxDps v11.3.49). No memory read, no injection, no OCR, no LLM.
@@ -37,6 +37,26 @@ Two pieces:
  | :--- | :--- |
  | `MaxDpsBridge` (addon, `addon/MaxDpsBridge/`) | Queries the MaxDps rotation engine each frame and encodes suggestions, ability ids and combat context into a 40-cell strip of flat-coloured pixels (35-cell v5 core + additive Ext2 block). |
  | `MaxDpsCompanion.exe` (desktop app, `app/MaxDpsCompanion/`) | Samples those pixels, decodes the frame, evaluates every situational suggestion (USE / HOLD / SKIP / UNAVAILABLE / UNKNOWN) against an embedded ability intelligence registry + explicit candidate providers, schedules one action at a time, and replays the player's own keybinds into the attached game window. |
+
+## v3.7.8 "Steadfast" — MAIN trusts the MaxDps core rotation (deny list removed, no wire change)
+
+A behaviour change in the **Exp bridge** (`MaxDpsBridgeExp`) with **no protocol
+change**: `PROTOCOL` stays at 5 and every cell is byte-identical. The MAIN slot
+now presses **every ability the official MaxDps addon recommends as its core
+rotation** — core MaxDps plus every `MaxDps_<Class>` module, all classes — with
+no exception. The former `MDBX.MajorCDDeny` major-cooldown denylist
+(`addon/MaxDpsBridgeExp/MajorCooldowns.lua`) is removed, so a recommendation the
+addon glows as its core rotation (e.g. Combustion 190319, Avatar 107574,
+Ravager 228920) is encoded as MAIN. The only remaining veto is game truth:
+`usable == false AND noPower == true` (secret/nil/throw fail open), plus the
+per-spec `MainFallback` filler so MAIN is never dead. Offensive / Defensive /
+Interrupt routing (`MDBX.FlagOffensiveExtra`) is unchanged. The stable bridge
+(`addon/MaxDpsBridge/`) and `dist\` stay **frozen** at 3.7.7; only
+`MaxDpsBridgeExp` + `dist-exp` move to 3.7.8. New dedicated codename
+**Steadfast** (Vigil/Warden/Fullcover/Holdfast/Onslaught/Reaver/Vindicator/
+Templar/Gallant are never reused). Live retail validation is **OWED**: formerly
+denied core-rotation ids must be observed pressed as MAIN, with no stall.
+Static ≠ automated test ≠ live in-game.
 
 ## v3.7.7 "Gallant" — version-only identity bump (no behaviour or wire change)
 

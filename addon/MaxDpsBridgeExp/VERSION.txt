@@ -1,3 +1,17 @@
+3.7.8-exp
+date: 2026-10-10 "Steadfast"
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED — same 43-cell protocol v5 wire as the stable bridge.
+v3.7.8-exp: Companion 3.7.8 "Steadfast" / bridge 3.7.8-exp. Main now presses
+          every ability the official MaxDps addon (core MaxDps + all
+          MaxDps_<Class> modules) recommends as its core rotation; the
+          bridge-side major-cooldown denylist (MDBX.MajorCDDeny) is removed
+          with no exception; Main is still vetoed only by game truth
+          (usable==false AND noPower==true) with the per-spec MainFallback
+          filler fall-through; Offensive/Defensive/Interrupt routing unchanged;
+          stable MaxDpsBridge stays frozen at 3.7.7.
+
 3.7.7-exp
 date: 2026-10-07 "Gallant"
 git: <commit placeholder - fill at release>

@@ -1,3 +1,16 @@
+3.7.8
+Date: 2026-10-10 — "Steadfast"
+Companion 3.7.8 "Steadfast" / bridge 3.7.8 (exp 3.7.8-exp). Behavior change:
+MAIN presses every ability the official MaxDps addon (core + all MaxDps_<Class>
+modules) recommends as its core rotation — the bridge-side major-cooldown
+denylist is removed with no exception; Main is still vetoed only by game truth
+(not usable AND no power) with the per-spec MainFallback filler. Offensive/
+Defensive/Interrupt routing unchanged. New dedicated codename (Vigil/Warden/
+Fullcover/Holdfast/Onslaught/Reaver/Vindicator/Templar/Gallant are never
+reused). Protocol UNCHANGED: v5 core (35 cells, nibble 5) + Ext2 (40) + Ext3
+(43) stay byte-identical. Stable MaxDpsBridge + dist\ stay frozen at 3.7.7.
+The title bar reads "MaxDPS Companion v3.7.8 Steadfast".
+
 3.7.7
 Date: 2026-10-07 — "Gallant"
 Companion 3.7.7 "Gallant" / bridge 3.7.7 (exp 3.7.7-exp). Version-only identity

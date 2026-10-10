@@ -14,7 +14,7 @@ Vendor discovery (read-only): MaxDps:GlowDefensiveHPMidnight (Buttons.lua:1056)
   curve's own control points — see docs/research/ABILITY_RESEARCH.md §6.
        │
        ▼
-MaxDpsBridge addon — 43-cell pixel strip (bridge 3.7.7; v5 + Ext2 layout
+MaxDpsBridge addon — 43-cell pixel strip (bridge 3.7.8; v5 + Ext2 layout
   unchanged from 3.0.0, Ext3 shipped by T1/T2). Ext3: a 43-cell strip
   (cells 40-42 = 14-bit app toggle mask + epoch + blocked nibble + cell-42
   checksum/commit, presence cell 28 B bit2); a pre-3.5 companion ignores it
@@ -370,24 +370,28 @@ vendor/ (read-only) ──► custom/upstream-pristine/ ──► custom/patches
                                               custom/out/  ──► AddOns
                                               (generated, reversible)
 
-addon/MaxDpsBridge/MajorCooldowns.lua  MDB.MajorCDDeny
-        └─► Reader.GetMainSpellID: skip denied ids in the SpellsGlowing scan,
-            reject a denied MaxDps.Spell → MAIN never carries a major CD
+addon/MaxDpsBridgeExp/MajorCooldowns.lua  MDBX.FlagOffensiveExtra
+        └─► Reader.CategoryOf: classify a non-vendor id as "offensive" so the
+            FirstFlagged("offensive") scan still routes it → Offensive slot
 ```
 
-The fork corrects 12.1 stale major-cooldown ids without editing `vendor/`.
-`MDB.MajorCDDeny` is the runtime fix and needs no sync run; `custom/out/` is
-an optional, reversible vendor patch set for the same symptom. P-DATA-023
-(2026-10-04) additionally inserts Ravager 228920 into the Arms `offensive`
-table — an **addition**, not an id move — so the vendor glow reaches the
-bridge's Offensive slot while `MDB.MajorCDDeny` keeps it out of Main. P-DATA-024
-(2026-10-06) applies the same addition pattern to Divine Toll 375576 in the
-Retribution `offensive` table (not denied from Main: a 60 s on-GCD core button
-may legitimately be a Main suggestion). Scope is
-**Arms only**: Fury/Protection list Ravager in the bridge catalog but their
-vendor `offensive` tables lack it, so adding those is a separate patch if
-wanted. Neither changes the wire: cells, `PROTOCOL_VERSION` and the bridge
-encoder are untouched. See `custom/CUSTOM_FORK.md` and `docs/TESTING.md` §3h.
+`MajorCooldowns.lua` now holds **only** `MDBX.FlagOffensiveExtra` (Offensive
+routing). The former `MDBX.MajorCDDeny` deny table and the `GetMainSpellID`
+deny scan were **removed in 3.7.8**: MAIN trusts the MaxDps core rotation (core
+MaxDps + every `MaxDps_<Class>` module) with no exception; the only remaining
+veto is game truth (`usable == false AND noPower == true`) plus the per-spec
+`MainFallback` filler. The vendor fork still corrects 12.1 stale major-cooldown
+ids without editing `vendor/`; `custom/out/` is an optional, reversible vendor
+patch set. P-DATA-023 (2026-10-04) inserts Ravager 228920 into the Arms
+`offensive` table — an **addition**, not an id move — so the vendor glow reaches
+the bridge's Offensive slot (previously also kept out of Main by the deny table;
+no longer). P-DATA-024 (2026-10-06) applies the same addition pattern to Divine
+Toll 375576 in the Retribution `offensive` table (never denied from Main: a 60 s
+on-GCD core button may legitimately be a Main suggestion). Scope is **Arms
+only**: Fury/Protection list Ravager in the bridge catalog but their vendor
+`offensive` tables lack it, so adding those is a separate patch if wanted.
+Neither changes the wire: cells, `PROTOCOL_VERSION` and the bridge encoder are
+untouched. See `custom/CUSTOM_FORK.md` and `docs/TESTING.md` §3h.
 
 ## No-downtime MAIN (bridge + scheduler, no wire change)
 
@@ -396,13 +400,14 @@ Neither the pixel layout nor `PROTOCOL_VERSION` changes; the pipeline is:
 
 ```
 Reader.GetMainSpellID (addon; only what MaxDps already glows)
-  └─ collect every glowing id (On == 1), drop MDB.MajorCDDeny, sort ascending
+  └─ collect every glowing id (On == 1), sort ascending — no deny list
+     (MDBX.MajorCDDeny removed 3.7.8; MAIN trusts the MaxDps core rotation)
        └─ first id with C_Spell.IsSpellUsable (power veto only:
           usable==false AND noPower==true; secret/nil/throw fail OPEN) ──► MAIN
-       └─ all denied/power-starved ⇒ MDB.MainFallback[specID | "CLASS:Spec"]
-          (MainFallback.lua; Fury 72 / "WARRIOR:Fury" → Bloodthirst 23881;
-          Ret 70 / "PALADIN:Retribution" → Judgment 20271, Blade of Justice
-          184575, Crusader Strike 35395) ──► MAIN
+       └─ all power-starved (or none glowing) ⇒ MDBX.MainFallback[specID |
+          "CLASS:Spec"] (MainFallback.lua; Fury 72 / "WARRIOR:Fury" →
+          Bloodthirst 23881; Ret 70 / "PALADIN:Retribution" → Judgment 20271,
+          Blade of Justice 184575, Crusader Strike 35395) ──► MAIN
        └─ no candidate at all / unlisted spec ⇒ nil (idle by design)
 
 ActionScheduler (companion)
@@ -790,24 +795,23 @@ MaxDps-Companion/
                               with InterfaceOptions_AddCategory fallback);
                               `/mdb toggles` opens it, `/mdb overlay on|off`
                               shows/hides the overlay, optional minimap button
-     MajorCooldowns.lua       custom MaxDps 12.1 fork (T3): `MDB.MajorCDDeny`
-                              table of stale/current major-CD ids. GetMainSpellID
-                              skips every denied id in the SpellsGlowing scan
-                              (Reader.lua:332-355) and rejects a denied
-                              MaxDps.Spell, so a stale glow or a 2-3 min CD is
-                              never encoded as the MAIN slot; the Offensive slot
-                              is an independent Flags-scan, so an empty Main
-                              cannot deadlock the rotation. 2026-10-04: 167105
-                              Colossus Smash UN-denied (vendor/live-verified as a
-                              ~45 s Arms rotation button), 228920 Ravager denied
-                              for MAIN and added to the new
-                               `MDB.FlagOffensiveExtra` (228920 Ravager). Reader
-                              CategoryOf maps a flagged id to "offensive" so the
-                              Flags scan still routes it though it is absent from
-                              `MaxDps.classCooldowns.offensive`. 2026-10-06 adds
-                              375576 Divine Toll to the flag and deliberately
-                              NOT to D (60 s on-GCD core button). Bridge-side
-                              PRIMARY fix; no vendor edit, no wire change.
+     MajorCooldowns.lua       Exp Offensive routing only (3.7.8): the former
+                              `MDBX.MajorCDDeny` deny table + the
+                              `GetMainSpellID` deny scan were removed — MAIN
+                              trusts the MaxDps core rotation with no exception
+                              (only the power veto + MainFallback remain). The
+                              file now holds only `MDBX.FlagOffensiveExtra`.
+                              Reader CategoryOf maps a flagged id to "offensive"
+                              so the Flags scan routes it even though it is
+                              absent from `MaxDps.classCooldowns.offensive`
+                              (2026-10-04: 228920 Ravager; 2026-10-06: 375576
+                              Divine Toll — a 60 s on-GCD core button, so Main
+                              keeps it; 2026-10-07: the R1/R2 audit set). The
+                              Offensive slot is an independent Flags-scan, so an
+                              empty Main cannot deadlock the rotation.
+                              Bridge-side fix; no vendor edit, no wire change.
+                              Stable `addon/MaxDpsBridge/` keeps its frozen
+                              3.7.7 deny.
      MainFallback.lua         no-downtime MAIN fallback (plan 2026-10-03): when
                               every non-denied Main glow is denied/power-starved,
                               Reader returns the first castable per-spec filler
@@ -1366,8 +1370,8 @@ MaxDps-Companion/
   canvas, so it stays the default opaque view over the classic body — no
   background menu or ring peeks at any edge. No wire/format change;
   `PROTOCOL_VERSION` stays 5 and the Ext3 layout is byte-identical.
-  **3.7.7 "Gallant"** is the release; the title renders
-  `v3.7.7 Gallant` and `InstallDoctor` agrees with the bridge 3.7.7.
+  **3.7.8 "Steadfast"** is the release; the title renders
+  `v3.7.8 Steadfast` and `InstallDoctor` agrees with the Exp bridge 3.7.8.
 - **M-route unified mask (UI only, no wire change).** `MainForm.BuildUnifiedPopup`
   is the single shell every mask must call (opaque scrim + `RoundedCard` +
   `SegmentedTabs`, main-window tokens). `Center` fills `client-24 × client-24`

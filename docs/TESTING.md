@@ -363,38 +363,34 @@ the estimate/history takes over and the major fires on a long fight.
 `WarmupSec=0` reproduces the legacy fail-open exactly; the setting is recorded
 as `ttkw` and the replay must reproduce the hold.
 
-### 3h. Custom MaxDps 12.1 fork acceptance (live 12.1 retail, OWED)
+### 3h. Main = MaxDps core rotation, deny list removed (3.7.8; live 12.1 retail, OWED)
 
-Offline evidence is static only — `luac -p addon/MaxDpsBridge/*.lua`, the T2
-fixture suite (`pwsh tests/sync/Sync-CustomMaxDps.Tests.ps1`) and the
-`MDB.MajorCDDeny` table — never live proof. There is no automated in-game test
-for the fork. Observe in a real client with the bridge 3.7.7 addon loaded
-(`/reload`, `/mdb status` shows `protocol=5`):
+Offline evidence is static only — `luac -p addon/MaxDpsBridgeExp/*.lua`, `lua
+tests/secret_harness.lua` (the former `MDBX.MajorCDDeny` pins are inverted for
+3.7.8) and the `MDBX.FlagOffensiveExtra` routing checks — never live proof.
+There is no automated in-game test. Observe in a real client with the Exp bridge
+**3.7.8** addon loaded (`/reload`, `/mdb status` shows `protocol=5`):
 
-1. **Avatar / Combustion no longer Main.** Play a Warrior and a Fire Mage with
-   the relevant major off cooldown; while MaxDps suggests the major, the MAIN
-   slot must **not** encode it (`MDB.GetMainSpellID` returns the next allowed
-   source or nil). Diagnostics/plan must never show a 2-3 min cooldown as the
-   Main rotation pick.
-2. **Offensive fires the moved CDs.** The same major must still fire through
-   the **Offensive** slot when ready and policy-Use (`Reader.GetOffensiveCandidate`
-   → `FirstFlagged("offensive")`), independent of the denied Main pick.
-3. **No stall on a denied AC pick.** Hold the rotation on an Assisted-Combat
-   pick that is denied: the bridge must fall through to the next allowed
-   source, and an empty Main must not block the Offensive candidate or latch a
-   hold. Confirm the next tick re-evaluates (a hold is non-latching) and the
-   rotation resumes with no extra delay.
-4. **Fork vs stock after `/reload`.** With the custom `out/` tree published
-   into `AddOns`, `/reload` and confirm the denylist is active (no major as
-   Main, Offensive still works); swap back to stock MaxDps, `/reload`, and
-   confirm the pre-fork behavior (major may be encoded as Main). This is the
-   A/B that proves the fork, not the companion, fixed it.
-5. Record + export + replay the run: 0 mismatches for decisions and policy
+1. **Formerly denied core-rotation recommendations ARE Main.** Play a Warrior
+   and a Fire Mage with the relevant ability available; while MaxDps glows it as
+   its core rotation, the MAIN slot must encode it (e.g. Avatar 107574,
+   Combustion 190319, Ravager 228920). There is no denylist, no exception.
+2. **Offensive routing unchanged vs 3.7.7.** The same ids must still fire
+   through the **Offensive** slot when ready and policy-Use
+   (`Reader.GetOffensiveCandidate` → `FirstFlagged("offensive")`, via
+   `MDBX.FlagOffensiveExtra`); Offensive / Defensive / Interrupt are untouched.
+3. **No dead Main.** A power-starved glow (`usable == false AND noPower ==
+   true`) must fall through to the next glow, or to the per-spec `MainFallback`
+   filler, never stranding the slot. Secret/nil/throw fail open. An off-GCD
+   major must not stall the rotation, and a hold is non-latching.
+4. Record + export + replay the run: 0 mismatches for decisions and policy
    verdicts.
 
-Also OWED: the true 12.1 ids (fill `newSpellId` / refresh `MDB.MajorCDDeny`)
-and the `Sync-CustomMaxDps.ps1` publish + `_backup/` rollback end-to-end.
-Static ≠ automated test ≠ live in-game.
+Also OWED: the true 12.1 ids (fill `newSpellId`; the `MDBX.MajorCDDeny` table is
+**gone in Exp 3.7.8** — Main now trusts the MaxDps core rotation — while stable
+`addon/MaxDpsBridge/` keeps its frozen deny) and the `Sync-CustomMaxDps.ps1`
+publish + `_backup/` rollback end-to-end. Static ≠ automated test ≠ live
+in-game.
 
 ### 3i. No-downtime MAIN / Fury fallback (live 12.1 retail, OWED)
 
@@ -405,7 +401,7 @@ stationary no-op ticks keep every gap; no filler is invented when `ranked==0`)
 plus the Q1 block in `lua tests/secret_harness.lua` (glowing∩usable scan,
 denied/power-starved fall-through, per-spec filler, fail-open on secret/nil/
 throw) — never live proof. Observe in a real client with a Fury Warrior and the
-bridge 3.7.7 addon loaded:
+bridge 3.7.8 addon loaded:
 
 1. **Rampage only at Rage ≥ 80.** While Rampage (184367) is suggested but the
    player is below 80 Rage, it must **not** be pressed; the MAIN slot carries
@@ -430,7 +426,7 @@ Main no MinInterval wait after a different slot/spell; identical repeat held
 exactly `MinKeyIntervalMs`; Main failure sets no `_failedUntil`; SawGcd resets
 the cap; non-Main backoff unchanged; GCD/cast/range/melee/NoTarget still hold;
 fallback Main identical) — never live proof. Observe in a real client with the
-bridge 3.7.7 addon loaded, Intelligence ON, Main toggle ON:
+bridge 3.7.8 addon loaded, Intelligence ON, Main toggle ON:
 
 1. **Main first tick post-GCD.** With an enemy in range + sight and a WHITE
    core suggestion live, the Main key is sent on the first tick after the GCD

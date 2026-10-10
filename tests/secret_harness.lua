@@ -420,13 +420,14 @@ check("T3 Combustion (needs-move) is denied", MDB.MajorCDDeny[190319] == true)
 check("T3 Avatar (already-correct) is denied", MDB.MajorCDDeny[107574] == true)
 check("T3 non-major id is not denied", MDB.MajorCDDeny[185358] ~= true)
 
--- (a) a denied glow is the ONLY glow -> never the denied id. Since
--- 2026-10-04 Arms (the harness spec) has a filler, Main falls through to it.
+-- (a) 3.7.8: a former-deny glow is now the MAIN pick — MaxDps's core rotation
+-- is authoritative and the only veto is MainUsable (here usable), so the glow
+-- encodes directly instead of falling through to the Arms filler.
 MaxDps.SpellsGlowing = { [190319] = 1 }
 MaxDps.Spell = nil
 ok, ready = pcall(MDBX.GetMainSpellID)
-check("T3 denied glow only -> Arms filler, never the denied id",
-  ok and ready == 12294 and ready ~= 190319)
+check("Exp former-deny glow only -> encoded as MAIN",
+  ok and ready == 190319 and ready ~= 12294)
 
 -- (b) denied glow LOWER than a kept glow: without the denylist the scan would
 -- return the denied 1719; with it the non-denied 185358 wins.
@@ -435,13 +436,13 @@ MaxDps.Spell = nil
 ok, ready = pcall(MDB.GetMainSpellID)
 check("T3 denied glow skipped, non-denied kept", ok and ready == 185358)
 
--- (c) a denied MaxDps.Spell is rejected (falls to the Arms filler); a
+-- (c) a former-deny MaxDps.Spell is likewise encoded as MAIN (no deny), while a
 -- non-denied Spell is still kept.
 MaxDps.SpellsGlowing = nil
 MaxDps.Spell = 107574
 ok, ready = pcall(MDBX.GetMainSpellID)
-check("T3 denied MaxDps.Spell rejected -> Arms filler, never the denied id",
-  ok and ready == 12294 and ready ~= 107574)
+check("Exp former-deny MaxDps.Spell -> encoded as MAIN",
+  ok and ready == 107574 and ready ~= 12294)
 MaxDps.Spell = 185358
 ok, ready = pcall(MDB.GetMainSpellID)
 check("T3 non-denied MaxDps.Spell kept", ok and ready == 185358)
@@ -1094,8 +1095,8 @@ MaxDps.db.global.enableCooldowns = true
 -- 2026-10-04 arms-fury-exec-fix: Ravager 228920 is absent from MaxDps's
 -- static classCooldowns.offensive, so CategoryOf only classifies it through
 -- MDB.FlagOffensiveExtra (MajorCooldowns.lua). A flagged Ravager is now the
--- Offensive candidate (a MaxDps-wire pick, not a gap-fill), while the denylist
--- still keeps it out of the MAIN slot.
+-- Offensive candidate (a MaxDps-wire pick, not a gap-fill); as of 3.7.8 it is
+-- also a valid MAIN pick (the denylist is gone).
 MaxDps.classCooldowns.WARRIOR.Arms.offensive = {}
 MaxDps.Spells[228920] = { { HotKey = { GetText = function() return "F" end } } }
 MDBX._BindCache = {}
@@ -1104,8 +1105,20 @@ MDBX.BeginTick()
 local ravCand, ravGap = MDBX.GetOffensiveCandidate()
 check("rv Ravager flagged -> offensive candidate 228920",
   ravCand == 228920 and ravGap == false)
-check("rv MajorCDDeny holds Ravager out of Main",
-  MDBX.MajorCDDeny ~= nil and MDBX.MajorCDDeny[228920] == true)
+check("rv Exp has no MajorCDDeny table", MDBX.MajorCDDeny == nil)
+-- 3.7.8: a Ravager glow is no longer held out of Main — with Arms active and
+-- the glow usable, GetMainSpellID encodes 228920 directly.
+do
+  local savedGlow = MaxDps.SpellsGlowing
+  local savedSpell = MaxDps.Spell
+  MaxDps.SpellsGlowing = { [228920] = 1 }
+  MaxDps.Spell = nil
+  MDBX.BeginTick()
+  local okMain, rvMain = pcall(MDBX.GetMainSpellID)
+  check("rv Ravager glow -> MAIN 228920 (no deny)", okMain and rvMain == 228920)
+  MaxDps.SpellsGlowing = savedGlow
+  MaxDps.Spell = savedSpell
+end
 MaxDps.Flags = {}
 
 -- 2026-10-06 divine-toll: Divine Toll 375576 is likewise absent from MaxDps's
@@ -2032,29 +2045,30 @@ local function RunMainFallbackTests ()
   local ok8, id8 = pcall(MDB.GetMainSpellID)
   check("MF throwing usability -> fail open, glow kept", ok8 and id8 == 185358)
 
-  -- (7) denied ids are still never returned: a usable glow beside a denied
-  --     one wins, and an all-denied glow (Fury) falls through to the filler.
+  -- (7) 3.7.8: former-deny ids are ordinary Main candidates now. With both
+  --     190319 and 185358 glowing and usable, the ascending sort returns the
+  --     lower usable id 185358; a lone 190319 glow returns 190319.
   Usability({})
-  MaxDps.SpellsGlowing = { [190319] = 1, [185358] = 1 }   -- 190319 denied
+  MaxDps.SpellsGlowing = { [190319] = 1, [185358] = 1 }
   MaxDps.Spell = nil
   MDB.BeginTick()
   local ok9, id9 = pcall(MDB.GetMainSpellID)
-  check("MF denied glow skipped, usable glow wins", ok9 and id9 == 185358)
-  MaxDps.SpellsGlowing = { [190319] = 1 }                 -- denied only
+  check("MF lower usable glow wins (no deny)", ok9 and id9 == 185358)
+  MaxDps.SpellsGlowing = { [190319] = 1 }                 -- former deny id only
   MDB.BeginTick()
   local ok10, id10 = pcall(MDB.GetMainSpellID)
-  check("MF denied-only glow -> filler, never the denied id", ok10 and id10 == 23881)
+  check("MF former-deny-only glow -> encoded as MAIN", ok10 and id10 == 190319)
 
-  -- (8) denied-only MaxDps.Spell (no glow at all) also routes the fallback:
-  --     the engine named a denied major, so a dead Main slot is still wrong.
+  -- (8) a former-deny MaxDps.Spell (no glow at all) is encoded as MAIN too:
+  --     3.7.8 trusts the engine's named pick when it is usable.
   MaxDps.SpellsGlowing = nil
-  MaxDps.Spell = 190319                                   -- denied only
+  MaxDps.Spell = 190319                                   -- former deny id only
   MDB.BeginTick()
   local ok11, id11 = pcall(MDB.GetMainSpellID)
-  check("MF denied-only Spell -> filler, never the denied id", ok11 and id11 == 23881)
+  check("MF former-deny Spell -> encoded as MAIN", ok11 and id11 == 190319)
 
-  -- (9) 2026-10-04 arms-fury-exec-fix: Arms now has a filler and Colossus
-  --     Smash 167105 is no longer denied.
+  -- (9) 2026-10-04 arms-fury-exec-fix: Arms has a filler and Colossus Smash
+  --     167105 is a normal Main candidate (former deny id).
   GetSpecializationInfo = function() return 71 end   -- Arms
   Usability({})
   -- (a) a plain Colossus Smash glow is encoded as Main (deny removed).
@@ -2064,17 +2078,17 @@ local function RunMainFallbackTests ()
   local ok12, id12 = pcall(MDB.GetMainSpellID)
   check("MF Arms glow 167105 (Colossus Smash) no longer denied", ok12 and id12 == 167105)
 
-  -- (b) a denied-only glow routes to the Arms filler Mortal Strike 12294.
-  MaxDps.SpellsGlowing = { [190319] = 1 }   -- denied Mage major
+  -- (b) a former-deny glow is encoded as MAIN, not routed to the Arms filler.
+  MaxDps.SpellsGlowing = { [190319] = 1 }   -- former Mage major deny id
   MDB.BeginTick()
   local ok13, id13 = pcall(MDB.GetMainSpellID)
-  check("MF Arms denied-only glow -> Arms fallback 12294", ok13 and id13 == 12294)
+  check("MF Arms former-deny glow -> MAIN 190319", ok13 and id13 == 190319)
 
-  -- (c) Ravager 228920 is denied as Main and falls to the Arms filler.
+  -- (c) Ravager 228920 is a former deny id; a usable glow now encodes as MAIN.
   MaxDps.SpellsGlowing = { [228920] = 1 }
   MDB.BeginTick()
   local ok14, id14 = pcall(MDB.GetMainSpellID)
-  check("MF Arms Ravager-only glow -> fallback, never 228920", ok14 and id14 == 12294)
+  check("MF Arms Ravager-only glow -> MAIN 228920", ok14 and id14 == 228920)
   GetSpecializationInfo = function() return 72 end
 
   MaxDps.SpellsGlowing = savedGlow
