@@ -277,10 +277,41 @@ internal static class Native
         {
             var v = typeof(Native).Assembly.GetName().Version;
             if (v is null) return "dev";
-            // 3-part display (1.3.4), dropping the always-zero Revision.
-            return $"{v.Major}.{v.Minor}.{v.Build}";
+            // 4-part display when a patch revision is set (e.g. 3.5.2.2); the
+            // always-zero Revision is still dropped for the classic 3-part
+            // display (1.3.4).
+            return v.Revision > 0
+                ? $"{v.Major}.{v.Minor}.{v.Build}.{v.Revision}"
+                : $"{v.Major}.{v.Minor}.{v.Build}";
         }
     }
+
+    /// <summary>
+    /// Release codename, SINGLE-SOURCED from csproj &lt;Codename&gt; via the
+    /// AssemblyMetadata attribute (see the csproj). Falls back to the shipped
+    /// "Unyielding" if the attribute is somehow absent (e.g. an old exe built
+    /// before the wiring), so the title can never render a bare "v3.7.9 ".
+    /// </summary>
+    internal static string Codename
+    {
+        get
+        {
+            var attr = typeof(Native).Assembly
+                .GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), inherit: false)
+                .OfType<System.Reflection.AssemblyMetadataAttribute>()
+                .FirstOrDefault(a => string.Equals(a.Key, "Codename", StringComparison.OrdinalIgnoreCase));
+            return string.IsNullOrWhiteSpace(attr?.Value) ? CodenameFallback : attr!.Value;
+        }
+    }
+
+    private const string CodenameFallback = "Unyielding";
+
+    /// <summary>
+    /// Full display form used by the title bar: "v3.7.9 Unyielding" (the "v"
+    /// prefix plus the single-sourced version and codename). Never contains a
+    /// build hash/time — those live in the Advanced Diagnostics install doctor.
+    /// </summary>
+    internal static string DisplayVersion => $"v{AppVersion} {Codename}";
 
     // ----- global hotkey -----
 

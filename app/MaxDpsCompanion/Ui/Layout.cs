@@ -270,8 +270,8 @@ internal sealed class BentoSplit : Panel, IUiMeasured
     public int ColumnGap { get; set; } = DesignTokens.SpaceL;
     public int RowGap { get; set; } = DesignTokens.SpaceL;
 
-    public VertStack Left { get; } = new();
-    public VertStack Right { get; } = new();
+    public new VertStack Left { get; } = new();
+    public new VertStack Right { get; } = new();
     public VertStack Full { get; } = new();
 
     public BentoSplit()

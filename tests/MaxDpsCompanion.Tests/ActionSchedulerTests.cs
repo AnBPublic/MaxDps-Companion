@@ -59,6 +59,7 @@ public class ActionSchedulerTests
     private static ScheduleInput Input(long now, BridgeFrame? frame, params ActionCandidate[] candidates) => new()
     {
         Frame = frame,
+        OutOfCombatPermitted = true,
         Candidates = candidates,
         NowMs = now,
         MinKeyIntervalMs = 120,
@@ -282,14 +283,17 @@ public class ActionSchedulerTests
     [Fact]
     public void All_Stale_Candidates_Keep_Order_Without_Deadlock()
     {
-        var frame = Frame([(Slot.Main, KeyE), (Slot.Defensive, KeyX)]);
+        // T4 (main-immediate): Main is never stale-demoted, so the all-stale
+        // deadlock contract is pinned on two non-Main slots. The defensively
+        // higher Defensive keeps its place ahead of the Offensive.
+        var frame = Frame([(Slot.Defensive, KeyX), (Slot.Offensive, KeyR)]);
         var plan = new ActionScheduler().Advance(Input(10_000, frame,
             Candidate(Slot.Defensive, KeyX, everPressed: true, lastChangedMs: 0),
-            Candidate(Slot.Main, KeyE, everPressed: true, lastChangedMs: 0)));
+            Candidate(Slot.Offensive, KeyR, everPressed: true, lastChangedMs: 0)));
 
-        Assert.Equal([Slot.Defensive, Slot.Main], plan.Actions.Select(a => a.Slot).ToArray());
+        Assert.Equal([Slot.Defensive, Slot.Offensive], plan.Actions.Select(a => a.Slot).ToArray());
         Assert.False(plan.StaleDemoted);
-        Assert.True(plan.Confidence <= 40); // 70 base - 40 stale penalty
+        Assert.True(plan.Confidence <= 40); // 80 base - 40 stale penalty
     }
 
     // ---------- target / paused state ----------

@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "class": "DRUID",
+  "note": "S3a verified taxonomy overlay (schema 1). Routes gap-closers/CC/defensives/self-sustain only; never Main. Defensive tiers: minor = Yellow+, major = Red, immunity = last resort. CC stuns/silences are gated to casting/fleeing non-boss targets; incapacitates/fears/roots stay manual in groups. Never-automatic abilities stay Never whatever this file says. Every Auto/Suggest id is verified against spell-verification.json.",
+  "entries": [
+    { "spellId": 102401, "role": "Mobility", "route": "Mobility", "emergencyEscape": false, "offGcd": false, "mode": "Auto", "minUrgency": 0, "notes": "Wild Charge: gap-closer only when the target is confirmed out of melee and in range; never toward hazards/raid bosses." },
+    { "spellId": 1850, "role": "Mobility", "route": "Mobility", "emergencyEscape": true, "offGcd": true, "mode": "Auto", "minUrgency": 0, "notes": "Dash: escape/sprint; breaks roots and kites out of danger." },
+    { "spellId": 252216, "role": "Mobility", "route": "Mobility", "emergencyEscape": true, "offGcd": true, "mode": "Suggest", "minUrgency": 0, "notes": "Tiger Dash: emergency escape/sprint; offered, not auto-fired." },
+    { "spellId": 106898, "role": "Mobility", "route": "Mobility", "emergencyEscape": false, "offGcd": true, "mode": "Suggest", "minUrgency": 0, "notes": "Stampeding Roar: group speed; manual." },
+    { "spellId": 106839, "role": "Utility", "route": "Interrupt", "emergencyEscape": false, "offGcd": true, "mode": "Auto", "minUrgency": 0, "notes": "Skull Bash: interrupt/kick only on a live enemy cast; MaxDps's interrupt claim wins the slot first." },
+    { "spellId": 33786, "role": "CC", "route": "Interrupt", "emergencyEscape": false, "offGcd": false, "mode": "Never", "minUrgency": 0, "notes": "Cyclone: never-automatic list." },
+    { "spellId": 339, "role": "CC", "route": "Interrupt", "emergencyEscape": false, "offGcd": false, "mode": "Suggest", "minUrgency": 0, "notes": "Entangling Roots: root; manual in groups." },
+    { "spellId": 5211, "role": "CC", "route": "Interrupt", "emergencyEscape": false, "offGcd": false, "mode": "Auto", "minUrgency": 0, "notes": "Mighty Bash: stun; casting/fleeing non-boss targets only." },
+    { "spellId": 99, "role": "CC", "route": "Interrupt", "emergencyEscape": false, "offGcd": false, "mode": "Suggest", "minUrgency": 0, "notes": "Incapacitating Roar: incapacitate; manual in groups." },
+    { "spellId": 102793, "role": "CC", "route": "Interrupt", "emergencyEscape": false, "offGcd": false, "mode": "Suggest", "minUrgency": 0, "notes": "Ursol's Vortex: root vortex; manual." },
+    { "spellId": 102359, "role": "CC", "route": "Interrupt", "emergencyEscape": false, "offGcd": false, "mode": "Suggest", "minUrgency": 0, "notes": "Mass Entanglement: AoE root; manual in groups." },
+    { "spellId": 2908, "role": "Utility", "route": "Defensive", "emergencyEscape": false, "offGcd": true, "mode": "Never", "minUrgency": 0, "notes": "Soothe: enemy enrage dispel; never automatic." },
+    { "spellId": 20484, "role": "Utility", "route": "Defensive", "emergencyEscape": false, "offGcd": true, "mode": "Never", "minUrgency": 0, "notes": "Rebirth: battle rez; never-automatic list." },
+    { "spellId": 61336, "role": "Major", "route": "Defensive", "emergencyEscape": false, "offGcd": true, "mode": "Auto", "minUrgency": 4, "notes": "Survival Instincts: major defensive; Red." },
+    { "spellId": 102342, "role": "Major", "route": "Defensive", "emergencyEscape": false, "offGcd": true, "mode": "Never", "minUrgency": 4, "notes": "Ironbark: external ally defensive; manual (no observable ally state)." },
+    { "spellId": 22812, "role": "Minor", "route": "Defensive", "emergencyEscape": false, "offGcd": true, "mode": "Auto", "minUrgency": 2, "notes": "Barkskin: minor mitigation; Yellow+." },
+    { "spellId": 192081, "role": "Minor", "route": "Defensive", "emergencyEscape": false, "offGcd": false, "mode": "Auto", "minUrgency": 2, "notes": "Ironfur: Guardian active mitigation; Yellow+." },
+    { "spellId": 22842, "role": "Minor", "route": "Defensive", "emergencyEscape": false, "offGcd": false, "mode": "Auto", "minUrgency": 2, "notes": "Frenzied Regeneration: solo HP-ladder heal at/below 65% HP." },
+    { "spellId": 108238, "role": "Major", "route": "Defensive", "emergencyEscape": false, "offGcd": true, "mode": "Auto", "minUrgency": 3, "notes": "Renewal: solo HP-ladder heal at/below 50% HP." },
+    { "spellId": 8936, "role": "Utility", "route": "Defensive", "emergencyEscape": false, "offGcd": false, "mode": "Suggest", "minUrgency": 2, "notes": "Regrowth: on-GCD heal; solo at/below 65% HP." },
+    { "spellId": 18562, "role": "Utility", "route": "Defensive", "emergencyEscape": false, "offGcd": false, "mode": "Suggest", "minUrgency": 2, "notes": "Swiftmend: instant heal; solo at/below 65% HP." },
+    { "spellId": 474678, "role": "Utility", "route": "Defensive", "emergencyEscape": false, "offGcd": true, "mode": "Suggest", "minUrgency": 4, "notes": "Aessina's Renewal: emergency heal; last resort (solo at/below 30% HP)." }
+  ]
+}

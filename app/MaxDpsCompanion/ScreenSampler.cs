@@ -27,13 +27,71 @@ internal sealed class ScreenSampler : IDisposable
     /// <summary>Samples taken per cell at 2px+; the median wins. Must stay odd.</summary>
     public const int TapsPerCell = 5;
 
+    /// <summary>
+    /// Cell size at/above which the 5-tap centre+4-neighbourhood median is
+    /// used. Below this the taps would bleed into the neighbouring cell, so the
+    /// exact centre pixel is read instead. Tuned for the bridge's default 8px
+    /// cells (Aethys-proven: ±1px misalignment tolerance by construction) and
+    /// still safe at 2-7px. Must stay 2.
+    /// </summary>
+    public const int MedianMinCellSize = 2;
+
+    /// <summary>
+    /// Recommended sampler cadence in ms. The bridge repaints its strip every
+    /// 33 ms (Bridge.lua UPDATE_INTERVAL = 0.033); polling faster only re-reads
+    /// identical frames, slower adds input latency. AppSettings.PollIntervalMs
+    /// defaults to this and the engine stretches it further under CPU pressure
+    /// (duty-cycle guard), so this is the floor, not a hard rate.
+    /// </summary>
+    public const int RecommendedPollIntervalMs = 33;
+
     // Reused tap buffer (single-threaded sampler): zero per-tick garbage.
     private readonly byte[] _tapR = new byte[TapsPerCell];
     private readonly byte[] _tapG = new byte[TapsPerCell];
     private readonly byte[] _tapB = new byte[TapsPerCell];
 
+    /// <summary>
+    /// v5-family capture widths, widest first: Ext3 (43), then the Ext2 (40)
+    /// and v5 core (35) fallbacks. The whole family shares the core layout, so
+    /// a narrower stale addon decodes from the widest capture with its extra
+    /// cells read as background — the ladder is the documented order in which
+    /// the widths are attempted, not three BitBlts.
+    /// </summary>
+    public static readonly int[] CaptureWidths =
+    {
+        PixelProtocol.CellCountExt3,
+        PixelProtocol.CellCountExt2,
+        PixelProtocol.CellCount,
+    };
+
+    /// <summary>
+    /// Ext3 (v3.5) mirror for the toggle-sync consumer: the in-game 14-bit
+    /// toggle mask, its 4-bit epoch and 4-bit blocked nibble, decoded from the
+    /// most recent capture. Null for a 40-cell Ext2 or 35-cell core addon
+    /// (cell 28 B bit2 clear), a missing/torn block, or before the first
+    /// decode. <see cref="Ext3MirrorPresent"/> is the raw presence bit, so a
+    /// consumer can tell "block advertised but failed checksum" from "no Ext3".
+    /// </summary>
+    public Ext3Block? Ext3Mirror { get; private set; }
+
+    /// <summary>True when the last capture's cell 28 B bit2 advertised an Ext3 block (even if its checksum failed).</summary>
+    public bool Ext3MirrorPresent { get; private set; }
+
     public Color[] Sample(Point origin, int cellSize) =>
-        SampleCells(origin, cellSize, (x, y) => ReadPixel(x, y));
+        Sample(origin, cellSize, profile: null);
+
+    /// <summary>
+    /// Profile-aware capture: decodes the frame once and refreshes the Ext3
+    /// mirror (mask/epoch/blocked) so the toggle-sync consumer can read the
+    /// in-game toggle state. The 2-arg overload uses the legacy nibble scale;
+    /// a learned-profile consumer should pass <paramref name="profile"/>.
+    /// </summary>
+    public Color[] Sample(Point origin, int cellSize, ColorProfile? profile)
+    {
+        var cells = SampleCells(origin, cellSize, (x, y) => ReadPixel(x, y));
+        UpdateExt3Mirror(cells, profile);
+        return cells;
+    }
 
     /// <summary>
     /// Samples a full client-area bitmap reader (used by the calibrate-pattern
@@ -41,10 +99,22 @@ internal sealed class ScreenSampler : IDisposable
     /// </summary>
     public static Color[] SampleRegion(Func<int, int, Color> read, int blockX, int blockY, int cellSize)
     {
-        var colors = new Color[PixelProtocol.CellCountExt2];
-        for (var i = 0; i < PixelProtocol.CellCountExt2; i++)
+        var colors = new Color[PixelProtocol.CellCountExt3];
+        for (var i = 0; i < PixelProtocol.CellCountExt3; i++)
             colors[i] = SampleCell((x, y) => read(blockX + x, blockY + y), i, cellSize);
         return colors;
+    }
+
+    /// <summary>
+    /// Decodes the captured frame and refreshes the Ext3 mirror. Best-effort:
+    /// a null/profile-less decode leaves both Ext3 mirror fields cleared rather
+    /// than reporting a stale block.
+    /// </summary>
+    private void UpdateExt3Mirror(Color[] cells, ColorProfile? profile)
+    {
+        var frame = PixelProtocol.Decode(cells, profile);
+        Ext3Mirror = frame?.Ext3;
+        Ext3MirrorPresent = frame?.Ext3Present ?? false;
     }
 
     public static Color[] SampleRegionV1(Func<int, int, Color> read, int blockX, int blockY, int cellSize)
@@ -60,10 +130,12 @@ internal sealed class ScreenSampler : IDisposable
         SampleCells(origin, cellSize, PixelProtocol.CellCountV1, (x, y) => ReadPixel(x, y));
 
     private Color[] SampleCells(Point origin, int cellSize, Func<int, int, Color> read) =>
-        // Ext2 (v3.0.0): capture the full 40-cell frame in one BitBlt so the
-        // HP-curve and SelfHeal2 cells are readable; a 35-cell stale addon
-        // leaves the extra cells as background and decodes normally.
-        SampleCells(origin, cellSize, PixelProtocol.CellCountExt2, read);
+        // Ext3 (v3.5): capture the full 43-cell frame in one BitBlt so the
+        // additive mask/epoch/blocked cells are readable. A 40-cell Ext2 or
+        // 35-cell core addon leaves the extra cells as background and still
+        // decodes — Ext3 is gated on cell 28 B bit2 and Ext2 on cell 33 B
+        // bit2, so the presence bits decide which extension reads.
+        SampleCells(origin, cellSize, PixelProtocol.CellCountExt3, read);
 
     private Color[] SampleCells(Point origin, int cellSize, int cellCount, Func<int, int, Color> read)
     {
@@ -108,6 +180,8 @@ internal sealed class ScreenSampler : IDisposable
     public void Reset()
     {
         ReleaseSurface();
+        Ext3Mirror = null;
+        Ext3MirrorPresent = false;
         if (_screenDc != IntPtr.Zero)
         {
             Native.ReleaseDC(IntPtr.Zero, _screenDc);
@@ -116,10 +190,10 @@ internal sealed class ScreenSampler : IDisposable
     }
 
     private Color SampleCellInstance(Func<int, int, Color> read, int cell, int cellSize) =>
-        cellSize < 2 ? CentrePixel(read, cell, cellSize) : MedianSample(read, cell, cellSize);
+        cellSize < MedianMinCellSize ? CentrePixel(read, cell, cellSize) : MedianSample(read, cell, cellSize);
 
     private static Color SampleCell(Func<int, int, Color> read, int cell, int cellSize) =>
-        cellSize < 2 ? CentrePixel(read, cell, cellSize) : MedianSampleStatic(read, cell, cellSize);
+        cellSize < MedianMinCellSize ? CentrePixel(read, cell, cellSize) : MedianSampleStatic(read, cell, cellSize);
 
     /// <summary>Allocating variant for the static region paths (learner).</summary>
     private static Color MedianSampleStatic(Func<int, int, Color> read, int cell, int cellSize)

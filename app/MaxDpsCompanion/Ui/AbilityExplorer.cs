@@ -48,6 +48,23 @@ internal sealed class VirtualAbilityList : Control
 
     public int Count => _items.Count;
 
+    /// <summary>v3.4.0 §6: empty-state copy supplied by the explorer (names the preset + class/spec).</summary>
+    public string EmptyText { get; set; } = "No abilities match the current filters.";
+
+    /// <summary>v3.4.0 §5: per-spell condition one-liner computed once per rebuild.</summary>
+    public IReadOnlyDictionary<int, string> Conditions { get; set; } = new Dictionary<int, string>();
+
+    /// <summary>
+    /// S6 Class Browser: per-spell live "why held / why ready" verdict supplied
+    /// by the host. The list only paints it — the scheduler owns evaluation, so
+    /// nothing here re-derives a gate. Missing entries render no verdict pill.
+    /// </summary>
+    public IReadOnlyDictionary<int, string> Verdicts { get; set; } = new Dictionary<int, string>();
+
+    // S5: one owned, autosizing themed bubble app-wide (was a bare ToolTip that
+    // clipped long "why held" reasons).
+    private readonly OwnedToolTip _tip = new();
+
     public void SetItems(List<AbilityDefinition> items)
     {
         _items.Clear();
@@ -98,9 +115,24 @@ internal sealed class VirtualAbilityList : Control
     protected override void OnMouseMove(MouseEventArgs e)
     {
         var index = RowAt(e.Y);
-        if (index != _hoverRow) { _hoverRow = index; Invalidate(); }
+        if (index != _hoverRow)
+        {
+            _hoverRow = index;
+            // v3.4.0 §5: the hover hint carries the full reason.
+            if (index >= 0 && index < _items.Count) _tip.SetToolTip(this, FullReason(_items[index]));
+            else _tip.SetToolTip(this, string.Empty);
+            Invalidate();
+        }
         Cursor = index >= 0 ? Cursors.Hand : Cursors.Default;
         base.OnMouseMove(e);
+    }
+
+    private static string FullReason(AbilityDefinition ability)
+    {
+        var reason = $"{ability.Name}: {Why(ability)}; holds {Hold(ability)}.";
+        if (ability.MinimumUrgency != DefensiveUrgency.White && ability.IsSurvival)
+            reason += $" Urgency {ability.MinimumUrgency}+.";
+        return reason;
     }
 
     protected override void OnMouseLeave(EventArgs e) { _hoverRow = -1; Invalidate(); base.OnMouseLeave(e); }
@@ -206,7 +238,7 @@ internal sealed class VirtualAbilityList : Control
 
         if (_items.Count == 0)
         {
-            TextRenderer.DrawText(e.Graphics, "No abilities match the current filters.",
+            TextRenderer.DrawText(e.Graphics, EmptyText,
                 DesignTokens.Type(DesignTokens.BodySize), new Rectangle(16, 20, Width - 32, 24),
                 DesignTokens.TextMuted, TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
             return;
@@ -249,18 +281,31 @@ internal sealed class VirtualAbilityList : Control
         DrawIcon(g, ability, icon);
 
         var textLeft = icon.Right + 10;
-        // Reserved right cluster: owner badge + ON/OFF label + toggle, with
-        // explicit spacing so the three never overlap (v2.8 fix).
-        var textWidth = Math.Max(40, rowWidth - textLeft - 200);
+        // Reserved right cluster: tier badge + owner badge + verdict pill +
+        // ON/OFF label + toggle, with explicit spacing so none overlap (S6).
+        var textWidth = Math.Max(40, rowWidth - textLeft - 272);
         TextRenderer.DrawText(g, ability.Name, DesignTokens.Type(DesignTokens.LabelSize, FontStyle.Bold),
             new Rectangle(textLeft, y + 7, textWidth, 20), DesignTokens.TextPrimary,
             TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
-        var sub = $"{ability.Category} \u00B7 {SubRole(ability)}";
+        // v3.4.0 §5: append the catalog-derived condition one-liner when known.
+        var condition = Conditions.TryGetValue(ability.SpellId, out var known)
+            ? known
+            : AbilityViewPresets.ConditionLine(ability);
+        // S6: surface the cooldown in the row body (icon/name/cooldown/tier).
+        var cooldown = ability.CooldownMs > 0
+            ? $"{ability.CooldownMs / 1000.0:0.#}s"
+            : "";
+        var sub = condition.Length == 0
+            ? $"{ability.Category} \u00B7 {SubRole(ability)}"
+            : $"{ability.Category} \u00B7 {SubRole(ability)} \u00B7 {condition}";
+        if (cooldown.Length > 0) sub += $" \u00B7 {cooldown}";
         TextRenderer.DrawText(g, sub, DesignTokens.Type(DesignTokens.MetaSize),
             new Rectangle(textLeft, y + 26, textWidth, 18), DesignTokens.TextSecondary,
             TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
 
+        DrawTierBadge(g, ability, rowWidth, y);
         DrawOwnerBadge(g, ability, rowWidth, y);
+        DrawVerdict(g, ability, rowWidth, y);
         DrawToggle(g, ability, ToggleRect(index));
 
         if (expanded) DrawInlineDetails(g, ability, y + RowHeight, rowWidth);
@@ -322,8 +367,8 @@ internal sealed class VirtualAbilityList : Control
             _ => DesignTokens.Warning,
         };
         var auto = ability.Automatable;
-        var left = rowWidth - 188;
-        var rect = new Rectangle(left, y + 14, 86, 20);
+        var left = rowWidth - 180;
+        var rect = new Rectangle(left, y + 14, 84, 20);
         using (var path = Ui.Rounded(rect, 6))
         using (var fill = new SolidBrush(DesignTokens.Tint(tone, DesignTokens.Surface)))
         using (var border = new Pen(Color.FromArgb(130, tone), 1F))
@@ -336,13 +381,69 @@ internal sealed class VirtualAbilityList : Control
         _ = auto; // stale toggle state (N/A) and the sub-role line carry the structural meaning
     }
 
+    /// <summary>
+    /// S6: the defensive tier badge (Minor/Major/Immunity), drawn only for
+    /// survival rows whose tier is known. Sits left of the ownership badge.
+    /// </summary>
+    private void DrawTierBadge(Graphics g, AbilityDefinition ability, int rowWidth, int y)
+    {
+        if (rowWidth < 380) return;
+        if (!ability.IsSurvival || ability.Tier == DefensiveTier.None) return;
+        var tier = ability.Tier switch
+        {
+            DefensiveTier.Minor => "Minor",
+            DefensiveTier.Major => "Major",
+            DefensiveTier.Immunity => "Immunity",
+            _ => "",
+        };
+        if (tier.Length == 0) return;
+        var tone = ability.Tier switch
+        {
+            DefensiveTier.Immunity => DesignTokens.Danger,
+            DefensiveTier.Major => DesignTokens.Warning,
+            _ => DesignTokens.Info,
+        };
+        var rect = new Rectangle(rowWidth - 258, y + 14, 72, 20);
+        using (var path = Ui.Rounded(rect, 6))
+        using (var fill = new SolidBrush(DesignTokens.Tint(tone, DesignTokens.Surface)))
+        using (var border = new Pen(Color.FromArgb(130, tone), 1F))
+        {
+            g.FillPath(fill, path);
+            g.DrawPath(border, path);
+        }
+        TextRenderer.DrawText(g, tier, DesignTokens.Type(DesignTokens.MetaSize, FontStyle.Bold), rect, tone,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
+    }
+
+    /// <summary>
+    /// S6: the live why-held / why-ready verdict the host read from the
+    /// scheduler. Painted as a pill under the badges; nothing here evaluates a
+    /// gate (the scheduler owns evaluation).
+    /// </summary>
+    private void DrawVerdict(Graphics g, AbilityDefinition ability, int rowWidth, int y)
+    {
+        if (rowWidth < 380) return;
+        if (!Verdicts.TryGetValue(ability.SpellId, out var verdict) || string.IsNullOrWhiteSpace(verdict)) return;
+        var tone = verdict.StartsWith("held", StringComparison.OrdinalIgnoreCase)
+            ? DesignTokens.Warning
+            : DesignTokens.Success;
+        var rect = new Rectangle(rowWidth - 258, y + 36, 162, 16);
+        using var fill = new SolidBrush(DesignTokens.Tint(tone, DesignTokens.Surface));
+        g.FillRectangle(fill, rect);
+        TextRenderer.DrawText(g, verdict, DesignTokens.Type(DesignTokens.MicroSize, FontStyle.Bold), 
+            new Rectangle(rect.X + 4, rect.Y, rect.Width - 8, rect.Height), tone,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
+    }
+
     private void DrawToggle(Graphics g, AbilityDefinition ability, Rectangle r)
     {
         var on = _isEnabled(ability);
         var enabled = ability.Automatable;
         var track = new Rectangle(r.X - 12, r.Y, 34, 22);
         using var path = Ui.Rounded(track, 11);
-        using var fill = new SolidBrush(!enabled ? DesignTokens.Disabled : on ? DesignTokens.Success : DesignTokens.TextMuted);
+        // M-route: match ToggleSwitch exactly (brass ON / border OFF) instead of
+        // the old green/muted repaint, so list rows and settings read as one.
+        using var fill = new SolidBrush(!enabled ? DesignTokens.Disabled : on ? DesignTokens.Accent : DesignTokens.Border);
         g.FillPath(fill, path);
         var thumb = new Rectangle(on ? track.Right - 18 : track.X + 2, track.Y + 2, 18, 18);
         using var thumbFill = new SolidBrush(Color.White);

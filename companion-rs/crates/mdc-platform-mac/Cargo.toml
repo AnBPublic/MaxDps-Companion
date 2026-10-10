@@ -1,0 +1,11 @@
+[package]
+name = "mdc-platform-mac"
+description = "macOS backend stub (ScreenCaptureKit / CGEvent to come) — returns Unsupported."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mdc-platform = { path = "../mdc-platform" }

@@ -67,7 +67,41 @@ internal static class CatalogLuaGenerator
         sb.AppendLine("-- defensive: Red-urgency gap-fill candidates for the Defensive slot");
         sb.AppendLine("--   (derived from the vendor per-spec defensive lists, Major first, ");
         sb.AppendLine("--   immunities excluded); used only when MaxDps names no bound defensive.");
+        sb.AppendLine("-- defensiveMinor: short-cooldown (Minor/None) gap-fill candidates for");
+        sb.AppendLine("--   the Defensive slot's Orange tier (v3.0.0); majors still need Red.");
+        sb.AppendLine("-- defensiveMajor: Major-tier gap-fill candidates for the v3.3.0 Solo");
+        sb.AppendLine("--   escalation ladder (Solo at/below the major HP band only).");
+        sb.AppendLine("-- immunity: full-immunity candidates for the v3.3.0 Solo ladder bottom");
+        sb.AppendLine("--   band (Solo at/below the immunity HP band only; never in groups).");
+        sb.AppendLine("-- offensive: curated major offensive gap-fill candidates (shared burst");
+        sb.AppendLine("--   first, spec-specific second); used only when MaxDps names no bound");
+        sb.AppendLine("--   offensive. The companion detects this source by id membership.");
+        sb.AppendLine("-- cc: auto-eligible curated crowd-control candidates (v3.4.0). The");
+        sb.AppendLine("--   bridge reuses the Interrupt slot for these ONLY when MaxDps names");
+        sb.AppendLine("--   no ready+bound interrupt (never while a live interrupt is pending).");
+        sb.AppendLine("--   No wire source bit exists; the companion's CrowdControlGate is the");
+        sb.AppendLine("--   authority on USE/HOLD. MaxDps-owned stuns are never emitted here.");
+        sb.AppendLine("-- Racial-scope rows (scope=Racial) are appended to every spec's");
+        sb.AppendLine("--   offensive/defensiveMinor/selfHeal lists. Race is implicit: the");
+        sb.AppendLine("--   bridge's known-spell filter only finds a keybind for the race the");
+        sb.AppendLine("--   player actually is, so a non-matching race simply skips the entry.");
         sb.AppendLine("MDB.Extras = {");
+
+        // v3.x racial toggles: scope=Racial rows are carried for EVERY
+        // class/spec (the bridge's known-spell filter selects the player's
+        // race). Appended AFTER the class-bound entries so a class cooldown is
+        // never preempted; the class-bound gap-fill arrays stay byte-identical.
+        // Self-heal racials (Gift of the Naaru, Regeneratin', H.O.L.O.) ride
+        // the selfHeal list, NOT defensiveMinor: routing them through the
+        // Defensive slot bypassed the SelfHeal toggle (review fix #4). Racial
+        // Defensive-category rows (Stoneform/Shadowmeld) ride defensiveMinor;
+        // the bridge marks that slot with the dedicated DefensiveCatalogSource
+        // wire bit, so no id-membership shadow list is needed for them (only
+        // offensives, which have no source bit, need IsOffensiveGapFill).
+        var racialOffensive = catalog.RacialIds(AbilityCategory.Offensive);
+        var racialDefensive = catalog.RacialIds(AbilityCategory.Defensive);
+        var racialSelfHeal = catalog.RacialIds(AbilityCategory.SelfHeal);
+
         foreach (var className in AbilityCatalog.ClassOrder)
         {
             if (className.Length == 0) continue;
@@ -77,14 +111,28 @@ internal static class CatalogLuaGenerator
             for (var i = 1; i < specs.Length; i++)
             {
                 var mobility = catalog.Extras(className, specs[i], AbilityCategory.Mobility);
-                var selfHeal = catalog.Extras(className, specs[i], AbilityCategory.SelfHeal);
+                var selfHeal = catalog.Extras(className, specs[i], AbilityCategory.SelfHeal)
+                    .Concat(racialSelfHeal).ToArray();
+                var offensive = catalog.OffensiveGapFill(className, specs[i]).Concat(racialOffensive).ToArray();
                 var defensive = catalog.DefensiveGapFill(className, specs[i]);
-                if (mobility.Length == 0 && selfHeal.Length == 0 && defensive.Length == 0) continue;
+                var defensiveMinor = catalog.DefensiveGapFillMinor(className, specs[i]).Concat(racialDefensive).ToArray();
+                var defensiveMajor = catalog.DefensiveGapFillMajor(className, specs[i]);
+                var immunity = catalog.ImmunityGapFill(className, specs[i]);
+                var cc = catalog.CrowdControlGapFill(className, specs[i]);
+                if (mobility.Length == 0 && selfHeal.Length == 0 && offensive.Length == 0
+                    && defensive.Length == 0 && defensiveMinor.Length == 0
+                    && defensiveMajor.Length == 0 && immunity.Length == 0
+                    && cc.Length == 0) continue;
                 any = true;
                 sb.Append($" [\"{Escape(specs[i])}\"] = {{");
                 if (mobility.Length > 0) sb.Append($" mobility = {{ {string.Join(", ", mobility)} }},");
                 if (selfHeal.Length > 0) sb.Append($" selfHeal = {{ {string.Join(", ", selfHeal)} }},");
+                if (offensive.Length > 0) sb.Append($" offensive = {{ {string.Join(", ", offensive)} }},");
                 if (defensive.Length > 0) sb.Append($" defensive = {{ {string.Join(", ", defensive)} }},");
+                if (defensiveMinor.Length > 0) sb.Append($" defensiveMinor = {{ {string.Join(", ", defensiveMinor)} }},");
+                if (defensiveMajor.Length > 0) sb.Append($" defensiveMajor = {{ {string.Join(", ", defensiveMajor)} }},");
+                if (immunity.Length > 0) sb.Append($" immunity = {{ {string.Join(", ", immunity)} }},");
+                if (cc.Length > 0) sb.Append($" cc = {{ {string.Join(", ", cc)} }},");
                 sb.Append(" },");
             }
             if (any) sb.AppendLine();

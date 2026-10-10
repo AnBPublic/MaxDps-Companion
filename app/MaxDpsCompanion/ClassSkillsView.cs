@@ -25,13 +25,22 @@ internal sealed class ClassSkillsView : Panel
     private readonly Action<AbilityDefinition, bool> _setEnabled;
 
     private readonly Panel _shell = new() { Dock = DockStyle.Fill, BackColor = ConsolePalette.Iron };
-    private readonly Panel _header = new();
     private readonly TableLayoutPanel _toolbar = new();
-    private readonly ComboBox _classBox = new();
-    private readonly ComboBox _specBox = new();
+    private readonly OwnedComboBox _classBox = new();
+    private readonly OwnedComboBox _specBox = new();
     private readonly SmoothScrollPanel _scroll = new() { Dock = DockStyle.Fill };
     private readonly TableLayoutPanel _stack = new();
-    private readonly ToolTip _tip = new();
+    private readonly OwnedToolTip _tip = new();
+    private readonly LegendGrid _legend = new(
+        ("Verified = live-client checked", DesignTokens.Success),
+        ("MaxDps-backed = MaxDps decides", DesignTokens.Accent),
+        ("Manual = never automatic", ConsolePalette.Tidewash),
+        ("Incomplete = not yet researched", DesignTokens.Warning))
+    {
+        Dock = DockStyle.Fill,
+        Columns = 2,
+        Margin = new Padding(14, 0, 6, 0),
+    };
     private readonly Label _empty = new();
 
     private readonly System.Windows.Forms.Timer _anim = new() { Interval = 15 };
@@ -40,6 +49,14 @@ internal sealed class ClassSkillsView : Panel
     private bool _closing;
 
     public event Action? Closed;
+
+    /// <summary>
+    /// S8 seam: the tree build currently runs inline, but it is pure (catalog +
+    /// spell book) and lives behind this delegate so S8 can hand it to a worker
+    /// thread and marshal rows back without touching this view's call shape.
+    /// </summary>
+    internal Func<AbilityCatalog, ClassSpellBook, string, string, SpecSkillList> TreeBuilder { get; set; }
+        = ClassSkillTree.Build;
 
     /// <summary>Short display names for the wire class tokens.</summary>
     private static readonly Dictionary<string, string> ClassDisplayNames = new(StringComparer.OrdinalIgnoreCase)
@@ -102,48 +119,8 @@ internal sealed class ClassSkillsView : Panel
 
     private void BuildShell()
     {
-        _header.Dock = DockStyle.Top;
-        _header.Height = 48;
-        _header.BackColor = Color.Transparent;
-
-        var back = new ChamferButton
-        {
-            Text = "Back",
-            Role = ButtonRole.Ghost,
-            Dock = DockStyle.Right,
-            Width = 96,
-            AutoSize = false,
-            Margin = new Padding(0, 8, 8, 8),
-        };
-        back.Click += (_, _) => Close();
-
-        // Same title-bar language as the Advanced screen: generated app icon,
-        // thick title, Back at the right edge.
-        var icon = new PictureBox
-        {
-            SizeMode = PictureBoxSizeMode.Zoom,
-            Size = new Size(24, 24),
-            Location = new Point(0, 12),
-            BackColor = Color.Transparent,
-            Image = MainForm.AppIconForUi(),
-        };
-
-        var title = new Label
-        {
-            Text = "Class skills",
-            AutoSize = false,
-            Location = new Point(34, 0),
-            Size = new Size(300, 48),
-            TextAlign = ContentAlignment.MiddleLeft,
-            Font = new Font(MainForm.UiFontPublic, 11.5F, FontStyle.Bold),
-            ForeColor = ConsolePalette.Bone,
-            BackColor = Color.Transparent,
-        };
-
-        _header.Controls.Add(title);
-        _header.Controls.Add(icon);
-        _header.Controls.Add(back);
-
+        // S5: no header here — the enclosing popup owns the single title/Back
+        // header. The old in-view "Class skills" bar duplicated it.
         _toolbar.Dock = DockStyle.Top;
         _toolbar.Height = 44;
         _toolbar.ColumnCount = 5;
@@ -164,19 +141,7 @@ internal sealed class ClassSkillsView : Panel
         StyleCombo(_specBox);
         _toolbar.Controls.Add(_specBox, 3, 0);
 
-        var legend = new Label
-        {
-            Text = "Verified = live-client checked · MaxDps-backed = MaxDps decides · Manual = never automatic · Incomplete = not yet researched",
-            AutoSize = false,
-            Dock = DockStyle.Fill,
-            TextAlign = ContentAlignment.MiddleLeft,
-            Font = new Font(MainForm.UiFontPublic, 8.25F),
-            ForeColor = ConsolePalette.Tidewash,
-            BackColor = Color.Transparent,
-            AutoEllipsis = true,
-            Margin = new Padding(14, 0, 6, 0),
-        };
-        _toolbar.Controls.Add(legend, 4, 0);
+        _toolbar.Controls.Add(_legend, 4, 0);
 
         _classBox.SelectedIndexChanged += (_, _) =>
         {
@@ -216,9 +181,20 @@ internal sealed class ClassSkillsView : Panel
 
         _shell.Controls.Add(_scroll);
         _shell.Controls.Add(_toolbar);
-        _shell.Controls.Add(_header);
         Controls.Add(_shell);
         _shell.BringToFront();
+    }
+
+    /// <summary>
+    /// S5 width-tier hook: the tier scales the class/spec combo item heights and
+    /// the multi-column legend type. Called by MainForm.ApplyPopupScale.
+    /// </summary>
+    internal void ApplyScale(UiScale scale)
+    {
+        _classBox.ApplyScale(scale);
+        _specBox.ApplyScale(scale);
+        _legend.Font = DesignTokens.Type(Math.Max(8f, scale.BaseFont - 1.5f));
+        _legend.PerformLayout();
     }
 
     private static Label FieldCaption(string text) => new()
@@ -233,33 +209,15 @@ internal sealed class ClassSkillsView : Panel
         Margin = new Padding(0, 0, 3, 0),
     };
 
-    private static void StyleCombo(ComboBox box)
+    private static void StyleCombo(OwnedComboBox box)
     {
-        box.DropDownStyle = ComboBoxStyle.DropDownList;
-        box.FlatStyle = FlatStyle.Flat;
-        box.BackColor = ConsolePalette.Iron;
-        box.ForeColor = ConsolePalette.Bone;
+        // The owner-drawn combo configures itself; only layout is local.
         box.Dock = DockStyle.Fill;
         box.Margin = new Padding(0, 6, 0, 6);
-        box.IntegralHeight = false;
-        box.MaxDropDownItems = 14;
-        // Owner-drawn so the dropdown matches the dark theme (the native
-        // DropDownList paints a system-white edit box even with BackColor set).
-        box.DrawMode = DrawMode.OwnerDrawFixed;
-        box.ItemHeight = 22;
-        box.DrawItem += (_, e) =>
-        {
-            var selected = (e.State & DrawItemState.Selected) != 0;
-            using var fill = new SolidBrush(selected ? ConsolePalette.Field : ConsolePalette.Iron);
-            e.Graphics.FillRectangle(fill, e.Bounds);
-            if (e.Index >= 0)
-            {
-                TextRenderer.DrawText(e.Graphics, box.Items[e.Index]?.ToString() ?? "", box.Font,
-                    e.Bounds, ConsolePalette.Bone,
-                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
-            }
-        };
     }
+
+    /// <summary>Test seam: the empty-state copy shown when the list is empty (v3.4.0 §6).</summary>
+    internal string EmptyTextForTest => _empty.Text;
 
     /// <summary>Snapshot/UI-test diagnostics: what the screen currently holds.</summary>
     internal string DebugState
@@ -269,12 +227,13 @@ internal sealed class ClassSkillsView : Panel
             var first = _stack.Controls.Count > 0 ? _stack.Controls[0] : null;
             var firstBounds = first is null ? "-" : string.Join(",", first.Bounds.X, first.Bounds.Y, first.Bounds.Width, first.Bounds.Height);
             return
-                $"visible={Visible} wantVisible={_visibleRequested} header={_header.Controls.Count} rows={_stack.Controls.Count} " +
+                $"visible={Visible} wantVisible={_visibleRequested} rows={_stack.Controls.Count} " +
                 $"class={SelectedClass ?? "-"} spec={SelectedSpec ?? "-"} scroll={_scroll.Controls.Count} " +
                 $"shell={_shell.Bounds.X},{_shell.Bounds.Y},{_shell.Bounds.Width}x{_shell.Bounds.Height} " +
                 $"scrollB={_scroll.Bounds.X},{_scroll.Bounds.Y},{_scroll.Bounds.Width}x{_scroll.Bounds.Height} " +
                 $"stackH={_stack.Height} stackVis={_stack.Visible} stackTop={_stack.Top} " +
                 $"first={firstBounds} shellZ={Controls.GetChildIndex(_shell)} " +
+                $"emptyVis={_empty.Visible} preset={_preset ?? "-"} " +
                 $"handles self={IsHandleCreated} shell={_shell.IsHandleCreated} scroll={_scroll.IsHandleCreated} stack={_stack.IsHandleCreated}";
         }
     }
@@ -293,7 +252,6 @@ internal sealed class ClassSkillsView : Panel
         PerformLayout();
         Invalidate(true);
         _shell.CreateControl();
-        _header.CreateControl();
         _scroll.CreateControl();
         _stack.CreateControl();
         _shell.PerformLayout();
@@ -303,9 +261,15 @@ internal sealed class ClassSkillsView : Panel
 
     // ---- open / close + animation -----------------------------------------
 
-    /// <summary>Shows the screen, preselecting the live class/spec when known.</summary>
-    public void Open(string? liveClass, string? liveSpec)
+    /// <summary>
+    /// Shows the screen, preselecting the live class/spec when known.
+    /// <paramref name="preset"/> (v3.4.0 Approach A §6) filters the rows to a
+    /// hero-bubble set ("Offensive", "Self-heal", "CrowdControl", "Solo", …)
+    /// and names that set in the empty state. Null keeps the full list.
+    /// </summary>
+    public void Open(string? liveClass, string? liveSpec, string? preset = null)
     {
+        _preset = preset;
         _syncing = true;
         try
         {
@@ -329,7 +293,13 @@ internal sealed class ClassSkillsView : Panel
         {
             _syncing = false;
         }
-        Rebuild();
+        // D6 perf: recreating every ability row + its window handles on each
+        // popup open is multi-second. The tree only depends on the selected
+        // class/spec, so rebuild only when that selection actually changes.
+        var sameSelection = string.Equals(_builtClass, SelectedClass, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(_builtSpec, SelectedSpec, StringComparison.Ordinal)
+            && string.Equals(_builtPreset, _preset, StringComparison.Ordinal);
+        if (!sameSelection) Rebuild();
         _closing = false;
         _fade = 0f;
         _slide = 14f;
@@ -383,6 +353,13 @@ internal sealed class ClassSkillsView : Panel
 
     private bool _syncing;
 
+    // D6: the (class, spec, preset) the current row tree was built for; a
+    // reopen with the same selection keeps the tree instead of recreating rows.
+    private string? _builtClass;
+    private string? _builtSpec;
+    private string? _builtPreset;
+    private string? _preset;
+
     private void PopulateSpecs()
     {
         var wasSyncing = _syncing;
@@ -435,38 +412,75 @@ internal sealed class ClassSkillsView : Panel
 
             var className = SelectedClass;
             var specName = SelectedSpec;
+            _builtClass = className;
+            _builtSpec = specName;
+            _builtPreset = _preset;
             if (className is null || specName is null)
             {
                 _empty.Visible = true;
                 return;
             }
 
-            var build = ClassSkillTree.Build(_catalog, _book, className, specName);
-            var rowCount = 1 + build.Shared.Count
-                + build.Groups.Sum(g => g.Value.Count + 1);
+            var build = TreeBuilder(_catalog, _book, className, specName);
+            var filtered = _preset is not null && AbilityViewPresets.IsCategoryTag(_preset);
+            if (filtered) build = FilterBuild(build, className, specName, _preset!);
+            // Stream 1 §1.1: no speculative self-heal ids. When the curated
+            // catalog has no verified solo self-heal for the spec (DH today),
+            // say so instead of inventing an owed spell id. The note is a
+            // full-list statement, so it is hidden while a preset is active.
+            var noSelfHeal = _catalog.Extras(className, specName, AbilityCategory.SelfHeal).Length == 0;
+            var selfHealNote = noSelfHeal && !filtered;
+            var rowCount = (build.Shared.Count > 0 ? 1 : 0)
+                + build.Shared.Count
+                + build.Groups.Sum(g => g.Value.Count + 1)
+                + (selfHealNote ? 1 : 0);
             _stack.RowCount = rowCount;
 
             var row = 0;
-            AddSectionHeader($"Shared — all {ClassDisplay(className)} specs", ref row);
-            foreach (var ability in build.Shared) AddAbilityRow(ability, ref row);
+            if (build.Shared.Count > 0)
+            {
+                AddSectionHeader($"Shared — all {ClassDisplay(className)} specs", ref row);
+                foreach (var ability in build.Shared) AddAbilityRow(ability, className, specName, ref row);
+            }
             foreach (var group in ClassSkillTree.SectionOrder)
             {
                 if (!build.Groups.TryGetValue(group, out var list) || list.Count == 0) continue;
                 AddSectionHeader(ClassSkillTree.SectionTitle(group), ref row);
-                foreach (var ability in list) AddAbilityRow(ability, ref row);
+                foreach (var ability in list) AddAbilityRow(ability, className, specName, ref row);
             }
+            if (selfHealNote) AddSelfHealNoteRow(className, specName, ref row);
 
-            _empty.Visible = rowCount <= 1;
-            if (_empty.Visible)
-            {
-                _empty.Text = "No abilities known for this class/spec yet.";
-                _empty.BringToFront();
-            }
+            // The text is set even while hidden: Control.Visible is the effective
+            // (parent-chain) visibility, so reading it back is false on a
+            // headless form and the copy would never be applied there.
+            _empty.Text = filtered
+                ? $"No {AbilityViewPresets.CategoryDisplay(_preset!)} skills for {ClassDisplay(className)}/{specName}."
+                : "No abilities known for this class/spec yet.";
+            _empty.Visible = rowCount == 0;
+            if (rowCount == 0) _empty.BringToFront();
         }
         finally
         {
             _stack.ResumeLayout();
         }
+    }
+
+    /// <summary>v3.4.0 §6: keep only the abilities that belong to the preset set.</summary>
+    private SpecSkillList FilterBuild(SpecSkillList build, string className, string specName, string preset)
+    {
+        bool Keep(AbilityDefinition ability) =>
+            AbilityViewPresets.MatchesCategory(ability, preset, _catalog, className, specName);
+
+        var shared = new List<AbilityDefinition>();
+        foreach (var ability in build.Shared) if (Keep(ability)) shared.Add(ability);
+        var groups = new Dictionary<ClassSkillGroup, List<AbilityDefinition>>();
+        foreach (var pair in build.Groups)
+        {
+            var kept = new List<AbilityDefinition>();
+            foreach (var ability in pair.Value) if (Keep(ability)) kept.Add(ability);
+            if (kept.Count > 0) groups[pair.Key] = kept;
+        }
+        return new SpecSkillList(shared, groups);
     }
 
     private static string ClassDisplay(string wire) =>
@@ -480,23 +494,63 @@ internal sealed class ClassSkillsView : Panel
         row++;
     }
 
-    private void AddAbilityRow(AbilityDefinition ability, ref int row)
+    /// <summary>
+    /// Honest empty-state for a spec with no verified solo self-heal (DH
+    /// Havoc/Devourer today): the companion will not invent an owed spell id,
+    /// so the screen states the gap instead of fabricating a row.
+    /// </summary>
+    private void AddSelfHealNoteRow(string className, string specName, ref int row)
     {
+        var note = new Label
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = false,
+            Text = $"No verified solo self-heal for {ClassDisplay(className)} / {specName} — "
+                + "the companion will not invent one; MaxDps and your own kit decide heals.",
+            TextAlign = ContentAlignment.MiddleLeft,
+            ForeColor = ConsolePalette.Tidewash,
+            BackColor = Color.Transparent,
+            Font = new Font(MainForm.UiFontPublic, 9F, FontStyle.Italic),
+            Padding = new Padding(4, 0, 4, 0),
+            Margin = new Padding(0, 2, 0, 2),
+        };
+        _stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+        _stack.Controls.Add(note, 0, row);
+        row++;
+    }
+
+    private void AddAbilityRow(AbilityDefinition ability, string className, string specName, ref int row)
+    {
+        // v3.4.0 §5: the visible condition one-liner (the full reason stays in
+        // the hover tooltip owned by AbilityToggleRow).
+        var cc = _catalog.CrowdControlFor(className, specName, ability.SpellId);
+        var condition = AbilityViewPresets.ConditionLine(ability, cc);
         var item = new AbilityToggleRow(ability, _isEnabled(ability), _tip, (on) =>
         {
             _setEnabled(ability, on);
             return _isEnabled(ability);
-        });
+        }, condition);
         item.Dock = DockStyle.Fill;
         item.Margin = new Padding(0, 1, 0, 1);
         _stack.RowStyles.Add(new RowStyle(SizeType.Absolute, AbilityToggleRow.RowHeight + 2));
         _stack.Controls.Add(item, 0, row);
         row++;
     }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _anim.Stop();
+            _anim.Dispose();
+            _tip.Dispose();
+        }
+        base.Dispose(disposing);
+    }
 }
 
 /// <summary>Eased wheel scrolling for the ability list (never fights a drag).</summary>
-internal sealed class SmoothScrollPanel : Panel
+internal sealed class SmoothScrollPanel : ThemedScrollHost
 {
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 15 };
     private int _target;
@@ -530,6 +584,7 @@ internal sealed class SmoothScrollPanel : Panel
             _timer.Stop();
         }
         AutoScrollPosition = new Point(0, next);
+        SyncBar();
     }
 }
 
@@ -608,6 +663,9 @@ internal sealed class AbilityToggleRow : Panel
 {
     public const int RowHeight = 88;
 
+    /// <summary>S8: square pixel size of the icon tile / scaled-icon cache key.</summary>
+    private const int IconPixels = 44;
+
     private readonly AbilityToggleRowState _state;
     private readonly IconTile _icon = new();
     private readonly Label _name = new();
@@ -617,7 +675,7 @@ internal sealed class AbilityToggleRow : Panel
     private readonly AbilityDefinition _ability;
     private readonly Func<bool, bool> _apply;
 
-    public AbilityToggleRow(AbilityDefinition ability, bool enabled, ToolTip tip, Func<bool, bool> apply)
+    public AbilityToggleRow(AbilityDefinition ability, bool enabled, OwnedToolTip tip, Func<bool, bool> apply, string? condition = null)
     {
         _ability = ability;
         _apply = apply;
@@ -642,7 +700,9 @@ internal sealed class AbilityToggleRow : Panel
         _subtitle.BackColor = Color.Transparent;
 
         var manual = ability.NeverAutomatic || ability.Automation == AutomationContext.Manual;
-        _status.Text = RowStatusLabel(ability);
+        _status.Text = string.IsNullOrEmpty(condition)
+            ? RowStatusLabel(ability)
+            : RowStatusLabel(ability) + " \u00B7 " + condition;
         _status.AutoSize = false;
         _status.AutoEllipsis = true;
         _status.TextAlign = ContentAlignment.MiddleLeft;
@@ -659,7 +719,8 @@ internal sealed class AbilityToggleRow : Panel
             UpdateSubtitle();
         };
 
-        var tooltipText = DescribeTooltip(ability);
+        var tooltipText = DescribeTooltip(ability)
+            + "\nVeto: OFF prohibits automatic use (companion AND addon; an addon veto wins).";
         tip.SetToolTip(_name, tooltipText);
         tip.SetToolTip(_subtitle, tooltipText);
         tip.SetToolTip(_status, tooltipText);
@@ -676,7 +737,9 @@ internal sealed class AbilityToggleRow : Panel
         SpellIconCache.Instance.IconReady += _state.OnIconReady;
         UpdateSubtitle();
 
-        var image = SpellIconCache.Instance.TryGet(ability.SpellId);
+        // S8: the row paints a pre-scaled copy so scrolling never runs a
+        // HighQualityBicubic rescale per row per frame.
+        var image = ScaledIconCache.Instance.Get(ability.SpellId, IconPixels);
         if (image is not null) _icon.SetImage(image);
     }
 
@@ -688,12 +751,14 @@ internal sealed class AbilityToggleRow : Panel
     };
 
     private void UpdateSubtitle() =>
-        _subtitle.Text = _toggle.Checked ? "Recommendation: On" : "Recommendation: Off";
+        _subtitle.Text = _toggle.Checked
+            ? "Veto: off · automatic use allowed"
+            : "Veto: on · never automatic";
 
     protected override void OnLayout(LayoutEventArgs levent)
     {
         base.OnLayout(levent);
-        const int iconSize = 44;
+        const int iconSize = IconPixels;
         _icon.Bounds = new Rectangle(4, (Height - iconSize) / 2, iconSize, iconSize);
         var textX = _icon.Right + 14;
         var toggleX = Width - 8 - _toggle.Width;
@@ -992,7 +1057,8 @@ internal sealed class AbilityToggleRow : Panel
             {
                 _tile.BeginInvoke(() =>
                 {
-                    var image = SpellIconCache.Instance.TryGet(_spellId);
+                    // S8: scaled copy, matching the ctor path.
+                    var image = ScaledIconCache.Instance.Get(_spellId, IconPixels);
                     if (image is not null) _tile.SetImage(image);
                 });
             }

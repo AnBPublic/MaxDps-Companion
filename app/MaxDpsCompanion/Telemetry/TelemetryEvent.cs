@@ -100,6 +100,21 @@ internal sealed record TelemetryVerdict
     [JsonPropertyName("arng")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? AlternateRange { get; init; }
+
+    /// <summary>R2 (sustain-cd): SelfHeal verdict was in the cooldown wait (omitted when false).</summary>
+    [JsonPropertyName("cdWait")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool CdWait { get; init; }
+
+    /// <summary>R2: when the SelfHeal stroke was last tried (ms); omitted when never.</summary>
+    [JsonPropertyName("lastTriedMs")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? LastTriedMs { get; init; }
+
+    /// <summary>R2: optional curated reset hint for the ability (informational; omitted when null).</summary>
+    [JsonPropertyName("resetHint")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ResetHint { get; init; }
 }
 
 /// <summary>
@@ -113,11 +128,99 @@ internal sealed record TelemetryOptions
     [JsonPropertyName("sus")] public int SelfSustainHpPct { get; init; }
     [JsonPropertyName("esc")] public int DefensiveEscalateHpPct { get; init; }
 
+    /// <summary>v3.3.0 additive: Solo HP-banded escalation switch (omitted when on = default).</summary>
+    [JsonPropertyName("sesc")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? SoloEscalation { get; init; }
+
+    /// <summary>v3.3.0 additive: Solo minor/major/immunity HP bands (omitted when default).</summary>
+    [JsonPropertyName("smin")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? SoloMinorHpPct { get; init; }
+
+    /// <summary>v3.3.0 additive: Solo major HP band.</summary>
+    [JsonPropertyName("smaj")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? SoloMajorHpPct { get; init; }
+
+    /// <summary>v3.3.0 additive: Solo immunity HP band.</summary>
+    [JsonPropertyName("simm")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? SoloImmunityHpPct { get; init; }
+
     /// <summary>Explicit per-ability ON overrides (sorted comma list; null = none).</summary>
     [JsonPropertyName("on")] public string? AbilitiesOn { get; init; }
 
     /// <summary>Explicit per-ability OFF overrides (sorted comma list; null = none).</summary>
     [JsonPropertyName("off")] public string? AbilitiesOff { get; init; }
+
+    /// <summary>
+    /// Stream 3 (v3.3.0) additive: companion rotation preset that ran for the
+    /// tick ("Burst"); omitted when Full (default/current behaviour).
+    /// </summary>
+    [JsonPropertyName("preset")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Preset { get; init; }
+
+    /// <summary>
+    /// Stream 3 additive: companion target preset that ran for the tick
+    /// ("Aoe"); omitted when SingleTarget (default/current behaviour).
+    /// </summary>
+    [JsonPropertyName("tpreset")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TargetPreset { get; init; }
+
+    /// <summary>
+    /// v3.6.0 additive: [TimeToKill] Fallback the policy ran with
+    /// ("ConserveMajors"); omitted when the default FailOpen so legacy records
+    /// replay unchanged (the replay parser defaults an absent value to
+    /// FailOpen). Informational: the fallback is not part of the estimate.
+    /// </summary>
+    [JsonPropertyName("ttkfb")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TtkFallback { get; init; }
+
+    /// <summary>
+    /// v3.7 additive: [TimeToKill] History off (false) when disabled; omitted
+    /// when ON (default) so legacy lines are unchanged.
+    /// </summary>
+    [JsonPropertyName("thist")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? TtkHistory { get; init; }
+
+    /// <summary>v3.7 additive: [TimeToKill] HistoryKills; omitted at the 8 default.</summary>
+    [JsonPropertyName("thk")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? TtkHistoryKills { get; init; }
+
+    /// <summary>v3.7 additive: [TimeToKill] HistoryMinKills; omitted at the 3 default.</summary>
+    [JsonPropertyName("thm")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? TtkHistoryMinKills { get; init; }
+
+    /// <summary>v3.7 additive: [TimeToKill] HistoryMaxAgeSec; omitted at the 240 default.</summary>
+    [JsonPropertyName("tha")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? TtkHistoryMaxAgeSec { get; init; }
+
+    /// <summary>v3.7 additive: [TimeToKill] HistoryQuantile; omitted at the 75 default.</summary>
+    [JsonPropertyName("thq")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? TtkHistoryQuantile { get; init; }
+
+    /// <summary>v3.7 additive: [TimeToKill] HistoryDurFactor; omitted at the 0.5 default.</summary>
+    [JsonPropertyName("thd")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? TtkHistoryDurFactor { get; init; }
+
+    /// <summary>
+    /// v3.8 additive: [TimeToKill] WarmupSec; omitted at 0 (legacy fail-open) so
+    /// legacy lines replay unchanged. Retained for replay/telemetry schema; not
+    /// enforced since 3.7.9 (the warmup hold was removed).
+    /// </summary>
+    [JsonPropertyName("ttkw")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? TtkWarmupSec { get; init; }
 }
 
 /// <summary>
@@ -187,6 +290,119 @@ internal sealed record TelemetryPolicy
     /// <summary>True when the Defensive slot came from the catalog gap-fill, omitted otherwise.</summary>
     [JsonPropertyName("dsrc")] public bool? DefensiveCatalogSource { get; init; }
 
+    /// <summary>
+    /// Stream 3 (v3.3.0) additive: the Offensive slot's candidate is a
+    /// companion-derived gap-fill (id membership). There is no wire bit, so the
+    /// flag is recorded explicitly for parity with the Defensive source bit.
+    /// Omitted when false.
+    /// </summary>
+    [JsonPropertyName("osrc")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool OffensiveDerivedGapFill { get; init; }
+
+    /// <summary>
+    /// v3.0.0 additive: the decoded class/spec the tick ran under. The
+    /// Offensive gap-fill has no wire source bit, so its source is derived by
+    /// id membership in the per-spec list — replay needs the same class/spec to
+    /// re-derive it. Omitted on legacy records (null = not recorded).
+    /// </summary>
+    [JsonPropertyName("cls")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Class { get; init; }
+
+    /// <summary>v3.0.0 additive: spec name for the tick (see <see cref="Class"/>).</summary>
+    [JsonPropertyName("spec")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Spec { get; init; }
+
+    /// <summary>
+    /// v3.2.0 additive: the estimator's time-to-kill for this tick (seconds, one
+    /// decimal). Omitted when [TimeToKill] is off or the estimate is invalid;
+    /// informational only (replay reconstructs the estimator from the raw
+    /// target-HP series and does not compare this field).
+    /// </summary>
+    [JsonPropertyName("ttk")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? Ttk { get; init; }
+
+    /// <summary>
+    /// v3.6.0 additive: the estimator's early (untrusted) rate was available for
+    /// this tick even though <see cref="Ttk"/> is invalid. Informational only —
+    /// replay rebuilds the estimator from the raw target-HP series and does not
+    /// compare this field. Omitted on legacy records (null = not recorded).
+    /// </summary>
+    [JsonPropertyName("ttkp")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? TtkProvisional { get; init; }
+
+    /// <summary>
+    /// v3.6.0 additive: lifetime of the current target in seconds (0 with no
+    /// target). Informational/diagnostic; omitted on legacy records.
+    /// </summary>
+    [JsonPropertyName("age")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? TargetAgeSec { get; init; }
+
+    /// <summary>
+    /// v3.6.0 additive: the fast-pack latch was active for this tick (two fast
+    /// trash kills inside the window). Informational/diagnostic; omitted on
+    /// legacy records (null = not recorded).
+    /// </summary>
+    [JsonPropertyName("latch")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? FastPackLatch { get; init; }
+
+    /// <summary>
+    /// v3.7 additive: kills in the adaptive history window for this tick (hk).
+    /// Omitted when the window is not binding (null = not recorded/not binding).
+    /// Retained for replay/telemetry schema; not enforced since 3.7.9.
+    /// </summary>
+    [JsonPropertyName("hk")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? HistKills { get; init; }
+
+    /// <summary>
+    /// v3.7 additive: the window's pessimistic p-quantile burn rate in frac/s
+    /// (hr). Omitted when the window is not binding. Retained for
+    /// replay/telemetry schema; not enforced since 3.7.9.
+    /// </summary>
+    [JsonPropertyName("hr")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? HistRate { get; init; }
+
+    /// <summary>
+    /// v3.7 additive: the history-blended estimate in seconds (hs). Omitted when
+    /// the window produced no usable value this tick. Retained for
+    /// replay/telemetry schema; not enforced since 3.7.9.
+    /// </summary>
+    [JsonPropertyName("hs")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? HistTtkSec { get; init; }
+
+    /// <summary>
+    /// v3.7 additive: the history estimate is history-only, the live rate is not
+    /// yet trusted (hp in the spec table; emitted as <c>hprov</c> because
+    /// <c>hp</c> already means the player health percent on this record).
+    /// Omitted when false. Retained for replay/telemetry schema; not enforced
+    /// since 3.7.9.
+    /// </summary>
+    [JsonPropertyName("hprov")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? HistProvisional { get; init; }
+
+    /// <summary>
+    /// R2 (sustain-cd): HP is in the sustain window and no ready self-heal
+    /// candidate exists (omitted on legacy records / when false).
+    /// </summary>
+    [JsonPropertyName("cdWait")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool CdWait { get; init; }
+
+    /// <summary>R2: last time the SelfHeal slot was attempted/sent (ms); omitted when never.</summary>
+    [JsonPropertyName("lastTriedMs")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? LastTriedMs { get; init; }
+
     [JsonPropertyName("opts")] public TelemetryOptions? Options { get; init; }
     [JsonPropertyName("verdicts")] public TelemetryVerdict[]? Verdicts { get; init; }
 }
@@ -233,6 +449,24 @@ internal sealed record TelemetryEvent
     [JsonPropertyName("send")] public TelemetrySend? Send { get; init; }
     [JsonPropertyName("staleAfterMs")] public int? StaleAfterMs { get; init; }
 
+    /// <summary>
+    /// v3.2.0 additive: decoded target HP percent for this tick (-1/absent when
+    /// unknown). Recorded so replay can reconstruct the TTK estimator from the
+    /// same series; no raw cells are stored.
+    /// </summary>
+    [JsonPropertyName("thp")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? TargetHpPct { get; init; }
+
+    /// <summary>
+    /// v3.2.0 additive: the exact engine timestamp the estimator was fed with for
+    /// this tick (ms). Present only on real frames with [TimeToKill] on; replay
+    /// feeds the same value so the reconstruction is exact.
+    /// </summary>
+    [JsonPropertyName("ttkMs")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? TtkFeedMs { get; init; }
+
     // ----- session metadata -----
     [JsonPropertyName("app")] public string? App { get; init; }
     [JsonPropertyName("events")] public int? Capacity { get; init; }
@@ -262,7 +496,8 @@ internal sealed record TelemetryEvent
         ActionCandidate[] candidates,
         string note,
         bool visible,
-        TelemetryPolicy? policy = null) => new()
+        TelemetryPolicy? policy = null,
+        long? ttkFeedMs = null) => new()
     {
         Kind = TelemetryKind.Tick,
         TMs = tMs,
@@ -280,6 +515,8 @@ internal sealed record TelemetryEvent
         Decision = decision is { } d ? ToTelemetry(d, intelligenceEnabled) : null,
         Policy = policy,
         StaleAfterMs = (int?)context?.StaleAfterMs,
+        TargetHpPct = frame is { TargetHpPct: >= 0 } thp ? thp.TargetHpPct : null,
+        TtkFeedMs = ttkFeedMs,
     };
 
     /// <summary>Builds the explainability record from the scheduler plan + context.</summary>
@@ -303,6 +540,9 @@ internal sealed record TelemetryEvent
                     Evidence = entry.Evidence.Count > 0 ? entry.Evidence.ToArray() : null,
                     Alternate = entry.Alternate,
                     AlternateRange = entry.Alternate ? EncodeTriState(entry.Range) : null,
+                    CdWait = entry.CdWait,
+                    LastTriedMs = entry.LastTriedMs > 0 ? entry.LastTriedMs : null,
+                    ResetHint = string.IsNullOrEmpty(entry.ResetHint) ? null : entry.ResetHint,
                 };
             }
         }
@@ -335,14 +575,49 @@ internal sealed record TelemetryEvent
             DefensiveUrgency = combat?.DefensiveUrgency.ToString(),
             StaggerUrgency = combat?.StaggerUrgency.ToString(),
             DefensiveCatalogSource = combat is { DefensiveCatalogSource: true } ? true : null,
+            OffensiveDerivedGapFill = combat is { OffensiveDerivedGapFill: true },
+            Class = combat?.Class,
+            Spec = combat?.Spec,
+            Ttk = combat is { TtkValid: true } ttkCombat ? Math.Round(ttkCombat.TtkSec, 1) : null,
+            TtkProvisional = combat is { TtkProvisional: true } ? true : null,
+            TargetAgeSec = combat is { TargetAgeSec: > 0 } ageCombat ? Math.Round(ageCombat.TargetAgeSec, 1) : null,
+            FastPackLatch = combat is { FastPackLatch: true } ? true : null,
+            // v3.7 adaptive history: exported beside ttk/ttkp/age/latch.
+            HistKills = combat is { TtkHistBinding: true } ? combat.TtkHistKills : null,
+            HistRate = combat is { TtkHistBinding: true } ? Math.Round(combat.TtkHistRate, 4) : null,
+            HistTtkSec = combat is { TtkHistBinding: true, TtkHistSec: > 0 } ? Math.Round(combat.TtkHistSec, 1) : null,
+            HistProvisional = combat is { TtkHistProvisional: true } ? true : null,
+            CdWait = plan.SelfHealCoolingDown,
+            LastTriedMs = plan.SelfHealLastTriedMs > 0 ? plan.SelfHealLastTriedMs : null,
             Options = options is null ? null : new TelemetryOptions
             {
                 Solo = options.SoloEnabled,
                 EmergencyHpPct = options.EmergencyHpPct,
                 SelfSustainHpPct = options.SelfSustainHpPct,
                 DefensiveEscalateHpPct = options.DefensiveEscalateHpPct,
+                SoloEscalation = options.SoloEscalation ? null : false,
+                SoloMinorHpPct = options.SoloMinorHpPct == 75 ? null : options.SoloMinorHpPct,
+                SoloMajorHpPct = options.SoloMajorHpPct == 50 ? null : options.SoloMajorHpPct,
+                SoloImmunityHpPct = options.SoloImmunityHpPct == 30 ? null : options.SoloImmunityHpPct,
                 AbilitiesOn = EncodeOverrides(options.Abilities?.EncodeOn()),
                 AbilitiesOff = EncodeOverrides(options.Abilities?.EncodeOff()),
+                Preset = options.Preset == RotationPreset.Full ? null : options.Preset.ToString(),
+                TargetPreset = options.TargetPreset == TargetPreset.SingleTarget ? null : options.TargetPreset.ToString(),
+                TtkFallback = options.TimeToKillFallback == TtkPolicy.DefaultFallback
+                    ? null
+                    : options.TimeToKillFallback.ToString(),
+                // v3.7: record the adaptive-history tuning so replay rebuilds the
+                // estimator with the SAME options. Omitted at the approved
+                // defaults, so a default-settings legacy line is byte-identical.
+                TtkHistory = options.TtkHistory ? null : false,
+                TtkHistoryKills = options.TtkHistoryKills == 8 ? null : options.TtkHistoryKills,
+                TtkHistoryMinKills = options.TtkHistoryMinKills == 3 ? null : options.TtkHistoryMinKills,
+                TtkHistoryMaxAgeSec = options.TtkHistoryMaxAgeSec == 240 ? null : options.TtkHistoryMaxAgeSec,
+                TtkHistoryQuantile = options.TtkHistoryQuantile == 75 ? null : options.TtkHistoryQuantile,
+                TtkHistoryDurFactor = options.TtkHistoryDurFactor == 0.5 ? null : options.TtkHistoryDurFactor,
+                // v3.8: record the warmup window so replay reproduces the hold;
+                // omitted at 0 (legacy) so default lines are unchanged.
+                TtkWarmupSec = options.TtkWarmupSec == 0 ? null : options.TtkWarmupSec,
             },
             Verdicts = verdicts,
         };

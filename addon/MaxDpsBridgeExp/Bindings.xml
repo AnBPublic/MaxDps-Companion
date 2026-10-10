@@ -1,0 +1,51 @@
+<Bindings>
+    <!-- The MDBX header is declared ONCE on the first binding. WoW registers a
+         header for every <Binding> that carries the attribute, so repeating it
+         raises "Binding header MDBX was attempted to be loaded more than once".
+         Later bindings omit header and inherit the previous header. -->
+    <Binding name="MDBX_TOGGLE_OVERLAY" header="MDBX" category="ADDONS">
+        MDBXBinding("Overlay")
+    </Binding>
+    <Binding name="MDBX_TOGGLE_MAIN" category="ADDONS">
+        MDBXBinding("Main")
+    </Binding>
+    <Binding name="MDBX_TOGGLE_OFFENSIVE" category="ADDONS">
+        MDBXBinding("Offensive")
+    </Binding>
+    <Binding name="MDBX_TOGGLE_DEFENSIVE" category="ADDONS">
+        MDBXBinding("Defensive")
+    </Binding>
+    <Binding name="MDBX_TOGGLE_CONSUMABLE" category="ADDONS">
+        MDBXBinding("Consumable")
+    </Binding>
+    <Binding name="MDBX_TOGGLE_TRINKET" category="ADDONS">
+        MDBXBinding("Trinket")
+    </Binding>
+    <Binding name="MDBX_TOGGLE_INTERRUPT" category="ADDONS">
+        MDBXBinding("Interrupt")
+    </Binding>
+    <Binding name="MDBX_TOGGLE_MOBILITY" category="ADDONS">
+        MDBXBinding("Mobility")
+    </Binding>
+    <Binding name="MDBX_TOGGLE_SELFHEAL" category="ADDONS">
+        MDBXBinding("SelfHeal")
+    </Binding>
+    <Binding name="MDBX_TOGGLE_SOLO" category="ADDONS">
+        MDBXBinding("Solo")
+    </Binding>
+    <Binding name="MDBX_TOGGLE_OOC" category="ADDONS">
+        MDBXBinding("OOC")
+    </Binding>
+    <Binding name="MDBX_TOGGLE_AUTOTARGET" category="ADDONS">
+        MDBXBinding("AutoTarget")
+    </Binding>
+    <Binding name="MDBX_TOGGLE_AUTOINTERACT" category="ADDONS">
+        MDBXBinding("AutoInteract")
+    </Binding>
+    <Binding name="MDBX_TOGGLE_TTK" category="ADDONS">
+        MDBXBinding("TTK")
+    </Binding>
+    <Binding name="MDBX_TOGGLE_CC" category="ADDONS">
+        MDBXBinding("CC")
+    </Binding>
+</Bindings>

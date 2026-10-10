@@ -162,8 +162,10 @@ Registry fields (v2.6.0; all derived where possible - see
   **patchVerified** (gamePatch 12.1 / interface 120100).
 - **relations** — Requires / Enhances / Replaces / ConflictsWith /
   SynergizesWith / Consumes / Protects / Follows / Precedes.
-- **capabilityTags**; **enemyCountMin** (enforced only for
-  companion-backed offensives - MaxDps-backed rows delegate); **holdForBurst**.
+- **capabilityTags**; **enemyCountMin** (informational since 3.7.9 - no
+  longer enforced for any row, companion- or MaxDps-backed); **holdForBurst**
+  (informational for offensives since 3.7.9 - no offensive TTK/burst
+  conservation).
 - Derived: CooldownClass / TargetKind / EmergencyCapability / capability
   flags / AutomationAllowed / HasIntelligence / ManualByDesign.
 
@@ -215,6 +217,23 @@ Catalog.lua drift check.
    19647 ↔ 119910) is stored symmetrically and emitted as
    `MDB.SpellAliases`; the bridge resolves a bar/macro variant id through it.
    Extras ids are checked against `spell-verification.json` names.
+   **cooldown / reset awareness (r2):** the bridge encodes a self-heal only
+   while it is off cooldown and re-reads readiness EVERY tick — readiness is
+   never cached across ticks (only keybind resolution is memoised, and that
+   cache is dropped on bar/binding/talent/spec events including
+   `SPELL_UPDATE_COOLDOWN`). A dynamic reset that makes the same spell ready
+   again is therefore offered within the next tick. Companion side: a ready
+   SelfHeal is never stale-demoted (unchanged slot content after a cooldown is
+   a new opportunity, not a stuck suggestion) and a transient failed press is
+   suppressed for at most 1.5 s with no escalating backoff; a permanent
+   exclusion (policy OFF / unbound / unknown) keeps its existing behaviour.
+   When HP is in the sustain window and no heal is ready, the scheduler holds
+   with the distinct reason `SelfHealCoolingDown` (`waiting for self-heal
+   cooldown`) instead of a generic no-candidate, so the UI/telemetry explains
+   the wait.
+   **resetHint (optional):** a curated free-form string such as
+   `"resets on kill"` may be added per ability; it is informational only
+   (surfaced in telemetry), never read by any decision rule.
 6. **The defensive extras are DERIVED, not hand-listed.** Unlike
    Mobility/SelfHeal, `Catalog.lua`'s per-spec `defensive` list is computed
    by `AbilityCatalog.DefensiveGapFill`: every vendor-listed defensive for
@@ -225,8 +244,22 @@ Catalog.lua drift check.
     HP urgency is Red, and the whole path stays inside MaxDps's
     `enableDefensives` switch. Catalog revision is 3 (`--gen-catalog`), and
     the committed file is pinned by tests.
+7. **The offensive extras are CURATED, not derived.** `Catalog.lua`'s
+   per-spec `offensive` list is authored in `abilities.json` under
+   `extras.<class>.<spec>.offensive`, unlike the derived defensive list. This
+   is deliberate: the vendor `classCooldowns[class][spec].offensive` bucket
+   mixes true damage-burst windows with rotational/resource fillers, so a
+   blind derivation would let the companion fire a filler. Selection rule:
+   **only true offensive cooldowns (damage burst windows), 1-4 per spec,
+   ordered shared burst first then spec-specific, never rotational fillers
+   and never utilities.** Every id must be present in
+   `spell-verification.json` with a matching live-client name (test-pinned).
+   Example: Warrior Arms `[107574 Avatar, 228920 Ravager, 262161 Warbreaker]`
+   (Avatar/Ravager are shared across specs; Warbreaker is Arms-specific). The
+   task's legacy Ravager id `152277` is not in the 12.1 DB2 export and is
+   corrected to the verified `228920`.
 
-## Defensive automation (v2.3)
+## Defensive automation (v2.3 / v3.0.0 Orange tier)
 
 MaxDps owns the defensive *trigger*; the companion adds the urgency stage,
 the user policy and the gap-fill. Nothing here replaces MaxDps's rotation.
@@ -251,14 +284,161 @@ the user policy and the gap-fill. Nothing here replaces MaxDps's rotation.
   (`Solo.EmergencyHpPct`, default 35) overrides. Escape/Movement (even when
   user-enabled) and External are emergency-only. Dispel holds (debuff state
   is not observable).
-- **Gap-fill.** `MDB.GetDefensiveCandidate()` returns the MaxDps flagged +
-  ready + bound defensive first; only when MaxDps names none AND the HP
-  urgency is Red does the generated Catalog.lua defensive list supply the
-  first ready + bound entry, with the cell 31 B bit0 source flag set. A
-  gap-fill candidate is never offered below Red and never fires above Red.
+- **Gap-fill (v2.3 Red / v3.0.0 Orange).** `MDB.GetDefensiveCandidate()`
+  returns the MaxDps flagged + ready + bound defensive first; only when MaxDps
+  names none does the generated Catalog.lua list supply the first ready +
+  bound entry, with the cell 31 B bit0 source flag set. At **Red** the major
+  list (`defensive`) is offered; at **Orange** the short-cooldown list
+  (`defensiveMinor`, Minor/None-tier mitigation only) is offered, so a
+  user-enabled short CD can fire at Orange while a major still waits for Red
+  (`MinimumUrgency` Red for major/immunity). A gap-fill is never offered below
+  Orange, a major gap-fill never fires above Red, and the whole path stays
+  inside MaxDps's `enableDefensives` switch.
 - **One dispatcher.** The whole path stays in the existing policy + scheduler
   pipeline: one defensive candidate per tick, one send path, the scheduler
   state machine unchanged.
+
+## Offensive automation (v3.0.0)
+
+Before v3.0.0 the Offensive slot was MaxDps-wire-only: a cooldown the user
+toggled ON never fired when MaxDps did not surface it. The companion now has a
+gap-fill seam for it, mirroring the defensive pattern but with
+offensive-appropriate gates:
+
+- **Source.** `MDB.GetOffensiveCandidate()` returns MaxDps's own flagged +
+  ready offensive first; when MaxDps names none, the curated per-spec
+  `offensive` list supplies the first ready + bound entry. The whole path stays
+  inside MaxDps's own `enableCooldowns` switch. There is **no wire source bit**
+  (PixelProtocol decode is frozen and every slot-flag bit is used), so the
+  companion derives `CandidateSourceKind.CompanionGapFill` by id membership in
+  the same generated list (`AbilityCatalog.IsOffensiveGapFill`); see
+  `docs/PROTOCOL.md` for why this is replay-safe (class/spec are recorded in
+  the telemetry policy block).
+- **Gates** (`CandidateProviders.OffensiveCandidateProvider`, unchanged
+  reason strings for MaxDps-sourced rows): a gap-fill candidate is offered only
+  in combat **or** in Solo mode — never out of combat in Normal mode; the
+  own-buff skip, the curated pairing window (`OffensiveActive`/`HoldForBurst`),
+  the curated `EnemyCountMin` AoE guard, the melee/range gates and the
+  cast/channel execution-safety gate all still apply. One action per tick and
+  the existing offensive rank are unchanged.
+- **User policy.** OFF stays absolute (the gap-fill never overrides it); ON is
+  eligibility only. `[Abilities] Modes` (SoloOnly/NormalOnly/Manual/Never)
+  still apply.
+- **Registry.** A companion-generated offensive gap-fill whose intelligence is
+  Incomplete/Unknown/UnsafeToAutomate is structurally skipped, exactly like the
+  other companion-only sources; the curated lists only contain entries that are
+  catalogued with real intelligence.
+
+## TTK estimator (v3.2.0; offensive conservation removed 3.7.9)
+
+The companion estimates per-target time-to-kill (TTK), but since **3.7.9** the
+estimator no longer conserves offensives: a Main/Offensive ability MaxDps
+offers is used unless a game-truth/structural gate applies. The estimator's
+only decision consumer is the defensive T4 `DyingTargetHolds` plus telemetry,
+and `minTtkSec`/`holdForBurst` are informational metadata for offensives.
+Nothing new is observed: the estimator consumes the target HP band already on
+the wire (cell 29) plus the frame clock. The gate history below is retained as
+history (see `docs/plans/2026-10-10-maxdps-recommendation-authority.md`).
+
+- **Estimator (`Knowledge/TtkEstimator.cs`).** Pure and fake-clock. `frac =
+  (band + 0.5) / 15` (the band midpoint). It RESETs (new epoch) on no target,
+  on HP unknown for more than 10 s, or when `frac` jumps UP by more than 0.12
+  (new target / big heal). It feeds only real declines, measured from the last
+  **fed anchor** (`inst = (feedFrac - frac) / feedDt`, so flat ticks accumulate
+  time instead of biasing the rate upward), ignored below 0.004 frac/s as
+  noise. The **first** fed sample **seeds** the EWMA (`ewma = inst`); later
+  samples blend with a 3 s time constant (`α = 1 - exp(-feedDt/3)`). A valid
+  estimate needs ≥2 fed samples, a ≥2.5 s observation span and `ewma ≥ 0.004`;
+  `TtkSec = clamp(frac / ewma, 0, 300)` (a trickle reads as 300 s "long"). An
+  invalid estimate **fails open**: the T4 hold is skipped (the offensive TTK
+  gates were removed in 3.7.9), because holding a cooldown on an unknown target
+  is exactly the DPS loss the feature avoids.
+- **Plumbing.** `RotationEngine` owns one estimator and feeds it once per real
+  frame, before the policy. The result is attached to the policy's
+  `CombatContext` (`WithTtk`) so no scheduler signature changes. `[TimeToKill]
+  Enabled=0` disables the estimator and the T4 hold. Target HP is still never
+  used for anything but the estimator; the plain percent is reconstructed from
+  the band (the former T3 offensive execute gate is removed in 3.7.9).
+- **Defaults (`Knowledge/TtkPolicy.cs`).** When `abilities.json` has no curated
+  `minTtkSec`, the usage default applies (v3.6): MajorBurst 15 s (was 12),
+  Transformation/Summon 20 s, WindowDriven 10 s, ShortCooldown/ProcDriven/
+  ResourceDriven/SingleTargetOnly 5 s, Execute 3 s, AoeOnly 0 (primary-target
+  TTK says nothing about the pack), DefensiveOffensiveHybrid 0 (never gate),
+  unknown 10 s. A ShortCooldown with `cdMs <= 45 s` uses `min(threshold, 3)`.
+  Curated `minTtkSec` still wins.
+- **Gates (`CandidateProviders`).**
+  - **T1/T2/T3 (Offensive) — conservation removed in 3.7.9.** The T1 waste
+    guard (`"target ~Xs to die; saving <name> (needs Ns)"`) and the other
+    conservation holds (history blend, grace, warmup) are gone; offensives are
+    no longer TTK-conserved. The **T2 two-uses and T3 execute bypasses of the
+    pair-window hold remain** (`TtkPolicy.TwoUsesAvailable` /
+    `TtkPolicy.ExecuteRange`, applied in `CandidateProviders.cs:309-310`). The
+    remaining offensive gates are not TTK: own-buff skip, pair window, gap-fill
+    out-of-combat hold, melee/range, and the Burst/AoE presets. See
+    `docs/plans/2026-10-10-maxdps-recommendation-authority.md`.
+  - **T4 dying target (Defensive) — retained.** emergency HP always overrides.
+    v3.6 replaces the old "Solo only, TTK < 6 s" hold with the tiered defensive
+    lookup below; group Major/Immunity are never gated.
+- **Schema.** `minTtkSec` (number, optional), `executeBelowPct` (0–100,
+  optional), `executeFavored` (bool, optional) and v3.6 `killSecure` (bool,
+  optional) are parsed by `AbilityCatalog` into `AbilityDefinition`. Curation is
+  owned by the T-B workstream; T-A only parses.
+
+### v3.6 dying-trash guard (2026-10-01; offensive holds removed in 3.7.9)
+
+The v3.2.0 estimator is only **valid** after ≥2 fed declines over a ≥2.5 s span.
+Trash dies faster, so the estimate never becomes valid and every offensive gate
+fails open. v3.6 added an early **provisional** path and a **fast-pack latch**
+so the guard applied to fast trash without locking out a long fight. **All of
+the offensive behaviour in this subsection was removed in 3.7.9** (offensive
+TTK conservation); it is kept as history. The provisional/latch fields still
+exist for the estimator/T4 feed.
+
+- **Provisional estimate.** `TtkEstimate` gains additive `Provisional`,
+  `AgeSec`, `FastPackLatch` (`Valid`/`TtkSec`/`TargetHpFrac` unchanged). The
+  estimator flags `Provisional=true` when a fast drop (band falls ≥3 over
+  ≥0.5 s within the first 2.5 s) gives an early rate, or on a low first sight
+  (band ≤3 in combat, seeded at 1/15 per second). `Valid` stays false until the
+  normal rule is met; the policy's `EffectiveTtkKnown = TtkValid ||
+  TtkProvisional`. `AgeSec` is time since the current target's first
+  observation (0 with no target).
+- **Fast-pack latch.** A kill is a departure (no target, or an upward jump
+  >0.12) where the previous target lived ≤12 s and last frac ≤0.25. Two kills
+  within 20 s set `FastPackLatch` for 20 s; it clears early when any target
+  reaches age ≥12 s with frac >0.5, or TTK ≥30 s. No-target/unknown-HP clears
+  provisional but keeps the latch, so it survives target swaps.
+- **Waste guard** applies to `Valid || Provisional`; the provisional guard
+  holds only MajorBurst/Transformation/Summon/WindowDriven and never holds
+  minors.
+- **Grace hold (the only fail-open exception).** MajorBurst / Transformation /
+  Summon, neither valid nor provisional, `FastPackLatch` true, `AgeSec < 4` ⇒
+  Hold `"fast pack, waiting for TTK"`. It never fires without the latch.
+- **Kill-secure exception.** Bypasses the waste guard when the ability is
+  MajorBurst/Summon or curated `killSecure:true`, **and** the estimate is valid,
+  `AgeSec >= 20`, `TargetHpFrac <= 0.35` and TTK is 3–20 s — a long fight ending
+  is not trash, and age separates the two.
+- **Execute carve-out.** Execute range also bypasses the waste guard, provided
+  TTK ≥3 s or is unknown.
+- **Defensive tiers (T4 v3.6).** Solo: Minor TTK <6 s, Major TTK <10 s,
+  Immunity TTK <15 s. Group: Minor only when TTK is valid <4 s, urgency below
+  Orange **and** the latch is set; group Major/Immunity are never gated.
+  Emergency always overrides. The Solo ladder-band carve-out lets a Major
+  bypass the hold at/below `SoloMajorHpPct` and Immunity at/below
+  `SoloImmunityHpPct`. Group is conservative because enemy count is
+  unobservable and the tank may be dying to other mobs.
+- **`[TimeToKill] Fallback`.** Companion setting `FailOpen` (default) or
+  `ConserveMajors`. `ConserveMajors` used to apply the grace hold to any
+  unknown-TTK major even with no latch; since 3.7.9 it no longer conserves
+  offensive majors (retained as a compatibility value).
+- **Toggle semantics.** The toggle is renamed **"TTK guard"** (hero toggle,
+  `/mdb` help, tooltip). OFF still forces target band 15 (UNKNOWN) — it is
+  **not** inverted (OFF = automation off everywhere else), but it is documented
+  as *"cooldowns fire without dying-target protection; target HP band hidden
+  from companion"*, because band 15 collaterally blinds the execute gate and
+  Burst consumers, not just the T4 hold. See `docs/PROTOCOL.md` §201.
+- **Phase 2 (separate task, not this change):** an optional wire change encoding
+  target class (cell 29 R bits 2–3) is a separate L-route spec; Phase 1 uses
+  only the existing band + frame clock.
 
 ## User ability policy (`[Abilities]`)
 
@@ -461,9 +641,11 @@ See `docs/research/ABILITY_RESEARCH.md` §4 and its v2.1 addendum:
   duration hints. A stale (v4/v1) addon session loses the defensive
   sequencing/trinket-pairing memory entirely (spell ids are absent) while
   still firing fail-open.
-- **Target HP is transmitted but never read by the policy** (no rule needs
-  it yet); player HP is UNKNOWN whenever the client hides it, and the solo
-  layer then conserves rather than guesses.
+- **Target HP is a band, not a measurement.** The coarse 0..14 target-HP band
+  (cell 29) feeds only the TTK estimator (v3.2.0); the plain HP percent is
+  reconstructed from the band for the execute gate, and no defensive/offensive
+  rule treats it as exact. Player HP is UNKNOWN whenever the client hides it,
+  and the solo layer then conserves rather than guesses.
 - **Telemetry**: the policy record exists only for ticks where the
   scheduler actually ran (`pol.fresh=true`); legacy-path ticks are recorded
   without a policy block instead of a stale plan.
@@ -476,3 +658,57 @@ references) with access dates (2026-09-27) and per-fact confidence marks.
 Vendor tables are the primary authority for this game version; external
 sources are used for behaviour (GCD, conditions) and are marked when they
 describe an older patch.
+
+## TTK curation (v3.2.0; informational for offensives since 3.7.9)
+
+Time-to-kill intelligence adds three **optional, companion-side** fields to a
+curated ability. They are parsed by `AbilityCatalog`/`AbilityModel` and
+consumed by the defensive T4 hold / telemetry (the offensive TTK gates were
+removed in 3.7.9); they are **not** emitted to `Catalog.lua` and no addon/Lua
+behaviour depends on them.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `minTtkSec` | number 0..300 | informational for offensives since 3.7.9 (was: hold this offensive when a valid target TTK is shorter than this) |
+| `executeBelowPct` | number 0..100 | target-HP% at/below which this burst is favored (execute semantics retained for curation/telemetry) |
+| `executeFavored` | bool | arms the execute rule; without it `executeBelowPct` is inert documentation |
+| `killSecure` (v3.6) | bool | historical: bypassed the removed offensive waste guard (valid TTK 3–20 s, age ≥20 s, target ≤35% HP) |
+
+**Tier defaults when absent** (T-A, plan §3.3; v3.6 values): MajorBurst 15,
+Transformation 20, Summon 20, WindowDriven 10, ShortCooldown / ProcDriven /
+SingleTargetOnly / ResourceDriven 5, `Execute 3`, `AoeOnly 0`,
+DefensiveOffensiveHybrid n/a (defensive path), unknown usage 10. `minTtkSec` is
+a floor, so `Execute` at 3 s and `AoeOnly` at 0 hold less than the v3.2.0
+defaults deliberately. Curation starts from these defaults and only states
+explicit values where a class/spec guide justifies a deviation. The v3.6
+`killSecure` flag is curated on confirmed majors only. Since 3.7.9 these tier
+defaults are informational for offensives — they no longer hold a cooldown —
+and the table documents the historical curation.
+
+Curated deviations (v3.2.0):
+
+- **Long-setup summons** — Army of the Dead (42650, 8 min CD, rune setup)
+  `minTtkSec: 30`; the other summons (Infernal 1122, Shadowfiend 34433,
+  Gargoyle 49206, Darkglare 205180, Demonic Tyrant 265187) state `minTtkSec:
+  20` explicitly to document the summon tier.
+- **Short cooldowns** — Unholy Assault (207289) and Primordial Wave (375982)
+  `minTtkSec: 5`: at 45–75 s they read as waste-safe and are never held.
+- **Execute synergy is sparse** — only Deathmark (360194, Assassination)
+  carries `executeBelowPct: 35` + `executeFavored: true`. Maxroll's
+  Assassination raid guide (Zoldyck Recipe) advises saving the last Deathmark
+  for the boss at ≤35% HP. Everywhere else the execute rule is OFF: modern
+  guides (Method, Icy Veins) say use Recklessness/Avatar/on-CD bursts on
+  cooldown rather than holding them for an execute phase.
+- **Cooldown corrections** (B1) — Havoc Metamorphosis (191427) `cdMs`
+  corrected 240000 → 120000 (Blizzard Midnight pre-patch notes: 3 min → 2 min);
+  Void Metamorphosis (1217605) no longer claims a 120 s / 20 s timer — it is
+  Soul-Fragment gated with a Fury-driven duration, so `cdMs`/`durMs` were
+  removed and the usage classed `Transformation`.
+
+Schema conformance is enforced by `TtkCurationTests` (raw-JSON read, so it is
+valid before T-A's model lands): every MajorOffensive/Transformation/Summon
+entry is explicit or on the documented-default table; explicit values are
+0..300; every `executeBelowPct` is accompanied by `executeFavored: true` and
+`0 < pct ≤ 35`; TTK fields appear only on major offensives; and every curated
+major name matches `spell-verification.json`. Per-class sources and the full
+B1 audit trail live in `docs/research/TTK_CURATION.md`.

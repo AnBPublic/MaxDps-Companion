@@ -26,6 +26,7 @@ internal static class Program
 
         var settingsPath = Path.Combine(AppDir, "settings.ini");
         var settings = AppSettings.Load(settingsPath);
+        ApplyExpFlag(settings, args);
 
         try
         {
@@ -373,6 +374,7 @@ internal static class Program
                     ? genCatalogArg[(split + 1)..].Trim().Trim('"')
                     : Path.Combine(AppDir, "Catalog.lua");
                 File.WriteAllText(outPath, CatalogLuaGenerator.Generate(AbilityCatalog.Default));
+                DeleteOnDiskIconCache();
                 return;
             }
 
@@ -584,6 +586,39 @@ internal static class Program
         frame = PixelProtocol.Decode(PixelProtocol.TrimToV4(cells), profile);
         if (frame is not null) return frame;
         return PixelProtocol.Decode(PixelProtocol.TrimToV1(cells), profile);
+    }
+
+    /// <summary>
+    /// Stream 3 `--gen-catalog` hook: a regenerated catalog can remap spell ids
+    /// to different icons, so drop the on-disk icon cache next to the exe. The
+    /// cache path is the one <see cref="SpellIconCache"/> owns
+    /// (<c>assets/icons</c> under <see cref="AppDir"/>); when it does not exist
+    /// there is nothing to invalidate and this is a no-op. The in-memory cache
+    /// belongs to the UI process, not this headless path, so deleting the files
+    /// IS the whole invalidation here. Best-effort only: a locked or missing
+    /// directory is ignored and never fails catalog generation.
+    /// </summary>
+    private static void DeleteOnDiskIconCache()
+    {
+        try
+        {
+            var cache = Path.Combine(AppDir, "assets", "icons");
+            if (Directory.Exists(cache)) Directory.Delete(cache, recursive: true);
+        }
+        catch { /* best-effort cache; catalog generation must still succeed */ }
+    }
+
+    /// <summary>
+    /// Experimental in-game-config (Exp) shell opt-in. <c>--exp</c> forces
+    /// <see cref="AppSettings.InGameConfigMode"/> on regardless of settings.ini,
+    /// so one published exe can run either shell without a second binary (spec
+    /// docs/plans/2026-10-03-ingame-config.md §1/§10; the dist-exp copy sets the
+    /// INI key instead). Parsed here so the flag and the INI share one load path.
+    /// </summary>
+    internal static void ApplyExpFlag(AppSettings settings, string[] args)
+    {
+        if (args.Any(arg => string.Equals(arg, "--exp", StringComparison.OrdinalIgnoreCase)))
+            settings.InGameConfigMode = true;
     }
 
     /// <summary>`--name=value` argument lookup with a default.</summary>

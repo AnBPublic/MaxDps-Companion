@@ -17,7 +17,9 @@ internal static class ConsolePalette
     public static readonly Color Keyline = Color.FromArgb(0x3A, 0x4A, 0x52);
     public static readonly Color Bone = Color.FromArgb(0xE9, 0xE3, 0xD3);
     public static readonly Color Tidewash = Color.FromArgb(0x93, 0xA5, 0xAE);
-    public static readonly Color Brass = Color.FromArgb(0xC6, 0x9A, 0x3F);
+    // M-route: one brass accent. The console palette now reuses the shell
+    // token so ConsoleHome / ChamferButton and the popups cannot drift apart.
+    public static readonly Color Brass = DesignTokens.Accent;
     public static readonly Color Ember = Color.FromArgb(0xB2, 0x3A, 0x2C);
     public static readonly Color EmberLight = Color.FromArgb(0xE0, 0x68, 0x4E);
 
@@ -71,6 +73,12 @@ internal sealed class ChamferButton : Button
     }
 
     private Color? _accent;
+
+    /// <summary>
+    /// Optional ghost fill override (Exp theme). Null keeps the classic
+    /// <see cref="DesignTokens.Surface"/> so the classic shell is untouched.
+    /// </summary>
+    public Color? GhostSurface { get; set; }
 
     private float _pressScale = 1f;
     private System.Windows.Forms.Timer? _pressTimer;
@@ -186,6 +194,13 @@ internal sealed class ChamferButton : Button
         return new Size(text.Width + Padding.Horizontal + glyph + 8, Math.Max(38, text.Height + 16));
     }
 
+    /// <summary>Width-tier type step (D5); the owning row owns the height.</summary>
+    public void ApplyScale(UiScale scale)
+    {
+        Font = DesignTokens.Type(Math.Max(8f, scale.BaseFont - 0.5f), FontStyle.Bold);
+        Invalidate();
+    }
+
     protected override void OnSizeChanged(EventArgs e)
     {
         base.OnSizeChanged(e);
@@ -213,7 +228,7 @@ internal sealed class ChamferButton : Button
         var ghost = _role == ButtonRole.Ghost;
         if (ghost)
         {
-            using var fill = new SolidBrush(DesignTokens.Blend(Color.White, DesignTokens.Surface, _hover ? 0.07f : 0.035f));
+            using var fill = new SolidBrush(DesignTokens.Blend(Color.White, GhostSurface ?? DesignTokens.Surface, _hover ? 0.07f : 0.035f));
             using var border = new Pen(Focused ? DesignTokens.Accent : DesignTokens.Hairline, Focused ? 2F : 1F);
             e.Graphics.FillPath(fill, path);
             e.Graphics.DrawPath(border, path);
@@ -265,70 +280,8 @@ internal sealed class ChamferButton : Button
     }
 }
 
-/// <summary>
-/// Double-bezel section: an outer hairline shell with concentric inner content
-/// (outer 12px radius, inner 8px), eyebrow-tag title, hairline rule.
-/// Sections read as machined plates, never flat boxes on the background.
-/// </summary>
-internal sealed class RuleSection : Panel
-{
-    private string _title = "";
-
-    public string SectionTitle
-    {
-        get => _title;
-        set { _title = value; Invalidate(); }
-    }
-
-    public RuleSection()
-    {
-        Padding = new Padding(10, 34, 10, 10);
-        BackColor = Color.Transparent;
-        SetStyle(ControlStyles.ResizeRedraw, true);
-    }
-
-    private static GraphicsPath Squircle(Rectangle r, int radius)
-    {
-        var path = new GraphicsPath();
-        var d = radius * 2;
-        path.AddArc(r.Left, r.Top, d, d, 180, 90);
-        path.AddArc(r.Right - d - 1, r.Top, d, d, 270, 90);
-        path.AddArc(r.Right - d - 1, r.Bottom - d - 1, d, d, 0, 90);
-        path.AddArc(r.Left, r.Bottom - d - 1, d, d, 90, 90);
-        path.CloseFigure();
-        return path;
-    }
-
-    protected override void OnPaint(PaintEventArgs e)
-    {
-        // Outer shell: faint fill + hairline, 12px concentric radius.
-        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        var outer = new Rectangle(1, 1, Math.Max(1, Width - 2), Math.Max(1, Height - 2));
-        using var outerPath = Squircle(outer, 12);
-        using var shell = new SolidBrush(Color.FromArgb(14, 255, 255, 255));
-        e.Graphics.FillPath(shell, outerPath);
-        using var hairline = new Pen(Color.FromArgb(28, 255, 255, 255), 1F);
-        e.Graphics.DrawPath(hairline, outerPath);
-
-        // Eyebrow tag: microscopic wide-tracked label with brass tick.
-        using var tick = new SolidBrush(ConsolePalette.Brass);
-        e.Graphics.FillRectangle(tick, 12, 10, 6, 6);
-        using var font = new Font(MainForm.UiFontPublic, 9F, FontStyle.Bold);
-        using var text = new SolidBrush(ConsolePalette.Bone);
-        // Wide tracking for the eyebrow feel: draw with extra spacing via format.
-        e.Graphics.DrawString(SectionTitle.ToUpperInvariant(), font, text, 24, 6);
-        var size = e.Graphics.MeasureString(SectionTitle.ToUpperInvariant(), font);
-        var y = 17;
-        var x1 = 24 + (int)Math.Ceiling(size.Width) + 12;
-        if (x1 < Width - 12)
-        {
-            using var pen = new Pen(ConsolePalette.Keyline, 1F);
-            e.Graphics.DrawLine(pen, x1, y, Width - 12, y);
-        }
-
-        base.OnPaint(e);
-    }
-}
+// M-route cleanup: RuleSection removed (zero call sites; GlassCard/section
+// headers own this surface now).
 
 internal sealed class TitleBarButton : UiClickable
 {
@@ -388,6 +341,12 @@ internal static class WindowChrome
 
 internal sealed class GradientCanvas : Panel
 {
+    /// <summary>
+    /// Optional flat fill (Exp theme). Null keeps the classic gradient so only
+    /// the Exp shell changes ground colour.
+    /// </summary>
+    public Color? FlatColor { get; set; }
+
     public GradientCanvas()
     {
         DoubleBuffered = true;
@@ -396,6 +355,12 @@ internal sealed class GradientCanvas : Panel
 
     protected override void OnPaintBackground(PaintEventArgs e)
     {
+        if (FlatColor is { } flat)
+        {
+            using var solid = new SolidBrush(flat);
+            e.Graphics.FillRectangle(solid, ClientRectangle);
+            return;
+        }
         using var brush = new LinearGradientBrush(ClientRectangle, Color.FromArgb(15, 56, 76), Color.FromArgb(48, 47, 19), 38F);
         e.Graphics.FillRectangle(brush, ClientRectangle);
         using var overlay = new LinearGradientBrush(ClientRectangle, Color.FromArgb(0, 8, 31, 42), Color.FromArgb(150, 8, 35, 49), 145F);
@@ -405,6 +370,15 @@ internal sealed class GradientCanvas : Panel
 
 internal sealed class RoundedCard : Panel
 {
+    /// <summary>Card fill; defaults to the classic glass tint. Exp sets the opaque card token.</summary>
+    public Color FillColor { get; set; } = Color.FromArgb(78, 244, 247, 249);
+
+    /// <summary>Card hairline; Exp sets an opaque keyline over its card token.</summary>
+    public Color BorderColor { get; set; } = Color.FromArgb(52, 255, 255, 255);
+
+    /// <summary>Corner radius; Exp uses the tighter <c>ExpTheme.RadiusOuter</c>.</summary>
+    public int CornerRadius { get; set; } = 20;
+
     public RoundedCard()
     {
         DoubleBuffered = true;
@@ -416,9 +390,9 @@ internal sealed class RoundedCard : Panel
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
         e.Graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
         var bounds = new Rectangle(1, 1, Math.Max(1, Width - 3), Math.Max(1, Height - 3));
-        using var path = Rounded(bounds, 20);
-        using var fill = new SolidBrush(Color.FromArgb(78, 244, 247, 249));
-        using var border = new Pen(Color.FromArgb(52, 255, 255, 255), 1F);
+        using var path = Rounded(bounds, CornerRadius);
+        using var fill = new SolidBrush(FillColor);
+        using var border = new Pen(BorderColor, 1F);
         e.Graphics.FillPath(fill, path);
         e.Graphics.DrawPath(border, path);
         base.OnPaint(e);
@@ -471,6 +445,13 @@ internal sealed class GroupHeader : Control
     public GroupHeader(string title) : this()
     {
         Text = title;
+    }
+
+    /// <summary>Width-tier type step (D5).</summary>
+    public void ApplyScale(UiScale scale)
+    {
+        Font = new Font(MainForm.UiFontPublic, Math.Max(8f, scale.BaseFont - 0.5f), FontStyle.Bold);
+        Invalidate();
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -533,6 +514,11 @@ internal sealed class SettingRow : Panel, IUiMeasured
         Controls.Add(titleLabel);
         Controls.Add(subtitleLabel);
         Controls.Add(toggle);
+        // The labels ellipsise at narrow tiers; always expose their full text on
+        // hover. A later Hint assignment overrides this with the longer
+        // condition description.
+        _tip.SetToolTip(titleLabel, title);
+        _tip.SetToolTip(subtitleLabel, subtitle);
     }
 
     /// <summary>Measured height: fits title + up to three wrapped subtitle lines.</summary>
@@ -543,12 +529,23 @@ internal sealed class SettingRow : Panel, IUiMeasured
         return 9 + titleH + 2 + subH + 12;
     }
 
-    private static readonly ToolTip SharedTip = new()
+    /// <summary>
+    /// Re-applies a width tier (D5): title/subtitle type scale and the toggle
+    /// size. Re-measures, so the owning row must be laid out again afterwards.
+    /// </summary>
+    public void ApplyScale(UiScale scale)
     {
-        AutoPopDelay = 20000,
-        InitialDelay = 350,
-        ReshowDelay = 100,
-    };
+        titleLabel.Font = DesignTokens.Type(scale.BaseFont + 1f, FontStyle.Bold);
+        subtitleLabel.Font = DesignTokens.Type(scale.BaseFont);
+        toggle.Size = scale.ToggleSize;
+        PerformLayout();
+        Invalidate();
+    }
+
+    // S5: per-row owned tooltip. The old static shared ToolTip was a native
+    // control touched from several STA threads at once (and a native bubble
+    // over the themed surface); one owned tip per row is thread-safe and themed.
+    private readonly OwnedToolTip _tip = new();
 
     private string? _hint;
 
@@ -563,11 +560,17 @@ internal sealed class SettingRow : Panel, IUiMeasured
         {
             _hint = value;
             if (string.IsNullOrWhiteSpace(value)) return;
-            SharedTip.SetToolTip(this, value);
-            SharedTip.SetToolTip(titleLabel, value);
-            SharedTip.SetToolTip(subtitleLabel, value);
-            SharedTip.SetToolTip(toggle, value);
+            _tip.SetToolTip(this, value);
+            _tip.SetToolTip(titleLabel, value);
+            _tip.SetToolTip(subtitleLabel, value);
+            _tip.SetToolTip(toggle, value);
         }
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) _tip.Dispose();
+        base.Dispose(disposing);
     }
 
     private int TextWidthFor(int width)
@@ -634,6 +637,46 @@ internal sealed class SettingRow : Panel, IUiMeasured
         path.AddArc(rectangle.Left, rectangle.Bottom - diameter, diameter, diameter, 90, 90);
         path.CloseFigure();
         return path;
+    }
+}
+
+/// <summary>
+/// One "Rotation"/"Automation" row: two <see cref="SettingRow"/>s side by side. It is
+/// <see cref="IUiMeasured"/>, so the hero card sizes the row to the real
+/// wrapped text (D3) instead of a fixed 66 px literal that clipped subtitles.
+/// </summary>
+internal sealed class ToggleRowPanel : Panel, IUiMeasured
+{
+    private readonly SettingRow _left;
+    private readonly SettingRow _right;
+
+    public int Gap { get; set; } = DesignTokens.SpaceS;
+
+    public ToggleRowPanel(SettingRow left, SettingRow right)
+    {
+        _left = left;
+        _right = right;
+        SetStyle(ControlStyles.ResizeRedraw | ControlStyles.SupportsTransparentBackColor, true);
+        BackColor = Color.Transparent;
+        Margin = Padding.Empty;
+        Controls.Add(left);
+        Controls.Add(right);
+    }
+
+    public int MeasuredHeight(int width)
+    {
+        var half = Math.Max(80, (width - Gap) / 2);
+        return Math.Max(_left.MeasuredHeight(half), _right.MeasuredHeight(half));
+    }
+
+    protected override void OnLayout(LayoutEventArgs e)
+    {
+        base.OnLayout(e);
+        var half = Math.Max(80, (ClientSize.Width - Gap) / 2);
+        _left.Bounds = new Rectangle(0, 0, half, ClientSize.Height);
+        _right.Bounds = new Rectangle(half + Gap, 0, Math.Max(40, ClientSize.Width - half - Gap), ClientSize.Height);
+        _left.PerformLayout();
+        _right.PerformLayout();
     }
 }
 
@@ -781,33 +824,8 @@ internal sealed class ToggleSwitch : UiClickable
     }
 }
 
-internal sealed class StatusDot : Control
-{
-    private Color _dot = Color.FromArgb(71, 230, 148);
-
-    /// <summary>Dot colour. Default is the PRP running-green.</summary>
-    public Color Dot
-    {
-        get => _dot;
-        set { _dot = value; Invalidate(); }
-    }
-
-    public StatusDot()
-    {
-        DoubleBuffered = true;
-        SetStyle(ControlStyles.SupportsTransparentBackColor, true);
-        BackColor = Color.Transparent;
-    }
-
-    protected override void OnPaint(PaintEventArgs e)
-    {
-        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        using var glow = new SolidBrush(Color.FromArgb(55, _dot.R, _dot.G, _dot.B));
-        using var dot = new SolidBrush(_dot);
-        e.Graphics.FillEllipse(glow, 1, Height / 2 - 8, 16, 16);
-        e.Graphics.FillEllipse(dot, 5, Height / 2 - 4, 8, 8);
-    }
-}
+// M-route cleanup: StatusDot removed (zero call sites; LinkLamp/pills carry
+// status with a glyph or word, never colour alone).
 
 // ----- classic (v1.3.9) restored primitives -----
 

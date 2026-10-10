@@ -22,6 +22,13 @@ internal sealed class MainForm : Form
     private readonly RotationEngine _engine;
     private readonly System.Windows.Forms.Timer _uiTimer = new() { Interval = 250 };
 
+    // ADDON-WINS toggle authority: the in-game overlay owns the effective mask
+    // and the companion consumes the Ext3 mirror. Auto-push is REMOVED — this
+    // state machine no longer sends /mdb mask on Start or on a settings change,
+    // so the bridge stays at epoch 0 and its local toggles win. (An explicit
+    // ToggleSync.RequestExplicitPush path exists but has no call site.)
+    private readonly ToggleSync _toggleSync = new();
+
     private EngineStatus _status;
     private bool _hotkeyRegistered;
     private string _statusMessage = "Stopped";
@@ -46,6 +53,10 @@ internal sealed class MainForm : Form
     private readonly ToggleSwitch _outOfCombat = new();
     private readonly ToggleSwitch _autoTarget = new();
     private readonly ToggleSwitch _autoInteract = new();
+    // v3.2.0: per-target time-to-kill kill-switch (Modes card).
+    private readonly ToggleSwitch _timeToKill = new() { Checked = true };
+    // v3.4.0: CC appendix opt-in (Modes card, shares the Time-to-kill row).
+    private readonly ToggleSwitch _crowdControl = new();
     private readonly ToggleSwitch _interrupt = new() { Checked = true };
     private readonly ToggleSwitch _mobility = new() { Checked = true };
     private readonly ToggleSwitch _selfHeal = new() { Checked = true };
@@ -70,6 +81,23 @@ internal sealed class MainForm : Form
     };
     private readonly ChamferButton _openFolder = new() { Text = "Open Folder", Role = ButtonRole.Ghost };
     private readonly ChamferButton _launchGame = new() { Text = "Launch Game", Role = ButtonRole.Ghost };
+
+    // Exp (in-game-config) shell controls. Built only when
+    // AppSettings.InGameConfigMode is set (spec docs/plans/2026-10-03-ingame-config.md):
+    // four transport buttons reusing the existing handlers and ONE read-only
+    // status pill (state + bridge mask witness + frames). The 14 hero toggles
+    // are never mounted in this shell.
+    private readonly ChamferButton _pauseButton = new() { Text = "Pause", Role = ButtonRole.Ghost };
+    // OPEN GAME: fifth Exp control, last in the transport row. It reuses the
+    // classic LaunchGame() handler / BattleNetLauncher (no new launch logic,
+    // no Wow.exe direct launch, no protocol or key change).
+    private readonly ChamferButton _expLaunchGame = new() { Text = "OPEN GAME", Role = ButtonRole.Ghost };
+    private readonly Label _expStatusPill = new();
+    private TableLayoutPanel _expTransport = null!;
+    private Panel _expConsoleHost = null!;
+    // One-shot latch for the Exp calibration hint: append it to the single
+    // rolling log when the bridge goes invisible, reset when it returns.
+    private bool _expBridgeHintShown;
 
     private BlockLocation? _pendingLocation;
 
@@ -110,23 +138,98 @@ internal sealed class MainForm : Form
     private Control _mainBody = null!;
     private Panel _advancedOverlay = null!;
     private Panel _abilitiesOverlay = null!;
-    private TabControl _advancedTabs = null!;
-    private TabControl _abilitiesTabs = null!;
+    private SegmentedTabs _advancedTabs = null!;
+    private SegmentedTabs _abilitiesTabs = null!;
+    // v3.5 S7: the console home (default view over the classic body).
+    private ConsoleHome _consoleHome = null!;
+    private ConsolePreset? _activePreset;
+    private string _consoleLastStatus = "";
     private readonly LinkLamp _linkLamp = new();
     private readonly Label _stateLabel = new();
     private readonly Label _liveValue = new();
+    private readonly OwnedToolTip _liveTip = new();
     private readonly Label _statusLine = new();
+    private Label? _headerTitle;
     private readonly ClassBadge _classBadge = new();
     private readonly StripView _stripView = new();
     private ChamferButton? _advancedEntry;
     private ChamferButton? _abilitiesEntry;
     private bool _advancedContentBuilt;
+    // Tracks whether a popup hid the console home, so closing the popup only
+    // restores it when the user had not hidden it themselves.
+    private bool _consoleHomeHiddenByPopup;
     private readonly AbilityExplorer _explorer;
     private readonly IntelligencePage _intelligencePage = new();
     private readonly ConfigurationPage _config = new();
     private readonly DiagnosticsPage _diagnostics = new();
     private ClassSkillsView? _classSkills;
     private ChamferButton? _classSkillsEntry;
+    private readonly ClassBrowserView _classBrowser;
+    private readonly Dictionary<string, ClassOverlay> _classOverlays = new(StringComparer.OrdinalIgnoreCase);
+
+    // S8 perf + diagnostics: off-thread Class Browser precompute (warmed on
+    // idle), the per-toggle why-not-firing explainer and the install doctor.
+    private readonly ClassBrowserPrecompute _classBrowserPrecompute;
+    private readonly WhyNotFiringPanel _whyNotFiring = new();
+    private readonly Label _doctorValue = new();
+    private readonly ChamferButton _doctorRefresh = new() { Text = "Run install doctor", Role = ButtonRole.Ghost };
+    private int? _lastLocatedCellSize;
+    private bool _classBrowserWarmScheduled;
+    private int _doctorTick;
+
+    // Stream 3 wiring: solo survival-band editor (Safety card) and the
+    // bridge-health banner + suggested-vs-cast audit (Diagnostics page).
+    private readonly SoloBandEditor _soloBands = new();
+    private readonly CrowdControlToggle _ccToggle = new();
+    private readonly SemanticBanner _bridgeBanner = new("Bridge health: unknown", StatusTone.Info);
+    private readonly CastAuditView _castAuditView = new();
+    private readonly ChamferButton _castAuditLoad = new() { Text = "Load audit from export...", Role = ButtonRole.Ghost };
+
+    // Advanced-popup mirrors (v3.0.0 D1/D2). A WinForms control has exactly one
+    // parent, so the popup's lazy build must never reuse a hero control: doing
+    // so silently re-parents it off the main window (the confirmed screenshot
+    // defect — spell cards lost their toggles and three bottom buttons
+    // vanished). The popup owns its own controls; these mirror the hero state.
+    private readonly ToggleSwitch _mainAdv = new() { Checked = true };
+    private readonly ToggleSwitch _offensiveAdv = new() { Checked = true };
+    private readonly ToggleSwitch _defensivesAdv = new() { Checked = true };
+    private readonly ToggleSwitch _consumableAdv = new();
+    private readonly ToggleSwitch _trinketAdv = new();
+    private readonly ToggleSwitch _interruptAdv = new() { Checked = true };
+    private readonly ToggleSwitch _mobilityAdv = new() { Checked = true };
+    private readonly ToggleSwitch _selfHealAdv = new() { Checked = true };
+    private readonly ToggleSwitch _autoTargetAdv = new();
+    private readonly ToggleSwitch _autoInteractAdv = new();
+    private readonly ChamferButton _launchGameAdv = new() { Text = "Launch Game", Role = ButtonRole.Ghost };
+    private readonly ChamferButton _recalibrateAdv = new() { Text = "Recalibrate", Role = ButtonRole.Ghost, AccentColor = ConsolePalette.Brass };
+    private readonly ChamferButton _openFolderAdvConfig = new() { Text = "Open Folder", Role = ButtonRole.Ghost };
+    private readonly ChamferButton _openFolderAdvDiag = new() { Text = "Open Folder", Role = ButtonRole.Ghost };
+
+    // Width-tier scaling (D5) + measured content (D3/D4).
+    private UiScale _scale = UiScale.For(ClassicWantWidth);
+    private RoundedCard _heroCard = null!;
+    private TableLayoutPanel _heroLayout = null!;
+    private TableLayoutPanel _bodyLayout = null!;
+    private RoundedCard _advancedPopup = null!;
+    private RoundedCard _abilitiesPopup = null!;
+    private readonly List<Control> _heroRows = new();
+    private readonly List<SettingRow> _heroSettingRows = new();
+    private readonly List<GroupHeader> _heroHeaders = new();
+    private Control _statusRow = null!;
+    private Control _liveRow = null!;
+    private readonly System.Windows.Forms.Timer _resizeDebounce = new() { Interval = 120 };
+    private bool _userSizedHeight;
+    private bool _forceHeight;
+    private int _contentHeight;
+
+    // S5: popups use a STATIC OPAQUE scrim. The old animated alpha scrim
+    // (0xE4,7,9,11) was painted by WinForms' simulated-transparency hack over
+    // native TabControl/ComboBox children, which never composite — the garbled
+    // popup. One opaque layer, no fade over native children.
+    private double _lastPopupOpenMs;
+
+    /// <summary>Test seam: kept for the engine-running gate; now a no-op since the scrim is static.</summary>
+    internal bool EngineRunningForFadeGate { get; set; }
 
     private static Image? _appIcon;
     private bool _uiInitialised;
@@ -146,7 +249,10 @@ internal sealed class MainForm : Form
         AutoScaleMode = AutoScaleMode.Dpi;
         BackColor = DesignTokens.Background;
         ForeColor = DesignTokens.TextPrimary;
-        Padding = new Padding(2);
+        // No frame padding: the body canvas fills the whole client and the
+        // popup scrims are parented to this Form so ONE mask covers the entire
+        // window (the old Padding(2) left a 2 px background ring).
+        Padding = Padding.Empty;
         Font = DesignTokens.Type(DesignTokens.BodySize);
         NameInputs();
         FitToScreen();
@@ -168,33 +274,85 @@ internal sealed class MainForm : Form
                 SaveSettings();
             });
 
+        // S6 (v3.5): one Class Browser replaces the Class skills + Explorer
+        // tabs. It consumes the resolved registry entry (overlay + overrides)
+        // and the engine's published verdict; it evaluates no gate itself.
+        _classBrowser = new ClassBrowserView(AbilityCatalog.Default, new ClassBrowserHost
+        {
+            IsEnabled = ability => _settings.Abilities.IsEnabled(ability),
+            SetEnabled = (ability, on) =>
+            {
+                _settings.Abilities = _settings.Abilities.With(ability.SpellId, on, !ability.NeverAutomatic);
+                SaveSettings();
+            },
+            RegistryEntry = ResolveRegistryEntry,
+            LiveVerdict = LiveVerdictFor,
+            ModeOf = spellId => _settings.Abilities.ModeOf(spellId),
+            SetMode = (spellId, mode) =>
+            {
+                _settings.Abilities = _settings.Abilities.WithMode(spellId, mode);
+                SaveSettings();
+            },
+            UrgencyFloorOf = spellId => _settings.AbilityOverrides.For(spellId)?.MinUrgency,
+            SetUrgencyFloor = (spellId, value) =>
+            {
+                _settings.SetUrgencyOverride(spellId, value);
+                _settings.SaveAbilityOverrides();
+                SaveSettings();
+            },
+            ResetOverrides = spellId =>
+            {
+                _settings.ClearOverride(spellId);
+                _settings.SaveAbilityOverrides();
+                _settings.Abilities = _settings.Abilities.WithMode(spellId, UserAbilityMode.Default);
+                SaveSettings();
+            },
+        });
+
+        // S8: route the Class Browser row build through the off-thread cache
+        // (the S5 TreeBuilder seam). A cache miss still builds inline, so the
+        // screen can never regress to blank.
+        _classBrowserPrecompute = new ClassBrowserPrecompute(AbilityCatalog.Default, ClassSpellBook.Default);
+        _classSkills.TreeBuilder = _classBrowserPrecompute.Build;
+
         // WS-C drill-through: a clickable Intelligence metric tile opens the
         // Abilities overlay on the Explorer tab with the matching preset.
         _intelligencePage.DrillRequested += tag => ShowAbilitiesWithPreset(tag);
 
         BuildLayout();
+        // v3.4.0 Approach A §4: the companion-appendix hero bubbles open the
+        // Abilities overlay filtered to their set. Wired after the hero is built
+        // but before any layout so the click targets are in place on first paint.
+        WireHeroDrillThrough();
         LoadFromSettings();
         StyleInputs(this);
         WireAutoSave();
         SyncTelemetryRecorder();
         BuildTray();
+        ApplyScale(resetHeight: true);
 
-        OnToggle(_main, 0);
-        OnToggle(_offensive, 1);
-        OnToggle(_defensives, 2);
-        OnToggle(_consumable, 3);
-        OnToggle(_trinket, 4);
-        OnToggle(_interrupt, 5);
-        OnToggle(_mobility, 6);
-        OnToggle(_selfHeal, 7);
+        WireSlotMirror(_main, _mainAdv, 0);
+        WireSlotMirror(_offensive, _offensiveAdv, 1);
+        WireSlotMirror(_defensives, _defensivesAdv, 2);
+        WireSlotMirror(_consumable, _consumableAdv, 3);
+        WireSlotMirror(_trinket, _trinketAdv, 4);
+        WireSlotMirror(_interrupt, _interruptAdv, 5);
+        WireSlotMirror(_mobility, _mobilityAdv, 6);
+        WireSlotMirror(_selfHeal, _selfHealAdv, 7);
+        WireModeMirror(_autoTarget, _autoTargetAdv);
+        WireModeMirror(_autoInteract, _autoInteractAdv);
 
         _start.Click += (_, _) => StartEngine();
         _stop.Click += (_, _) => StopEngine();
         _recalibrate.Click += (_, _) => RecalibrateFull();
         _telemetryExport.Click += (_, _) => ExportTelemetry();
         _telemetryReplay.Click += (_, _) => ReplayTelemetry();
-        _openFolder.Click += (_, _) => System.Diagnostics.Process.Start("explorer.exe", Program.AppDir);
+        _openFolder.Click += (_, _) => OpenAppFolder();
+        _openFolderAdvConfig.Click += (_, _) => OpenAppFolder();
+        _openFolderAdvDiag.Click += (_, _) => OpenAppFolder();
         _launchGame.Click += (_, _) => LaunchGame();
+        _launchGameAdv.Click += (_, _) => LaunchGame();
+        _recalibrateAdv.Click += (_, _) => RecalibrateFull();
         _learnColors.Click += (_, _) => LearnColors();
         _resetColors.Click += (_, _) => ResetColors();
         _bnetBrowse.Click += (_, _) => BrowseBNet();
@@ -210,6 +368,8 @@ internal sealed class MainForm : Form
         _outOfCombat.CheckedChanged += (_, _) => SyncCombatFromCard();
         _autoTarget.CheckedChanged += (_, _) => SaveNow();
         _autoInteract.CheckedChanged += (_, _) => SaveNow();
+        _timeToKill.CheckedChanged += (_, _) => SaveNow();
+        _crowdControl.CheckedChanged += (_, _) => SaveNow();
 
         // Hero "Solo" toggle mirrors the Advanced checkbox (one setting).
         _solo2.CheckedChanged += (_, _) =>
@@ -236,7 +396,53 @@ internal sealed class MainForm : Form
 
         _uiTimer.Tick += (_, _) => RefreshStatus();
         _uiTimer.Start();
+
+        // D5: tier recompute is debounced; no re-layout while the user drags.
+        _resizeDebounce.Tick += (_, _) =>
+        {
+            _resizeDebounce.Stop();
+            if (!_userSizedHeight) { /* height is content-driven */ }
+            ApplyScale(resetHeight: !_userSizedHeight);
+        };
         _uiInitialised = true;
+
+        // S8: pre-build the Class Browser rows once the window is up and the
+        // message loop goes idle, off the UI thread.
+        Shown += (_, _) => BeginClassBrowserWarmup();
+    }
+
+    // ----- S8 perf: idle Class Browser precompute -----
+
+    private void BeginClassBrowserWarmup()
+    {
+        if (_classBrowserWarmScheduled) return;
+        _classBrowserWarmScheduled = true;
+        Application.Idle += WarmClassBrowserOnIdle;
+    }
+
+    private void WarmClassBrowserOnIdle(object? sender, EventArgs e)
+    {
+        Application.Idle -= WarmClassBrowserOnIdle;
+        try
+        {
+            // The rows the user is most likely to open: the live class/spec
+            // when the engine knows it, else the first class and its first spec.
+            var className = _engine.TryGetLiveClass(out var live) ? live : null;
+            var specName = _engine.TryGetLiveSpec(out var liveSpec) ? liveSpec : null;
+            if (string.IsNullOrEmpty(className) || string.IsNullOrEmpty(specName))
+            {
+                className = AbilityCatalog.ClassOrder.FirstOrDefault(c => c.Length > 0);
+                if (className is not null
+                    && AbilityCatalog.SpecOrder.TryGetValue(className, out var specs)
+                    && specs.Length > 1)
+                {
+                    specName = specs[1];
+                }
+            }
+            if (!string.IsNullOrEmpty(className) && !string.IsNullOrEmpty(specName))
+                _classBrowserPrecompute.Warm(className, specName);
+        }
+        catch { /* prebuild is best-effort */ }
     }
 
     // ----- persistence -----
@@ -283,6 +489,83 @@ internal sealed class MainForm : Form
         ApplyToSettings();
         SaveSettings();
         RegisterPauseHotkey();
+    }
+
+    // ----- S6 Class Browser: resolved registry + live verdict ----------------
+
+    /// <summary>
+    /// The resolved registry entry (registry + overlay + user override) for a
+    /// spell. The loader applies the safety transforms once per class and the
+    /// result is cached; the browser only consumes it.
+    /// </summary>
+    private ClassOverlayEntry? ResolveRegistryEntry(string className, string specName, int spellId)
+    {
+        if (string.IsNullOrEmpty(className)) return null;
+        var entry = OverlayFor(className).For(spellId);
+        return entry is null ? null : _settings.AbilityOverrides.Apply(entry);
+    }
+
+    private ClassOverlay OverlayFor(string className)
+    {
+        if (_classOverlays.TryGetValue(className, out var cached)) return cached;
+        ClassOverlay overlay;
+        try
+        {
+            var path = FindClassOverlayPath(className);
+            overlay = path is null
+                ? ClassOverlay.Empty(className: className)
+                : ClassOverlayLoader.LoadFile(path);
+        }
+        catch
+        {
+            overlay = ClassOverlay.Empty(className: className);
+        }
+        _classOverlays[className] = overlay;
+        return overlay;
+    }
+
+    /// <summary>
+    /// Locates <c>Knowledge/classes/&lt;class&gt;.json</c>: next to the exe, or
+    /// in the repo tree during development. Null when the class has no overlay.
+    /// </summary>
+    private static string? FindClassOverlayPath(string className)
+    {
+        var file = className + ".json";
+        var candidates = new List<string>
+        {
+            Path.Combine(AppContext.BaseDirectory, "Knowledge", "classes", file),
+        };
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        for (var i = 0; i < 8 && dir is not null; i++, dir = dir.Parent)
+        {
+            candidates.Add(Path.Combine(dir.FullName, "app", "MaxDpsCompanion", "Knowledge", "classes", file));
+            candidates.Add(Path.Combine(dir.FullName, "Knowledge", "classes", file));
+        }
+        foreach (var candidate in candidates)
+            if (File.Exists(candidate)) return candidate;
+        return null;
+    }
+
+    /// <summary>
+    /// The live why-held / why-ready verdict for a row, read from the engine's
+    /// published snapshot. No gate is evaluated here (the scheduler owns that).
+    /// </summary>
+    private string? LiveVerdictFor(AbilityDefinition ability)
+    {
+        if (_engine.Paused) return "held: paused";
+        var current = _engine.CurrentPlanHead;
+        if (current is not null && string.Equals(current.Action, ability.Name, StringComparison.OrdinalIgnoreCase))
+            return "next: " + VerdictReason(current);
+        var last = _engine.LastAction;
+        if (last is not null && string.Equals(last.Action, ability.Name, StringComparison.OrdinalIgnoreCase))
+            return "sent: " + VerdictReason(last);
+        return null;
+    }
+
+    private static string VerdictReason(LiveActionSnapshot snapshot)
+    {
+        var why = snapshot.Why.Count > 0 ? string.Join("; ", snapshot.Why) : snapshot.Reason;
+        return string.IsNullOrWhiteSpace(why) ? "no reasons recorded" : why;
     }
 
     private void WireAutoSave()
@@ -340,17 +623,58 @@ internal sealed class MainForm : Form
     private bool SlotFlag(int slot, bool fallback) =>
         (slot >= 0 && slot < _settings.SlotEnabled.Length) ? _settings.SlotEnabled[slot] : fallback;
 
-    private void OnToggle(ToggleSwitch toggle, int slot)
+    /// <summary>Two-way mirror for a slot toggle (hero ↔ Advanced popup).</summary>
+    private void WireSlotMirror(ToggleSwitch hero, ToggleSwitch popup, int slot)
     {
-        toggle.CheckedChanged += (_, _) =>
+        popup.Checked = hero.Checked;
+        WireMirror(hero, popup, source =>
         {
             if (slot >= 0 && slot < _settings.SlotEnabled.Length)
+                _settings.SlotEnabled[slot] = source.Checked;
+        });
+    }
+
+    /// <summary>Two-way mirror for a mode toggle; persistence rides the hero's existing SaveNow.</summary>
+    private void WireModeMirror(ToggleSwitch hero, ToggleSwitch popup)
+    {
+        popup.Checked = hero.Checked;
+        WireMirror(hero, popup, _ => { });
+    }
+
+    /// <summary>
+    /// One shared setting, two controls. Either side changes the other and runs
+    /// <paramref name="apply"/>; the guard stops the mirror write-back from
+    /// looping.
+    /// </summary>
+    private static void WireMirror(ToggleSwitch hero, ToggleSwitch popup, Action<ToggleSwitch> apply)
+    {
+        var syncing = false;
+        hero.CheckedChanged += (_, _) =>
+        {
+            if (syncing) return;
+            syncing = true;
+            try
             {
-                _settings.SlotEnabled[slot] = toggle.Checked;
-                SaveSettings();
+                if (popup.Checked != hero.Checked) popup.Checked = hero.Checked;
+                apply(hero);
             }
+            finally { syncing = false; }
+        };
+        popup.CheckedChanged += (_, _) =>
+        {
+            if (syncing) return;
+            syncing = true;
+            try
+            {
+                if (hero.Checked != popup.Checked) hero.Checked = popup.Checked;
+                apply(popup);
+            }
+            finally { syncing = false; }
         };
     }
+
+    private static void OpenAppFolder() =>
+        System.Diagnostics.Process.Start("explorer.exe", Program.AppDir);
 
     // ----- chrome: custom title bar + classic fixed body + popups (v3 A3-A5) -----
 
@@ -371,8 +695,23 @@ internal sealed class MainForm : Form
         windowLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
         windowLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         windowLayout.Controls.Add(BuildTitleBar(), 0, 0);
-        windowLayout.Controls.Add(BuildBody(), 0, 1);
+        // Exp mode renders the read-only in-game-config shell in place of the
+        // classic body (no toggles). Both paths build the console + popups, so
+        // the debounced save, status timer and tray wiring are unchanged.
+        windowLayout.Controls.Add(_settings.InGameConfigMode ? BuildExpLayout() : BuildBody(), 0, 1);
         Controls.Add(windowLayout);
+        // The popup masks live on the top-level Form (not the body canvas) and
+        // track the form's client rectangle, so ONE opaque layer covers the
+        // whole window inclusive of the canvas padding and the old Form ring.
+        // Exp builds NO popups (toggle authority is in-game), so it never
+        // parents them either.
+        if (!_settings.InGameConfigMode)
+        {
+            Controls.Add(_advancedOverlay);
+            Controls.Add(_abilitiesOverlay);
+            _advancedOverlay.BringToFront();
+            _abilitiesOverlay.BringToFront();
+        }
     }
 
     private Control BuildTitleBar()
@@ -402,46 +741,42 @@ internal sealed class MainForm : Form
         catch { /* loose art missing: title text carries the identity */ }
         var headerTitle = new Label
         {
-            Text = $"MaxDPS Companion v{Native.AppVersion}",
+            Text = $"MaxDPS Companion {Native.DisplayVersion}",
             AutoSize = false,
             Location = new Point(48, 0),
-            Size = new Size(240, 48),
+            Size = new Size(360, 48),
             TextAlign = ContentAlignment.MiddleLeft,
             Font = DesignTokens.Type(9.5F, FontStyle.Bold),
             ForeColor = DesignTokens.TextPrimary,
             BackColor = Color.Transparent,
         };
-        var version = new Label
-        {
-            Text = Native.BuildVersion,
-            AutoSize = false,
-            Location = new Point(292, 0),
-            Size = new Size(300, 48),
-            TextAlign = ContentAlignment.MiddleLeft,
-            Font = DesignTokens.Type(8F),
-            ForeColor = DesignTokens.TextMuted,
-            BackColor = Color.Transparent,
-        };
+        _headerTitle = headerTitle;
         var closeButton = new TitleBarButton { Text = "x", Dock = DockStyle.Right, HoverColor = DesignTokens.Danger };
         var minimizeButton = new TitleBarButton { Text = "-", Dock = DockStyle.Right, HoverColor = DesignTokens.SurfaceElevated };
         closeButton.Click += (_, _) => Close();
         minimizeButton.Click += (_, _) => WindowState = FormWindowState.Minimized;
         titleBar.Controls.Add(headerIcon);
         titleBar.Controls.Add(headerTitle);
-        titleBar.Controls.Add(version);
         titleBar.Controls.Add(minimizeButton);
         titleBar.Controls.Add(closeButton);
-        foreach (Control draggable in new Control[] { titleBar, headerIcon, headerTitle, version })
+        foreach (Control draggable in new Control[] { titleBar, headerIcon, headerTitle })
             draggable.MouseDown += (_, e) => { if (e.Button == MouseButtons.Left) WindowChrome.BeginDrag(Handle); };
         return titleBar;
     }
 
     private Control BuildBody()
     {
-        var canvas = new GradientCanvas { Dock = DockStyle.Fill, Padding = new Padding(24, 10, 24, 12) };
+        // The canvas is the full-window body surface (no padding); the classic
+        // body scroll carries the 24/10/24/12 inset so the gradient ring sits
+        // around the toggle card, never around the window.
+        var canvas = new GradientCanvas { Dock = DockStyle.Fill, Padding = Padding.Empty };
+        // The main body scrolls: a taller window keeps its extra room and, when
+        // the measured content outgrows the viewport (tier change, small
+        // screen), every row stays reachable instead of being clipped.
+        var scroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Color.Transparent, Padding = new Padding(24, 10, 24, 12) };
         var layout = new TableLayoutPanel
         {
-            Dock = DockStyle.Fill,
+            Dock = DockStyle.Top,
             ColumnCount = 1,
             RowCount = 4,
             BackColor = Color.Transparent,
@@ -449,32 +784,333 @@ internal sealed class MainForm : Form
             Padding = Padding.Empty,
         };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, HeroCardHeight + 12F)); // card + margins
+        // Heights are content-measured at every tier (D3/D4); these are seeds.
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 500F)); // hero + margins
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 52F));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 46F));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 26F));
         _mainBody = layout;
+        _bodyLayout = layout;
         layout.Controls.Add(BuildHeroCard(), 0, 0);
         layout.Controls.Add(BuildButtonRow1(), 0, 1);
         layout.Controls.Add(BuildButtonRow2(), 0, 2);
         layout.Controls.Add(BuildStatusLine(), 0, 3);
-        canvas.Controls.Add(layout);
+        scroll.Controls.Add(layout);
+        canvas.Controls.Add(scroll);
 
+        _consoleHome = BuildConsoleHome();
+        canvas.Controls.Add(_consoleHome);
+
+        // Overlays are created here but parented to the Form in BuildLayout,
+        // after the window layout exists, so they paint above it.
         _advancedOverlay = BuildAdvancedOverlay();
         _abilitiesOverlay = BuildAbilitiesOverlay();
-        canvas.Controls.Add(_advancedOverlay);
-        canvas.Controls.Add(_abilitiesOverlay);
-        _advancedOverlay.BringToFront();
-        _abilitiesOverlay.BringToFront();
         return canvas;
+    }
+
+    // ----- Exp (in-game-config) shell (2026-10-03 spec) -----
+
+    /// <summary>
+    /// Minimal read-only in-game-config shell: ONE status pill (running/paused
+    /// + bridge visibility + the ADDON-WINS mask witness + frame count), the
+    /// five transport buttons reusing the classic handlers (START PAUSE STOP
+    /// CALIBRATE OPEN GAME), and the console home restricted to the
+    /// status/last-key line and a single rolling log. None of
+    /// the 14 hero toggles is mounted, no popup is built, and preset writes are
+    /// unreachable: the in-game overlay owns toggle authority.
+    /// </summary>
+    private Control BuildExpLayout()
+    {
+        // Exp ground is the flat terminal token, not the classic gradient.
+        var canvas = new GradientCanvas { Dock = DockStyle.Fill, Padding = Padding.Empty, FlatColor = ExpTheme.Bg };
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 3,
+            BackColor = Color.Transparent,
+            Margin = Padding.Empty,
+            Padding = new Padding(18, 12, 18, 12),
+        };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36F));   // one status pill
+        // Two transport rows (Start/Pause/Stop, Calibrate/Open Game).
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, ExpTheme.ControlHeight * 2F + 14F));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));   // console (one log)
+
+        layout.Controls.Add(BuildExpStatusPill(), 0, 0);
+        _expTransport = BuildExpButtonRow();
+        layout.Controls.Add(_expTransport, 0, 1);
+
+        _expConsoleHost = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
+        _consoleHome = BuildConsoleHome(minimal: true);
+        _expConsoleHost.Controls.Add(_consoleHome);
+        layout.Controls.Add(_expConsoleHost, 0, 2);
+
+        canvas.Controls.Add(layout);
+        _mainBody = layout;
+        _bodyLayout = layout;
+
+        // Contract: the 14 hero toggles never appear in this shell. They are
+        // also never parented here, but pin Visible so the acceptance test and
+        // any future reuse cannot surface them.
+        foreach (var toggle in ExpHeroToggles()) toggle.Visible = false;
+
+        // Exp builds NO popups (the Advanced/Abilities trees carry the toggle
+        // mirrors and the class browser); the fields stay null by contract.
+        return canvas;
+    }
+
+    /// <summary>The 14 hero toggles: 8 slots + 5 mode toggles + Solo.</summary>
+    private IEnumerable<ToggleSwitch> ExpHeroToggles()
+    {
+        yield return _main;
+        yield return _offensive;
+        yield return _defensives;
+        yield return _consumable;
+        yield return _trinket;
+        yield return _outOfCombat;
+        yield return _autoTarget;
+        yield return _autoInteract;
+        yield return _timeToKill;
+        yield return _crowdControl;
+        yield return _interrupt;
+        yield return _mobility;
+        yield return _selfHeal;
+        yield return _solo2;
+    }
+
+    private Control BuildExpStatusPill()
+    {
+        _expStatusPill.AutoSize = false;
+        _expStatusPill.Dock = DockStyle.Fill;
+        _expStatusPill.AutoEllipsis = true;
+        _expStatusPill.TextAlign = ContentAlignment.MiddleLeft;
+        _expStatusPill.Font = DesignTokens.Type(DesignTokens.MetaSize, FontStyle.Bold);
+        _expStatusPill.ForeColor = ExpTheme.Secondary;
+        _expStatusPill.BackColor = ExpTheme.Card;
+        _expStatusPill.Margin = new Padding(0, 2, 0, 2);
+        _expStatusPill.Padding = new Padding(12, 0, 12, 0);
+        // State + rate ONLY: the mask witness lives in the Status card details
+        // line, never in the pill (single-purpose status).
+        _expStatusPill.Text = $"\u25CB Stopped \u00B7 0 fps";
+        // Unique so the acceptance test can count exactly one status pill.
+        _expStatusPill.AccessibleName = "Exp status pill";
+        _expStatusPill.AccessibleDescription = "Read-only running state and sample rate";
+        var row = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
+        row.Controls.Add(_expStatusPill);
+        return row;
+    }
+
+    private TableLayoutPanel BuildExpButtonRow()
+    {
+        // Exp transport: two rows x three columns. Row 1 Start/Pause/Stop,
+        // row 2 Calibrate/Open Game + an empty spacer cell. The wider cells
+        // are what let the full "OPEN GAME" label render unclipped.
+        _start.Text = "\u25B6 Start";              // ▶
+        _pauseButton.Text = "\u23F8 Pause";        // ⏸
+        _stop.Text = "\u25A0 Stop";                // ■
+        _recalibrate.Text = "\u25C9 Calibrate";    // ◉
+        _expLaunchGame.Text = "\u2922 OPEN GAME";  // ⤢
+        _pauseButton.Click += (_, _) =>
+        {
+            TogglePauseFromConsole();
+            UpdateExpReadouts(_status);
+        };
+        _expLaunchGame.Click += (_, _) => OpenGameFromExp();
+
+        _start.Role = ButtonRole.Primary;
+        _stop.Role = ButtonRole.Danger;
+        _pauseButton.Role = ButtonRole.Ghost;
+        _recalibrate.Role = ButtonRole.Ghost;
+        _expLaunchGame.Role = ButtonRole.Ghost;
+        _start.AccentColor = ExpTheme.Accent;
+        _stop.AccentColor = ExpTheme.Danger;
+        _pauseButton.AccentColor = ExpTheme.Accent;
+        _recalibrate.AccentColor = ExpTheme.Accent;
+        _expLaunchGame.AccentColor = ExpTheme.Secondary;
+
+        var row = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 3,
+            RowCount = 2,
+            BackColor = Color.Transparent,
+            Margin = Padding.Empty,
+            Padding = new Padding(0, 5, 0, 5),
+        };
+        for (var i = 0; i < 3; i++) row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F / 3F));
+        row.RowStyles.Add(new RowStyle(SizeType.Percent, 50F));
+        row.RowStyles.Add(new RowStyle(SizeType.Percent, 50F));
+
+        var buttons = new[] { _start, _pauseButton, _stop, _recalibrate, _expLaunchGame };
+        foreach (var button in buttons)
+        {
+            button.AutoSize = false;
+            button.Dock = DockStyle.Fill;
+            button.Margin = new Padding(4);
+            button.Font = DesignTokens.Type(9.5F, FontStyle.Bold);
+            button.GhostSurface = ExpTheme.Card;
+            button.TrailingGlyph = null;
+        }
+        row.Controls.Add(_start, 0, 0);
+        row.Controls.Add(_pauseButton, 1, 0);
+        row.Controls.Add(_stop, 2, 0);
+        row.Controls.Add(_recalibrate, 0, 1);
+        row.Controls.Add(_expLaunchGame, 1, 1);
+        // (2,1) stays empty on purpose: the spacer keeps the 3-column grid.
+        return row;
+    }
+
+    /// <summary>
+    /// Refreshes the single Exp status pill from real engine/mirror state.
+    /// Called on the status-timer path: text writes only, never bounds or child
+    /// changes. The pill folds the sole ADDON-WINS witness
+    /// (<see cref="ToggleSync.EffectiveMask"/>) in as the mask hex.
+    /// </summary>
+    private void UpdateExpReadouts(EngineStatus status)
+    {
+        var running = _engine.IsRunning;
+        var paused = running && _engine.Paused;
+        var calibrating = _calibrating;
+        var state = calibrating ? "Calibrating"
+            : !running ? "Stopped"
+            : paused ? "Paused"
+            : "Running";
+        // Sample rate = the configured poll cadence; 0 when no frames flow.
+        var fps = running && !paused && !calibrating
+            ? (int)Math.Round(1000.0 / Math.Max(1, _settings.PollIntervalMs)) : 0;
+        var ok = running && !paused && !calibrating && status.BridgeVisible;
+        var glyph = ok ? "\u25CF" : "\u25CB"; // ● live / ○ inactive
+        var text = $"{glyph} {state} \u00B7 {fps} fps";
+        if (_expStatusPill.Text != text) _expStatusPill.Text = text;
+        _expStatusPill.ForeColor = calibrating ? ExpTheme.Accent
+            : !running ? ExpTheme.Secondary
+            : paused ? ExpTheme.Accent
+            : status.BridgeVisible ? ExpTheme.Ok : ExpTheme.Danger;
+
+        _pauseButton.Text = _engine.Paused ? "\u25B6 Resume" : "\u23F8 Pause"; // ▶ Resume / ⏸ Pause
+        // Transport enablement mirrors the engine exactly: Stop only runs live.
+        _start.Enabled = !running && !calibrating;
+        _stop.Enabled = running;
+        _pauseButton.Enabled = running;
+        _recalibrate.Enabled = true;
+
+        // The mask is the single ADDON-WINS witness: it lives in the collapsed
+        // Status card "Details" disclosure (bridge + mask hex + sample rate),
+        // never in the always-visible status line or the pill.
+        var mask = _toggleSync.EffectiveMask;
+        _consoleHome.SetDetails(
+            $"bridge {(status.BridgeVisible ? "ok" : "none")} \u00B7 mask 0x{mask:X4} \u00B7 {fps} fps");
+
+        // Keep the calibration hint, but ONLY while the bridge is invisible
+        // (spec): append once per invisible transition to the single log.
+        if (running && !status.BridgeVisible && !_expBridgeHintShown)
+        {
+            _expBridgeHintShown = true;
+            _consoleHome.AppendLog(
+                $"No bridge sample decoding. {BridgeHealth.RepairHint} {BridgeHealth.CalibrateHint}",
+                DesignTokens.Danger);
+        }
+        else if (status.BridgeVisible)
+        {
+            _expBridgeHintShown = false;
+        }
+    }
+
+    // ----- v3.5 S7 console home wiring -----
+
+    private ConsoleHome BuildConsoleHome(bool minimal = false)
+    {
+        var console = new ConsoleHome(minimal);
+        console.PauseRequested += TogglePauseFromConsole;
+        console.FolderRequested += OpenAppFolder;
+        console.ConsoleToggleRequested += () => console.Visible = !console.Visible;
+        console.BindsRequested += () => OpenAdvancedTab(0);
+        console.SettingsRequested += () => OpenAdvancedTab(0);
+        console.RotationRequested += ShowRotationMenu;
+        console.DebugRequested += () => OpenAdvancedTab(1);
+        console.PresetRequested += ApplyPreset;
+        return console;
+    }
+
+    /// <summary>Opens the Advanced overlay on a tab without disturbing z-order.</summary>
+    private void OpenAdvancedTab(int index)
+    {
+        ShowAdvanced();
+        if (_advancedTabs is not null && index >= 0 && index < _advancedTabs.TabPages.Count)
+            _advancedTabs.SelectedIndex = index;
+    }
+
+    private void TogglePauseFromConsole()
+    {
+        if (!_engine.IsRunning)
+        {
+            StartEngine();
+            return;
+        }
+        _engine.Paused = !_engine.Paused;
+        _consoleHome.SetPaused(_engine.Paused);
+        SetStatus(_engine.Paused ? "Paused." : "Running.", _engine.Paused ? DesignTokens.Accent : DesignTokens.Success);
+    }
+
+    /// <summary>
+    /// Applies a named preset bundle by writing the SAME hero toggles the user
+    /// can flip, then records the change in the update log. The addon can still
+    /// only restrict further; nothing here changes the wire.
+    /// </summary>
+    private void ApplyPreset(ConsolePreset preset)
+    {
+        // Exp mounts no preset chips; presets write hidden toggles, so they are
+        // unreachable in this shell (the in-game overlay owns toggle authority).
+        if (_settings.InGameConfigMode) return;
+        var bundle = ConsolePresets.Get(preset);
+        _main.Checked = bundle.Main;
+        _offensive.Checked = bundle.Offensive;
+        _defensives.Checked = bundle.Defensives;
+        _consumable.Checked = bundle.Consumable;
+        _trinket.Checked = bundle.Trinket;
+        _outOfCombat.Checked = bundle.OutOfCombat;
+        _autoTarget.Checked = bundle.AutoTarget;
+        _autoInteract.Checked = bundle.AutoInteract;
+        _timeToKill.Checked = bundle.TimeToKill;
+        _crowdControl.Checked = bundle.CrowdControl;
+        _interrupt.Checked = bundle.Interrupt;
+        _mobility.Checked = bundle.Mobility;
+        _selfHeal.Checked = bundle.SelfHeal;
+        _solo2.Checked = bundle.Solo;
+        _activePreset = preset;
+        _consoleHome.SetActivePreset(preset);
+        _consoleHome.AppendLog($"Preset \"{bundle.Name}\" applied.", ConsolePalette.Brass);
+        _consoleHome.NoteChange($"Preset \"{bundle.Name}\" applied. {bundle.Summary}");
+        SetStatus($"Preset: {bundle.Name}. {bundle.Summary}", DesignTokens.Accent);
+    }
+
+    private void ShowRotationMenu()
+    {
+        // Exp has no Rotation nav item (the menu writes hidden presets).
+        if (_settings.InGameConfigMode) return;
+        var menu = new ContextMenuStrip { ShowImageMargin = false };
+        menu.Items.Add(new ToolStripMenuItem("Rotation source: MaxDps (suggest-only)") { Enabled = false });
+        menu.Items.Add(new ToolStripSeparator());
+        foreach (var bundle in ConsolePresets.All)
+        {
+            var item = new ToolStripMenuItem($"Preset: {bundle.Name}") { ToolTipText = bundle.Summary };
+            var captured = bundle.Preset;
+            item.Click += (_, _) => ApplyPreset(captured);
+            menu.Items.Add(item);
+        }
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(new ToolStripMenuItem("Class skills\u2026", null, (_, _) => ShowAbilities()));
+        menu.Show(Cursor.Position);
     }
 
     private Control BuildHeroCard()
     {
-        var card = new RoundedCard
+        _heroCard = new RoundedCard
         {
             Dock = DockStyle.Top,
-            Height = HeroCardHeight,
+            Height = 500,
             Margin = new Padding(0, 2, 0, 6),
             Padding = new Padding(18, 12, 18, 12),
         };
@@ -487,14 +1123,9 @@ internal sealed class MainForm : Form
             Margin = Padding.Empty,
             Padding = Padding.Empty,
         };
+        _heroLayout = layout;
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42F));  // 0 status
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42F));  // 1 live
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40F));  // 2 strip
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24F));  // 3 Spells header
-        for (var i = 0; i < 4; i++) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 66F));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24F));  // 8 Modes header
-        for (var i = 0; i < 2; i++) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 66F));
+        for (var i = 0; i < 11; i++) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24F));
 
         // Status row: lamp + state + class badge.
         _stateLabel.AutoSize = false;
@@ -512,11 +1143,11 @@ internal sealed class MainForm : Form
         _classBadge.Width = 150;
         _classBadge.Text = "AUTO DETECT";
         _classBadge.Font = DesignTokens.Type(8.25F, FontStyle.Bold);
-        var statusRow = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
-        statusRow.Controls.Add(_stateLabel);
-        statusRow.Controls.Add(_linkLamp);
-        statusRow.Controls.Add(_classBadge);
-        layout.Controls.Add(statusRow, 0, 0);
+        _statusRow = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
+        _statusRow.Controls.Add(_stateLabel);
+        _statusRow.Controls.Add(_linkLamp);
+        _statusRow.Controls.Add(_classBadge);
+        layout.Controls.Add(_statusRow, 0, 0);
 
         // Live row: what MaxDps suggests and why (ellipsis + tooltip).
         _liveValue.AutoSize = false;
@@ -528,28 +1159,43 @@ internal sealed class MainForm : Form
         _liveValue.BackColor = Color.Transparent;
         _liveValue.Text = "Now: -";
         _liveValue.AccessibleName = "Current suggestion";
-        var liveTip = new ToolTip { AutoPopDelay = 20000, InitialDelay = 300 };
-        liveTip.SetToolTip(_liveValue, "What the companion is about to send and why");
+        _liveTip.SetToolTip(_liveValue, "What the companion is about to send and why");
+        _liveRow = _liveValue;
         layout.Controls.Add(_liveValue, 0, 1);
 
-        // Strip row: the actual decoded bridge cells.
-        _stripView.Dock = DockStyle.Fill;
-        var stripRow = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
-        stripRow.Controls.Add(_stripView);
-        layout.Controls.Add(stripRow, 0, 2);
+        // The decoded bridge strip moved out of the hero to the Diagnostics
+        // page ("Bridge strip" card) so the hero stays suggestion-focused.
+        var spellsHeader = GroupHeaderFor("Rotation");
+        _heroHeaders.Add(spellsHeader);
+        layout.Controls.Add(spellsHeader, 0, 2);
+        layout.Controls.Add(TwoToggleRow("Main", "Core rotation", _main, "Offensive", "Burst cooldowns", _offensive, alt: false,
+            "Core rotation: highest-priority ability each GCD.", "Burst cooldowns fire in burst windows / TTK-valid boss."), 0, 3);
+        layout.Controls.Add(TwoToggleRow("Defensive", "Mitigation and absorbs", _defensives, "Interrupt", "Kick casts", _interrupt, alt: true,
+            "Mitigation at urgency Yellow+, majors at Red.", "Fires on interruptible cast in range."), 0, 4);
+        layout.Controls.Add(TwoToggleRow("Self-heal", "Solo self-sustain", _selfHeal, "Mobility", "Gap closers", _mobility, alt: false,
+            "Solo: below 65% HP.", "Gap closer when target outside melee."), 0, 5);
+        layout.Controls.Add(TwoToggleRow("Consumable", "Potions", _consumable, "Trinket", "On-use trinkets", _trinket, alt: true,
+            "Burst window.", "Burst window."), 0, 6);
 
-        layout.Controls.Add(GroupHeaderFor("Spells"), 0, 3);
-        layout.Controls.Add(TwoToggleRow("Main", "Core rotation", _main, "Offensive", "Burst cooldowns", _offensive, alt: false), 0, 4);
-        layout.Controls.Add(TwoToggleRow("Defensive", "Mitigation and absorbs", _defensives, "Interrupt", "Kick casts", _interrupt, alt: true), 0, 5);
-        layout.Controls.Add(TwoToggleRow("Self-heal", "Solo self-sustain", _selfHeal, "Mobility", "Gap closers", _mobility, alt: false), 0, 6);
-        layout.Controls.Add(TwoToggleRow("Consumable", "Potions", _consumable, "Trinket", "On-use trinkets", _trinket, alt: true), 0, 7);
+        var modesHeader = GroupHeaderFor("Automation");
+        _heroHeaders.Add(modesHeader);
+        layout.Controls.Add(modesHeader, 0, 7);
+        layout.Controls.Add(TwoToggleRow("Solo", "Self-sustain mode", _solo2, "Out of combat", "Run outside combat", _outOfCombat, alt: false,
+            "Self-sustain mode; survival first.", "Runs out-of-combat actions outside combat."), 0, 8);
+        layout.Controls.Add(TwoToggleRow("Auto-target", "Target when needed", _autoTarget, "Auto-interact", "Interact when needed", _autoInteract, alt: true,
+            "Targets the nearest valid enemy when needed.", "Interacts with quest/loot targets when needed."), 0, 9);
+        // v3.2.0 TTK + v3.4.0 CC: one shared Modes row (add-only).
+        layout.Controls.Add(TwoToggleRow("TTK guard", "Estimate target kill time", _timeToKill, "Crowd control", "Stuns a confirmed target", _crowdControl, alt: false,
+            "OFF = cooldowns fire without dying-target protection; target HP band is hidden from the companion.", "Opt-in DR-safe control: stuns a confirmed target."), 0, 10);
 
-        layout.Controls.Add(GroupHeaderFor("Modes"), 0, 8);
-        layout.Controls.Add(TwoToggleRow("Solo", "Self-sustain mode", _solo2, "Out of combat", "Run outside combat", _outOfCombat, alt: false), 0, 9);
-        layout.Controls.Add(TwoToggleRow("Auto-target", "Target when needed", _autoTarget, "Auto-interact", "Interact when needed", _autoInteract, alt: true), 0, 10);
+        // Row order must match the RowStyles declared above.
+        _heroRows.Add(_statusRow);
+        _heroRows.Add(_liveValue);
+        _heroRows.Add(spellsHeader);
+        for (var r = 3; r <= 10; r++) _heroRows.Add(layout.GetControlFromPosition(0, r)!);
 
-        card.Controls.Add(layout);
-        return card;
+        _heroCard.Controls.Add(layout);
+        return _heroCard;
     }
 
     // Modes "Solo" is a dedicated toggle that mirrors the Advanced checkbox.
@@ -558,30 +1204,33 @@ internal sealed class MainForm : Form
     private static GroupHeader GroupHeaderFor(string title) =>
         new() { Text = title, Dock = DockStyle.Fill, Margin = new Padding(4, 0, 4, 0) };
 
-    private static Control TwoToggleRow(
+    /// <summary>
+    /// One two-toggle setting row. Returns a measured <see cref="ToggleRowPanel"/>
+    /// so the hero card can size to the real wrapped subtitle text (D3) rather
+    /// than clip it at the old fixed 66 px literal.
+    /// </summary>
+    private Control TwoToggleRow(
         string titleA, string hintA, ToggleSwitch toggleA,
         string titleB, string hintB, ToggleSwitch toggleB,
-        bool alt)
+        bool alt, string? tooltipA = null, string? tooltipB = null)
     {
-        var grid = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 2,
-            RowCount = 1,
-            BackColor = Color.Transparent,
-            Margin = Padding.Empty,
-            Padding = Padding.Empty,
-        };
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
         toggleA.AccessibleName = titleA;
         toggleA.AccessibleDescription = hintA;
         toggleB.AccessibleName = titleB;
         toggleB.AccessibleDescription = hintB;
-        grid.Controls.Add(new SettingRow(titleA, hintA, toggleA) { Dock = DockStyle.Fill, Margin = new Padding(4, 2, 4, 2), AlternateFill = alt }, 0, 0);
-        grid.Controls.Add(new SettingRow(titleB, hintB, toggleB) { Dock = DockStyle.Fill, Margin = new Padding(4, 2, 4, 2), AlternateFill = alt }, 1, 0);
-        return grid;
+        var left = new SettingRow(titleA, hintA, toggleA) { Dock = DockStyle.Fill, Margin = new Padding(4, 2, 4, 2), AlternateFill = alt };
+        var right = new SettingRow(titleB, hintB, toggleB) { Dock = DockStyle.Fill, Margin = new Padding(4, 2, 4, 2), AlternateFill = alt };
+        // Hover-only condition text: the visible subtitle stays short so the
+        // bubble never crams; the full trigger condition lives in the tooltip.
+        if (tooltipA is not null) left.Hint = tooltipA;
+        if (tooltipB is not null) right.Hint = tooltipB;
+        _heroSettingRows.Add(left);
+        _heroSettingRows.Add(right);
+        return new ToggleRowPanel(left, right) { Dock = DockStyle.Fill, Margin = Padding.Empty };
     }
+
+    // M-route cleanup: SingleToggleRow removed (dead since the two-toggle hero
+    // rows absorbed every Modes entry).
 
     private Control BuildButtonRow1()
     {
@@ -660,12 +1309,207 @@ internal sealed class MainForm : Form
         return _statusLine;
     }
 
+    // ----- width-tier scaling + measured content (D3/D4/D5) -----
+
+    /// <summary>The canvas horizontal padding on each side (BuildBody).</summary>
+    private const int BodySidePadding = 24;
+
+    private int HeroCardWidth => Math.Max(160, ClientSize.Width - BodySidePadding * 2);
+    private int HeroInnerWidth => Math.Max(120, HeroCardWidth - 2 * _scale.CardPadding);
+
+    private int HeroRowHeight(Control row) => row switch
+    {
+        ToggleRowPanel toggle => Math.Max(_scale.RowHeight, toggle.MeasuredHeight(HeroInnerWidth)),
+        SettingRow setting => Math.Max(_scale.RowHeight, setting.MeasuredHeight(HeroInnerWidth)),
+        _ when row == _statusRow => _scale.StatusHeight,
+        _ when row == _liveRow => _scale.LiveHeight,
+        _ => _scale.HeaderHeight,
+    };
+
+    private int ButtonRowHeight => _scale.ButtonHeight + 12;
+    private int ButtonRow2Height => _scale.ButtonRow2Height + 8;
+
+    /// <summary>
+    /// Applies the current width tier and re-measures the hero/body. Called at
+    /// construction and from the 120 ms resize debounce; never while dragging.
+    /// </summary>
+    private void ApplyScale(bool resetHeight, bool keepHeight = false)
+    {
+        _scale = UiScale.For(ClientSize.Width);
+        if (_settings.InGameConfigMode)
+        {
+            // Exp shell: no hero card/rows to measure; scale the transport, the
+            // console home and the popups. Height is content-free (fills).
+            ApplyExpScale();
+            ApplyPopupScale();
+            PerformLayout();
+            return;
+        }
+        _heroCard.Padding = new Padding(_scale.CardPadding);
+        foreach (var row in _heroSettingRows) row.ApplyScale(_scale);
+        foreach (var header in _heroHeaders) header.ApplyScale(_scale);
+        _stateLabel.Font = DesignTokens.Type(_scale.BaseFont + 0.5f, FontStyle.Bold);
+        _liveValue.Font = DesignTokens.Type(_scale.BaseFont);
+        _statusLine.Font = DesignTokens.Type(Math.Max(8f, _scale.BaseFont - 1.5f));
+        _classBadge.Font = DesignTokens.Type(Math.Max(8f, _scale.BaseFont - 1.5f), FontStyle.Bold);
+        _solo2.Size = _scale.ToggleSize;
+        _crowdControl.Size = _scale.ToggleSize;
+        foreach (var button in new[] { _start, _stop, _launchGame, _recalibrate, _abilitiesEntry, _advancedEntry, _openFolder })
+            button?.ApplyScale(_scale);
+        _launchGameAdv.ApplyScale(_scale);
+        _recalibrateAdv.ApplyScale(_scale);
+        _openFolderAdvConfig.ApplyScale(_scale);
+        _openFolderAdvDiag.ApplyScale(_scale);
+
+        LayoutHero();
+
+        // A user-chosen height is never clamped down to the measured content:
+        // a taller window keeps its extra room (the body scrolls if content
+        // grows later), while a window shorter than its content is grown to
+        // fit. Content-driven mode (never user-sized) sizes to content.
+        if (!keepHeight && !_forceHeight && (!_userSizedHeight || ClientSize.Height < _contentHeight))
+            ApplyContentHeight();
+
+        ApplyPopupScale();
+        PerformLayout();
+    }
+
+    private void LayoutHero()
+    {
+        if (_heroLayout.RowStyles.Count != _heroRows.Count) return;
+        var total = 0;
+        for (var i = 0; i < _heroRows.Count; i++)
+        {
+            var h = HeroRowHeight(_heroRows[i]);
+            _heroLayout.RowStyles[i].Height = h;
+            total += h;
+        }
+        var heroHeight = total + 2 * _scale.CardPadding;
+        _heroCard.Height = heroHeight;
+        _bodyLayout.RowStyles[0].Height = heroHeight + 12;
+        _bodyLayout.RowStyles[1].Height = ButtonRowHeight;
+        _bodyLayout.RowStyles[2].Height = ButtonRow2Height;
+        _bodyLayout.RowStyles[3].Height = _scale.StatusLineHeight;
+
+        // The body layout is top-docked and explicit-height so the scroll host
+        // can scroll past it; titlebar 48 + canvas vertical padding (10+12).
+        var bodyHeight = (heroHeight + 12) + ButtonRowHeight + ButtonRow2Height + _scale.StatusLineHeight;
+        _bodyLayout.Height = bodyHeight;
+        _contentHeight = 48 + 22 + bodyHeight;
+    }
+
+    /// <summary>Sets the client height to the measured content, capped to the working area.</summary>
+    private void ApplyContentHeight()
+    {
+        var area = Screen.FromPoint(Cursor.Position).WorkingArea;
+        // The form is borderless with Padding(2); client height is the frame.
+        var maxH = Math.Max(MinWindowHeight, area.Height - 4);
+        var h = Math.Clamp(_contentHeight, MinWindowHeight, maxH);
+        if (ClientSize.Height == h) return;
+        ClientSize = new Size(ClientSize.Width, h);
+    }
+
+    /// <summary>Exp-shell tier pass: transport buttons, pills, mirror, console.</summary>
+    private void ApplyExpScale()
+    {
+        foreach (var button in new[] { _start, _pauseButton, _stop, _recalibrate, _expLaunchGame })
+            button.ApplyScale(_scale);
+        _expStatusPill.Font = DesignTokens.Type(DesignTokens.MetaSize, FontStyle.Bold);
+        _consoleHome?.ApplyScale(_scale);
+    }
+
+    /// <summary>Applies the tier to the Advanced/Abilities popups (D5).</summary>
+    private void ApplyPopupScale()
+    {
+        // Exp builds no popups; nothing to scale there.
+        if (_advancedPopup is null) return;
+        var pad = Math.Max(4, _scale.CardPadding / 3);
+        _advancedPopup.Padding = new Padding(pad);
+        _abilitiesPopup.Padding = new Padding(pad);
+        _advancedTabs.Font = DesignTokens.Type(_scale.BaseFont);
+        _abilitiesTabs.Font = DesignTokens.Type(_scale.BaseFont);
+        foreach (var host in new Control[] { _config, _diagnostics, _intelligencePage, _explorer })
+            ApplyScaleRecursive(host, _scale);
+        // The Class skills screen owns its own combo/legend type steps (S5).
+        _classSkills?.ApplyScale(_scale);
+        _classBrowser.ApplyScale(_scale);
+        // v3.5 S7: the console home tracks the same width tiers.
+        _consoleHome?.ApplyScale(_scale);
+    }
+
+    private static void ApplyScaleRecursive(Control root, UiScale scale)
+    {
+        foreach (Control child in root.Controls)
+        {
+            switch (child)
+            {
+                case ToggleSwitch toggle:
+                    toggle.Size = scale.ToggleSize;
+                    break;
+                case Label label:
+                    ApplyFontStep(label, scale.FontStep);
+                    break;
+                case CheckBox check:
+                    ApplyFontStep(check, scale.FontStep);
+                    break;
+                case Button button:
+                    ApplyFontStep(button, scale.FontStep);
+                    break;
+                case TextBox box:
+                    ApplyFontStep(box, scale.FontStep);
+                    break;
+                case NumericUpDown numeric:
+                    ApplyFontStep(numeric, scale.FontStep);
+                    break;
+                case OwnedComboBox owned:
+                    owned.ApplyScale(scale);
+                    break;
+            }
+            if (child.HasChildren) ApplyScaleRecursive(child, scale);
+        }
+    }
+
+    // D5: preserve each control's designed type hierarchy (body/meta/caption)
+    // and move every face by the SAME tier step. Forcing every label to the
+    // body size broke meta-sized readouts (e.g. the Explorer "N shown" count
+    // overflowed its 96 px dock at 10 pt), so the original point size is
+    // captured once per control and re-applied with the step.
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Control, System.Runtime.CompilerServices.StrongBox<float>> BaseFontSizes = new();
+
+    private static void ApplyFontStep(Control control, float step)
+    {
+        if (!BaseFontSizes.TryGetValue(control, out var box))
+        {
+            box = new System.Runtime.CompilerServices.StrongBox<float>(control.Font.SizeInPoints);
+            BaseFontSizes.Add(control, box);
+        }
+        control.Font = DesignTokens.Type(Math.Max(8f, box.Value + step), control.Font.Style);
+    }
+
+    internal (float BaseFont, int RowHeight) ScaleForTest => (_scale.BaseFont, _scale.RowHeight);
+    internal int MeasuredContentHeightForTest => _contentHeight;
+
+    /// <summary>Test/snapshot seam: apply the width tier immediately (no debounce).</summary>
+    internal void ApplyTierNowForTest()
+    {
+        ApplyScale(resetHeight: true);
+        PerformLayout();
+    }
+
+    /// <summary>Test seam: apply a popup width tier without a full main relayout.</summary>
+    internal void ApplyPopupTierForTest(int width)
+    {
+        _scale = UiScale.For(width);
+        ApplyPopupScale();
+    }
+
     // ----- Advanced popup (tabs Configuration | Diagnostics | Intelligence) -----
 
     private Panel BuildAdvancedOverlay()
     {
-        var (scrim, tabs) = BuildPopup("Advanced", 620, onClose: HideAdvanced);
+        var (scrim, tabs, popup) = BuildUnifiedPopup("Advanced", 620, onClose: HideAdvanced);
         _advancedTabs = tabs;
+        _advancedPopup = popup;
         AddTab(tabs, "Configuration", _config);
         AddTab(tabs, "Diagnostics", _diagnostics);
         AddTab(tabs, "Intelligence", _intelligencePage);
@@ -674,16 +1518,18 @@ internal sealed class MainForm : Form
 
     private Panel BuildAbilitiesOverlay()
     {
-        var (scrim, tabs) = BuildPopup("Abilities", 900, onClose: HideAbilities);
+        var (scrim, tabs, popup) = BuildUnifiedPopup("Class browser", 900, onClose: HideAbilities);
         _abilitiesTabs = tabs;
-        AddTab(tabs, "Class skills", _classSkills!);
-        AddTab(tabs, "Explorer", _explorer);
+        _abilitiesPopup = popup;
+        // S6: one Class Browser replaces the separate Class skills + Explorer
+        // tabs (and the duplicate in-view header they carried).
+        AddTab(tabs, "Class browser", _classBrowser);
         return scrim;
     }
 
-    private static void AddTab(TabControl tabs, string title, Control content)
+    private static void AddTab(SegmentedTabs tabs, string title, Control content)
     {
-        var page = new TabPage(title)
+        var page = new SegmentedTabPage(title)
         {
             BackColor = DesignTokens.Background,
             Padding = Padding.Empty,
@@ -694,16 +1540,34 @@ internal sealed class MainForm : Form
     }
 
     /// <summary>
-    /// Dimmed scrim + centred card (width min(client-40, <paramref name="maxWidth"/>),
-    /// height client-60) with a header (title + Back) and a tab host.
+    /// THE unified mask shell (M-route). Opaque full-window scrim + centred
+    /// RoundedCard (client-24 x client-24, min 360x280), one popup header and a
+    /// SegmentedTabs host, so every mask reuses the main-window tokens.
+    /// Usage: <c>var (scrim, tabs, popup) = BuildUnifiedPopup("Title", 900, onClose);</c>
+    /// All future masks MUST call this helper rather than rolling a new shell.
     /// </summary>
-    private (Panel Scrim, TabControl Tabs) BuildPopup(string title, int maxWidth, Action onClose)
+    private (Panel Scrim, SegmentedTabs Tabs, RoundedCard Popup) BuildUnifiedPopup(string title, int maxWidth, Action onClose)
     {
         var scrim = new Panel
         {
-            Dock = DockStyle.Fill,
-            BackColor = Color.FromArgb(228, 7, 9, 11),
+            // S5: STATIC OPAQUE. Never alpha — it sits behind native children.
+            BackColor = DesignTokens.Scrim,
             Visible = false,
+        };
+        // The popup is parented to the top-level Form (BuildLayout), so this
+        // mask tracks the form's client rectangle and covers the WHOLE window —
+        // the classic body padding and the old Form.Padding(2) ring included.
+        scrim.ParentChanged += (_, _) =>
+        {
+            if (scrim.Parent is not Control host) return;
+            void Fit(object? _, EventArgs __)
+            {
+                var rect = host.ClientRectangle;
+                if (scrim.Bounds != rect) scrim.Bounds = rect;
+            }
+            host.Resize += Fit;
+            host.Layout += Fit;
+            Fit(null, EventArgs.Empty);
         };
         var popup = new RoundedCard
         {
@@ -749,7 +1613,7 @@ internal sealed class MainForm : Form
         header.Controls.Add(titleLabel);
         header.Controls.Add(back);
 
-        var tabs = new TabControl { Dock = DockStyle.Fill, Font = DesignTokens.Type(DesignTokens.BodySize) };
+        var tabs = new SegmentedTabs { Dock = DockStyle.Fill, Font = DesignTokens.Type(DesignTokens.BodySize) };
 
         shell.Controls.Add(header, 0, 0);
         shell.Controls.Add(tabs, 0, 1);
@@ -758,20 +1622,36 @@ internal sealed class MainForm : Form
 
         void Center()
         {
-            var w = Math.Min(maxWidth, Math.Max(360, scrim.ClientSize.Width - 40));
-            var h = Math.Max(280, scrim.ClientSize.Height - 60);
-            popup.Size = new Size(w, h);
-            popup.Location = new Point(
+            // M-route: fill the scrim minus a 24px edge (type/padding still
+            // track the tier via ApplyPopupScale). The old 40/60 dead margin
+            // capped Advanced at 620 and left Abilities short of its 900
+            // maxWidth on a roomy window (scrimW-40 < 900).
+            const int edge = 24;
+            var w = Math.Min(maxWidth, Math.Max(360, scrim.ClientSize.Width - edge));
+            var h = Math.Max(280, scrim.ClientSize.Height - edge);
+            var size = new Size(w, h);
+            var location = new Point(
                 Math.Max(0, (scrim.ClientSize.Width - w) / 2),
                 Math.Max(0, (scrim.ClientSize.Height - h) / 2));
+            // Idempotent: writing the same size/location still requests another
+            // layout and can cascade on the large tab trees. Skip when unchanged.
+            if (popup.Size == size && popup.Location == location) return;
+            popup.Size = size;
+            popup.Location = location;
         }
         scrim.Resize += (_, _) => Center();
         scrim.Layout += (_, _) => Center();
-        return (scrim, tabs);
+        return (scrim, tabs, popup);
     }
 
     private void ShowAdvanced()
     {
+        // Exp (in-game-config) shell: the Advanced popup lazily builds the 10
+        // toggle mirrors, so it is suppressed entirely in this mode. The
+        // in-game overlay owns toggle authority (ADDON-WINS); navigation to
+        // this popup is a no-op.
+        if (_settings.InGameConfigMode) return;
+        var openClock = System.Diagnostics.Stopwatch.StartNew();
         _engine.WantDiagnostics = true;
         // A4: each tab is built lazily once (never by a timer), so the window
         // opens fast and the configuration/diagnostics tree is only created
@@ -784,53 +1664,191 @@ internal sealed class MainForm : Form
         }
         _intelligencePage.EnsureBuilt();
         if (_mainBody is not null) _mainBody.Visible = false;
+        _abilitiesOverlay.Visible = false;
+        HideConsoleBehindPopup();
         _advancedTabs.SelectedIndex = 0;
         _advancedOverlay.Visible = true;
         _advancedOverlay.BringToFront();
         _advancedOverlay.PerformLayout();
         _advancedOverlay.Focus();
+        _lastPopupOpenMs = openClock.Elapsed.TotalMilliseconds;
+        BeginPopupFade(_advancedOverlay);
     }
 
     private void HideAdvanced()
     {
         if (_advancedOverlay is null) return;
+        EndPopupFade();
         _advancedOverlay.Visible = false;
         _engine.WantDiagnostics = false;
         if (_mainBody is not null) _mainBody.Visible = true;
+        RestoreConsoleAfterPopup();
     }
 
     private void ShowAbilities()
     {
+        // Exp shell: popup navigation is a no-op (see ShowAdvanced).
+        if (_settings.InGameConfigMode) return;
+        var openClock = System.Diagnostics.Stopwatch.StartNew();
         if (_mainBody is not null) _mainBody.Visible = false;
+        _advancedOverlay.Visible = false;
+        HideConsoleBehindPopup();
         _abilitiesTabs.SelectedIndex = 0;
         _abilitiesOverlay.Visible = true;
         _abilitiesOverlay.BringToFront();
-        _classSkills?.Open(
+        // S6: warm open (< 150 ms): the browser rebuilds rows only when the
+        // class/spec/mode/hp-floor selection changed since the last open.
+        _classBrowser.Open(
             _engine.TryGetLiveClass(out var cls) ? cls : null,
             _engine.TryGetLiveSpec(out var spec) ? spec : null);
+        _classBrowser.RefreshLive();
         _abilitiesOverlay.PerformLayout();
         _abilitiesOverlay.Focus();
+        _lastPopupOpenMs = openClock.Elapsed.TotalMilliseconds;
+        BeginPopupFade(_abilitiesOverlay);
     }
 
     private void HideAbilities()
     {
         if (_abilitiesOverlay is null) return;
+        EndPopupFade();
         _abilitiesOverlay.Visible = false;
         if (_mainBody is not null) _mainBody.Visible = true;
+        RestoreConsoleAfterPopup();
+    }
+
+    /// <summary>
+    /// Exactly one full-window overlay may be visible at a time. The console
+    /// home (S7) stretches over the whole canvas, so a popup must hide it or the
+    /// background menu peeks through the popup's padded edges; the other scrim
+    /// is hidden too so two overlays never stack.
+    /// </summary>
+    private void HideConsoleBehindPopup()
+    {
+        if (_consoleHome is { Visible: true })
+        {
+            _consoleHomeHiddenByPopup = true;
+            _consoleHome.Visible = false;
+        }
+    }
+
+    private void RestoreConsoleAfterPopup()
+    {
+        if (!_consoleHomeHiddenByPopup) return;
+        _consoleHomeHiddenByPopup = false;
+        if (_consoleHome is not null) _consoleHome.Visible = true;
+    }
+
+    // ----- S5: static opaque scrim (no animation over native children) -----
+
+    /// <summary>
+    /// Ensures the scrim is the opaque S5 backdrop. There is deliberately no
+    /// fade: the scrim sits behind native controls and an animated alpha
+    /// BackColor garbles them. Kept as a seam so Show/Hide stay one call each.
+    /// </summary>
+    private static void BeginPopupFade(Panel scrim)
+    {
+        scrim.BackColor = DesignTokens.Scrim;
+    }
+
+    private static void EndPopupFade()
+    {
+        // No timer, no alpha: nothing to unwind.
     }
 
     /// <summary>
     /// Opens the Abilities overlay on the Explorer tab and applies the preset
-    /// requested by an Intelligence dashboard tile (WS-C drill-through).
+    /// requested by an Intelligence dashboard tile (WS-C drill-through) or a
+    /// clickable hero bubble (v3.4.0 Approach A §4). When the preset names a
+    /// category set, the Class skills tab is opened on the same class/spec and
+    /// filtered to the same set (§6).
     /// </summary>
-    private void ShowAbilitiesWithPreset(string tag)
+    private void ShowAbilitiesWithPreset(string tag, string? className = null, string? specName = null)
     {
+        // Exp shell: drill-through to the Abilities popup is a no-op.
+        if (_settings.InGameConfigMode) return;
         ShowAbilities();
-        _abilitiesTabs.SelectedIndex = 1;
-        _explorer.ApplyPreset(tag);
+        // S6: the Class Browser owns the tab now; the legacy Explorer/Class
+        // skills views stay in sync for their standalone test seams.
+        _classBrowser.ApplyPreset(tag, className, specName);
+        _classBrowser.RefreshLive();
+        _classBrowser.PerformLayout();
+        _explorer.ApplyPreset(tag, className, specName);
         _explorer.PerformLayout();
+        if (AbilityViewPresets.IsCategoryTag(tag))
+        {
+            _classSkills?.Open(className, specName, tag);
+            _classSkills?.SnapToShown();
+        }
         _abilitiesOverlay.PerformLayout();
     }
+
+    /// <summary>
+    /// v3.4.0 Approach A §4: a companion-appendix hero bubble click opens the
+    /// Abilities overlay pre-filtered to that set, scoped to the live-detected
+    /// class/spec (same detection as the plain Abilities open).
+    /// </summary>
+    private void OpenHeroSkillList(string preset)
+    {
+        var className = _engine.TryGetLiveClass(out var cls) ? cls : null;
+        var specName = _engine.TryGetLiveSpec(out var spec) ? spec : null;
+        ShowAbilitiesWithPreset(preset, className, specName);
+    }
+
+    /// <summary>
+    /// Wires click-on-body for every companion-appendix hero bubble (Offensive,
+    /// Defensive, Interrupt, Mobility, Self-heal, Consumable, Trinket, Crowd
+    /// control, Solo). The row and its text labels are clickable; the toggle
+    /// switch keeps flipping and is deliberately excluded. "Main" stays
+    /// non-clickable — the core rotation is MaxDps authority.
+    /// </summary>
+    private void WireHeroDrillThrough()
+    {
+        foreach (var row in _heroSettingRows)
+        {
+            ToggleSwitch? toggle = null;
+            foreach (Control child in row.Controls)
+                if (child is ToggleSwitch found) { toggle = found; break; }
+            var preset = HeroPresetFor(toggle?.AccessibleName);
+            if (preset is null) continue;
+
+            void Open(object? _, EventArgs __) => OpenHeroSkillList(preset);
+
+            row.Cursor = Cursors.Hand;
+            row.AccessibleDescription = "Click for skill list \u25B8";
+            row.Click += Open;
+            foreach (Control child in row.Controls)
+            {
+                if (child is not Label label) continue;   // never the toggle
+                label.Cursor = Cursors.Hand;
+                label.Click += Open;
+            }
+
+            // The visible subtitle stays short (D3); the hover hint already
+            // carries the condition text, so the drill-through is appended with
+            // a trailing chevron instead of changing the asserted title.
+            var hint = row.Hint;
+            row.Hint = string.IsNullOrWhiteSpace(hint)
+                ? "Click for skill list"
+                : hint + "  \u25B8 Click for skill list";
+        }
+    }
+
+    /// <summary>Hero bubble title -> Abilities preset set (null = not clickable).</summary>
+    private static string? HeroPresetFor(string? title) => title switch
+    {
+        "Offensive" => "Offensive",
+        "Defensive" => "Defensive",
+        "Interrupt" => "Interrupt",
+        "Mobility" => "Mobility",
+        "Self-heal" => "Self-heal",
+        "Consumable" => "Consumable",
+        "Trinket" => "Trinket",
+        "Crowd control" => "CrowdControl",
+        "Solo" => "Solo",
+        // Main is MaxDps authority; the pure mode toggles have no skill set.
+        _ => null,
+    };
 
     private bool AnyPopupVisible => (_advancedOverlay?.Visible ?? false) || (_abilitiesOverlay?.Visible ?? false);
 
@@ -849,42 +1867,45 @@ internal sealed class MainForm : Form
     {
         page.AddCard("Automation", "Engine").Add(Stack(
             (CheckRow(_scheduler), 30),
-            (Hint("On = deterministic ordering and pacing: frozen-heartbeat link hold, interrupt/defensive urgency, GCD and key-interval gates. Off = legacy loop."), 0),
+            (HintTip("Smooth, ordered casts. Off = old loop.", "On = deterministic ordering and pacing: frozen-heartbeat link hold, interrupt/defensive urgency, GCD and key-interval gates. Off = legacy loop."), 0),
             (CheckRow(_intelligence), 30),
-            (Hint("Evaluates every situational suggestion USE / HOLD / SKIP against the ability knowledge base and live combat context. The main rotation is never gated."), 0)));
+            (HintTip("Grades situational abilities USE/HOLD/SKIP.", "Evaluates every situational suggestion USE / HOLD / SKIP against the ability knowledge base and live combat context. The main rotation is never gated."), 0)));
 
         page.AddCard("Combat", "Slots").Add(TwoCol(64,
-            RowFor("Main rotation", "Your damage rotation - MaxDps decides", _main),
-            RowFor("Offensive", "Burst and damage cooldowns", _offensive),
-            RowFor("Defensive", "Mitigation, absorbs, immunities", _defensives),
-            RowFor("Consumable", "Potions (health and mana)", _consumable),
-            RowFor("Trinket", "On-use trinket effects", _trinket),
-            RowFor("Mobility", "Charge in when out of range", _mobility),
-            RowFor("Self-heal", "Solo mode self-sustain", _selfHeal),
-            RowFor("Interrupt", "Kick interruptible casts", _interrupt)));
+            RowFor("Main rotation", "Your damage rotation - MaxDps decides", _mainAdv),
+            RowFor("Offensive", "Burst and damage cooldowns", _offensiveAdv),
+            RowFor("Defensive", "Mitigation, absorbs, immunities", _defensivesAdv),
+            RowFor("Consumable", "Potions (health and mana)", _consumableAdv),
+            RowFor("Trinket", "On-use trinket effects", _trinketAdv),
+            RowFor("Mobility", "Charge in when out of range", _mobilityAdv),
+            RowFor("Self-heal", "Solo mode self-sustain", _selfHealAdv),
+            RowFor("Interrupt", "Kick interruptible casts", _interruptAdv)));
 
         page.AddCard("Safety", "Modes").Add(Stack(
             (CheckRow(_solo), 30),
-            (Hint("Requires Combat intelligence. Below 65% HP efficient self-heals become eligible; below 35% HP survival actions outrank damage. Emergency cooldowns are preserved while HP is safe."), 0),
+            (HintTip("Self-heal below 65% HP; survival outranks damage below 35%.", "Requires Combat intelligence. Below 65% HP efficient self-heals become eligible; below 35% HP survival actions outrank damage. Emergency cooldowns are preserved while HP is safe."), 0),
+            (_soloBands, 0),
             (CheckRow(_combatOnly), 30),
-            (Hint("When on, the companion only acts while you are in combat."), 0)));
+            (Hint("When on, the companion only acts while you are in combat."), 0),
+            (_ccToggle, 0),
+            (HintTip("Opt-in stuns on a confirmed target. Overlay can only restrict.", "Crowd control is opt-in (default off). ON allows curated stuns on a confirmed target with DR protection; the in-game toggle can only restrict."), 0)));
 
         page.AddCard("Targeting", "Assist").Add(Stack(
-            (ToggleField("Auto-target (press Target key)", _autoTarget), 38),
-            (ToggleField("Auto-interact (press Interact key)", _autoInteract), 38),
+            (ToggleField("Auto-target (press Target key)", _autoTargetAdv), 38),
+            (ToggleField("Auto-interact (press Interact key)", _autoInteractAdv), 38),
             (Ui.FieldRow("Target key", _targetKey), 38),
             (Ui.FieldRow("Interact key", _interactKey), 38)));
 
         page.AddCard("Input", "Keys").Add(Stack(
             (Ui.FieldRow("Pause hotkey", _pauseHotkey), 38),
             (CheckRow(_allowBackground), 30),
-            (Hint("Keyboard slots keep working while the game is in the background; mouse/interact always need focus."), 0)));
+            (HintTip("Keyboard fires in background; mouse needs focus.", "Keyboard slots keep working while the game is in the background; mouse/interact always need focus."), 0)));
 
         page.AddCard("Bridge", "Attach").Add(Stack(
             (Ui.FieldRow("Game process", _processName), 38),
-            (Hint("Which game window to attach to (without .exe). Recalibrate locates the strip; the engine re-aligns automatically if it moves."), 0)));
+            (HintTip("Game window to attach to. Recalibrate finds the strip.", "Which game window to attach to (without .exe). Recalibrate locates the strip; the engine re-aligns automatically if it moves."), 0)));
 
-        page.AddCard("Advanced", "Tools").Add(ButtonsRow(44, _classSkillsEntryBtn(), _openFolder));
+        page.AddCard("Advanced", "Tools").Add(ButtonsRow(44, _classSkillsEntryBtn(), _openFolderAdvConfig));
     }
 
     private ChamferButton _classSkillsEntryBtn()
@@ -918,6 +1939,7 @@ internal sealed class MainForm : Form
         }
 
         page.AddCard("Protocol / bridge", "Live").Add(Stack(
+            (_bridgeBanner, 0),
             (Ui.FieldRow("Protocol", _protocolValue), 26),
             (Ui.FieldRow("Bridge state", _bridgeStateValue), 26),
             (Ui.FieldRow("Slots", _slotsValue), 26),
@@ -925,17 +1947,19 @@ internal sealed class MainForm : Form
             (Ui.FieldRow("Decision", _decisionValue), 26),
             (Ui.FieldRow("Raw sample", _rawValue), 26)));
 
+        _castAuditLoad.Click += (_, _) => LoadCastAudit();
         page.AddCard("Telemetry", "Recording").Add(Stack(
             (CheckRow(_telemetry), 30),
-            (Hint("Bounded in-memory JSONL ring: decoded keybinds, state flags and timing only. No network, no Blizzard values."), 0),
-            (ButtonsRow(40, _telemetryExport, _telemetryReplay), 40),
-            (StatusLabel(_telemetryStatus), 24)));
+            (HintTip("In-memory timing log only. No network, no Blizzard values.", "Bounded in-memory JSONL ring: decoded keybinds, state flags and timing only. No network, no Blizzard values."), 0),
+            (ButtonsRow(40, _telemetryExport, _telemetryReplay, _castAuditLoad), 40),
+            (StatusLabel(_telemetryStatus), 24),
+            (_castAuditView, 0)));
 
         var findStrip = new ChamferButton { Text = "Find strip", Role = ButtonRole.Ghost, TrailingGlyph = null };
         findStrip.Click += (_, _) => RecalibratePositionOnly();
         page.AddCard("Calibration", "Strip").Add(Stack(
             (ButtonsRow(40, _learnColors, _resetColors), 40),
-            (ButtonsRow(40, findStrip, _recalibrate), 40),
+            (ButtonsRow(40, findStrip, _recalibrateAdv), 40),
             (Ui.FieldRow("Tolerance", _tolerance), 38),
             (StatusLabel(_colorStatus), 24)));
 
@@ -949,14 +1973,116 @@ internal sealed class MainForm : Form
             (Ui.FieldRow("Block offset X", _offsetX), 38),
             (Ui.FieldRow("Block offset Y", _offsetY), 38)));
 
+        // S8 diagnostics: per-toggle why-not-firing (scheduler verdict + toggle
+        // state + candidate staleness) and the install doctor.
+        _whyNotFiring.MinimumSize = new Size(0, 96);
+        page.AddCard("Why not firing", "Explain").Add(Stack((_whyNotFiring, 96)));
+
+        _doctorRefresh.Click += (_, _) => RefreshInstallDoctor();
+        StatusLabel(_doctorValue);
+        // The build hash/time moved off the title bar (v3.5.1) into the install
+        // doctor card as a muted identity line: the title carries only the
+        // human version + codename.
+        var buildIdentity = Hint($"Build {Native.BuildVersion}");
+        buildIdentity.ForeColor = DesignTokens.TextMuted;
+        page.AddCard("Install doctor", "Version / wiring").Add(Stack(
+            (ButtonsRow(40, _doctorRefresh), 40),
+            (_doctorValue, 44),
+            (buildIdentity, 0),
+            (HintTip("Checks build, cell size, toggle mask and addon version.", "Checks the exe build vs HEAD, configured vs emitted cell size, the app mask vs the Ext3 mirror and the addon version."), 0)));
+        RefreshInstallDoctor();
+
+        // The decoded bridge strip lives here now (moved off the hero card).
+        // StripHeight is the tier value reused for this card's strip height.
+        _stripView.Dock = DockStyle.Fill;
+        var stripHost = new Panel
+        {
+            Dock = DockStyle.Top,
+            BackColor = Color.Transparent,
+            MinimumSize = new Size(0, _scale.StripHeight),
+        };
+        stripHost.Controls.Add(_stripView);
+        page.AddCard("Bridge strip", "Live").Add(stripHost);
+
         page.AddCard("Patch / registry audit", "Provenance").Add(Stack(
             (Hint("Coverage is computed from AbilityCatalog.Default via AbilityCoverage.Build."), 0),
             (StatusLabel(_auditValue), 28)));
 
         page.AddCard("Battle.net / tools", "Launch").Add(Stack(
             (Ui.FieldRow("BNet path", _bnetPath), 38),
-            (ButtonsRow(40, _bnetBrowse, _launchGame, _openFolder), 40),
-            (Hint("Launch Game opens Battle.net for WoW. No credentials are stored - the launcher's remembered account is used."), 0)));
+            (ButtonsRow(40, _bnetBrowse, _launchGameAdv, _openFolderAdvDiag), 40),
+            (HintTip("Opens Battle.net for WoW. No credentials stored.", "Launch Game opens Battle.net for WoW. No credentials are stored - the launcher's remembered account is used."), 0)));
+    }
+
+    /// <summary>
+    /// S8: push one why-not-firing snapshot for the current plan head. Fail-open:
+    /// a copy bug must never stall the UI timer or the diagnostics page.
+    /// </summary>
+    private void UpdateWhyNotFiring()
+    {
+        try
+        {
+            var head = _engine.CurrentPlanHead;
+            var running = _engine.IsRunning;
+            var reason = head?.Reason ?? _engine.LastAction?.Reason;
+            var action = head?.Action ?? _engine.LastAction?.Action;
+            var mainOn = _settings.SlotEnabled.Length > 0 && _settings.SlotEnabled[0];
+            var facts = new WhyNotFiringFacts(
+                Label: string.IsNullOrEmpty(action) ? "the current slot" : action,
+                ToggleOn: head is not null || mainOn,
+                EngineRunning: running,
+                Paused: _engine.Paused,
+                SchedulerReason: string.IsNullOrEmpty(reason) ? null : reason,
+                PlanHeadAction: string.IsNullOrEmpty(action) ? null : action,
+                FrameAgeMs: running ? _engine.LastFrameAgeMs() : -1,
+                StaleAfterMs: 1500);
+            _whyNotFiring.Update(facts);
+        }
+        catch { /* fail-open */ }
+    }
+
+    /// <summary>
+    /// S8 install doctor: compares the exe build commit against the repo HEAD,
+    /// the configured cell size against the size the addon emitted, the app mask
+    /// against the Ext3 mirror, and the installed addon version against the
+    /// companion release. Read-only observations; warn-only where data is absent.
+    /// </summary>
+    private void RefreshInstallDoctor()
+    {
+        try
+        {
+            var appDir = Program.AppDir;
+            var inputs = new DoctorInputs(
+                ExeCommit: ThisAssemblyGen.GitCommit,
+                HeadCommit: InstallDoctor.TryReadHeadCommit(appDir),
+                AppVersion: InstallDoctor.TryReadVersionFile(Path.Combine(appDir, "VERSION.txt")),
+                AddonVersion: InstallDoctor.TryReadVersionFile(FindAddonVersionPath(appDir)),
+                SettingsCellSize: _settings.CellSize,
+                LocatedCellSize: _lastLocatedCellSize,
+                AppMask: ToggleSync.BuildMask(_settings),
+                MirrorMask: _toggleSync.MirrorMask,
+                MirrorValid: _toggleSync.MirrorValid);
+            var findings = InstallDoctor.Audit(inputs);
+            var issues = findings.Where(f => f.Severity is DoctorSeverity.Warn or DoctorSeverity.Fail).ToList();
+            _doctorValue.Text = issues.Count == 0
+                ? InstallDoctor.Summarize(findings)
+                : string.Join("   ", issues.Select(f => $"[{f.Check}] {f.Detail}"));
+            _doctorValue.ForeColor = issues.Count == 0 ? DesignTokens.Success : DesignTokens.Warning;
+        }
+        catch { _doctorValue.Text = "Install doctor failed."; }
+    }
+
+    /// <summary>Locates the shipped addon VERSION.txt from the exe dir upward.</summary>
+    private static string FindAddonVersionPath(string appDir)
+    {
+        var dir = appDir;
+        for (var i = 0; i < 6 && !string.IsNullOrEmpty(dir); i++)
+        {
+            var candidate = Path.Combine(dir, "addon", "MaxDpsBridge", "VERSION.txt");
+            if (File.Exists(candidate)) return candidate;
+            dir = Path.GetDirectoryName(dir);
+        }
+        return Path.Combine(appDir, "addon", "MaxDpsBridge", "VERSION.txt");
     }
 
     private static Label StatusLabel(Label label)
@@ -975,16 +2101,33 @@ internal sealed class MainForm : Form
     {
         Text = text,
         AutoSize = true,
-        MaximumSize = new Size(860, 0),
+        // M-route: a card-inner wrap width, not a fixed 860. The stack min()s
+        // this with the real card width, so 660-tier text wraps without clip.
+        MaximumSize = new Size(800, 0),
         Font = DesignTokens.Type(DesignTokens.BodySize),
         ForeColor = DesignTokens.TextSecondary,
         BackColor = Color.Transparent,
         Margin = new Padding(0, 0, 0, 2),
     };
 
+    /// <summary>
+    /// M-route: a short visible line (<=12 words) with the full sentence kept in
+    /// the owned tooltip + accessible description, so cards stay scannable
+    /// without losing the detail.
+    /// </summary>
+    private Label HintTip(string shortText, string fullDetail)
+    {
+        var label = Hint(shortText);
+        label.AccessibleDescription = fullDetail;
+        _liveTip.SetToolTip(label, fullDetail);
+        return label;
+    }
+
     private static Control CheckRow(CheckBox box)
     {
         box.AutoSize = true;
+        // M-route: long labels wrap inside the card rather than clipping.
+        box.MaximumSize = new Size(800, 0);
         box.ForeColor = DesignTokens.TextPrimary;
         box.BackColor = Color.Transparent;
         box.Font = DesignTokens.Type(DesignTokens.BodySize);
@@ -1048,15 +2191,8 @@ internal sealed class MainForm : Form
         return new SettingRow(title, subtitle, toggle) { Dock = DockStyle.None, Margin = Padding.Empty };
     }
 
-    private void ShowClassSkills()
-    {
-        if (_classSkills is null) return;
-        ShowAbilities();
-        _abilitiesTabs.SelectedIndex = 0;
-        _classSkills.Open(
-            _engine.TryGetLiveClass(out var className) ? className : null,
-            _engine.TryGetLiveSpec(out var specName) ? specName : null);
-    }
+    // M-route cleanup: ShowClassSkills removed (dead; the single Class browser
+    // tab is reached via ShowAbilities/ShowAbilitiesWithPreset).
 
     // ----- app icon -----
 
@@ -1127,6 +2263,12 @@ internal sealed class MainForm : Form
             ShowInTaskbar = false;
             _tray.Visible = true;
         }
+        // D5: debounce the tier recompute so nothing re-layouts mid-drag.
+        if (_uiInitialised && IsHandleCreated && WindowState != FormWindowState.Minimized)
+        {
+            _resizeDebounce.Stop();
+            _resizeDebounce.Start();
+        }
     }
 
     protected override void OnHandleCreated(EventArgs e)
@@ -1175,10 +2317,14 @@ internal sealed class MainForm : Form
     {
         if (InvokeRequired) { BeginInvoke(new Action<bool>(SetCalibrating), running); return; }
         _calibrating = running;
-        _recalibrate.Text = running ? "Cancel" : "Recalibrate";
+        _recalibrate.Text = running
+            ? (_settings.InGameConfigMode ? "\u25A0 Cancel" : "Cancel")
+            : (_settings.InGameConfigMode ? "\u25C9 Calibrate" : "Recalibrate");
+        _recalibrateAdv.Text = running ? "Cancel" : "Recalibrate";
         _learnColors.Text = running ? "Cancel calibration" : "Calibrate colors";
         _learnColors.Enabled = true;
         _recalibrate.Enabled = true;
+        _recalibrateAdv.Enabled = true;
         _start.Enabled = !running && !_engine.IsRunning;
     }
 
@@ -1410,6 +2556,22 @@ internal sealed class MainForm : Form
             MessageBox.Show(message, "MaxDPS Companion", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
+    /// <summary>
+    /// Exp OPEN GAME: no settings UI here, so when the [Launch] BNetPath
+    /// override is absent log a one-line hint into the Exp rolling log and then
+    /// reuse <see cref="LaunchGame"/> / <see cref="BattleNetLauncher"/> exactly
+    /// as the classic button does. The launcher auto-detects Battle.net, so an
+    /// empty override is not an error - it is just guidance.
+    /// </summary>
+    private void OpenGameFromExp()
+    {
+        if (string.IsNullOrWhiteSpace(_settings.BNetPath))
+            _consoleHome?.AppendLog(
+                "BNetPath not set - auto-detecting Battle.net (set [Launch] BNetPath in settings.ini to override).",
+                DesignTokens.TextMuted);
+        LaunchGame();
+    }
+
     // ----- settings <-> controls -----
 
     private void LoadFromSettings()
@@ -1437,10 +2599,15 @@ internal sealed class MainForm : Form
 
         _autoTarget.Checked = _settings.AutoTargetEnabled;
         _autoInteract.Checked = _settings.InteractEnabled;
+        _timeToKill.Checked = _settings.TimeToKillEnabled;
+        _crowdControl.Checked = _settings.CrowdControlEnabled;
+        CrowdControlGate.Configure(_settings.CrowdControlEnabled);
         _scheduler.Checked = _settings.SchedulerEnabled;
         _intelligence.Checked = _settings.IntelligenceEnabled;
         _solo.Checked = _settings.SoloEnabled;
         _solo2.Checked = _settings.SoloEnabled;
+        _soloBands.LoadFrom(_settings);
+        _ccToggle.LoadFrom(_settings);
         _telemetry.Checked = _settings.TelemetryEnabled;
         _targetKey.Text = _settings.TargetKey;
         _interactKey.Text = _settings.InteractKey;
@@ -1470,9 +2637,14 @@ internal sealed class MainForm : Form
         _settings.CombatOnly = !_outOfCombat.Checked;
         _settings.AutoTargetEnabled = _autoTarget.Checked;
         _settings.InteractEnabled = _autoInteract.Checked;
+        _settings.TimeToKillEnabled = _timeToKill.Checked;
+        _settings.CrowdControlEnabled = _crowdControl.Checked;
+        CrowdControlGate.Configure(_crowdControl.Checked);
         _settings.SchedulerEnabled = _scheduler.Checked;
         _settings.IntelligenceEnabled = _intelligence.Checked;
         _settings.SoloEnabled = _solo.Checked;
+        _soloBands.ApplyTo(_settings);   // validate the ladder before SaveSettings
+        _ccToggle.ApplyTo(_settings);    // CC opt-in persists alongside solo
         _settings.TelemetryEnabled = _telemetry.Checked;
         var targetKey = _targetKey.Text.Trim();
         _settings.TargetKey = string.IsNullOrWhiteSpace(targetKey) ? "Tab" : targetKey;
@@ -1514,7 +2686,30 @@ internal sealed class MainForm : Form
         _start.Enabled = false;
         _stop.Enabled = true;
         if (_trayStartStop is not null) _trayStartStop.Text = "Stop";
+        // ADDON-WINS: a fresh session just resets the mirror bookkeeping — no
+        // mask is pushed, so the in-game overlay keeps authority.
+        _toggleSync.BeginSession(_settings);
         SetStatus("Engine started.", DesignTokens.Success);
+    }
+
+    // ----- ADDON-WINS toggle authority (mirror echo only; no auto-push) -----
+
+    /// <summary>
+    /// Drives the toggle observer once per UI tick: re-reads the companion's
+    /// configured toggles (diagnostics only) and feeds the engine's Ext3 mirror
+    /// so <see cref="ToggleSync"/> tracks the overlay's authoritative state.
+    /// ADDON-WINS: the companion no longer auto-pushes <c>/mdb mask</c> at Start
+    /// or on a settings change, so the in-game toggles are never overwritten.
+    /// The push ladder is reachable only via an explicit user-initiated
+    /// <see cref="ToggleSync.RequestExplicitPush"/>, which has no call site.
+    /// </summary>
+    private void PumpToggleSync()
+    {
+        _toggleSync.ObserveSettings(_settings);
+
+        Ext3Block? mirror = null;
+        if (_engine.IsRunning) _engine.TryGetToggleMirror(out mirror, out _);
+        _toggleSync.ObserveMirror(_engine.ElapsedMs, mirror);
     }
 
     private void StopEngine()
@@ -1609,6 +2804,33 @@ internal sealed class MainForm : Form
         }
     }
 
+    /// <summary>
+    /// Loads an exported JSONL session into the read-only suggested-vs-cast
+    /// grid. Pure review surface: it never touches the live engine or the
+    /// buffer, and a malformed/empty file leaves the empty-state hint in place.
+    /// </summary>
+    private void LoadCastAudit()
+    {
+        using var dialog = new OpenFileDialog
+        {
+            Title = "Load suggested-vs-cast audit",
+            Filter = "JSONL telemetry (*.jsonl)|*.jsonl|All files (*.*)|*.*",
+            InitialDirectory = Program.AppDir,
+            CheckFileExists = true,
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        try
+        {
+            var report = CastAudit.FromFile(dialog.FileName);
+            _castAuditView.Load(report);
+            SetTelemetryStatus($"audit: {report.Casts}/{report.Suggestions} plan-head suggestions cast from {Path.GetFileName(dialog.FileName)}");
+        }
+        catch (Exception ex)
+        {
+            SetTelemetryStatus($"audit load failed: {ex.Message}");
+        }
+    }
+
     private void RecalibrateFull()
     {
         if (_calThread is { IsAlive: true })
@@ -1657,6 +2879,7 @@ internal sealed class MainForm : Form
         _settings.OffsetX = location.OffsetX;
         _settings.OffsetY = location.OffsetY;
         _settings.CellSize = location.CellSize;
+        _lastLocatedCellSize = location.CellSize;   // S8 install-doctor witness
         _offsetX.Value = location.OffsetX;
         _offsetY.Value = location.OffsetY;
         _cellSize.Value = location.CellSize;
@@ -1666,8 +2889,6 @@ internal sealed class MainForm : Form
 
     private void RefreshStatus()
     {
-        UpdateWindowBorder();
-
         // Rule, enforced for life: no AutoScrollPosition writes on any timer
         // path. The v2.8.1 NormalizeScroll reset a user's scroll offset on
         // every refresh (A1 regression: ClassicUiTests.ClassicUi_ScrollSurvivesRefresh).
@@ -1705,7 +2926,111 @@ internal sealed class MainForm : Form
         if (_bridgeStateValue.Text != bridge) _bridgeStateValue.Text = bridge;
         if (_protocolValue.Text == "-") _protocolValue.Text = $"v{PixelProtocol.SupportedVersion} (supported)";
 
+        PumpToggleSync();
+        UpdateBridgeBanner(status);
+        UpdateWhyNotFiring();
+        // S8 install doctor: throttle the file reads to ~2 s (the input values
+        // move slowly); only after the diagnostics page has been built.
+        if (_advancedContentBuilt && ++_doctorTick >= 8)
+        {
+            _doctorTick = 0;
+            RefreshInstallDoctor();
+        }
+
         UpdateHero();
+        if (_settings.InGameConfigMode) UpdateExpReadouts(status);
+    }
+
+    /// <summary>
+    /// Stream 3 bridge-health banner. Warn-only copy from the frozen
+    /// <see cref="EngineStatus"/>: the record carries no decode counters, so the
+    /// notice is driven by the sampled addon version (parsed from the status
+    /// message / raw sample) and the live visibility, never by invented numbers.
+    /// Wrapped fail-open — a copy bug must never stall the UI timer.
+    /// </summary>
+    private void UpdateBridgeBanner(EngineStatus status)
+    {
+        try
+        {
+            string title, detail;
+            StatusTone tone;
+
+            if (_toggleSync.HasConflict)
+            {
+                // ADDON-WINS: this badge can only fire after an explicit
+                // RequestExplicitPush (auto-push is removed), i.e. a deliberate
+                // hand-off to the app that the addon never mirrored.
+                (title, tone, detail) = ("Toggle sync: blocked", StatusTone.Warning,
+                    "An explicit toggle push was not mirrored by the in-game addon. " +
+                    "Run install-addon.ps1 + /reload, then retry.");
+            }
+            else if (!_engine.IsRunning)
+            {
+                (title, tone, detail) = ("Bridge health: unknown", StatusTone.Info, "");
+            }
+            else
+            {
+                var sampled = ParseSampledVersion(status.Message) ?? ParseSampledVersion(status.RawSample) ?? 0;
+                var counters = MismatchCountersFrom(status);
+                var notice = BridgeHealth.VersionSkewNotice(sampled, PixelProtocol.SupportedVersion)
+                    ?? BridgeHealth.MismatchNotice(counters.Faults, counters.Samples);
+
+                if (notice is not null)
+                {
+                    (title, tone, detail) = ("Bridge needs attention", StatusTone.Warning, notice);
+                }
+                else if (!status.BridgeVisible)
+                {
+                    (title, tone, detail) = ("Bridge not visible", StatusTone.Warning,
+                        "No strip sample is decoding. " + BridgeHealth.RepairHint + " " + BridgeHealth.CalibrateHint);
+                }
+                else
+                {
+                    (title, tone, detail) = ("Bridge health: good", StatusTone.Success, "");
+                }
+            }
+
+            if (_bridgeBanner.Text != title) _bridgeBanner.Text = title;
+            _bridgeBanner.Tone = tone;
+            if (!string.Equals(_bridgeBanner.Detail, detail, StringComparison.Ordinal))
+                _bridgeBanner.Detail = detail;
+        }
+        catch
+        {
+            // Fail-open: reset to the neutral placeholder, never rethrow.
+            if (_bridgeBanner.Text != "Bridge health: unknown")
+            {
+                _bridgeBanner.Text = "Bridge health: unknown";
+                _bridgeBanner.Tone = StatusTone.Info;
+                _bridgeBanner.Detail = "";
+            }
+        }
+    }
+
+    /// <summary>
+    /// EngineStatus has no decode counters, so <see cref="BridgeHealth.MismatchNotice"/>
+    /// cannot be fed a real rate. The visible state is the only witness: report
+    /// 0/0 so the notice stays silent rather than fabricating a fault count.
+    /// </summary>
+    private static (int Faults, int Samples) MismatchCountersFrom(EngineStatus status) =>
+        status.BridgeVisible
+            ? (0, BridgeHealth.MismatchMinSamples)
+            : (0, 0);
+
+    /// <summary>First bare "v&lt;digits&gt;" token in the text, or null. Never throws.</summary>
+    private static int? ParseSampledVersion(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return null;
+        for (var i = 0; i + 1 < text.Length; i++)
+        {
+            if (text[i] != 'v' && text[i] != 'V') continue;
+            var start = i + 1;
+            var end = start;
+            while (end < text.Length && char.IsDigit(text[end])) end++;
+            if (end > start && int.TryParse(text.AsSpan(start, end - start), out var version) && version > 0)
+                return version;
+        }
+        return null;
     }
 
     private void UpdateHero()
@@ -1745,6 +3070,43 @@ internal sealed class MainForm : Form
 
         if (_statusLine.Text != _statusMessage) _statusLine.Text = _statusMessage;
         _statusLine.ForeColor = DesignTokens.StatusColor(_statusMessageTone);
+
+        // S6: funnel the engine's published verdicts into the open browser.
+        // Exp builds no popups, so the class browser is never open there.
+        if (!_settings.InGameConfigMode && _classBrowser.Visible) _classBrowser.RefreshLive();
+
+        // v3.5 S7: mirror the same values into the console home. Every call is
+        // value-only (text writes / invalidate), so the status timer still
+        // performs no layout anywhere.
+        if (_consoleHome is null) return;
+        _engine.TryGetLiveClass(out var consoleClass);
+        _engine.TryGetLiveSpec(out var consoleSpec);
+        _consoleHome.SetSpec(consoleClass, consoleSpec);
+        // Exp status card copy: calibration + suggestion readiness, not the
+        // classic engine enum.
+        var consoleState = stateText;
+        var consoleColor = stateColor;
+        if (_settings.InGameConfigMode)
+        {
+            // Exp status card: a SHORT human phrase only. No "Calibrated —"
+            // prefix, no bridge/mask jargon (that lives in the collapsed
+            // Details disclosure).
+            (consoleState, consoleColor) = !running
+                ? ("stopped", ExpTheme.Secondary)
+                : _calibrating ? ("calibrating\u2026", ExpTheme.Accent)
+                : _engine.Paused ? ("paused", ExpTheme.Accent)
+                : action == "-" ? ("waiting for suggestion", ExpTheme.Ok)
+                : (action, ExpTheme.Ok);
+        }
+        _consoleHome.SetState(consoleState, consoleColor);
+        _consoleHome.SetBridge(running ? $"Bridge: {status.State}" : "Bridge: stopped");
+        _consoleHome.SetNow(action, why);
+        _consoleHome.SetPaused(_engine.Paused);
+        if (_consoleLastStatus != _statusMessage)
+        {
+            _consoleLastStatus = _statusMessage;
+            _consoleHome.AppendLog(_statusMessage, DesignTokens.StatusColor(_statusMessageTone));
+        }
     }
 
     private void SetStatus(string message, Color color)
@@ -1792,12 +3154,17 @@ internal sealed class MainForm : Form
         // Remembered geometry is honoured only under the classic3 layout; a
         // v2 shell size would otherwise open the new chrome at the wrong size.
         var classic = string.Equals(_settings.WindowLayout, "classic3", StringComparison.OrdinalIgnoreCase);
-        var wantW = classic && _settings.WindowWidth > 0 ? _settings.WindowWidth : ClassicWantWidth;
-        var wantH = classic && _settings.WindowHeight > 0 ? _settings.WindowHeight : ClassicWantHeight;
+        var savedSize = classic && _settings.WindowWidth > 0 && _settings.WindowHeight > 0;
+        var wantW = savedSize ? _settings.WindowWidth : ClassicWantWidth;
+        var wantH = savedSize ? _settings.WindowHeight : ClassicWantHeight;
         var w = Math.Max(MinWindowWidth, Math.Min(wantW, area.Width));
         var h = Math.Max(MinWindowHeight, Math.Min(wantH, area.Height));
         MinimumSize = new Size(MinWindowWidth, MinWindowHeight);
         ClientSize = new Size(w, h);
+        // A remembered size is a user choice: construction must not clamp it
+        // back to content height (the body scrolls instead). This is what makes
+        // a taller-than-content window round-trip across launches.
+        if (savedSize) _userSizedHeight = true;
         if (!classic)
         {
             // Size migration (v3 classic shell): stamp the layout tag at
@@ -1823,25 +3190,9 @@ internal sealed class MainForm : Form
     protected override void OnResizeEnd(EventArgs e)
     {
         base.OnResizeEnd(e);
+        // The user chose a size: stop forcing the measured content height.
+        _userSizedHeight = true;
         SaveWindowSize();
-    }
-
-    private void UpdateWindowBorder()
-    {
-        var color = _engine.IsRunning ? DesignTokens.Success : DesignTokens.Danger;
-        if (_borderColor == color) return;
-        _borderColor = color;
-        Invalidate();
-    }
-
-    private Color _borderColor = DesignTokens.Danger;
-
-    protected override void OnPaint(PaintEventArgs e)
-    {
-        using var pen = new Pen(_borderColor, 2F);
-        e.Graphics.DrawRectangle(pen, 1, 1,
-            Math.Max(1, ClientSize.Width - 3), Math.Max(1, ClientSize.Height - 3));
-        base.OnPaint(e);
     }
 
     /// <summary>Esc closes the topmost popup (classic single-view shell).</summary>
@@ -1889,6 +3240,7 @@ internal sealed class MainForm : Form
     {
         _uiTimer.Stop();
         _saveDebounce.Stop();
+        _resizeDebounce.Stop();
         if (_tray is not null)
         {
             _tray.Visible = false;
@@ -1896,6 +3248,7 @@ internal sealed class MainForm : Form
             _tray = null;
         }
         if (_hotkeyRegistered) Native.UnregisterHotKey(Handle, PauseHotkeyId);
+        _liveTip.Dispose();
         _engine.Dispose();
         base.OnFormClosed(e);
     }
@@ -1943,8 +3296,9 @@ internal sealed class MainForm : Form
                 break;
             case "abilities-explorer":
                 ShowAbilities();
-                _abilitiesTabs.SelectedIndex = 1;
-                _explorer.PerformLayout();
+                _abilitiesTabs.SelectedIndex = 0;
+                _classBrowser.RefreshLive();
+                _classBrowser.PerformLayout();
                 break;
         }
         PerformLayout();
@@ -1958,26 +3312,56 @@ internal sealed class MainForm : Form
         Location = new Point(-32000, -32000);
         ShowInTaskbar = false;
         var target = Math.Max(320, width);
+        // Snapshot/benchmark windows keep the exact requested client height and
+        // must not be pulled back to the measured content height on resize.
+        _forceHeight = true;
         ClientSize = new Size(target, Math.Max(500, height));
+        // Snapshots must show the tier for the requested width, but keep the
+        // exact requested height (the D5 render set is 520/660 × 560/920).
+        ApplyScale(resetHeight: false, keepHeight: true);
+    }
+
+    /// <summary>
+    /// Test seam (tall window, §3): simulate the user choosing a client height,
+    /// then re-run the tier pass the 120 ms resize debounce would run. A chosen
+    /// height at or above the measured content must survive untouched.
+    /// </summary>
+    internal void ResizeHeightForTest(int height)
+    {
+        _userSizedHeight = true;
+        ClientSize = new Size(ClientSize.Width, Math.Max(MinWindowHeight, height));
+        ApplyScale(resetHeight: false);
+        PerformLayout();
     }
 
     internal void OpenClassSkillsForSnapshot(string className, string specName)
     {
-        if (_classSkills is null) return;
         ShowAbilities();
         _abilitiesTabs.SelectedIndex = 0;
-        _classSkills.Open(className, specName);
-        _classSkills.SnapToShown();
+        _classBrowser.Open(className, specName);
+        _classBrowser.RefreshLive();
         PerformLayout();
     }
 
     internal string ClassSkillsDebugState => _classSkills?.DebugState ?? "null";
+    internal string ClassBrowserDebugState => _classBrowser.DebugState;
 
+    internal Control MainBodyForTest => _mainBody;
     internal AbilityExplorer ExplorerForTest => _explorer;
+    /// <summary>S6: the single Class Browser hosted in the Abilities popup.</summary>
+    internal ClassBrowserView ClassBrowserForTest => _classBrowser;
+    // v3.5 S7 console-home seams.
+    internal ConsoleHome ConsoleForTest => _consoleHome;
+    internal bool ConsoleVisibleForTest => _consoleHome?.Visible ?? false;
+    internal void ApplyPresetForTest(ConsolePreset preset) => ApplyPreset(preset);
+    internal void ToggleConsoleForTest() => _consoleHome.Visible = !_consoleHome.Visible;
+    /// <summary>v3.4.0 §4: the hero bubbles, so a test can raise their Click.</summary>
+    internal IReadOnlyList<SettingRow> HeroSettingRowsForTest => _heroSettingRows;
+    internal ClassSkillsView? ClassSkillsForTest => _classSkills;
     internal IntelligencePage IntelligenceForTest => _intelligencePage;
     internal ConfigurationPage ConfigurationForTest => _config;
-    internal TabControl AdvancedTabsForTest => _advancedTabs;
-    internal TabControl AbilitiesTabsForTest => _abilitiesTabs;
+    internal SegmentedTabs AdvancedTabsForTest => _advancedTabs;
+    internal SegmentedTabs AbilitiesTabsForTest => _abilitiesTabs;
     internal bool AnyPopupVisibleForTest => AnyPopupVisible;
     internal bool AbilitiesVisibleForTest => _abilitiesOverlay?.Visible ?? false;
     internal Size MinimumSizeForTest => MinimumSize;
@@ -1987,7 +3371,37 @@ internal sealed class MainForm : Form
     internal bool StartEnabledForTest => _start.Enabled;
     internal bool StopEnabledForTest => _stop.Enabled;
     internal string StatusLineForTest => _statusLine.Text;
+    internal string HeaderTitleForTest => _headerTitle?.Text ?? "";
     internal void InvokeLaunchForTest() => LaunchGame();
+
+    // Exp OPEN GAME seam: the fifth transport button, so the acceptance test
+    // can assert it is mounted in the Exp shell and wired to the launcher.
+    internal ChamferButton ExpLaunchGameForTest => _expLaunchGame;
+    // Exp layout seams (approved relayout): the two-row transport grid, the
+    // five buttons, the state pill and the mask details line.
+    internal TableLayoutPanel ExpTransportForTest => _expTransport;
+    internal ChamferButton ExpStartButtonForTest => _start;
+    internal ChamferButton ExpStopButtonForTest => _stop;
+    internal ChamferButton ExpPauseButtonForTest => _pauseButton;
+    internal ChamferButton ExpCalibrateButtonForTest => _recalibrate;
+    internal Label ExpStatusPillForTest => _expStatusPill;
+    internal string ExpDetailsForTest => _consoleHome?.DetailsForTest ?? "";
+    internal string ExpStateLineForTest => _consoleHome?.StateLineForTest ?? "";
+    internal bool ExpDetailsExpandedForTest => _consoleHome?.DetailsExpandedForTest ?? false;
+    internal void ToggleExpDetailsForTest() => _consoleHome?.ToggleDetailsForTest();
+    internal bool EngineRunningForTest => _engine.IsRunning;
+
+    // D5 popup-width-tier seams.
+    internal RoundedCard AdvancedPopupForTest => _advancedPopup;
+    internal RoundedCard AbilitiesPopupForTest => _abilitiesPopup;
+    internal ToggleSwitch AdvancedMainToggleForTest => _mainAdv;
+    internal float AdvancedTabFontForTest => _advancedTabs.Font.SizeInPoints;
+    internal float AbilitiesTabFontForTest => _abilitiesTabs.Font.SizeInPoints;
+
+    // S5 popup seams: the scrim is static opaque, so no fade timer exists.
+    internal double LastPopupOpenMsForTest => _lastPopupOpenMs;
+    internal bool PopupFadeActiveForTest => false;
+    internal Color AdvancedScrimColorForTest => _advancedOverlay?.BackColor ?? Color.Empty;
     internal IReadOnlyList<string> BottomButtonLabelsForTest => new[]
     {
         _start.Text, _stop.Text, _launchGame.Text,
@@ -2054,6 +3468,13 @@ internal sealed class MainForm : Form
         _intelligencePage.EnsureBuilt();
         findings.AddRange(UiShellValidation.Validate(_mainBody, "Main"));
 
+        // Exp builds no popups; only the minimal shell invariants apply.
+        if (_settings.InGameConfigMode)
+        {
+            Hide();
+            return findings;
+        }
+
         // Each tab must be selected so WinForms lays its content out (a
         // never-shown TabPage keeps its children at 0×0).
         ShowAdvanced();
@@ -2068,7 +3489,7 @@ internal sealed class MainForm : Form
         return findings;
     }
 
-    private static void ValidateTabs(TabControl tabs, string prefix, List<string> findings)
+    private static void ValidateTabs(SegmentedTabs tabs, string prefix, List<string> findings)
     {
         for (var i = 0; i < tabs.TabPages.Count; i++)
         {
@@ -2078,7 +3499,7 @@ internal sealed class MainForm : Form
             content?.PerformLayout();
             Application.DoEvents();
             if (content is not null)
-                findings.AddRange(UiShellValidation.Validate(content, $"{prefix}/{page.Text}"));
+                findings.AddRange(UiShellValidation.Validate(content, $"{prefix}/{page.Title}"));
         }
     }
 }

@@ -308,6 +308,40 @@ internal enum InterruptKind
     Incapacitate,
 }
 
+/// <summary>
+/// Crowd-control shape (v3.4.0 CC appendix). Registry/coverage knowledge only:
+/// it is documented per curated entry and drives the conservative diminishing
+/// rule. It never infers the target's live DR state — the companion only
+/// remembers its own recent applications (see
+/// <see cref="CrowdControlDiminishing"/>). Silence/displacement/incapacitate
+/// remain primarily modelled through <see cref="InterruptKind"/>, which is
+/// untouched.
+/// </summary>
+internal enum CcKind
+{
+    Unknown = 0,
+    /// <summary>Hard stun (target cannot act). DR category: stun.</summary>
+    Stun,
+    /// <summary>Incapacitate (Paralysis/Sap/imprison-type). DR category: incapacitate.</summary>
+    Incapacitate,
+    /// <summary>Disorient/fear-like break-on-damage or movement CC. DR category: disorient.</summary>
+    Disorient,
+    /// <summary>Silence (school lockout without a stun). DR category: silence.</summary>
+    Silence,
+    /// <summary>Root/snare (target can act but cannot move). DR category: root.</summary>
+    Root,
+    /// <summary>Fear (Psychic Scream/Intimidating Shout-type). DR category: fear.</summary>
+    Fear,
+    /// <summary>Banish/subjugate (demon/undead/elemental specific). DR category: incapacitate.</summary>
+    Banish,
+    /// <summary>Subjugate/dominate (Control Undead/Subjugate Demon). DR category: incapacitate.</summary>
+    Subjugate,
+    /// <summary>Sleep (Sleep Walk-type). DR category: disorient.</summary>
+    Sleep,
+    /// <summary>Knockback/displacement; cast-breaking only, tracked as CC coverage.</summary>
+    Knockback,
+}
+
 /// <summary>What kind of offensive tool an ability is (offensive cooldown intelligence).</summary>
 internal enum OffensiveUsage
 {
@@ -619,6 +653,16 @@ internal sealed record AbilityDefinition(
     /// <summary>Which knowledge layer supplied this ability (tooltip/test provenance).</summary>
     public AbilityProvenance Provenance { get; init; } = AbilityProvenance.Vendor;
 
+    /// <summary>
+    /// Origin scope of the ability. Null for the normal class-bound catalog;
+    /// <c>"Racial"</c> for a playable-race ability that is carried for every
+    /// class/spec and selected in-game by the bridge's known-spell filter (a
+    /// race the player is not never has a resolvable keybind, so the entry is
+    /// simply skipped). Race is never encoded on the wire — scope is a
+    /// catalog/audit marker only and never changes a policy verdict.
+    /// </summary>
+    public string? Scope { get; init; }
+
     // ---- v2.6 ability intelligence registry (all init-only; ctor unchanged) ----
 
     /// <summary>What the entry is. The catalog carries active combat abilities; kinds beyond that exist for audit honesty.</summary>
@@ -645,6 +689,16 @@ internal sealed record AbilityDefinition(
     /// <summary>What a mobility ability does (Unknown otherwise).</summary>
     public MobilityKind MobilityKind { get; init; } = MobilityKind.Unknown;
 
+    /// <summary>
+    /// v3.5 taxonomy overlay: this escape is an <em>emergency</em> survival
+    /// button, not a target-reaching movement tool. Routing sends it to the
+    /// Defensive provider, whose escape gate only ever fires it at Red urgency
+    /// or at/below the emergency HP threshold — never White/Yellow. Plain
+    /// escapes (flag absent) route to Mobility and hold unless they actually
+    /// close a gap.
+    /// </summary>
+    public bool EmergencyEscape { get; init; }
+
     /// <summary>Contextual requirements beyond the dedicated flags (derived + curated union).</summary>
     public AbilityRequirement Requires { get; init; } = AbilityRequirement.None;
 
@@ -666,8 +720,41 @@ internal sealed record AbilityDefinition(
     /// <summary>Offensives: minimum enemies the use condition assumes (null = none; not observable today).</summary>
     public int? EnemyCountMin { get; init; }
 
-    /// <summary>Offensives: the ability is planned around a burst/buff window, not used on sight.</summary>
+    /// <summary>Offensives: the ability is planned around a burst/buff window, not used on sight. Retained for replay/telemetry schema and curation; not enforced since 3.7.9.</summary>
     public bool HoldForBurst { get; init; }
+
+    // ---- v3.2.0 TTK intelligence (all optional; tier defaults in TtkPolicy) ----
+    // Retained for replay/telemetry schema and the ability inspector; the TTK
+    // conservation guards that read these were removed in 3.7.9 (MaxDps authority).
+
+    /// <summary>
+    /// Offensives: the curated minimum time-to-kill (seconds). Retained for
+    /// replay/telemetry schema and the ability inspector; the policy no longer
+    /// conserves a cooldown on it since 3.7.9. Null = the per-<see cref="OffensiveUsage"/>
+    /// default in <see cref="TtkPolicy"/>.
+    /// </summary>
+    public double? MinTtkSec { get; init; }
+
+    /// <summary>
+    /// Offensives: target-HP% at or below which this burst is favored
+    /// (execute range). Inert unless <see cref="ExecuteFavored"/> is true.
+    /// </summary>
+    public int? ExecuteBelowPct { get; init; }
+
+    /// <summary>
+    /// Offensives: this burst is confirmed to benefit from execute range;
+    /// enables the execute bypass of the pairing hold.
+    /// </summary>
+    public bool ExecuteFavored { get; init; }
+
+    /// <summary>
+    /// Offensives: a curated major/summon confirmed to secure a kill when the
+    /// target is genuinely dying (long fight, low HP, short TTK). Retained for
+    /// replay/telemetry schema and curation; the kill-secure waste-guard
+    /// exception it once enabled was removed in 3.7.9. Default false, parsed
+    /// like <see cref="ExecuteFavored"/>.
+    /// </summary>
+    public bool KillSecure { get; init; }
 
     /// <summary>
     /// Minimum MaxDps defensive urgency at which this ability may fire
@@ -723,6 +810,14 @@ internal sealed record AbilityDefinition(
 
     /// <summary>Confidence carried by the recorded source evidence.</summary>
     public SourceConfidence SourceConfidence { get; init; } = SourceConfidence.Unknown;
+
+    /// <summary>
+    /// Optional curated free-form hint about how the ability's cooldown can
+    /// reset early (e.g. "resets on kill"). INFORMATIONAL ONLY: it is never
+    /// read by any decision/policy rule and never changes a verdict; it is
+    /// surfaced in telemetry/inspector so an operator can understand a reset.
+    /// </summary>
+    public string? ResetHint { get; init; }
 
     /// <summary>
     /// True only when a live-client behavior pass recorded this ability. Derived

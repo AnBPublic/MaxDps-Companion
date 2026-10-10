@@ -1,0 +1,26 @@
+[package]
+name = "mdc-app"
+description = "Thin eframe/egui shell: pro-panel dock layout, left rail, Ctrl+K command palette, status bar."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mdc-commands = { path = "../mdc-commands" }
+mdc-engine = { path = "../mdc-engine" }
+mdc-runtime = { path = "../mdc-runtime" }
+mdc-settings = { path = "../mdc-settings" }
+mdc-telemetry = { path = "../mdc-telemetry" }
+mdc-platform = { path = "../mdc-platform" }
+mdc-platform-win = { path = "../mdc-platform-win" }
+mdc-platform-mac = { path = "../mdc-platform-mac" }
+eframe = "0.36"
+egui = "0.36"
+egui_dock = "0.21"
+image = { version = "0.25", default-features = false, features = ["png"] }
+serde_json = "1"
+
+[build-dependencies]
+winres = "0.1"

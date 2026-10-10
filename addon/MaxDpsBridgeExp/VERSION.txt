@@ -1,0 +1,87 @@
+3.7.9-exp
+date: 2026-10-10 "Unyielding"
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED - same 43-cell protocol v5 wire as the stable bridge.
+v3.7.9-exp: Companion 3.7.9 "Unyielding" / bridge 3.7.9-exp. Companion policy
+          change (not a Lua change): the companion no longer conserves
+          MaxDps-offered core-rotation offensives; a MaxDps-flagged
+          Main/Offensive candidate is used unless a game-truth/structural gate
+          applies (power, range, melee, cast/channel, GCD, user policy, addon
+          toggles/presets). TTK conservation for offensives removed. Wire
+          unchanged. Stable bridge + dist stay frozen at 3.7.7.
+
+3.7.8-exp
+date: 2026-10-10 "Steadfast"
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED — same 43-cell protocol v5 wire as the stable bridge.
+v3.7.8-exp: Companion 3.7.8 "Steadfast" / bridge 3.7.8-exp. Main now presses
+          every ability the official MaxDps addon (core MaxDps + all
+          MaxDps_<Class> modules) recommends as its core rotation; the
+          bridge-side major-cooldown denylist (MDBX.MajorCDDeny) is removed
+          with no exception; Main is still vetoed only by game truth
+          (usable==false AND noPower==true) with the per-spec MainFallback
+          filler fall-through; Offensive/Defensive/Interrupt routing unchanged;
+          stable MaxDpsBridge stays frozen at 3.7.7.
+
+3.7.7-exp
+date: 2026-10-07 "Gallant"
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED — same 43-cell protocol v5 wire as the stable bridge. 3.7.7-exp
+          is a version-only identity bump with no Lua wire change.
+v3.7.7-exp: Companion 3.7.7 "Gallant" / bridge 3.7.7-exp. Version-only identity
+          bump (new dedicated codename; no Lua logic / Catalog.lua / wire change).
+
+3.7.6-exp
+date: 2026-10-07 "Templar"
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED — same 43-cell protocol v5 wire as the stable bridge. 3.7.6-exp
+          is a version-only identity bump with no Lua wire change.
+v3.7.6-exp: Companion 3.7.6 "Templar" / bridge 3.7.6-exp. Version-only identity
+          bump over the 2026-10-07 worktree (new dedicated codename; no Lua logic /
+          wire change). Catalog.lua is a DATA-only refresh of the offensive
+          gap-fill lists (removed live-unverified ids 370452/392060; renamed
+          382245) - no schema/cell change.
+
+3.7.5-exp
+date: 2026-10-06 "Vindicator"
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED — same 43-cell protocol v5 wire as the stable bridge. 3.7.5-exp
+          is a version-only identity bump with no Lua wire change.
+v3.7.5-exp: Companion 3.7.5 "Vindicator" / bridge 3.7.5-exp. Version-only identity
+          bump over the 2026-10-06 worktree (new dedicated codename; no Lua logic /
+          Catalog.lua / wire change).
+3.7.4-exp
+date: 2026-10-06 "Reaver"
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED — same 43-cell protocol v5 wire as the stable bridge. 3.7.4-exp
+          is a version-only identity bump with no Lua wire change.
+v3.7.4-exp: Companion 3.7.4 "Reaver" / bridge 3.7.4-exp. Version-only identity
+          bump over the 2026-10-06 worktree (codename unchanged; no Lua logic /
+          Catalog.lua / wire change).
+3.7.3-exp
+date: 2026-10-04 "Reaver"
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED — same 43-cell protocol v5 wire as the stable bridge. 3.7.3-exp
+          is a version-only identity bump with no Lua wire change.
+v3.7.3-exp: Companion 3.7.3 "Reaver" / bridge 3.7.3-exp. Version-only identity
+          bump (new dedicated codename; no Lua logic / Catalog.lua / wire change).
+3.7.2-exp
+date: 2026-10-04 "Onslaught"
+git: <commit placeholder - fill at release>
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED — same 43-cell protocol v5 wire as the stable bridge. 3.7.2-exp
+          is a patch version bump with no Lua wire change.
+v3.7.2-exp: Companion 3.7.2 "Onslaught" / bridge 3.7.2-exp. Arms + Fury execution
+          fix ported from the stable bridge: Colossus Smash 167105 un-denied
+          (Arms MAIN encodes it again) plus the Arms MainFallback filler (Mortal
+          Strike 12294 -> Overpower 7384); Ravager 228920 added to MajorCDDeny +
+          FlagOffensiveExtra so Reader.CategoryOf routes it to the Offensive
+          slot, never MAIN. Exp uses MDBX / MaxDpsBridgeExpDB. No Catalog.lua /
+          wire change.

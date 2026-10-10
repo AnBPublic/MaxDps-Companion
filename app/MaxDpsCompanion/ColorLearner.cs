@@ -21,6 +21,20 @@ internal static class ColorLearner
     public const int MinSeparation = 48;
 
     /// <summary>
+    /// v5-family capture widths, widest first: Ext3 (43), then the Ext2 (40)
+    /// and v5 core (35) fallbacks. The calibrate sampler captures the widest
+    /// frame; a narrower stale addon is classified on its own width.
+    /// </summary>
+    internal static readonly int[] V5CaptureWidths =
+    {
+        PixelProtocol.CellCountExt3,
+        PixelProtocol.CellCountExt2,
+        PixelProtocol.CellCount,
+    };
+
+    private static bool IsV5Width(int length) => V5CaptureWidths.Contains(length);
+
+    /// <summary>
     /// How long one dwell step lasts on the addon side (Bridge.lua advances
     /// every ~8 ticks at 50 ms/update). The sampler polls faster than this so
     /// each step is seen several times before it changes.
@@ -47,7 +61,7 @@ internal static class ColorLearner
         Point block,
         int cellSize,
         ColorProfile? profile = null,
-        int tolerance = 64,
+        int tolerance = ColorProfile.DefaultTolerance,
         Func<bool>? cancel = null,
         Action<string>? progress = null)
     {
@@ -70,7 +84,7 @@ internal static class ColorLearner
         {
             if (cancel?.Invoke() == true) return null;
             var cells = sample(block, cellSize);
-            if (!PixelProtocol.IsV5Length(cells.Length)
+            if (!IsV5Width(cells.Length)
                 && cells.Length != PixelProtocol.CellCountV4
                 && cells.Length != PixelProtocol.CellCountV1) return null;
             var step = Classify(cells, profile);
@@ -193,7 +207,7 @@ internal static class ColorLearner
         var usable = 0;
         foreach (var cells in frames)
         {
-            if (!PixelProtocol.IsV5Length(cells.Length)
+            if (!IsV5Width(cells.Length)
                 && cells.Length != PixelProtocol.CellCountV4
                 && cells.Length != PixelProtocol.CellCountV1) continue;
             if (Classify(cells, matcher) < 0) continue;
@@ -231,14 +245,14 @@ internal static class ColorLearner
     /// brightest flat as white, so mid-cycle captures learn without waiting
     /// for the exact endpoints.
     /// </summary>
-    public static LearnResult? Build(List<Color[]> frames, int tolerance = 64) =>
+    public static LearnResult? Build(List<Color[]> frames, int tolerance = ColorProfile.DefaultTolerance) =>
         Build(frames, matcher: null, tolerance);
 
     /// <summary>
     /// Profile-aware build: an existing (stale) profile may recognise the
     /// magic cell when the legacy band no longer can.
     /// </summary>
-    public static LearnResult? Build(List<Color[]> frames, ColorProfile? matcher, int tolerance = 64)
+    public static LearnResult? Build(List<Color[]> frames, ColorProfile? matcher, int tolerance = ColorProfile.DefaultTolerance)
     {
         Color? black = null;
         Color? white = null;
@@ -252,7 +266,7 @@ internal static class ColorLearner
 
         foreach (var cells in frames)
         {
-            if (!PixelProtocol.IsV5Length(cells.Length)
+            if (!IsV5Width(cells.Length)
                 && cells.Length != PixelProtocol.CellCountV4
                 && cells.Length != PixelProtocol.CellCountV1) continue;
             var step = Classify(cells, matcher);
@@ -328,9 +342,11 @@ internal static class ColorLearner
 
     public static int Classify(Color[] cells, ColorProfile? profile = null)
     {
-        // v5 (current): 35 cells, slots 1-8, status 9. An Ext2 capture (40
-        // cells) keeps the same core layout, so the extra cells are ignored.
-        if (PixelProtocol.IsV5Length(cells.Length))
+        // v5 family, widest first: Ext3 (43), then the Ext2 (40) and v5 core
+        // (35) fallbacks. All three share the core layout (slots 1-8, status
+        // 9), so the extra Ext2/Ext3 cells are ignored and a narrower stale
+        // addon classifies on its own width through the same window.
+        if (IsV5Width(cells.Length))
             return ClassifyCells(cells, firstSlot: 1, lastSlot: 8,
                 cells[PixelProtocol.StatusCellIndex], profile);
         // v4 (stale addon): 9 cells, slots 1-6, status 7.

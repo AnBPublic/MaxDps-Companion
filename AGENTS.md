@@ -12,6 +12,8 @@ Then the file you are changing plus its counterpart spec.
 
 ## Hard rules
 
+- `MaxDpsBridge` stable + `dist\` are **LEGACY** (frozen); all work targets
+  `MaxDpsBridgeExp` + `dist-exp` unless the user explicitly says legacy/stable.
 - Upstream MaxDps in `vendor/` is **read-only**. Never edit it, never import
   it as a dependency — the bridge queries the live addon at runtime.
 - The bridge never calls protected Lua and never automates gameplay

@@ -38,7 +38,10 @@ namespace MaxDpsCompanion;
 ///  * State transitions (target regained, state change, GCD falling edge)
 ///    clear OS-gate suppression so a held candidate is not punished after the
 ///    state heals; FAILURE suppression (`_failedUntil`) deliberately survives
-///    transitions — only a successful send resets it. MinKeyInterval and link
+///    transitions for the situational slots — only a successful send resets
+///    it. The MAIN slot is the exception: a new fight (a target or combat
+///    edge) drops the Main failure memory so a stuck rotation suggestion
+///    cannot carry its backoff into the next target. MinKeyInterval and link
 ///    state persist either way.
 ///
 /// The engine's existing per-slot send gates stay authoritative; the plan is
@@ -58,11 +61,39 @@ internal sealed class ActionScheduler
     /// <summary>Cap for the escalating failure backoff (consecutive windows).</summary>
     internal const int MaxFailedSuppressMs = 10_000;
 
+    /// <summary>
+    /// Hard cap for the Main-slot failure backoff (Arms stuck fix): the main
+    /// rotation may never be silenced for the full 10 s ladder — a key that
+    /// keeps failing is re-armed after at most 3 s (1.5/3/3/3).
+    /// </summary>
+    internal const int MaxMainSuppressMs = 3000;
+
+    /// <summary>
+    /// Silence since the last failure that restarts the escalation ladder: a
+    /// new failure after this quiet gap retries at the base window instead of
+    /// inheriting a stale streak.
+    /// </summary>
+    internal const int FailureDecayMs = 6000;
+
     /// <summary>Sliding window for the send-count backoff.</summary>
     internal const int AttemptWindowMs = 1500;
 
     /// <summary>More sends of the same stroke inside the window than this is spam.</summary>
     internal const int MaxAttemptsPerWindow = 5;
+
+    /// <summary>
+    /// T2 (no-downtime Main): a Main press that keeps failing is re-armed at
+    /// this fast floor instead of the escalating 1.5 s/3 s ladder, so the
+    /// rotation is never stranded on a silent Main slot.
+    /// </summary>
+    internal const int MainReprobeMs = 150;
+
+    /// <summary>
+    /// T2 (no-downtime Main): consecutive no-op sends of the SAME Main spell
+    /// allowed before the RC6 send-count backoff treats it as stuck. Bounds the
+    /// fast <see cref="MainReprobeMs"/> re-probe.
+    /// </summary>
+    internal const int MainSameSpellNoOpCap = 3;
 
     /// <summary>
     /// Fallback scheduler rank order (policy off or unknown): interrupt,
@@ -83,6 +114,7 @@ internal sealed class ActionScheduler
     private long _lastSentAt;
     private Slot _lastSentSlot;
     private KeyStroke _lastSentStroke;
+    private int _lastSentSpellId;
 
     // Diagnostics only: the most recent attempted (not necessarily sent) action.
     private bool _hasAttempt;
@@ -91,22 +123,37 @@ internal sealed class ActionScheduler
     private long _lastAttemptAt;
     private AttemptOutcome _lastAttemptOutcome;
 
-    // (slot, stroke) -> suppress-until for engine OS-gate rejections. Cleared
-    // on a state transition: the condition (range, target, GCD) may have healed.
-    private readonly Dictionary<(Slot Slot, KeyStroke Stroke), long> _blockedUntil = new();
+    // (slot, stroke, spellId) -> suppress-until for engine OS-gate rejections.
+    // Cleared on a target/combat/state transition: the condition (range,
+    // target, GCD) may have healed.
+    private readonly Dictionary<(Slot Slot, KeyStroke Stroke, int SpellId), long> _blockedUntil = new();
 
-    // (slot, stroke) -> suppress-until for FAILED presses (no GCD after a
-    // press, or repeated re-sends). Deliberately NOT cleared by state
+    // (slot, stroke, spellId) -> suppress-until for FAILED presses (no GCD after
+    // a press, or repeated re-sends). Deliberately NOT cleared by state
     // transitions: a stroke that keeps failing must not be re-armed by every
     // GCD pulse.
-    private readonly Dictionary<(Slot Slot, KeyStroke Stroke), long> _failedUntil = new();
+    private readonly Dictionary<(Slot Slot, KeyStroke Stroke, int SpellId), long> _failedUntil = new();
 
-    // Consecutive failure windows per stroke (escalating backoff: a permanent
-    // failure converges to a low retry rate instead of a fixed 1.5 s loop).
-    private readonly Dictionary<(Slot Slot, KeyStroke Stroke), int> _failureStreak = new();
+    // Consecutive failure windows per (slot, stroke, spellId) (escalating
+    // backoff: a permanent failure converges to a low retry rate instead of a
+    // fixed 1.5 s loop).
+    private readonly Dictionary<(Slot Slot, KeyStroke Stroke, int SpellId), int> _failureStreak = new();
 
-    // (slot, stroke) -> send count inside the rolling window (retry/backoff).
-    private readonly Dictionary<(Slot Slot, KeyStroke Stroke), (int Count, long WindowStartMs)> _attempts = new();
+    // Last failure time per (slot, stroke, spellId): a silence longer than
+    // FailureDecayMs restarts the ladder (a stale streak must not push a new,
+    // unrelated failure straight to the cap).
+    private readonly Dictionary<(Slot Slot, KeyStroke Stroke, int SpellId), long> _lastFailureAt = new();
+
+    // (slot, stroke, spellId) -> send count inside the rolling window
+    // (retry/backoff). Keying on the spell identity (not just the physical
+    // stroke) means a sibling rotation candidate that shares a key does not
+    // inherit the failed suggestion's suppression (RC6).
+    private readonly Dictionary<(Slot Slot, KeyStroke Stroke, int SpellId), (int Count, long WindowStartMs)> _attempts = new();
+
+    // T2 (no-downtime Main): the Main spell identity that last won a tick. A
+    // change means the rotation genuinely moved on, so the superseded
+    // identity's failure memory is dropped rather than carried forward.
+    private int _lastMainSpellId;
 
     // Post-send GCD confirmation: a press that never starts the GCD failed.
     private (Slot Slot, KeyStroke Stroke, int SpellId, long SentAt, bool SawGcd, bool RidesGcd)? _pendingConfirm;
@@ -115,10 +162,15 @@ internal sealed class ActionScheduler
     private readonly PolicyMemory _policyMemory = new();
     private AbilityCatalog? _catalogForNotes;
 
+    // R2 (sustain-cd): the last time the SelfHeal slot was attempted/sent.
+    // Diagnostics only — it explains the cooldown wait and never gates a send.
+    private long _lastSelfHealTriedMs;
+
     // Previous-frame edge tracking (state transitions clear local suppression).
     private bool _hasFrame;
     private BridgeState _lastState;
     private bool _lastHasTarget;
+    private bool _lastInCombat;
     private bool _lastOnGcd;
 
     /// <summary>Failed-action rejections detected (diagnostics; telemetry reads the plan).</summary>
@@ -160,17 +212,42 @@ internal sealed class ActionScheduler
         _lastSentAt = nowMs;
         _lastSentSlot = slot;
         _lastSentStroke = stroke;
+        _lastSentSpellId = spellId;
 
-        var key = (slot, stroke);
+        var key = (slot, stroke, spellId);
         // A successful send proves the stroke works: reset the failure state.
         _failedUntil.Remove(key);
-        _failureStreak.Remove(key);
-        if (_attempts.TryGetValue(key, out var attempt) && nowMs - attempt.WindowStartMs <= AttemptWindowMs)
-            _attempts[key] = (attempt.Count + 1, attempt.WindowStartMs);
+        if (slot == Slot.Main)
+        {
+            // The Main rotation rotates a pool of sibling identities. A send
+            // on any one of them proves the rotation is alive, so EVERY Main
+            // identity drops its ladder — the stuck key is re-armed at the
+            // base 1.5 s window rather than inheriting a long backoff.
+            RemoveMainStreaks();
+        }
         else
+        {
+            _failureStreak.Remove(key);
+        }
+        // T2 (main-immediate): a Main send only counts toward the no-op cap
+        // when the PREVIOUS Main press never produced a GCD. A GCD-observed
+        // press landed (the rotation advanced), so it resets the streak instead
+        // of accumulating toward MainSameSpellNoOpCap.
+        if (slot == Slot.Main && _pendingConfirm is { SawGcd: true })
+        {
+            _attempts.Remove(key);
+        }
+        else if (_attempts.TryGetValue(key, out var attempt) && nowMs - attempt.WindowStartMs <= AttemptWindowMs)
+        {
+            _attempts[key] = (attempt.Count + 1, attempt.WindowStartMs);
+        }
+        else
+        {
             _attempts[key] = (1, nowMs);
+        }
 
         _pendingConfirm = (slot, stroke, spellId, nowMs, SawGcd: false, RidesGcd: RidesGcdHeuristic(slot, spellId));
+        if (slot == Slot.SelfHeal) _lastSelfHealTriedMs = nowMs;
 
         if (spellId > 0 && _catalogForNotes?.TryGet(spellId) is { } ability)
             _policyMemory.NoteUse(ability, nowMs);
@@ -192,15 +269,22 @@ internal sealed class ActionScheduler
     /// engine OS gate. The (slot, stroke) pair is suppressed briefly so lower
     /// ranks get a turn and the status line does not flap every tick.
     /// </summary>
-    public void NoteAttempt(long nowMs, Slot slot, KeyStroke stroke, AttemptOutcome outcome)
+    public void NoteAttempt(long nowMs, Slot slot, KeyStroke stroke, AttemptOutcome outcome, int spellId = 0)
     {
         _hasAttempt = true;
         _lastAttemptSlot = slot;
         _lastAttemptStroke = stroke;
         _lastAttemptAt = nowMs;
         _lastAttemptOutcome = outcome;
+        if (slot == Slot.SelfHeal) _lastSelfHealTriedMs = nowMs;
         if (outcome != AttemptOutcome.Sent)
-            _blockedUntil[(slot, stroke)] = nowMs + UnavailableSuppressMs;
+        {
+            // T2 (no-downtime Main): an OS-gate rejection re-arms the Main slot
+            // at the fast MainReprobeMs floor instead of the 500 ms situational
+            // suppression; every other slot keeps UnavailableSuppressMs.
+            var ms = slot == Slot.Main ? MainReprobeMs : UnavailableSuppressMs;
+            _blockedUntil[(slot, stroke, spellId)] = nowMs + ms;
+        }
     }
 
     /// <summary>Drops all history (engine Start; a fresh session must not inherit state).</summary>
@@ -213,6 +297,7 @@ internal sealed class ActionScheduler
         _lastSentAt = 0;
         _lastSentSlot = default;
         _lastSentStroke = default;
+        _lastSentSpellId = 0;
         _hasAttempt = false;
         _lastAttemptSlot = default;
         _lastAttemptStroke = default;
@@ -221,14 +306,18 @@ internal sealed class ActionScheduler
         _blockedUntil.Clear();
         _failedUntil.Clear();
         _failureStreak.Clear();
+        _lastFailureAt.Clear();
         _attempts.Clear();
+        _lastMainSpellId = 0;
         _pendingConfirm = null;
         _policyMemory.Reset();
         _catalogForNotes = null;
+        _lastSelfHealTriedMs = 0;
         RejectionsDetected = 0;
         _hasFrame = false;
         _lastState = default;
         _lastHasTarget = false;
+        _lastInCombat = false;
         _lastOnGcd = false;
     }
 
@@ -269,14 +358,42 @@ internal sealed class ActionScheduler
         //    once the state heals.
         if (_hasFrame)
         {
-            var targetRegained = frame.HasTarget && !_lastHasTarget;
+            var targetChanged = frame.HasTarget != _lastHasTarget;
+            var combatChanged = frame.InCombat != _lastInCombat;
             var gcdReleased = _lastOnGcd && !frame.OnGcd;
-            if (frame.State != _lastState || targetRegained || gcdReleased)
+            if (frame.State != _lastState || targetChanged || combatChanged || gcdReleased)
                 _blockedUntil.Clear();
+            // A target change or a combat transition is a new fight state: the
+            // rolling send-count backoff (RC6) is re-armed so a situational
+            // ability that failed against the previous target is not silenced
+            // against the new one.
+            // T2 (no-downtime Main): a CHANGED Main spell id means the rotation
+            // moved on to a different identity; drop the superseded identity's
+            // failure memory in addition to the new-fight edge below.
+            var currentMainSpell = CurrentMainSpellId(input);
+            var mainSpellChanged = currentMainSpell != 0
+                && _lastMainSpellId != 0
+                && currentMainSpell != _lastMainSpellId;
+            if (targetChanged || combatChanged)
+            {
+                _attempts.Clear();
+                // A new fight state is a new Main rotation: drop the Main
+                // slot's failure memory (suppression + ladder + decay stamp)
+                // so a stuck suggestion from the previous target cannot keep
+                // the rotation silent. Situational slots keep their
+                // suppression: a failed cooldown stays failed.
+            }
+            if (targetChanged || combatChanged || mainSpellChanged)
+            {
+                RemoveMainEntries(_failedUntil);
+                RemoveMainEntries(_failureStreak);
+                RemoveMainEntries(_lastFailureAt);
+            }
         }
         _hasFrame = true;
         _lastState = frame.State;
         _lastHasTarget = frame.HasTarget;
+        _lastInCombat = frame.InCombat;
         _lastOnGcd = frame.OnGcd;
 
         // 4. Hard state gates (the engine applies the same gates before the
@@ -284,6 +401,14 @@ internal sealed class ActionScheduler
         //    and belt-and-braces on the engine path).
         if (frame.State == BridgeState.Paused)
             return SchedulePlan.Hold(ScheduleReason.Paused);
+        // 4b. Fail-closed out-of-combat gate (2026-09-30): the engine computes
+        //     the same predicate as the RotationEngine gate; a false value (out
+        //     of combat with no OOC toggle + Ext3 mirror permission) holds
+        //     before any candidate is scheduled. Required input, so a caller
+        //     can never omit the gate and fail open. Placed after Paused so a
+        //     paused bridge keeps its reason.
+        if (!input.OutOfCombatPermitted)
+            return SchedulePlan.Hold(ScheduleReason.OutOfCombat);
         // v4+ encode a target flag. A v1 frame has no such flag, so its
         // absence is UNKNOWN rather than "no target": fail open there (exactly
         // the legacy loop's behaviour). The policy still gates target-requiring
@@ -292,9 +417,16 @@ internal sealed class ActionScheduler
         if (!frame.HasTarget && frame.Version != PixelProtocol.SupportedVersionV1)
             return SchedulePlan.Hold(ScheduleReason.NoTarget);
 
-        // 5. Normalize: enabled candidates only.
-        var bySlot = new ActionCandidate?[PixelProtocol.SlotCount];
-        foreach (var candidate in input.Candidates) bySlot[(int)candidate.Slot] = candidate;
+        // 5. Normalize: enabled candidates only. Since v3.5 a rotating slot
+        //    (RC4) can expose more than one recently-seen candidate (the bridge
+        //    rotates top/next/next2), so each slot carries a list; the policy
+        //    verdict and rank below choose among them.
+        var bySlot = new List<ActionCandidate>?[PixelProtocol.SlotCount];
+        foreach (var candidate in input.Candidates)
+        {
+            if (!candidate.Enabled) continue;
+            (bySlot[(int)candidate.Slot] ??= []).Add(candidate);
+        }
 
         // 6. Situational policy (intelligence on): evaluate every candidate,
         //    drop non-USE verdicts, rank the survivors. Emergency survival
@@ -309,10 +441,27 @@ internal sealed class ActionScheduler
         string? policyDetail = null;
         List<PolicyVerdictEntry>? verdicts = input.CollectPolicyVerdicts ? [] : null;
 
+        // R2 (sustain-cd): explain the wait when the player is inside the
+        // sustain window but the bridge has no ready self-heal to encode (a
+        // heal is only encoded when off cooldown). Owned by the SelfSustain
+        // provider; purely diagnostic — it never changes an action or order.
+        var hasReadySelfHeal = bySlot[(int)Slot.SelfHeal] is { Count: > 0 };
+        var selfHealCoolingDown = policyOn
+            && SelfSustainCandidateProvider.CoolingDown(context, input.Options!, catalog, hasReadySelfHeal);
+
+        // R2: stamp the SelfHeal diagnostics onto its verdict entries (additive
+        // telemetry fields; the replay never compares them).
+        PolicyVerdictEntry StampSelfHeal(PolicyVerdictEntry entry)
+        {
+            if (entry.Slot != Slot.SelfHeal) return entry;
+            var hint = entry.SpellId > 0 ? catalog.TryGet(entry.SpellId)?.ResetHint : null;
+            return entry with { LastTriedMs = _lastSelfHealTriedMs, ResetHint = hint };
+        }
+
         var ranked = new List<(ActionCandidate Candidate, PolicyDecision? Policy)>(PixelProtocol.SlotCount);
         for (var i = 0; i < PixelProtocol.SlotCount; i++)
         {
-            if (bySlot[i] is not { Enabled: true } candidate) continue;
+            if (bySlot[i] is not { Count: > 0 } slotCandidates) continue;
             var slot = (Slot)i;
 
             // Companion-only slots (Mobility / SelfHeal) exist solely because
@@ -320,119 +469,145 @@ internal sealed class ActionScheduler
             // never allowed to fire.
             if (!policyOn && slot is Slot.Mobility or Slot.SelfHeal) continue;
 
-            PolicyDecision? decision = null;
-            var alternateRecorded = false;
-            if (policyOn)
+            // The bridge rotates a slot's candidate pool; evaluate every
+            // recently-seen candidate so a held top does not hide the next.
+            // The Ext2 SelfHeal2 alternate is tried once per slot.
+            var selfHealAlternateTried = false;
+            foreach (var slotCandidate in slotCandidates)
             {
-                decision = PolicyEvaluator.Evaluate(new PolicyInput
+                var candidate = slotCandidate;
+                PolicyDecision? decision = null;
+                var alternateRecorded = false;
+                if (policyOn)
                 {
-                    Slot = slot,
-                    SpellId = candidate.SpellId,
-                    Context = context,
-                    Options = input.Options!,
-                    Memory = _policyMemory,
-                    NowMs = input.NowMs,
-                    InCombat = frame.InCombat,
-                    HasTarget = frame.HasTarget,
-                }, catalog);
-
-                // Ext2 (v3.0.0): when the primary SelfHeal candidate does not
-                // Use but the bridge encoded a second distinct candidate,
-                // evaluate the alternate with its own range (cell 28 B) and let
-                // a Use win the slot. Rank, the one-action-per-tick rule and the
-                // rest of the pipeline are unchanged: this is one more candidate
-                // for the same SelfHeal slot.
-                if (slot == Slot.SelfHeal
-                    && decision.Value.Verdict != PolicyVerdict.Use
-                    && frame.SelfHeal2 is { } sh2
-                    && sh2.SpellId > 0
-                    && sh2.Stroke.VirtualKey != 0)
-                {
-                    var altContext = context.WithSlotRange((int)Slot.SelfHeal, sh2.Range);
-                    var alt = PolicyEvaluator.Evaluate(new PolicyInput
+                    decision = PolicyEvaluator.Evaluate(new PolicyInput
                     {
-                        Slot = Slot.SelfHeal,
-                        SpellId = sh2.SpellId,
-                        Context = altContext,
+                        Slot = slot,
+                        SpellId = candidate.SpellId,
+                        Context = context,
                         Options = input.Options!,
                         Memory = _policyMemory,
                         NowMs = input.NowMs,
                         InCombat = frame.InCombat,
                         HasTarget = frame.HasTarget,
                     }, catalog);
-                    if (alt.Verdict == PolicyVerdict.Use)
+
+                    // Ext2 (v3.0.0): when the primary SelfHeal candidate does not
+                    // Use but the bridge encoded a second distinct candidate,
+                    // evaluate the alternate with its own range (cell 28 B) and let
+                    // a Use win the slot. Rank, the one-action-per-tick rule and the
+                    // rest of the pipeline are unchanged: this is one more candidate
+                    // for the same SelfHeal slot.
+                    if (!selfHealAlternateTried
+                        && slot == Slot.SelfHeal
+                        && decision.Value.Verdict != PolicyVerdict.Use
+                        && frame.SelfHeal2 is { } sh2
+                        && sh2.SpellId > 0
+                        && sh2.Stroke.VirtualKey != 0
+                        && sh2.SpellId != candidate.SpellId)
                     {
-                        candidate = new ActionCandidate(Slot.SelfHeal, sh2.Stroke, true, true,
-                            input.NowMs, input.NowMs, 0, false, sh2.SpellId);
-                        decision = alt;
-                        alternateRecorded = true;
-                        verdicts?.Add(new PolicyVerdictEntry(Slot.SelfHeal, sh2.SpellId, alt.Verdict, alt.Reason)
+                        var altContext = context.WithSlotRange((int)Slot.SelfHeal, sh2.Range);
+                        var alt = PolicyEvaluator.Evaluate(new PolicyInput
                         {
-                            Provider = alt.Provider,
-                            Source = alt.Source,
-                            Evidence = alt.Evidence,
-                            Alternate = true,
-                            Range = sh2.Range,
-                        });
+                            Slot = Slot.SelfHeal,
+                            SpellId = sh2.SpellId,
+                            Context = altContext,
+                            Options = input.Options!,
+                            Memory = _policyMemory,
+                            NowMs = input.NowMs,
+                            InCombat = frame.InCombat,
+                            HasTarget = frame.HasTarget,
+                        }, catalog);
+                        if (alt.Verdict == PolicyVerdict.Use)
+                        {
+                            candidate = new ActionCandidate(Slot.SelfHeal, sh2.Stroke, true, true,
+                                input.NowMs, input.NowMs, 0, false, sh2.SpellId);
+                            decision = alt;
+                            alternateRecorded = true;
+                            verdicts?.Add(StampSelfHeal(new PolicyVerdictEntry(Slot.SelfHeal, sh2.SpellId, alt.Verdict, alt.Reason)
+                            {
+                                Provider = alt.Provider,
+                                Source = alt.Source,
+                                Evidence = alt.Evidence,
+                                Alternate = true,
+                                Range = sh2.Range,
+                            }));
+                        }
+                    }
+                    selfHealAlternateTried = true;
+
+                    if (decision.Value.Verdict != PolicyVerdict.Use)
+                    {
+                        // Five-state policy (registry §12): HOLD and UNKNOWN are
+                        // "condition may clear — retry next tick" (counted as held);
+                        // SKIP and UNAVAILABLE are structural/deliberate exclusions
+                        // for this situation (counted as skipped). Only USE reaches
+                        // the plan.
+                        if (decision.Value.Verdict is PolicyVerdict.Hold or PolicyVerdict.Unknown)
+                        {
+                            policyHeld++;
+                            if (decision.Value.Reason == ExecutionSafety.ChannelReason) channelHeld++;
+                            else if (decision.Value.Reason == ExecutionSafety.CastReason) castHeld++;
+                            NoteFirst(ref policyDetail, decision.Value.Reason);
+                        }
+                        else
+                        {
+                            policySkipped++;
+                            NoteFirst(ref policyDetail, decision.Value.Reason);
+                        }
+                        verdicts?.Add(StampSelfHeal(new PolicyVerdictEntry(slot, candidate.SpellId, decision.Value.Verdict, decision.Value.Reason)
+                        {
+                            Provider = decision.Value.Provider,
+                            Source = decision.Value.Source,
+                            Evidence = decision.Value.Evidence,
+                        }));
+                        continue;
+                    }
+                    if (!alternateRecorded)
+                        verdicts?.Add(StampSelfHeal(new PolicyVerdictEntry(slot, candidate.SpellId, PolicyVerdict.Use, decision.Value.Reason)
+                        {
+                            Provider = decision.Value.Provider,
+                            Source = decision.Value.Source,
+                            Evidence = decision.Value.Evidence,
+                        }));
+                }
+                else
+                {
+                    // Intelligence off: the hard execution-safety gate still runs
+                    // (it is not knowledge filtering). Same predicate as the policy
+                    // uses, so the two modes can never disagree.
+                    var execHold = ExecutionSafety.CastHoldReason(slot, candidate.SpellId, context.Cast, catalog);
+                    if (execHold is not null)
+                    {
+                        if (execHold == ExecutionSafety.ChannelReason) channelHeld++;
+                        else castHeld++;
+                        NoteFirst(ref policyDetail, execHold);
+                        verdicts?.Add(new PolicyVerdictEntry(slot, candidate.SpellId, PolicyVerdict.Hold, execHold));
+                        continue;
                     }
                 }
 
-                if (decision.Value.Verdict != PolicyVerdict.Use)
-                {
-                    // Five-state policy (registry §12): HOLD and UNKNOWN are
-                    // "condition may clear — retry next tick" (counted as held);
-                    // SKIP and UNAVAILABLE are structural/deliberate exclusions
-                    // for this situation (counted as skipped). Only USE reaches
-                    // the plan.
-                    if (decision.Value.Verdict is PolicyVerdict.Hold or PolicyVerdict.Unknown)
-                    {
-                        policyHeld++;
-                        if (decision.Value.Reason == ExecutionSafety.ChannelReason) channelHeld++;
-                        else if (decision.Value.Reason == ExecutionSafety.CastReason) castHeld++;
-                        NoteFirst(ref policyDetail, decision.Value.Reason);
-                    }
-                    else
-                    {
-                        policySkipped++;
-                        NoteFirst(ref policyDetail, decision.Value.Reason);
-                    }
-                    verdicts?.Add(new PolicyVerdictEntry(slot, candidate.SpellId, decision.Value.Verdict, decision.Value.Reason)
-                    {
-                        Provider = decision.Value.Provider,
-                        Source = decision.Value.Source,
-                        Evidence = decision.Value.Evidence,
-                    });
-                    continue;
-                }
-                if (!alternateRecorded)
-                    verdicts?.Add(new PolicyVerdictEntry(slot, candidate.SpellId, PolicyVerdict.Use, decision.Value.Reason)
-                    {
-                        Provider = decision.Value.Provider,
-                        Source = decision.Value.Source,
-                        Evidence = decision.Value.Evidence,
-                    });
+                ranked.Add((candidate, decision));
             }
-            else
-            {
-                // Intelligence off: the hard execution-safety gate still runs
-                // (it is not knowledge filtering). Same predicate as the policy
-                // uses, so the two modes can never disagree.
-                var execHold = ExecutionSafety.CastHoldReason(slot, candidate.SpellId, context.Cast, catalog);
-                if (execHold is not null)
-                {
-                    if (execHold == ExecutionSafety.ChannelReason) channelHeld++;
-                    else castHeld++;
-                    NoteFirst(ref policyDetail, execHold);
-                    verdicts?.Add(new PolicyVerdictEntry(slot, candidate.SpellId, PolicyVerdict.Hold, execHold));
-                    continue;
-                }
-            }
-
-            ranked.Add((candidate, decision));
         }
 
         if (ranked.Count == 0)
         {
+            // R2 (sustain-cd): HP is in the sustain window, the spec owns a
+            // curated self-heal, but none is ready this tick. Say so instead of
+            // a generic "no candidate" so the "Now:" line and telemetry explain
+            // the wait. The next tick that carries a ready heal fires normally
+            // with no extra delay (the otherwise-empty plan holds).
+            if (selfHealCoolingDown)
+            {
+                return SchedulePlan.Hold(ScheduleReason.SelfHealCoolingDown, 0, policyHeld, policySkipped,
+                    SelfSustainCandidateProvider.CooldownWaitReason) with
+                {
+                    Verdicts = verdicts?.ToArray() ?? [],
+                    SelfHealCoolingDown = true,
+                    SelfHealLastTriedMs = _lastSelfHealTriedMs,
+                };
+            }
             if (policyHeld > 0 || policySkipped > 0 || castHeld > 0 || channelHeld > 0)
             {
                 // Cast/channel holds keep their own reason codes so telemetry
@@ -460,6 +635,11 @@ internal sealed class ActionScheduler
         // 7. Duplicate collapse: one physical stroke, one press (highest
         //    rank wins; the list is already rank-ordered).
         var unique = new List<(ActionCandidate Candidate, PolicyDecision? Policy)>(ordered.Count);
+        // T2 (main-immediate): a Main collapsed into a higher-ranked candidate
+        // that shares its physical stroke is kept aside (not discarded) and is
+        // re-admitted in the send loop below when that higher-ranked press is
+        // held rather than emitted. It still passes every timing/suppression gate.
+        var collapsedMains = new List<(ActionCandidate Candidate, PolicyDecision? Policy)>();
         foreach (var entry in ordered)
         {
             var duplicate = false;
@@ -468,6 +648,7 @@ internal sealed class ActionScheduler
                 if (kept.Candidate.Stroke == entry.Candidate.Stroke) { duplicate = true; break; }
             }
             if (!duplicate) unique.Add(entry);
+            else if (entry.Candidate.Slot == Slot.Main) collapsedMains.Add(entry);
         }
 
         // 8. Stale demotion: pressed-since-change AND unchanged for the whole
@@ -477,7 +658,17 @@ internal sealed class ActionScheduler
         var stale = new List<(ActionCandidate Candidate, PolicyDecision? Policy)>(unique.Count);
         foreach (var entry in unique)
         {
-            if (entry.Candidate.IsStale(input.NowMs, Math.Max(250, input.StaleAfterMs))) stale.Add(entry);
+            // R2 (sustain-cd): a SelfHeal is NEVER stale-demoted. After a
+            // cooldown (or a reset proc) the SAME spell is re-suggested while
+            // the wire slot content never changed, so the pressed-since-change
+            // bookkeeping would otherwise swallow the new opportunity and demote
+            // the heal behind Main. A heal that is ready again is a fresh action.
+            // T2 (main-immediate): the Main rotation is NEVER stale-demoted
+            // either — the WHITE core rotation is the player's own spell-queue
+            // behaviour and must stay ahead of fresh situational alternatives.
+            if (entry.Candidate.Slot is not (Slot.SelfHeal or Slot.Main)
+                && entry.Candidate.IsStale(input.NowMs, Math.Max(250, input.StaleAfterMs)))
+                stale.Add(entry);
             else fresh.Add(entry);
         }
         var demoted = stale.Count > 0 && fresh.Count > 0;
@@ -494,8 +685,13 @@ internal sealed class ActionScheduler
         //     demoted: re-pressing a main key is the player's own spell-queue
         //     behaviour, and a possibly-successful main means the GCD is
         //     starting — the GCD gate (next) already covers that case.
+        //     R2 (sustain-cd): SelfHeal is never demoted at all — a heal that
+        //     is ready must fire this tick, not be pushed behind Main while an
+        //     unconfirmed press is pending. Its transient failure is still
+        //     detected and capped at 1.5 s by ResolvePendingConfirm.
         if (_pendingConfirm is { } pending
             && pending.Slot != Slot.Main
+            && pending.Slot != Slot.SelfHeal
             && input.NowMs - pending.SentAt < RejectDetectMs)
         {
             var ahead = new List<(ActionCandidate Candidate, PolicyDecision? Policy)>(final.Count);
@@ -515,6 +711,11 @@ internal sealed class ActionScheduler
             }
         }
 
+        // T2 (main-immediate): append the collapsed Mains behind the surviving
+        // candidates. The send loop only acts on one when no earlier candidate
+        // emitted the same stroke, so a held higher-rank press cannot strand Main.
+        if (collapsedMains.Count > 0) final.AddRange(collapsedMains);
+
         // 9. Timing gates. GCD: v4+ encode it; the interrupt is off the GCD
         //    and always bypasses. Min key interval: one press per interval —
         //    the interrupt bypasses it too (time-critical kick must not wait
@@ -528,6 +729,10 @@ internal sealed class ActionScheduler
         var intervalElapsed = !_hasSent || input.NowMs - _lastSentAt >= minInterval;
 
         var actions = new List<ScheduledAction>(final.Count);
+        // T2 (main-immediate): strokes already emitted this tick. A re-admitted
+        // collapsed Main whose stroke was emitted by the press that replaced it
+        // is skipped; one whose replacement was held is allowed through the gates.
+        var emittedStrokes = new HashSet<KeyStroke>();
         var suppressed = 0;
         var firstHold = ScheduleReason.NoCandidate;
         var hasHold = false;
@@ -539,33 +744,47 @@ internal sealed class ActionScheduler
         foreach (var (candidate, policy) in final)
         {
             var slot = candidate.Slot;
-            if (frame.OnGcd && slot != Slot.Interrupt)
+            if (emittedStrokes.Contains(candidate.Stroke)) continue;
+            // GCD bypass (RC6): the interrupt is off-GCD by design; v3.5 also
+            // exempts an emergency survival verdict and any ability the
+            // registry marks off-GCD, so a time-critical situational action is
+            // not lost to the brief GCD-off window.
+            if (frame.OnGcd && !BypassesGcd(slot, policy, candidate.SpellId))
             {
                 NoteHold(ScheduleReason.GcdHold);
                 continue;
             }
-            // Bounded retry/backoff first: the same stroke sent too many times
-            // inside the window means the action keeps failing (immune,
-            // invalid, out of resource) — suppress it with an escalating
-            // window, then retry at a decaying rate.
-            if (_attempts.TryGetValue((slot, candidate.Stroke), out var attempt)
-                && attempt.Count >= MaxAttemptsPerWindow
+            // Bounded retry/backoff first: the same (slot, stroke, spell)
+            // sent too many times inside the window means the action keeps
+            // failing (immune, invalid, out of resource) — suppress it with an
+            // escalating window, then retry at a decaying rate. Keying on the
+            // spell identity keeps a rotated-in sibling candidate pressable.
+            // T2 (no-downtime Main): the Main slot uses the tighter
+            // MainSameSpellNoOpCap and is re-armed at the fast MainReprobeMs
+            // floor instead of the escalating failure ladder; every other slot
+            // keeps the 5-sends/1.5 s rule and its ladder.
+            var sendCap = slot == Slot.Main ? MainSameSpellNoOpCap : MaxAttemptsPerWindow;
+            if (_attempts.TryGetValue((slot, candidate.Stroke, candidate.SpellId), out var attempt)
+                && attempt.Count >= sendCap
                 && input.NowMs - attempt.WindowStartMs <= AttemptWindowMs)
             {
-                NoteFailure(slot, candidate.Stroke, input.NowMs);
-                _attempts.Remove((slot, candidate.Stroke));
+                _attempts.Remove((slot, candidate.Stroke, candidate.SpellId));
+                if (slot == Slot.Main)
+                    _failedUntil[(slot, candidate.Stroke, candidate.SpellId)] = input.NowMs + MainReprobeMs;
+                else
+                    NoteFailure(slot, candidate.Stroke, input.NowMs, candidate.SpellId);
                 suppressed++;
                 NoteHold(ScheduleReason.RetryBackoff);
                 continue;
             }
-            // The interrupt bypasses the min interval only when its stroke
-            // CHANGED (a genuine new kick must land immediately, even right
-            // after a DPS press). An identical repeated interrupt suggestion
-            // is the same physical key again — held for the interval so a
-            // failed/persisting kick cannot machine-gun at poll rate.
-            if (!intervalElapsed
-                && (slot != Slot.Interrupt
-                    || (_hasSent && slot == _lastSentSlot && candidate.Stroke == _lastSentStroke)))
+            // T2 (main-immediate): the min key interval is a double-fire guard
+            // only. The interrupt (a genuine changed kick must land immediately,
+            // even right after a DPS press) and the Main rotation (WHITE
+            // core-rotation executes immediately) bypass it for any DIFFERENT
+            // press; only an identical slot+stroke+spell repeat inside the
+            // interval is held, which covers the pre-GCD-flip window. Every
+            // other slot keeps the one-press-per-interval pacing.
+            if (MinIntervalApplies(slot, candidate, intervalElapsed))
             {
                 NoteHold(ScheduleReason.MinInterval);
                 continue;
@@ -573,8 +792,8 @@ internal sealed class ActionScheduler
             // OS-gate suppression (cleared by state transitions) and failure
             // suppression (not cleared — a persistently failing stroke stays
             // quiet while lower ranks proceed).
-            if ((_blockedUntil.TryGetValue((slot, candidate.Stroke), out var until) && input.NowMs < until)
-                || (_failedUntil.TryGetValue((slot, candidate.Stroke), out var failedUntil) && input.NowMs < failedUntil))
+            if ((_blockedUntil.TryGetValue((slot, candidate.Stroke, candidate.SpellId), out var until) && input.NowMs < until)
+                || (_failedUntil.TryGetValue((slot, candidate.Stroke, candidate.SpellId), out var failedUntil) && input.NowMs < failedUntil))
             {
                 suppressed++;
                 NoteHold(ScheduleReason.Unavailable);
@@ -598,17 +817,30 @@ internal sealed class ActionScheduler
                 Provider = policy?.Provider ?? "",
                 Evidence = policy?.Evidence ?? [],
             });
+            emittedStrokes.Add(candidate.Stroke);
+        }
+
+        // T2 (no-downtime Main): remember the Main identity that won this tick;
+        // the next tick compares against it to drop a superseded identity's
+        // failure memory.
+        foreach (var action in actions)
+        {
+            if (action.Slot != Slot.Main) continue;
+            _lastMainSpellId = action.SpellId;
+            break;
         }
 
         if (actions.Count == 0)
             return SchedulePlan.Hold(hasHold ? firstHold : ScheduleReason.NoCandidate, suppressed, policyHeld, policySkipped, policyDetail) with
             {
                 Verdicts = verdicts?.ToArray() ?? [],
+                SelfHealCoolingDown = selfHealCoolingDown,
+                SelfHealLastTriedMs = _lastSelfHealTriedMs,
             };
 
         // 10. Head metadata (diagnostics/tests only; the action list is the order).
         var head = actions[0];
-        var headCandidate = bySlot[(int)head.Slot]!.Value;
+        var headCandidate = HeadCandidate(bySlot[(int)head.Slot]!, head.Stroke, head.SpellId);
         var confidence = ConfidenceFor(head.Reason);
         if (!headCandidate.Actionable) confidence -= 20;
         if (headCandidate.IsStale(input.NowMs, Math.Max(250, input.StaleAfterMs))) confidence -= 40;
@@ -616,6 +848,8 @@ internal sealed class ActionScheduler
             Math.Clamp(confidence, 0, 100), demoted, suppressed, policyHeld, policySkipped, policyDetail)
         {
             Verdicts = verdicts?.ToArray() ?? [],
+            SelfHealCoolingDown = selfHealCoolingDown,
+            SelfHealLastTriedMs = _lastSelfHealTriedMs,
         };
     }
 
@@ -668,10 +902,9 @@ internal sealed class ActionScheduler
         var found = false;
         foreach (var candidate in input.Candidates)
         {
-            if (candidate.Slot != pending.Slot) continue;
+            if (candidate.Slot != pending.Slot || candidate.SpellId != pending.SpellId) continue;
             found = true;
-            if (candidate.Stroke != pending.Stroke || candidate.SpellId != pending.SpellId)
-                _pendingConfirm = null;
+            if (candidate.Stroke != pending.Stroke) _pendingConfirm = null;
             break;
         }
         if (!found) _pendingConfirm = null;
@@ -692,7 +925,7 @@ internal sealed class ActionScheduler
 
         if (input.NowMs - stillPending.SentAt >= RejectDetectMs)
         {
-            NoteFailure(stillPending.Slot, stillPending.Stroke, input.NowMs);
+            NoteFailure(stillPending.Slot, stillPending.Stroke, input.NowMs, stillPending.SpellId);
             _pendingConfirm = null;
             RejectionsDetected++;
         }
@@ -700,21 +933,88 @@ internal sealed class ActionScheduler
 
     /// <summary>
     /// Records a failed press: escalating suppression window per consecutive
-    /// failure (1.5 s, 3 s, 6 s, 10 s cap), reset by the next successful send.
+    /// failure — every non-Main slot 1.5/3/6/10 s, reset by the next successful
+    /// send or a &gt;6 s silence. Main is never written to suppression (the
+    /// WHITE core rotation re-arms next tick); its streak/decay counters still
+    /// advance so telemetry and replay diagnostics stay truthful.
     /// </summary>
-    private void NoteFailure(Slot slot, KeyStroke stroke, long nowMs)
+    internal void NoteFailure(Slot slot, KeyStroke stroke, long nowMs, int spellId = 0)
     {
-        var key = (slot, stroke);
-        var streak = _failureStreak.GetValueOrDefault(key) + 1;
+        var key = (slot, stroke, spellId);
+        // R2 (sustain-cd): a SelfHeal press that failed for a TRANSIENT reason
+        // (out of range, no resource yet, GCD timing) is re-polled every tick
+        // and must fire as soon as the heal is ready again. Its suppression is
+        // capped at the base reject window (1.5 s) with NO escalation and no
+        // streak accumulation, so a reset/proc that makes the heal ready cannot
+        // be held behind a long decaying backoff. Permanent reasons (policy
+        // OFF, unbound, unknown spell) never reach here — they are policy
+        // skips. All other slots keep the escalating 1.5/3/6/10 s backoff.
+        if (slot == Slot.SelfHeal)
+        {
+            _failedUntil[key] = nowMs + RejectedSuppressMs;
+            _failureStreak.Remove(key);
+            _lastFailureAt.Remove(key);
+            return;
+        }
+        // A long silence since the last failure restarts the ladder: the
+        // diagnosis is stale, so this is a fresh failure at the base window.
+        var streak = nowMs - _lastFailureAt.GetValueOrDefault(key) > FailureDecayMs
+            ? 0
+            : _failureStreak.GetValueOrDefault(key);
+        _lastFailureAt[key] = nowMs;
+        streak++;
         _failureStreak[key] = streak;
+        // T2 (main-immediate): a failed Main press is NEVER written to
+        // _failedUntil — the WHITE core rotation is re-pressed on the very
+        // next tick (only the no-op send cap above may hold it briefly at
+        // MainReprobeMs). The streak/decay counters still advance so telemetry
+        // and replay diagnostics stay truthful. Every other slot keeps the
+        // escalating 1.5 / 3 / 6 / 10 s ladder.
+        if (slot == Slot.Main) return;
         var shift = Math.Min(Math.Max(0, streak - 1), 3);
-        _failedUntil[key] = nowMs + Math.Min(RejectedSuppressMs << shift, MaxFailedSuppressMs);
+        var windowMs = Math.Min(RejectedSuppressMs << shift, MaxFailedSuppressMs);
+        _failedUntil[key] = nowMs + windowMs;
     }
+
+    /// <summary>Drops every Main-slot ladder entry: a successful Main send re-arms the slot.</summary>
+    private void RemoveMainStreaks() => RemoveMainEntries(_failureStreak);
+
+    /// <summary>Removes every Main-slot key from a per-key failure map (target/combat edge).</summary>
+    private static void RemoveMainEntries<TValue>(
+        Dictionary<(Slot Slot, KeyStroke Stroke, int SpellId), TValue> map)
+    {
+        if (map.Count == 0) return;
+        List<(Slot, KeyStroke, int)>? dead = null;
+        foreach (var key in map.Keys)
+            if (key.Slot == Slot.Main) (dead ??= []).Add(key);
+        if (dead is null) return;
+        foreach (var key in dead) map.Remove(key);
+    }
+
+    /// <summary>
+    /// T2 (no-downtime Main): the enabled Main candidate's spell identity this
+    /// tick (0 = none). Used to detect when the rotation moved on to a
+    /// different Main spell so the superseded identity's failure memory can be
+    /// dropped.
+    /// </summary>
+    private static int CurrentMainSpellId(ScheduleInput input)
+    {
+        foreach (var candidate in input.Candidates)
+        {
+            if (candidate.Slot != Slot.Main || !candidate.Enabled) continue;
+            return candidate.SpellId;
+        }
+        return 0;
+    }
+
+    /// <summary>Test/diagnostic seam: the failure-suppression window set for a key (0 = none).</summary>
+    internal long FailedUntilFor(Slot slot, KeyStroke stroke, int spellId = 0) =>
+        _failedUntil.GetValueOrDefault((slot, stroke, spellId));
 
     private void PruneAttempts(long nowMs)
     {
         if (_attempts.Count == 0) return;
-        List<(Slot, KeyStroke)>? dead = null;
+        List<(Slot, KeyStroke, int)>? dead = null;
         foreach (var (key, attempt) in _attempts)
         {
             if (nowMs - attempt.WindowStartMs > AttemptWindowMs)
@@ -733,6 +1033,46 @@ internal sealed class ActionScheduler
     {
         if (_catalogForNotes?.TryGet(spellId) is { } ability) return ability.RidesGcd;
         return slot is Slot.Main or Slot.Offensive or Slot.Mobility;
+    }
+
+    /// <summary>
+    /// v3.5 GCD bypass: a candidate may be attempted during an active GCD when
+    /// it is the interrupt (off-GCD by design), an emergency survival verdict,
+    /// or an ability the registry marks <see cref="GcdKind.OffGcd"/>. Everything
+    /// else waits for the GCD to fall, as before.
+    /// </summary>
+    private bool BypassesGcd(Slot slot, PolicyDecision? policy, int spellId)
+    {
+        if (slot == Slot.Interrupt) return true;
+        if (policy is { Emergency: true }) return true;
+        if (spellId > 0 && _catalogForNotes?.TryGet(spellId) is { Gcd: GcdKind.OffGcd }) return true;
+        return false;
+    }
+
+    /// <summary>
+    /// T2 (main-immediate): does the min key interval hold this candidate?
+    /// The interrupt and the Main rotation are exempt — any different press may
+    /// land immediately (the engine's per-slot OS gates stay authoritative).
+    /// Only an identical slot+stroke+spell repeat inside the interval is held,
+    /// covering the pre-GCD-flip double-fire window. Every other slot keeps the
+    /// original one-press-per-interval pacing.
+    /// </summary>
+    private bool MinIntervalApplies(Slot slot, ActionCandidate candidate, bool intervalElapsed)
+    {
+        if (intervalElapsed) return false;
+        if (slot is not (Slot.Interrupt or Slot.Main)) return true;
+        return _hasSent
+            && slot == _lastSentSlot
+            && candidate.Stroke == _lastSentStroke
+            && candidate.SpellId == _lastSentSpellId;
+    }
+
+    /// <summary>The exact candidate behind the scheduled head action (fallback: the slot's first).</summary>
+    private static ActionCandidate HeadCandidate(List<ActionCandidate> candidates, KeyStroke stroke, int spellId)
+    {
+        foreach (var candidate in candidates)
+            if (candidate.Stroke == stroke && candidate.SpellId == spellId) return candidate;
+        return candidates[0];
     }
 
     private static ScheduleReason ReasonFor(Slot slot, PolicyDecision? policy)

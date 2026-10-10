@@ -56,6 +56,26 @@ local TargetCasting, TargetCastInterruptible = false, nil;
 -- event must not latch "casting" forever and hold the whole rotation.
 local PlayerCastSince, TargetCastSince = nil, nil;
 
+-- ======= v3.6 TAINT-SAFE MELEE PROBE STATE =======
+-- Declared above every user for the same lexical reason as the cast sensors:
+-- EnsureProbeEvents (below) registers the event frame that flips these plain
+-- booleans, and MDB.ProbeTargetMelee (far below) reads them. CheckInteract-
+-- Distance is #nocombat-restricted in 12.x, so it is never called while any
+-- of these gates is closed; ADDON_ACTION_BLOCKED is the breaker of last resort.
+local MeleeCache = { val = nil, guid = nil, at = 0 };  -- per-target result
+local SafeAfter = 0;        -- no probe before this GetTime stamp
+local InCombatEv = false;   -- event-driven combat flag (regen/encounter)
+local BlockHits = 0;        -- ADDON_ACTION_BLOCKED count; 2 = disabled
+
+-- Plain GetTime stamp (pcall-contained; nil when missing). Lives here so both
+-- the event frame and the probe can share it without a lexical gap.
+local function SafeNow ()
+  if type(GetTime) ~= "function" then return nil; end
+  local Ok, Now = pcall(GetTime);
+  if Ok and type(Now) == "number" then return Now; end
+  return nil;
+end
+
 local function MaxDpsEngine ()
   local Direct = _G.MaxDps;
   if Direct and (Direct.Spells or Direct.Flags or Direct.GlowIndependent) then
@@ -269,6 +289,42 @@ function MDB.EnsureEngine ()
   end
 end
 
+--- ======= MAIN-SLOT USABILITY + FALLBACK (Q1, no-downtime Main) =======
+
+-- MainUsable(id): ONLY a plain, doubly-confirmed POWER starvation vetoes a
+-- Main pick — usable == false AND noPower == true, both plain booleans.
+-- Every other outcome (secret / nil / non-boolean / pcall failure / cooldown /
+-- GCD / out-of-range) fails OPEN, matching the v1.3.2 "trust upstream"
+-- rule above: upstream already decided castability on its trusted path, so
+-- our job is only to catch the one case it glows but cannot pay (e.g.
+-- Rampage with no Rage). Secrets are scrubbed to nil before any compare, so
+-- this can never branch on a secret. Read-only, never protected.
+local function MainUsable (SpellID)
+  if type(SpellID) ~= "number" or SpellID == 0 then return false; end
+  local Fn;
+  if _G.C_Spell and type(_G.C_Spell.IsSpellUsable) == "function" then
+    Fn = _G.C_Spell.IsSpellUsable;
+  elseif type(_G.IsUsableSpell) == "function" then
+    Fn = _G.IsUsableSpell;
+  else
+    return true;  -- no API: fail open
+  end
+  local Ok, Usable, NoPower = pcall(Fn, SpellID);
+  if not Ok then return true; end
+  if type(scrubsecretvalues) == "function" then
+    local OkU, CleanU = pcall(scrubsecretvalues, Usable);
+    local OkN, CleanN = pcall(scrubsecretvalues, NoPower);
+    if OkU then Usable = CleanU; end
+    if OkN then NoPower = CleanN; end
+  end
+  if Usable == false and NoPower == true then return false; end
+  return true;
+end
+
+-- Forward declaration: MainFallbackList reads the resolved class/spec
+-- (defined below ClassSpec), but GetMainSpellID sits above it lexically.
+local MainFallbackList;
+
 --- ======= SLOT READOUT (guards live above CATEGORY HOOKS; duplicate deleted v1.2.3) =======
 
 function MDB.GetMainSpellID ()
@@ -303,6 +359,14 @@ function MDB.GetMainSpellID ()
   -- EMPTY + Idle downstream — correct, not a failure.
   local MaxDps = MaxDpsEngine();
   if not MaxDps then return nil; end
+  -- T3 (custom MaxDps 12.1 fork): Majors must never be encoded as MAIN. The
+  -- denylist is our own plain table (MajorCooldowns.lua); scrub only protects
+  -- the upstream tables, the index below is a plain number compare.
+  -- Denying a Main pick cannot deadlock the rotation: the Offensive slot is an
+  -- independent Flags-scan candidate (GetOffensiveCandidate, below) and the
+  -- scheduler holds only when NO slot survives, re-evaluated every tick.
+  local Deny = MDB.MajorCDDeny;
+  local HadCandidate = false;
   local Glowing = MaxDps.SpellsGlowing;
   if type(Glowing) == "table" then
     local Clean = Glowing;
@@ -310,20 +374,57 @@ function MDB.GetMainSpellID ()
       local OkS, C = pcall(scrubsecretvalues, Glowing);
       if OkS and type(C) == "table" then Clean = C; end
     end
-    local OkScan, Found = pcall(function ()
+    local OkScan, Found, HadAny = pcall(function ()
       if type(dropsecretaccess) == "function" then dropsecretaccess(); end
-      local Best = nil;
+      -- Q1: collect EVERY non-denied glowing id, sort ascending, then take
+      -- the first still castable. The old lowest-id pick could land on a
+      -- power-starved pick (Rampage with no Rage) and hold the Main slot
+      -- EMPTY; MainUsable skips it and the next glow (Bloodthirst) wins.
+      -- `Any` counts a glow even when denied: an engine that is glowing
+      -- something (major CD / power-starved) must still fall through to the
+      -- spec filler rather than leave a dead Main slot (plan Q1).
+      local Ids = {};
+      local Any = false;
       for ID, On in pairs(Clean) do
         if type(ID) == "number" and ID ~= 0 and On == 1 then
-          if not Best or ID < Best then Best = ID; end
+          Any = true;
+          if not (Deny and Deny[ID]) then Ids[#Ids + 1] = ID; end
         end
       end
-      return Best;
+      table.sort(Ids);
+      for i = 1, #Ids do
+        if MainUsable(Ids[i]) then return Ids[i]; end
+      end
+      return nil, Any;
     end);
     if OkScan and type(Found) == "number" and Found ~= 0 then return Found; end
+    if OkScan and HadAny then HadCandidate = true; end
   end
   local Spell = MaxDps.Spell;
-  if type(Spell) == "number" and Spell ~= 0 then return Spell; end
+  if type(Spell) == "number" and Spell ~= 0 then
+    if not (Deny and Deny[Spell]) and MainUsable(Spell) then return Spell; end
+    -- A denied or power-starved Spell is still a Main candidate the engine
+    -- named; fall through to the filler rather than return nil (plan Q1).
+    HadCandidate = true;
+  end
+  -- Q1 FALLBACK: the engine was glowing (or naming) a Main candidate, yet
+  -- none survived the denylist + MainUsable — all denied or power-starved.
+  -- Encode the first castable per-spec filler (Fury -> Bloodthirst,
+  -- vendor-verified in MainFallback.lua) instead of a dead Main slot.
+  -- Idle-by-design (no candidate at all) still returns nil; unverified specs
+  -- have no filler and stay EMPTY. MainUsable gates the filler too.
+  if HadCandidate then
+    local Fallback = MainFallbackList and MainFallbackList();
+    if Fallback then
+      for i = 1, #Fallback do
+        local Id = Fallback[i];
+        if type(Id) == "number" and Id ~= 0
+          and not (Deny and Deny[Id]) and MainUsable(Id) then
+          return Id;
+        end
+      end
+    end
+  end
   return nil;
 end
 
@@ -344,12 +445,12 @@ end
 -- lookups per 50 ms tick, all allocating Lua garbage inside the game's
 -- frame budget (GC pressure = WoW frametime spikes). Bridge.Update now
 -- calls MDB.BeginTick() once; the first getter computes, the rest reuse.
-local Tick = { Gen = 0, Flags = nil, FlagsOwner = nil, Items = nil, Class = nil, ClassFile = nil, Spec = nil };
+local Tick = { Gen = 0, Flags = nil, FlagsOwner = nil, Items = nil, Class = nil, ClassFile = nil, Spec = nil, SpecID = nil };
 
 function MDB.BeginTick ()
   Tick.Gen = Tick.Gen + 1;
   Tick.Flags, Tick.FlagsOwner, Tick.Items = nil, nil, nil;
-  Tick.Class, Tick.ClassFile, Tick.Spec = nil, nil, nil;
+  Tick.Class, Tick.ClassFile, Tick.Spec, Tick.SpecID = nil, nil, nil, nil;
 end
 
 local function ScrubbedFlags ()
@@ -387,7 +488,7 @@ local function ClassSpec ()
   if not MaxDps then return nil; end
   -- Per-tick memo (see Tick above): resolved once per update, not once per
   -- candidate spell (CategoryOf calls this for every flagged spell).
-  if Tick.Class == MaxDps then return MaxDps, Tick.ClassFile, Tick.Spec; end
+  if Tick.Class == MaxDps then return MaxDps, Tick.ClassFile, Tick.Spec, Tick.SpecID; end
   if type(UnitClass) ~= "function" then return nil; end
   local OkC, _, classFile = pcall(UnitClass, "player");
   if not OkC or not classFile then return nil; end
@@ -420,9 +521,29 @@ local function ClassSpec ()
     local OkName, Name = pcall(function () return MaxDps.idtospec[specID] end);
     if OkName and type(Name) == "string" then specName = Name; end
   end
-  if not specName then return nil; end
-  Tick.Class, Tick.ClassFile, Tick.Spec = MaxDps, classFile, specName;
-  return MaxDps, classFile, specName;
+  -- v3.7.1 Q1: keep the resolved class (and specID when available) even when
+  -- idtospec cannot name the spec, so the Main fallback can key on specID.
+  -- Callers already guard `not specName`; CategoryOf bails on it.
+  Tick.Class, Tick.ClassFile, Tick.Spec, Tick.SpecID = MaxDps, classFile, specName, specID;
+  return MaxDps, classFile, specName, specID;
+end
+
+-- Q1 fallback selector: class+spec resolved by ClassSpec (memoized per tick).
+-- Tries the numeric specID first, then the "CLASS:Spec" key, then a
+-- class-level generic list (populated only when vendor-verified). Unknown
+-- spec / missing table -> nil, so the Main slot stays EMPTY.
+function MainFallbackList ()
+  local MaxDps, classFile, specName, specID = ClassSpec();
+  if not MaxDps then return nil; end
+  local FB = MDB.MainFallback;
+  if type(FB) ~= "table" then return nil; end
+  if type(specID) == "number" and type(FB[specID]) == "table" then return FB[specID]; end
+  if classFile and specName then
+    local Key = classFile .. ":" .. specName;
+    if type(FB[Key]) == "table" then return FB[Key]; end
+  end
+  if classFile and type(FB[classFile]) == "table" then return FB[classFile]; end
+  return nil;
 end
 
 local function SetHas (Tbl, Id)
@@ -447,6 +568,12 @@ local function CategoryOf (Id)
     if SetHas(CDs.defensive, Id) then return "defensive"; end
     if SetHas(CDs.offensive, Id) then return "offensive"; end
   end
+  -- 2026-10-04 arms-fury-exec-fix: a few offensives MaxDps glows are absent
+  -- from the static classCooldowns table (e.g. Ravager 228920), so the
+  -- first-wins Flags scan never saw them. MDB.FlagOffensiveExtra (defined in
+  -- MajorCooldowns.lua) adds those ids as an explicit offensive category.
+  local Extra = MDB.FlagOffensiveExtra;
+  if type(Extra) == "table" and Extra[Id] then return "offensive"; end
   return nil;
 end
 
@@ -549,12 +676,13 @@ end
 -- Offensive = classCooldowns offensive bucket (Spell Frame "Show offensive
 -- spells"): flagged, on the bars, and classified "offensive" by the class
 -- tables (v1.3.5 — exact category, no item/exclusion guesswork).
+-- v3.0.0: when MaxDps names no bound offensive, the curated per-spec
+-- `offensive` gap-fill list supplies the first ready+bound entry (see
+-- MDB.GetOffensiveCandidate, defined next to the defensive candidate below
+-- because it reuses the scoped ExtraSpellID helper). The whole path stays
+-- inside MaxDps's own `enableCooldowns` switch.
 function MDB.GetOffensiveSpellID ()
-  local MaxDps = MaxDpsEngine();
-  if not (MaxDps and MaxDps.db and MaxDps.db.global and MaxDps.db.global.enableCooldowns) then
-    return nil;
-  end
-  return FirstFlagged("offensive");
+  return MDB.GetOffensiveCandidate();
 end
 
 -- Back-compat alias: C# mirrors and old chat macros may still call the old
@@ -781,6 +909,21 @@ function MDB.IsInterruptReady (SpellID)
   -- alone cannot distinguish this (it only dims the overlay alpha).
   if SensorEvents and TargetCastInterruptible == false then return false; end
   return true;
+end
+
+--- v3.5 (CC fix): the interrupt slot is pinned on MaxDps's own interrupt ONLY
+--- while the target sensor confirms a live cast; otherwise the slot rotates
+--- the curated CC pool. This is the bridge-side counterpart of the companion's
+--- casting-only CC gate (Q1). Unknown interruptibility (the UNIT_SPELLCAST_
+--- INTERRUPTIBLE event has not arrived) still fails OPEN and pins — only a
+--- definite "not casting" passes the slot to the CC pool; a definite
+--- "not interruptible" was already vetoed by IsInterruptReady. A client with
+--- no sensor events at all fails OPEN to the ordinary verdict, so this can
+--- only ever DEMOTE when the sensor gives a definite state.
+function MDB.IsInterruptPinReady (SpellID)
+  if not MDB.IsInterruptReady(SpellID) then return false; end
+  if not SensorEvents then return true; end
+  return TargetCasting and TargetCastInterruptible ~= false;
 end
 
 --- ======= SPELL VARIANTS (protocol Ext2 / v3.0.0) =======
@@ -1263,6 +1406,74 @@ local function CreateSensor (Unit, Handler)
   return Frame;
 end
 
+-- Event frame that gates the melee probe (v3.6). #nocombat APIs are blocked
+-- from the moment the client enters combat lockdown until 0.5 s after it
+-- leaves, and a hidden breaker (ADDON_ACTION_BLOCKED) can fire even outside
+-- the lockdown window. This frame tracks all three signals on plain booleans
+-- and disables the probe for the session after two blocked calls. Idempotent:
+-- reuses the frame if one already exists (MDB._ProbeEvents).
+local function ClearMeleeCache ()
+  MeleeCache.val, MeleeCache.guid, MeleeCache.at = nil, nil, 0;
+end
+
+local function EnsureProbeEvents ()
+  if MDB._ProbeEvents then return MDB._ProbeEvents; end
+  if type(CreateFrame) ~= "function" then return nil; end
+  local Frame = CreateFrame("Frame");
+  if type(Frame) ~= "table" or type(Frame.RegisterEvent) ~= "function" then
+    return nil;
+  end
+  local Ok = pcall(function ()
+    Frame:RegisterEvent("PLAYER_REGEN_DISABLED");
+    Frame:RegisterEvent("PLAYER_REGEN_ENABLED");
+    Frame:RegisterEvent("ENCOUNTER_START");
+    Frame:RegisterEvent("ENCOUNTER_END");
+    Frame:RegisterEvent("PLAYER_TARGET_CHANGED");
+    Frame:RegisterEvent("PLAYER_ENTERING_WORLD");
+    Frame:RegisterEvent("ADDON_ACTION_BLOCKED");
+  end);
+  if not Ok then return nil; end
+  Frame:SetScript("OnEvent", function (_, Event, Arg1, Arg2)
+    if Event == "PLAYER_REGEN_DISABLED" or Event == "ENCOUNTER_START" then
+      InCombatEv = true;
+      ClearMeleeCache();
+    elseif Event == "PLAYER_REGEN_ENABLED" or Event == "ENCOUNTER_END" then
+      InCombatEv = false;
+      local T = SafeNow();
+      if BlockHits < 2 and T then SafeAfter = T + 0.5; end
+    elseif Event == "PLAYER_TARGET_CHANGED" then
+      ClearMeleeCache();
+    elseif Event == "PLAYER_ENTERING_WORLD" then
+      local Lock = false;
+      if type(InCombatLockdown) == "function" then
+        local OkL, L = pcall(InCombatLockdown);
+        Lock = (OkL and L == true);
+      end
+      InCombatEv = Lock;
+      local T = SafeNow();
+      if T then SafeAfter = T + 0.5; end
+    elseif Event == "ADDON_ACTION_BLOCKED" then
+      if Arg1 == addonName and type(Arg2) == "string"
+         and string.find(Arg2, "CheckInteractDistance", 1, true) then
+        BlockHits = BlockHits + 1;
+        ClearMeleeCache();
+        if BlockHits >= 2 then
+          SafeAfter = math.huge;   -- 2nd hit: never probe again this session
+        else
+          local T = SafeNow();
+          if T then SafeAfter = T + 5; end;   -- 1st hit: finite 5 s backoff
+        end;
+        if BlockHits == 1 then
+          pcall(DiagPrint,
+            "CheckInteractDistance blocked by the client; melee range is now UNKNOWN.");
+        end
+      end
+    end
+  end);
+  MDB._ProbeEvents = Frame;
+  return Frame;
+end
+
 function MDB.InitSensors ()
   if SensorEvents then return; end
   SensorEvents = true;
@@ -1313,6 +1524,9 @@ function MDB.InitSensors ()
     end);
   end
 
+  -- v3.6: the melee-probe event frame (regen/encounter/target/world/BLOCKED).
+  EnsureProbeEvents();
+
   if not PlayerFrame and not TargetFrame then
     SensorEvents = false;   -- pre-Midnight client: stay UNKNOWN forever
   end
@@ -1362,6 +1576,68 @@ function MDB.GetCastState ()
   return 0;
 end
 
+-- v3.6: the ONLY CheckInteractDistance call site in the addon. The API is
+-- #nocombat-restricted in 12.x and can raise ADDON_ACTION_BLOCKED, so it is
+-- gated twice: ProbeSafe rejects event/lockdown/UnitAffectingCombat blocks and
+-- the 0.5 s post-combat cool-off, and it is disabled for the session after two
+-- ADDON_ACTION_BLOCKED hits. One probe is shared by GetTargetContext and
+-- Bridge.TargetState so the call rate does not multiply. Results are cached
+-- per target GUID for 0.25 s. pcall stays belt-and-braces: a throwing/secret
+-- API fails to nil => UNKNOWN.
+-- Returns 1 in melee, 0 confirmed out of melee, nil unknown/not probed.
+local function ProbeSafe ()
+  if InCombatEv then return false; end
+  if BlockHits >= 2 then return false; end
+  -- Intentional: a client that does not expose InCombatLockdown is NOT
+  -- refused outright (plan 2026-10-03). InCombatEv (regen/encounter) and
+  -- UnitAffectingCombat still gate it, and ADDON_ACTION_BLOCKED is the
+  -- breaker, so an absent API can never un-gate an ongoing combat state.
+  if type(InCombatLockdown) == "function" then
+    local OkL, Locked = pcall(InCombatLockdown);
+    if not OkL or Locked == true then return false; end
+  end
+  if type(UnitAffectingCombat) == "function" then
+    local OkC, InC = pcall(UnitAffectingCombat, "player");
+    if OkC and Scrubbed(InC) == true then return false; end
+  end
+  local Now = SafeNow();
+  if Now and Now < SafeAfter then return false; end
+  return true;
+end
+
+local function TargetGuid ()
+  if type(UnitGUID) ~= "function" then return nil; end
+  local Ok, Guid = pcall(UnitGUID, "target");
+  if not Ok then return nil; end
+  -- Secret GUIDs still report type()=="string"; scrubbing turns them into
+  -- nil so the cache compare (`MeleeCache.guid == Guid`) can never throw.
+  Guid = Scrubbed(Guid);
+  if type(Guid) == "string" then return Guid; end
+  return nil;
+end
+
+function MDB.ProbeTargetMelee ()
+  if not ProbeSafe() then return nil; end;   -- no API touch, no cache read
+  local Now = SafeNow();
+  local Guid = TargetGuid();
+  if Guid and MeleeCache.guid == Guid and Now and (Now - MeleeCache.at) < 0.25 then
+    return MeleeCache.val;   -- same target, still fresh: one call per 0.25 s
+  end
+  if type(CheckInteractDistance) ~= "function" then return nil; end
+  local Val = nil;
+  local Ok, Near = pcall(CheckInteractDistance, "target", 3);
+  if Ok then
+    -- Scrub first, then map ONLY the explicit booleans: a secret/failed probe
+    -- must stay UNKNOWN (2), never become a confirmed out-of-melee (0) that
+    -- would let a gap closer fire blind.
+    Near = Scrubbed(Near);
+    if Near == true then Val = 1
+    elseif Near == false then Val = 0 end;
+  end
+  MeleeCache.val, MeleeCache.guid, MeleeCache.at = Val, Guid, Now or 0;
+  return Val;
+end
+
 -- Returns meleeFlag (0 = confirmed out of melee, 1 = in melee,
 -- 2 = unknown), target hp band (0..14 = 0..~100% in steps, 15 unknown) and
 -- target cast flags:
@@ -1380,17 +1656,10 @@ function MDB.GetTargetContext ()
     TargetCasting, TargetCastInterruptible, TargetCastSince = false, nil, nil;
   end
 
-  local Melee = 2;   -- unknown unless CheckInteractDistance answers
-  if HasTarget and type(CheckInteractDistance) == "function" then
-    local Ok, Near = pcall(CheckInteractDistance, "target", 3);
-    if Ok then
-      -- Scrub first, then map ONLY the explicit booleans: a secret/failed
-      -- probe must stay UNKNOWN (2), never become a confirmed out-of-melee
-      -- (0) that would let a gap closer fire blind.
-      Near = Scrubbed(Near);
-      if Near == true then Melee = 1
-      elseif Near == false then Melee = 0 end;
-    end
+  local Melee = 2;   -- unknown unless the shared event-gated probe answers
+  if HasTarget then
+    local Probe = MDB.ProbeTargetMelee();
+    if Probe ~= nil then Melee = Probe; end
   end
 
   local HpBand = 15;
@@ -1498,7 +1767,7 @@ end
   * @desc First Count DISTINCT entries of a curated extras list that are
   *       ready AND bound, each encoded as the variant the player actually
   *       knows (base / override / alias; see MDB.ActiveVariant).
-  * @param Kind string "mobility" | "selfHeal" | "defensive"
+  * @param Kind string "mobility" | "selfHeal" | "defensive" | "cc"
   * @param Count number
   * @return table array of variant ids (may be shorter than Count)
   *]]
@@ -1545,6 +1814,170 @@ end
 function MDB.GetSelfHeal2SpellID ()
   local Candidates = MDB.ExtraCandidates("selfHeal", 2);
   return Candidates[2];
+end
+
+-- ======= CROWD-CONTROL SLOT-6 REUSE (v3.4.0 Option A) =======
+-- The Interrupt slot (wire 6) is reused as the CC candidate source: the bridge
+-- prefers MaxDps's own flagged+live-cast interrupt (GetInterruptSpellID +
+-- IsInterruptReady) and only falls through to this when MaxDps names no usable
+-- interrupt. A CC row needs no live target cast, so it is offered through the
+-- SAME ready+bound+ActiveVariant walk as the other curated extras (no
+-- IsInterruptReady gate). The addon's own CC toggle (IsCC, restrict-only,
+-- missing = ON) is consulted here; the companion's CrowdControlGate remains the
+-- final authority on whether the candidate may actually fire. No wire change:
+-- the CC id simply rides the existing slot-6 id cells, and the companion
+-- recognises it by curated CC membership.
+function MDB.GetCrowdControlCandidate ()
+  if MDB.Toggles and MDB.Toggles.IsCC and not MDB.Toggles.IsCC() then return nil; end
+  return ExtraSpellID("cc");
+end
+
+--- v3.5 CC fix: bosses are immune to the curated CC (stun/fear/root/…), so the
+--- slot-6 CC pool is not offered against a worldboss / boss-level target.
+--- UnitClassification returns a plain string and UnitLevel a plain number for
+--- the target; both are pcall-contained and ANY failure/unknown fails OPEN
+--- (not a boss → include the candidate).
+function MDB.IsBossTarget ()
+  if type(UnitClassification) == "function" then
+    local OkC, Class = pcall(UnitClassification, "target");
+    if OkC and Class == "worldboss" then return true; end
+  end
+  if type(UnitLevel) == "function" then
+    local OkL, Level = pcall(UnitLevel, "target");
+    if OkL and Level == -1 then return true; end
+  end
+  return false;
+end
+
+--- ======= MULTI-CANDIDATE ROTATION (v3.5, bridge 3.5.0) =======
+-- The single "first ready+bound entry wins" selection let one held candidate
+-- shadow every alternative (RC4: Charge > Heroic Leap). These helpers return
+-- an ORDERED, de-duplicated pool (cap 4) for the four rotating slots so
+-- Bridge.lua can cycle through it. A candidate must be ready, bound, known as
+-- a variant, and NOT never-automatic; readiness is re-read every tick.
+--
+-- neverAutomatic is a curated deny-list of manual-only buttons the plan
+-- forbids from ever firing automatically. It is matched against the spell and
+-- every known variant of it, and fails open (unknown id = allowed).
+local NEVER_AUTOMATIC = {
+  [33786] = true,   -- Cyclone
+  [118]   = true,   -- Polymorph
+  [6770]  = true,   -- Sap
+  [710]   = true,   -- Banish
+  [217832] = true,  -- Imprison
+  [73325] = true,   -- Leap of Faith
+  [20484] = true,   -- Rebirth
+};
+
+function MDB.IsNeverAutomatic (SpellID)
+  if type(SpellID) ~= "number" or SpellID <= 0 then return false; end
+  if NEVER_AUTOMATIC[SpellID] then return true; end
+  if MDB.SpellVariants then
+    local Ok, Variants = pcall(MDB.SpellVariants, SpellID);
+    if Ok and type(Variants) == "table" then
+      for i = 1, #Variants do
+        if NEVER_AUTOMATIC[Variants[i]] then return true; end
+      end
+    end
+  end
+  return false;
+end
+
+-- Walk one curated list into the pool: ready + bound + known variant +
+-- not never-automatic, dedup by the ACTIVE variant id. Returns an array.
+-- SkipBoss (v3.5, slot 6): when true, the whole walk is skipped if the
+-- current target is a boss (immune to the curated CC); unknown fails open.
+local function WalkCurated (List, Count, Seen, SkipBoss)
+  local Out = {};
+  if type(List) ~= "table" then return Out; end
+  if SkipBoss and MDB.IsBossTarget and MDB.IsBossTarget() then return Out; end
+  for i = 1, #List do
+    local Entry = List[i];
+    if type(Entry) == "number" and Entry > 0 then
+      local Active = MDB.ActiveVariant(Entry);
+      if type(Active) == "number" and Active > 0 and not Seen[Active]
+        and not MDB.IsNeverAutomatic(Active) then
+        local Ready = false;
+        pcall(function () Ready = MDB.IsSpellReady(Active) == true; end);
+        local Bound = false;
+        if MDB.ResolveBinding then
+          pcall(function () Bound = MDB.ResolveBinding(Active) ~= nil; end);
+        end
+        if Ready and Bound then
+          Seen[Active] = true;
+          Out[#Out + 1] = Active;
+          if #Out >= Count then return Out; end
+        end
+      end
+    end
+  end
+  return Out;
+end
+
+--- Ordered rotation pool for a rotating slot (3 defensive, 6 interrupt/CC,
+-- 7 mobility, 8 self-heal). Cap is hard-limited to 4 so the wire and the
+-- `/mdb status` count stay bounded. Catalog priority for the defensive slot
+-- is major > minor > utility, with MaxDps's own flagged candidate on top.
+function MDB.RotationCandidates (Slot, Count)
+  Count = tonumber(Count) or 4;
+  if Count > 4 then Count = 4 end;
+  if Count < 1 then return {}; end
+  local Out, Seen = {}, {};
+  local function Append (List, SkipBoss)
+    if #Out >= Count then return; end
+    local Found = WalkCurated(List, Count, Seen, SkipBoss);
+    for i = 1, #Found do
+      Out[#Out + 1] = Found[i];
+      if #Out >= Count then return; end
+    end
+  end
+
+  if Slot == 3 then
+    local Flagged = FirstFlagged("defensive", false, true);
+    if Flagged and not MDB.IsNeverAutomatic(Flagged) then
+      Seen[Flagged] = true;
+      Out[1] = Flagged;
+    end
+    local _, classFile, specName = ClassSpec();
+    local Table = classFile and specName and MDB.Extras
+      and MDB.Extras[classFile] and MDB.Extras[classFile][specName];
+    if type(Table) == "table" then
+      Append(Table.defensiveMajor);
+      Append(Table.defensiveMinor);
+      Append(Table.defensive);
+    end
+  elseif Slot == 6 then
+    -- The interrupt candidate stays first-class in Bridge (a live cast is
+    -- unconditional); the pool here is the CC fall-through list. The addon CC
+    -- toggle gates it (restrict-only, missing = ON) and boss targets are
+    -- skipped (immune to the curated CC; unknown fails open/include).
+    if not (MDB.Toggles and MDB.Toggles.IsCC and not MDB.Toggles.IsCC()) then
+      local _, classFile, specName = ClassSpec();
+      local Table = classFile and specName and MDB.Extras
+        and MDB.Extras[classFile] and MDB.Extras[classFile][specName];
+      if type(Table) == "table" then Append(Table.cc, true); end
+    end
+  elseif Slot == 7 or Slot == 8 then
+    local _, classFile, specName = ClassSpec();
+    local Table = classFile and specName and MDB.Extras
+      and MDB.Extras[classFile] and MDB.Extras[classFile][specName];
+    if type(Table) == "table" then
+      Append(Slot == 7 and Table.mobility or Table.selfHeal);
+    end
+  end
+  return Out;
+end
+
+--- Defensive urgency with the v3.5 HP-curve fallback. When the plain HP read
+-- is secret/unreadable (Midnight combat) but the Ext2 HP curve is live, the
+-- slot still offers a conservative Orange so the catalog minor gap-fill is in
+-- the pool; otherwise an unreadable HP stays UNKNOWN. MDB.GetDefensiveUrgency
+-- itself is untouched so its documented secret-HP = UNKNOWN contract holds.
+function MDB.GetDefensiveUrgencyFallback (SpellID)
+  local U = MDB.GetDefensiveUrgency(SpellID);
+  if U ~= URGENCY_UNKNOWN then return U; end
+  if MDB.HpCurve then return URGENCY_ORANGE; end
+  return URGENCY_UNKNOWN;
 end
 
 --- ======= DEFENSIVE URGENCY + GAP-FILL (protocol v6) =======
@@ -1619,6 +2052,15 @@ end
 --    catalog's derived gap-fill list (Catalog.lua, Major first, immunities
 --    excluded) supplies the first ready+bound defensive. Below Red the
 --    companion never substitutes its own defensive for MaxDps's silence.
+-- 3. v3.3.0 Solo ladder (ADDITIVE, group behaviour unchanged): Bridge.lua
+--    arms MDB.SoloLadderBands = { minor, major, immunity } (HP pct thresholds;
+--    nil/0 band = disabled) from the in-game Solo toggle + group state, and
+--    the companion app gates the verdict by the same bands. When Solo bands
+--    are armed, a MaxDps-silent slot ALSO offers: defensiveMinor at/below the
+--    minor band, defensiveMajor at/below the major band, and immunity
+--    at/below the immunity band. Group frames (no bands armed) keep the exact
+--    pre-3.3.0 Red/Orange behaviour below. Unchosen talents are naturally
+--    ignored: ExtraSpellID only offers a ready+bound spell the player knows.
 -- The whole path (including the gap-fill) stays inside MaxDps's own
 -- `enableDefensives` switch: muting defensive intelligence in MaxDps mutes
 -- the companion's defensive automation too. The companion's own per-ability
@@ -1629,10 +2071,62 @@ function MDB.GetDefensiveCandidate ()
   if not Enabled then return nil, false; end
   local Flagged = FirstFlagged("defensive", false, true);
   if Flagged then return Flagged, false; end
-  if MDB.GetDefensiveUrgency(nil) == URGENCY_RED then
+  -- v3.3.0 Solo ladder: HP-banded offers below the classic tiers.
+  local Bands = MDB.SoloLadderBands;
+  if type(Bands) == "table" then
+    local Hp = MDB.GetPlayerHpPct();
+    if type(Hp) == "number" then
+      local MinorBand = tonumber(Bands.minor) or 0;
+      local MajorBand = tonumber(Bands.major) or 0;
+      local ImmBand = tonumber(Bands.immunity) or 0;
+      if ImmBand > 0 and Hp <= ImmBand then
+        local Imm = ExtraSpellID("immunity");
+        if Imm then return Imm, true; end
+      end
+      if MajorBand > 0 and Hp <= MajorBand then
+        local Maj = ExtraSpellID("defensiveMajor");
+        if Maj then return Maj, true; end
+      end
+      if MinorBand > 0 and Hp <= MinorBand then
+        local Min = ExtraSpellID("defensiveMinor");
+        if Min then return Min, true; end
+      end
+    end
+  end
+  local Urgency = MDB.GetDefensiveUrgency(nil);
+  if Urgency == URGENCY_RED then
     local Gap = ExtraSpellID("defensive");
     if Gap then return Gap, true; end
+  elseif Urgency == URGENCY_ORANGE then
+    -- v3.0.0 Orange tier: short-cooldown (Minor/None) gap-fill. The user's
+    -- complaint was that toggled-on short CDs never fire because the old
+    -- gap-fill only offered a candidate at Red. Majors are excluded from the
+    -- defensiveMinor list, so a held major can never shadow a ready short CD,
+    -- and MaxDps-silent is already required (no flagged candidate above).
+    local Gap = ExtraSpellID("defensiveMinor");
+    if Gap then return Gap, true; end
   end
+  return nil, false;
+end
+
+-- The Offensive slot candidate, plus whether it is a companion gap-fill.
+-- 1. MaxDps's own flagged + ready offensive wins (unchanged).
+-- 2. When MaxDps names none, the curated per-spec `offensive` list (shared
+--    burst first, spec-specific second) supplies the first ready+bound entry.
+-- The whole path stays inside MaxDps's own `enableCooldowns` switch.
+-- There is NO wire source bit for this (PixelProtocol decode is frozen and no
+-- slot-flag bit is free), so the companion derives the source by id
+-- membership in the same generated Catalog.lua list (see
+-- AbilityCatalog.IsOffensiveGapFill). Documented in docs/PROTOCOL.md.
+function MDB.GetOffensiveCandidate ()
+  local MaxDps = MaxDpsEngine();
+  if not (MaxDps and MaxDps.db and MaxDps.db.global and MaxDps.db.global.enableCooldowns) then
+    return nil, false;
+  end
+  local Flagged = FirstFlagged("offensive");
+  if Flagged then return Flagged, false; end
+  local Gap = ExtraSpellID("offensive");
+  if Gap then return Gap, true; end
   return nil, false;
 end
 
@@ -1725,4 +2219,138 @@ function MDB.GetExtrasDiag ()
     Parts[#Parts + 1] = "no-extras";
   end
   return table.concat(Parts, " ");
+end
+
+--- ======= PERFORMANCE: SLOT-INTENT CHANGE KEY (Stream 2, bridge 3.4.0) =======
+-- Bridge.Update caches the encoded slot candidates and recomputes that scan
+-- only when this key changes (see Bridge.lua PERF block). The key is built
+-- from cheap, pcall-contained reads ONLY:
+--   * scalar suggestion values (MaxDps.Spell),
+--   * order-independent numeric hashes / counts of the flagged sets,
+--   * table + function identities and list shapes (binding / readiness /
+--     variant resolvers, per-spec curated lists),
+--   * the binding revision and the toggle table.
+-- It NEVER copies or scrubs an upstream table, never runs a secret compare
+-- outside pcall, and never allocates more than the returned string. Sensor
+-- cells (vitals, cast, target, range, aura, class/spec, urgency, HP curve)
+-- are recomputed every tick regardless, so only the candidate scan is skipped.
+-- Returns nil when the key cannot be computed safely; Bridge then falls back
+-- to a full recompute (fail-open, identical behaviour).
+function MDB.FrameKey ()
+  local function KeyIdent (V)
+    if type(issecretvalue) == "function" then
+      local OkSecret, Secret = pcall(issecretvalue, V);
+      if OkSecret and Secret then return "secret"; end
+    end
+    local Ok, S = pcall(tostring, V);
+    if Ok then return S; end
+    return type(V);
+  end
+  local function KeyCount (T)
+    if type(T) ~= "table" then return -1; end
+    local N = 0;
+    local Ok = pcall(function () for _ in pairs(T) do N = N + 1; end end);
+    if not Ok then return -1; end
+    return N;
+  end
+  -- Sum of numeric keys whose value is boolean true. A secret value is not a
+  -- boolean and the compare is `==` against a boolean, which never invokes a
+  -- number/table metamethod; the whole loop is pcall-contained anyway.
+  local function KeyHash (T)
+    if type(T) ~= "table" then return -1; end
+    local Sum = 0;
+    local Ok = pcall(function ()
+      for K, V in pairs(T) do
+        if type(K) == "number" and type(V) == "boolean" and V == true then Sum = Sum + K; end
+      end
+    end);
+    if not Ok then return -1; end
+    return Sum;
+  end
+  local function KeyList (List)
+    if type(List) ~= "table" then return "nil"; end
+    local Ok, N = pcall(function () return #List; end);
+    return KeyIdent(List) .. "#" .. (Ok and N or -1);
+  end
+
+  local MaxDps = MaxDpsEngine();
+  if not MaxDps then return nil; end;
+  local _, classFile, specName = ClassSpec();
+  local Parts = {};
+  local function P (Label, Value) Parts[#Parts + 1] = Label .. "=" .. Value; end
+
+  P("spell", KeyIdent(MaxDps.Spell));
+  P("glow", KeyIdent(MaxDps.SpellsGlowing) .. "#" .. KeyCount(MaxDps.SpellsGlowing));
+  P("spells", KeyIdent(MaxDps.Spells) .. "#" .. KeyCount(MaxDps.Spells));
+  P("flags", KeyCount(MaxDps.Flags) .. "@" .. KeyHash(MaxDps.Flags));
+  P("items", KeyIdent(MaxDps.ItemSpells) .. "#" .. KeyCount(MaxDps.ItemSpells));
+  P("cls", KeyIdent(classFile));
+  P("spec", KeyIdent(specName));
+
+  local CDs = MaxDps.classCooldowns and classFile and MaxDps.classCooldowns[classFile]
+    and MaxDps.classCooldowns[classFile][specName];
+  P("def", KeyList(CDs and CDs.defensive));
+  P("off", KeyList(CDs and CDs.offensive));
+  local Ints = MaxDps.classInterrupts and classFile and MaxDps.classInterrupts[classFile]
+    and MaxDps.classInterrupts[classFile][specName];
+  P("int", KeyList(Ints));
+  local Global = MaxDps.db and MaxDps.db.global;
+  P("cdOn", KeyIdent(Global and Global.enableCooldowns));
+  P("defOn", KeyIdent(Global and Global.enableDefensives));
+
+  local Extra = MDB.Extras and classFile and MDB.Extras[classFile]
+    and MDB.Extras[classFile][specName];
+  P("x", Extra and (KeyList(Extra.mobility) .. KeyList(Extra.selfHeal)
+    .. KeyList(Extra.offensive) .. KeyList(Extra.defensive)
+    .. KeyList(Extra.defensiveMajor) .. KeyList(Extra.defensiveMinor)
+    .. KeyList(Extra.immunity) .. KeyList(Extra.cc)) or "nil");
+
+  P("bind", KeyIdent(MDB._BindCache) .. "#" .. KeyCount(MDB._BindCache)
+    .. "@" .. KeyIdent(MDB._BindRevision));
+  do
+    local OkHp, Hp = pcall(MDB.GetPlayerHpPct);
+    P("hp", OkHp and KeyIdent(Hp) or "?");
+  end
+  local Bands = MDB.SoloLadderBands;
+  if type(Bands) == "table" then
+    P("solo", KeyIdent(Bands.minor) .. "," .. KeyIdent(Bands.major)
+      .. "," .. KeyIdent(Bands.immunity));
+  else
+    P("solo", "nil");
+  end
+  local TG = MaxDpsBridgeDB and MaxDpsBridgeDB.Toggles;
+  if type(TG) == "table" then
+    P("tg", KeyIdent(TG.Main) .. KeyIdent(TG.Offensive) .. KeyIdent(TG.Defensive)
+      .. KeyIdent(TG.Consumable) .. KeyIdent(TG.Trinket) .. KeyIdent(TG.Interrupt)
+      .. KeyIdent(TG.Mobility) .. KeyIdent(TG.SelfHeal) .. KeyIdent(TG.Solo)
+      .. KeyIdent(TG.OOC) .. KeyIdent(TG.AutoTarget) .. KeyIdent(TG.AutoInteract)
+      .. KeyIdent(TG.TTK));
+  else
+    P("tg", "nil");
+  end
+  P("f", table.concat({
+    KeyIdent(_G.C_Spell and _G.C_Spell.GetSpellCooldown),
+    KeyIdent(_G.C_Spell and _G.C_Spell.GetSpellCooldownDuration),
+    KeyIdent(_G.C_Spell and _G.C_Spell.GetSpellCharges),
+    KeyIdent(_G.C_Spell and _G.C_Spell.IsSpellUsable),
+    KeyIdent(_G.C_SpellBook),
+    KeyIdent(_G.IsPlayerSpell),
+    KeyIdent(_G.FindBaseSpellByID),
+    KeyIdent(_G.FindSpellOverrideByID),
+    KeyIdent(_G.GetOverrideSpell),
+    KeyIdent(_G.GetMacroSpell),
+    KeyIdent(_G.GetActionInfo),
+    KeyIdent(_G.GetBindingKey),
+    KeyIdent(_G.GetSpellTexture),
+    KeyIdent(MDB.BindingForTexture),
+    KeyIdent(MaxDps.IsSpellInRange),
+    KeyIdent(MDB.GetMainSpellID),
+    KeyIdent(MDB.GetOffensiveCandidate),
+    KeyIdent(MDB.GetDefensiveCandidate),
+    KeyIdent(MDB.ExtraCandidates),
+    KeyIdent(MDB.ResolveBinding),
+    KeyIdent(MDB.IsSpellReady),
+    KeyIdent(MDB.IsInterruptReady),
+  }, ","));
+  return table.concat(Parts, "|");
 end

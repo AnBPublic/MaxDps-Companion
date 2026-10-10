@@ -1,4 +1,30 @@
-# MaxDPS Companion (Retail Midnight 12.1, v3.0.0)
+> [!IMPORTANT]
+> **LEGACY:** The C# WinForms client (`app/MaxDpsCompanion/`), the legacy
+> distribution (`dist/`) and the stable bridge (`addon/MaxDpsBridge/`) are
+> **frozen**. They receive no updates except critical security fixes.
+> The future is the Rust companion in **`companion-rs/`**, targeting
+> `MaxDpsBridgeExp` + `dist-exp`. See [`LEGACY.md`](LEGACY.md) and
+> [`docs/plans/2026-10-10-rust-companion.md`](docs/plans/2026-10-10-rust-companion.md).
+
+> [!TIP]
+> **Rust Companion (Beta) — `v3.8.0-rust-beta`:** the new Rust companion
+> (`companion-rs/` → `dist-exp/mdc-app.exe` + `mdc-cli.exe`) targets
+> **`MaxDpsBridgeExp` + `dist-exp`** and is the current experimental build
+> (supersedes `v3.8.0-rust-alpha`). Requirements: **Windows 11 x64**, WoW
+> **retail**, and the **MaxDps** + **`MaxDpsBridgeExp`** addons installed via
+> `pwsh tools/install-addon-exp.ps1`; run `mdc-app.exe` with `settings.ini`
+> beside it, then use the console transport (Start/Pause/Stop/Calibrate/OPEN GAME)
+> and the Settings / Doctor / Class Browser / Telemetry panels.
+> **Works (offline-verified):** `cargo build`/`test`/`clippy` clean, Gallant
+> parity console + real panels. **OWED (live retail, unproven):** full
+> Start → sample → decode → keypress loop, the mouse/wheel foreground gate, and
+> Calibrate against real DPI/borders. Static build ≠ automated test ≠ live E2E.
+> **Download:** [v3.8.0-rust-beta](https://github.com/AnBPublic/MaxDps-Companion/releases/tag/v3.8.0-rust-beta);
+> see [`dist-exp/README.md`](dist-exp/README.md),
+> [`docs/plans/2026-10-10-rust-companion.md`](docs/plans/2026-10-10-rust-companion.md)
+> and [`docs/plans/2026-10-10-gallant-parity.md`](docs/plans/2026-10-10-gallant-parity.md).
+
+# MaxDPS Companion (Retail Midnight 12.1, v3.7.9 "Unyielding")
 
 Pixel bridge driver for [kaminaris MaxDps](https://www.curseforge.com/wow/addons/maxdps)
 (vendor pin: MaxDps v11.3.49). No memory read, no injection, no OCR, no LLM.
@@ -11,6 +37,210 @@ Two pieces:
  | :--- | :--- |
  | `MaxDpsBridge` (addon, `addon/MaxDpsBridge/`) | Queries the MaxDps rotation engine each frame and encodes suggestions, ability ids and combat context into a 40-cell strip of flat-coloured pixels (35-cell v5 core + additive Ext2 block). |
  | `MaxDpsCompanion.exe` (desktop app, `app/MaxDpsCompanion/`) | Samples those pixels, decodes the frame, evaluates every situational suggestion (USE / HOLD / SKIP / UNAVAILABLE / UNKNOWN) against an embedded ability intelligence registry + explicit candidate providers, schedules one action at a time, and replays the player's own keybinds into the attached game window. |
+
+## v3.7.9 "Unyielding" — MaxDps recommendations are used; offensive TTK conservation removed (no wire change)
+
+A behaviour change in the **companion** with **no protocol change**: `PROTOCOL`
+stays at 5 and every cell is byte-identical. The hard TTK conservation gates on
+offensive candidates are removed, so a Main/Offensive ability the bridge offers
+is **used unless a game-truth/structural gate applies**. Gate removal: the T1
+waste guard (valid/provisional + `ttk-hist`), the warmup hold
+(`"warming up TTK"`), the grace hold (`"fast pack, waiting for TTK"`), the
+enemy-count `Uncertain` hold, and the unknown-range `Uncertain` hold. Retained
+gates: power starvation (`MainUsable`), out-of-range (`Range == No`), melee
+requirement, player cast/channel, GCD/scheduler timing, user Never/Manual,
+addon toggles, and the user-selected Burst/AoE presets. Also kept: own-buff
+skip, the pair window (retained but inert — no offensive groups), the gap-fill
+out-of-combat hold, melee/range gates. The TTK **estimator itself stays** for
+the defensive T4 `DyingTargetHolds` and telemetry; `minTtkSec`/`holdForBurst`
+become informational metadata for offensives. Offline audit: 161
+vendor-offensive ids across all 13 classes carry no `neverAutomatic`/
+`ManualByDesign`/`UnsafeToAutomate`, and after the removal no
+vendor-recommended core-rotation id remains hard-blocked (only 212084 Fel
+Devastation and 98008 Spirit Link Totem route to the Defensive slot by
+`classOf` precedence — a documented deviation). The bridge is untouched; the
+stable bridge (`addon/MaxDpsBridge/`) and `dist\` remain **frozen**. Live
+retail validation is **OWED**: Avatar 107574 / Ravager 228920 / Recklessness /
+Bladestorm must press on a MaxDps recommendation against a ≤15 s-TTK target and
+in trash. Static ≠ automated test ≠ live in-game.
+
+## v3.7.8 "Steadfast" — MAIN trusts the MaxDps core rotation (deny list removed, no wire change)
+
+A behaviour change in the **Exp bridge** (`MaxDpsBridgeExp`) with **no protocol
+change**: `PROTOCOL` stays at 5 and every cell is byte-identical. The MAIN slot
+now presses **every ability the official MaxDps addon recommends as its core
+rotation** — core MaxDps plus every `MaxDps_<Class>` module, all classes — with
+no exception. The former `MDBX.MajorCDDeny` major-cooldown denylist
+(`addon/MaxDpsBridgeExp/MajorCooldowns.lua`) is removed, so a recommendation the
+addon glows as its core rotation (e.g. Combustion 190319, Avatar 107574,
+Ravager 228920) is encoded as MAIN. The only remaining veto is game truth:
+`usable == false AND noPower == true` (secret/nil/throw fail open), plus the
+per-spec `MainFallback` filler so MAIN is never dead. Offensive / Defensive /
+Interrupt routing (`MDBX.FlagOffensiveExtra`) is unchanged. The stable bridge
+(`addon/MaxDpsBridge/`) and `dist\` stay **frozen** at 3.7.7; only
+`MaxDpsBridgeExp` + `dist-exp` move to 3.7.8. New dedicated codename
+**Steadfast** (Vigil/Warden/Fullcover/Holdfast/Onslaught/Reaver/Vindicator/
+Templar/Gallant are never reused). Live retail validation is **OWED**: formerly
+denied core-rotation ids must be observed pressed as MAIN, with no stall.
+Static ≠ automated test ≠ live in-game.
+
+## v3.7.7 "Gallant" — version-only identity bump (no behaviour or wire change)
+
+Companion **and** bridge version bump with **no protocol change**: `PROTOCOL`
+stays at 5 and every cell is byte-identical. New dedicated codename **Gallant**
+(Vigil/Warden/Fullcover/Holdfast/Onslaught/Reaver/Vindicator/Templar are never
+reused). csproj `<Version>`/`<Codename>`, the `Native.cs` fallback, `MDB.VERSION`,
+`MDBX.VERSION`, both TOCs, both addon `VERSION.txt` files, the repo `VERSION.txt`,
+this README, `ARCHITECTURE.md`, `docs/UI.md`, `docs/TESTING.md` and
+`ReleaseIdentityTests` all read 3.7.7 / Gallant. The title bar reads
+`MaxDPS Companion v3.7.7 Gallant`.
+
+## v3.7.6 "Templar" — identity bump + offensive gap-fill verification fix
+
+Identity bump to the new dedicated codename **Templar**, plus a data-only
+offensive gap-fill fix: `abilities.json` 382245 renamed `Cold Blood` ->
+`Cold Blooded Killer` (live SpellName), and live-unverified ids 370452 (Evoker
+Devastation) / 392060 (Hunter Marksmanship) removed from the companion
+gap-fill lists (rows kept; the MaxDps fork un-comment still routes them on the
+wire). `PROTOCOL` stays at 5 and every cell is byte-identical. csproj
+`<Version>`/`<Codename>`, the `Native.cs` fallback, `MDB.VERSION`, both TOCs,
+both addon `VERSION.txt` files, the repo `VERSION.txt`, this README,
+`ARCHITECTURE.md`, `docs/UI.md`, `docs/TESTING.md` and `ReleaseIdentityTests`
+all read 3.7.6 / Templar. The title bar reads `MaxDPS Companion v3.7.6 Templar`.
+
+## v3.7.5 "Vindicator" — version-only identity bump (no behaviour or wire change)
+
+A companion **and** bridge version bump with **no protocol change**: `PROTOCOL`
+stays at 5 and every cell is byte-identical. The codename moves to the new
+dedicated **Vindicator** (Vigil/Warden/Fullcover/Holdfast/Onslaught/Reaver are
+never reused). csproj `<Version>`/`<Codename>`, the `Native.cs` fallback,
+`MDB.VERSION`, both TOCs, both addon `VERSION.txt` files, the repo `VERSION.txt`,
+this README, `ARCHITECTURE.md`, `docs/UI.md`, `docs/TESTING.md` and
+`ReleaseIdentityTests` all read 3.7.5 / Vindicator. The title bar reads
+`MaxDPS Companion v3.7.5 Vindicator`.
+
+## v3.7.4 "Reaver" — version-only identity bump (no behaviour or wire change)
+
+A companion **and** bridge version bump with **no protocol change**: `PROTOCOL`
+stays at 5 and every cell is byte-identical. The codename stays **Reaver**.
+csproj `<Version>`, `MDB.VERSION`, both TOCs, both addon `VERSION.txt` files, the
+repo `VERSION.txt`, this README, `ARCHITECTURE.md`, `docs/UI.md`,
+`docs/TESTING.md` and `ReleaseIdentityTests` all read 3.7.4 / Reaver. The title
+bar reads `MaxDPS Companion v3.7.4 Reaver`.
+
+## v3.7.3 "Reaver" — version-only identity bump (no behaviour or wire change)
+
+A companion **and** bridge version bump with **no protocol change**: `PROTOCOL`
+stays at 5 and every cell is byte-identical. The codename moves to the new
+dedicated **Reaver** (Vigil/Onslaught are never reused). csproj
+`<Version>`/`<Codename>`, the `Native.cs` fallback, `MDB.VERSION`, both TOCs,
+both addon `VERSION.txt` files, the repo `VERSION.txt`, this README,
+`ARCHITECTURE.md`, `docs/UI.md`, `docs/TESTING.md` and `ReleaseIdentityTests`
+all read 3.7.3 / Reaver. The title bar reads `MaxDPS Companion v3.7.3 Reaver`.
+
+## v3.7.2 "Onslaught" — Arms + Fury execution fix (un-deny + offense routing + history release, no wire change)
+
+A companion **and** bridge version bump with **no protocol change**: `PROTOCOL`
+stays at 5 and every cell is byte-identical. Colossus Smash 167105 is no longer
+denied (the 12.1 stale-id guess was wrong — it is a ~45 s Arms rotation button),
+so Arms MAIN can encode it again, with the new `MainFallback.lua` Arms filler
+(Mortal Strike 12294 then Overpower 7384). Ravager 228920 is added to
+`MDB.MajorCDDeny` (never MAIN) and to `MDB.FlagOffensiveExtra`, which
+`Reader.CategoryOf` maps to `"offensive"` so `FirstFlagged("offensive")` routes
+it into the Offensive slot. On the companion, `TtkPolicy.LiveReleasesHistory`
+releases `HistoryWasteGuardHolds` when a valid live TTK >= the need, or (no
+valid live TTK) the target is >= 8 s old with HP known and >= 85%, so Fury
+Recklessness / Avatar / Ancestral Call fire on long-lived rares while
+trash-learned majors stay conserved. The title bar reads
+`MaxDPS Companion v3.7.2 Onslaught`.
+
+## v3.7.1 "Vigil" — no-downtime MAIN (usable-glow scan + Fury filler, no wire change)
+
+A companion **and** bridge version bump with **no protocol change**: `PROTOCOL`
+stays at 5 and every cell is byte-identical. The MAIN slot can no longer be
+stranded: `Reader.GetMainSpellID` collects every non-denied glowing id, sorts
+ascending, skips power-starved picks (`C_Spell.IsSpellUsable`), and falls
+through to the new `MainFallback.lua` per-spec filler (Fury → Bloodthirst
+23881) instead of a dead Main slot. The scheduler re-probes a failed Main at
+`MainReprobeMs = 400` (`MainSameSpellNoOpCap = 3`) and `CandidateTracker`
+refreshes the sole Main TTL while the frame heartbeat stays fresh. The fallback
+is a deliberate, user-approved exception to "the bridge only encodes what
+MaxDps suggests"; unlisted specs stay empty. The title bar reads
+`MaxDPS Companion v3.7.1 Vigil`.
+
+## v3.7.0 "Vigil" — custom MaxDps 12.1 fork (bridge denylist + reversible sync, no wire change)
+
+A companion **and** bridge version bump with **no protocol change**: `PROTOCOL`
+stays at 5 and every cell is byte-identical. A stale major cooldown can no
+longer be encoded as the MAIN rotation pick: the new `MajorCooldowns.lua`
+denylist makes `GetMainSpellID` skip stale/current major-CD ids, and the
+Offensive slot stays an independent candidate so an empty Main cannot stall the
+rotation. `custom/` vendors the untouched MaxDps v11.3.49 snapshot, a 75-entry
+declarative patch manifest and `tools/Sync-CustomMaxDps.ps1`, which applies
+patches into a generated, reversible `custom/out/` and publishes to `AddOns`
+only on a clean run (with a `_backup/` rollback). `vendor/` is never edited.
+The title bar reads `MaxDPS Companion v3.7.0 Vigil`.
+
+## v3.6.0 "Warden" — taint-safe probe, TTK buff gating, unified masks (no wire change)
+
+A companion **and** bridge version bump with **no protocol change**: `PROTOCOL`
+stays at 5 and the Ext3 layout stays byte-identical. Three changes ship
+together. (1) **Taint-safe melee probe:** `CheckInteractDistance` is
+`#nocombat`-restricted, so it now has exactly one call site
+(`Reader.MDB.ProbeTargetMelee`), event-gated and per-target cached; the Bridge
+consumes that result and never calls it itself, and an `ADDON_ACTION_BLOCKED`
+on the call backs off then disables the probe for the session. (2) **TTK-aware
+buff gating:** a major offensive cooldown is held `"warming up TTK"` while the
+target is younger than `[TimeToKill] WarmupSec` (default 3 s; 0 = legacy) and
+TTK is unknown, and the adaptive-need input is the ability's own buff duration.
+(3) **Unified masks:** one `BuildUnifiedPopup` shell builds both the Advanced
+and Class-browser masks. The title bar reads `MaxDPS Companion v3.6.0 Warden`;
+the build hash/time remains on the Advanced Diagnostics install doctor card
+only. Both app and addon move together because `InstallDoctor` warns on a
+version mismatch.
+
+## v3.5.2 "Fullcover" — single full-window mask (UI only, no wire change)
+
+A UI-only release with **no protocol change**: `PROTOCOL` stays at 5 and the
+Ext3 layout stays byte-identical. The Advanced and Class-browser masks are now
+parented to the top-level window and track its client rectangle, and the old
+two-pixel form padding is gone, so **one opaque layer covers the entire
+window** — no background ring or menu peeks at any edge. The 24/10/24/12 inset
+moved from the gradient canvas onto the classic body scroll, so the gradient
+ring surrounds the toggle card rather than the window. The title bar reads
+`MaxDPS Companion v3.5.2 Fullcover`; the build hash/time remains on the
+Advanced Diagnostics install doctor card only. Both app and addon move together
+because `InstallDoctor` warns on a version mismatch.
+
+## v3.5.1 "Holdfast" — semantics-only (no wire change)
+
+A companion **and** bridge version bump with **no protocol change**: `PROTOCOL`
+stays at 5 and the Ext3 layout stays byte-identical. It ships the semantic
+flips: the companion now holds **fail-closed out of combat** unless the bridge
+echoes the Ext3 OOC mirror bit, and toggle authority is **addon-wins** (the
+in-game overlay is authoritative; the app never auto-pushes a mask). The title
+bar reads `MaxDPS Companion v3.5.1 Holdfast`; the build hash/time moved from the
+title bar into the Advanced Diagnostics install doctor card. Both app and addon
+move together because `InstallDoctor` warns on a version mismatch.
+
+## v3.5.0 — reliable coverage, Class Browser, Console home
+
+The v3.5 release closes the "toggled skills never fire" defects (RC1–RC7) and
+rebuilds the UI around them. The bridge now rotates **every** ready+bound+
+policy-eligible candidate per slot instead of only the first, so a held gap
+closer no longer starves an escape; Escape/Movement route to the Mobility
+provider; and the scheduler can preempt on a brief GCD-off tick. Toggles are
+**app-wins**: the companion pushes its 14-bit mask to the addon and the bridge
+echoes the effective mask in the new additive **Ext3** block (43-cell strip,
+cells 40–42; nibble stays 5, a pre-3.5 companion ignores it). The Class Browser
+replaces the separate Class skills/Explorer tabs (Class|Spec|Mode, knobs,
+virtualized owner-drawn rows, live why-held), and the default view is a
+read-only Console home with rolling log and five named presets. Per-class
+verified overlays (`Knowledge/classes/<CLASS>.json`, 13 classes) plus an
+override store give every spec a companion-owned path. Perf/diagnostics add
+off-thread browser precompute, cached scaled icons, a why-not-firing panel and
+an install doctor. Protocol: v5 core + Ext2 + additive Ext3 (no v5 change).
+Offline-proven; live retail checklist stays OWED (`docs/TESTING.md` §3).
 
 ## Intelligence coverage (v2.7.0, unchanged in 2.8)
 
@@ -56,6 +286,32 @@ measures 2000 refreshes (mean/p95 µs + startup ms); 12 snapshots (6 pages ×
 MaxDpsCompanion.exe --ui-smoke-test
 MaxDpsCompanion.exe --ui-snapshot-page=main --ui-snapshot=main.png --ui-snapshot-width=660 --ui-snapshot-height=920
 ```
+
+## Gap-fill + reset-aware sustain (v3.1.0)
+
+v3.1.0 closes two gaps. The Offensive slot gains a curated per-spec gap-fill
+list (1–4 true burst cooldowns, shared burst first) so a cooldown the user
+toggled ON fires even when MaxDps never surfaces it, and the defensive
+gap-fill opens a short-cooldown (Orange) tier while majors still wait for Red.
+Self-sustain is now reset-aware: self-heal readiness is re-read every tick, a
+reset proc re-offers the same spell, a transient failed press is capped at
+1.5 s, and a ready heal is never demoted behind the rotation (a cooldown wait
+is reported as `SelfHealCoolingDown`). The classic shell also scales by width
+tier (Compact/Classic/Roomy/Wide) and measured content height. Protocol is
+unchanged (v5 core + additive Ext2); all of it is offline-proven — the live
+retail checklist stays OWED.
+
+## TTK intelligence (v3.2.0)
+
+A pure, fake-clock estimator derives a per-target time-to-kill from the target
+HP band already on the wire (no wire change, no Lua change) and uses it to stop
+wasting cooldowns: **T1** holds a major offensive while the target dies before
+the cooldown pays off, **T2** fires early (bypassing the pairing hold) when the
+fight is long enough for two full uses, **T3** fires a favored execute cooldown
+below its HP threshold, and **T4** saves a non-emergency Solo defensive when the
+target dies imminently. An unknown/invalid estimate fails open (every gate is
+skipped), and `[TimeToKill] Enabled=0` disables the whole feature. Telemetry
+records `ttk`/`thp`/`ttkMs` so replay rebuilds the estimator deterministically.
 
 ## Ability intelligence (v2.6.0)
 
@@ -361,12 +617,17 @@ ring, nothing on disk until you export, no network, no Blizzard values.
 ## Build / install
 
 ```powershell
-.\install-addon.ps1    # copy the bridge into Interface\AddOns (never touches MaxDps*)
-.\build.ps1            # publish MaxDpsCompanion.exe into dist\
+.\tools\install-addon-exp.ps1   # CURRENT: copy MaxDpsBridgeExp into Interface\AddOns (never touches MaxDps*)
+.\build.ps1                     # publish MaxDpsCompanion.exe (legacy dist\ target)
+#     Exp client = the dist-exp\ exe published with InGameConfigMode=1
 ```
 
-Then in game: `/reload`, `/mdb status`, Start in the app. Client must be
+Then in game: `/reload`, `/mdbx status`, Start in the app. Client must be
 windowed/borderless and visible. Tests: `docs/TESTING.md`.
+
+`MaxDpsBridge` + `dist\` + `install-addon.ps1` are **LEGACY/deprecated** (frozen);
+all releases, fixes and deploys target the Exp client unless legacy is explicitly
+requested.
 
 Version locations: addon `MaxDpsBridge.toc` + `addon/MaxDpsBridge/VERSION.txt`,
 app title bar (`ThisAssembly.Gen.cs` stamp), repo `VERSION.txt`.

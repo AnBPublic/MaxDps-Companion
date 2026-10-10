@@ -190,11 +190,13 @@ public class DecisionEngineTests
     [Fact]
     public void Evaluate_Demotes_Stale_Candidate_Behind_Fresh()
     {
+        // T4 (main-immediate): Main is exempt from stale demotion, so the
+        // generic demotion contract is pinned on a non-Main stale candidate.
         var result = DecisionEngine.Evaluate(Context(
-            Candidate(Slot.Main, everPressed: true, lastChangedMs: 0),
+            Candidate(Slot.Defensive, everPressed: true, lastChangedMs: 0),
             Candidate(Slot.Offensive)));
 
-        Assert.Equal([Slot.Offensive, Slot.Main], result.Order);
+        Assert.Equal([Slot.Offensive, Slot.Defensive], result.Order);
         Assert.True(result.DemotedStale);
         Assert.Equal(DecisionReason.OffensiveCooldown, result.Reason);
     }
@@ -203,13 +205,13 @@ public class DecisionEngineTests
     public void Evaluate_All_Stale_Keeps_Order_And_Does_Not_Deadlock()
     {
         var result = DecisionEngine.Evaluate(Context(
-            Candidate(Slot.Main, everPressed: true, lastChangedMs: 0),
+            Candidate(Slot.Defensive, everPressed: true, lastChangedMs: 0),
             Candidate(Slot.Offensive, everPressed: true, lastChangedMs: 0)));
 
-        Assert.Equal([Slot.Main, Slot.Offensive], result.Order);
+        Assert.Equal([Slot.Defensive, Slot.Offensive], result.Order);
         Assert.False(result.DemotedStale);
-        Assert.Equal(DecisionReason.MainRotation, result.Reason);
-        Assert.True(result.Confidence <= 40); // 70 base - 40 stale penalty
+        Assert.Equal(DecisionReason.DefensiveUrgency, result.Reason);
+        Assert.True(result.Confidence <= 40); // 80 base - 40 stale penalty
     }
 
     [Fact]

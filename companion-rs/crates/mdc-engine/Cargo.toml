@@ -1,0 +1,11 @@
+[package]
+name = "mdc-engine"
+description = "Deterministic rotation core (candidate tracker, scheduler, decision, rotation) with an injected Clock; no platform dependency."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }

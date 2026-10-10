@@ -56,10 +56,83 @@ internal sealed class PolicyOptions
     public int DefensiveEscalateHpPct { get; init; } = 60;
 
     /// <summary>
+    /// Solo HP-banded escalation (v3.3.0): the survival ladder widens beyond
+    /// self-heals. Minor absorbs at/below this HP, majors lower, immunities
+    /// lowest. Requires SoloEnabled + SoloEscalation.
+    /// </summary>
+    public bool SoloEscalation { get; init; } = true;
+
+    /// <summary>At/below this HP% Solo offers Minor absorbs (default 75).</summary>
+    public int SoloMinorHpPct { get; init; } = 75;
+
+    /// <summary>At/below this HP% Solo offers Major defensives (default 50).</summary>
+    public int SoloMajorHpPct { get; init; } = 50;
+
+    /// <summary>At/below this HP% Solo offers immunities (default 30).</summary>
+    public int SoloImmunityHpPct { get; init; } = 30;
+
+    /// <summary>
     /// Per-ability user automation policy (explicit ON/OFF overrides). Null =
     /// every ability follows its curated default (tests / legacy recordings).
     /// </summary>
     public AbilityPolicy? Abilities { get; init; }
+
+    /// <summary>
+    /// Companion-side restrict-only rotation preset (Stream 3). Full = the
+    /// historical behaviour. Burst holds major offensives/consumable/trinket
+    /// until the TTK estimate is valid.
+    /// </summary>
+    public RotationPreset Preset { get; init; } = RotationPreset.Full;
+
+    /// <summary>
+    /// Companion-side restrict-only target preset (Stream 3). SingleTarget =
+    /// the historical behaviour. Aoe conserves catalogued single-target-only
+    /// offensive cooldowns.
+    /// </summary>
+    public TargetPreset TargetPreset { get; init; } = TargetPreset.SingleTarget;
+
+    /// <summary>
+    /// [TimeToKill] Fallback (v3.6.0, spec §4). Retained for replay/telemetry
+    /// schema; not enforced since 3.7.9 (the offensive grace hold it once fed
+    /// was removed). Still threaded into <see cref="ProviderInput.Fallback"/>
+    /// and recorded so older recordings parse; default stays the documented
+    /// fail-open.
+    /// </summary>
+    public TtkFallback TimeToKillFallback { get; init; } = TtkPolicy.DefaultFallback;
+
+    /// <summary>
+    /// v3.7 adaptive-history tuning mirrored from <c>[TimeToKill]</c> so the
+    /// telemetry record carries the exact estimator configuration. Replay
+    /// rebuilds the estimator from these values; tests/legacy recordings keep
+    /// the approved defaults.
+    /// </summary>
+    public bool TtkHistory { get; init; } = true;
+
+    /// <summary>v3.7: rolling kill-window cap (<c>[TimeToKill] HistoryKills</c>).</summary>
+    public int TtkHistoryKills { get; init; } = 8;
+
+    /// <summary>v3.7: minimum kills before the window binds.</summary>
+    public int TtkHistoryMinKills { get; init; } = 3;
+
+    /// <summary>v3.7: window max age (seconds).</summary>
+    public int TtkHistoryMaxAgeSec { get; init; } = 240;
+
+    /// <summary>v3.7: pessimistic burn-rate percentile.</summary>
+    public int TtkHistoryQuantile { get; init; } = 75;
+
+    /// <summary>v3.7: adaptive-need duration factor.</summary>
+    public double TtkHistoryDurFactor { get; init; } = TtkPolicy.DefaultNeedDurFactor;
+
+    /// <summary>
+    /// v3.8 TTK-aware cooldown gating: hold a major offensive for this many
+    /// seconds after first sight while the target TTK is unknown
+    /// (<c>[TimeToKill] WarmupSec</c>, clamp 0..10). Retained for
+    /// replay/telemetry schema; not enforced since 3.7.9. Kept so telemetry
+    /// records <c>ttkw</c> and older recordings replay; the default is 0 =
+    /// legacy fail-open. <see cref="FromSettings"/> carries the app's
+    /// configured value.
+    /// </summary>
+    public double TtkWarmupSec { get; init; }
 
     public static PolicyOptions Standard { get; } = new();
 
@@ -69,8 +142,39 @@ internal sealed class PolicyOptions
         EmergencyHpPct = settings.SoloEmergencyHpPct,
         SelfSustainHpPct = settings.SoloSelfSustainHpPct,
         DefensiveEscalateHpPct = settings.SoloDefensiveEscalateHpPct,
+        SoloEscalation = settings.SoloEscalationEnabled,
+        SoloMinorHpPct = EffectiveSoloBand(settings.SoloMinorHpPct, 75),
+        SoloMajorHpPct = EffectiveSoloBand(settings.SoloMajorHpPct, 50),
+        SoloImmunityHpPct = EffectiveSoloBand(settings.SoloImmunityHpPct, 30),
         Abilities = settings.Abilities,
+        Preset = settings.ModePreset,
+        TargetPreset = settings.TargetMode,
+        TimeToKillFallback = settings.TimeToKillFallback,
+        TtkHistory = settings.TimeToKillHistory,
+        TtkHistoryKills = settings.TimeToKillHistoryKills,
+        TtkHistoryMinKills = settings.TimeToKillHistoryMinKills,
+        TtkHistoryMaxAgeSec = settings.TimeToKillHistoryMaxAgeSec,
+        TtkHistoryQuantile = settings.TimeToKillHistoryQuantile,
+        TtkHistoryDurFactor = settings.TimeToKillHistoryDurFactor,
+        TtkWarmupSec = settings.TimeToKillWarmupSec,
     };
+
+    /// <summary>
+    /// The ordering validator: Immunity &lt; Major &lt; Minor must hold, else the
+    /// band that violates it falls back to its default so the ladder can never
+    /// invert (a major firing above a minor would defeat escalation).
+    /// </summary>
+    internal static (int Minor, int Major, int Immunity) ValidateSoloBands(int minor, int major, int immunity)
+    {
+        if (immunity >= major) immunity = 30;
+        if (major >= minor) major = 50;
+        if (minor <= major) minor = 75;
+        if (immunity >= major) immunity = Math.Min(30, major - 1);
+        return (minor, major, immunity);
+    }
+
+    private static int EffectiveSoloBand(int value, int fallback) =>
+        value is >= 5 and <= 99 ? value : fallback;
 }
 
 /// <summary>
@@ -192,6 +296,19 @@ internal sealed class PolicyMemory
 ///  * A catalogued ability whose GCD is curated as OffGcd — but never a
 ///    gap-closer / movement / escape: those move the player, and movement
 ///    cancels both a hard cast and a channel.
+///
+/// The catalog <see cref="CastKind"/> is honoured: an ability that is itself a
+/// CastTime/Channel cannot be started while a cast/channel is already running
+/// (holding is unconditional for it, even if it were flagged off-GCD). An
+/// Instant is only ever held because it rides the GCD; a *verified* off-GCD
+/// instant neither rides the GCD nor cancels the active cast/channel and is
+/// therefore exempt.
+///
+/// Movement is covered through the cast state only: the bridge has no
+/// movement flag on the wire, and the companion never reads a game API. The
+/// "movement cancels a cast/channel" rule is enforced by holding gap-closer /
+/// movement / escape abilities during any cast/channel (below) — no separate
+/// movement signal is invented.
 /// </summary>
 internal static class ExecutionSafety
 {
@@ -201,6 +318,9 @@ internal static class ExecutionSafety
     /// <summary>Hold reason for an active channel.</summary>
     internal const string ChannelReason = "player channel in progress";
 
+    /// <summary>Reason when a melee ability's target is confirmed outside melee reach.</summary>
+    internal const string MeleeRangeReason = "target out of melee range";
+
     /// <summary>Reason this candidate must be held for the active cast state, else null.</summary>
     public static string? CastHoldReason(Slot slot, int spellId, PlayerCastState cast, AbilityCatalog catalog)
     {
@@ -208,11 +328,73 @@ internal static class ExecutionSafety
         if (slot is Slot.Interrupt or Slot.Consumable or Slot.Trinket) return null;
 
         var ability = spellId > 0 ? catalog.TryGet(spellId) : null;
-        if (ability is { Gcd: GcdKind.OffGcd, GcdVerified: true }
-            && ability.Purpose is not (AbilityPurpose.GapCloser or AbilityPurpose.Movement or AbilityPurpose.Escape))
+
+        // An uncatalogued ability keeps the pre-intelligence conservative hold.
+        if (ability is null) return HoldReasonFor(cast);
+
+        // Movement abilities are never exempt: movement cancels a hard cast
+        // and a channel, whichever GCD they ride.
+        if (ability.Purpose is AbilityPurpose.GapCloser or AbilityPurpose.Movement or AbilityPurpose.Escape)
+            return HoldReasonFor(cast);
+
+        // A CastTime/Channel ability cannot be started while a cast/channel is
+        // already in progress, even if it were off-GCD.
+        if (ability.Cast is CastKind.CastTime or CastKind.Channel)
+            return HoldReasonFor(cast);
+
+        // The only exemption: a *verified* off-GCD instant. It neither rides
+        // the GCD nor cancels the active cast/channel. An unverified off-GCD
+        // (default guess) or an on-GCD ability rides the GCD and is held.
+        if (ability.Gcd == GcdKind.OffGcd && ability.GcdVerified)
             return null;
 
-        return cast == PlayerCastState.Channeling ? ChannelReason : CastReason;
+        return HoldReasonFor(cast);
+    }
+
+    private static string HoldReasonFor(PlayerCastState cast) =>
+        cast == PlayerCastState.Channeling ? ChannelReason : CastReason;
+
+    /// <summary>
+    /// Central melee-position gate (AWARENESS stream). A melee ability cannot
+    /// land on a target confirmed outside melee reach, so the candidate is
+    /// structurally Unavailable ("target out of melee range"). The gate is
+    /// catalog-driven (<see cref="AbilityDefinition.Range"/> /
+    /// <see cref="AbilityDefinition.TargetRange"/>), so every class/talent
+    /// entry inherits it with no per-class list.
+    ///
+    /// Fail-open: only a confirmed <see cref="TriState.No"/> holds; Yes and
+    /// Unknown allow (the bridge may not have a melee probe on a legacy frame).
+    /// Gap-closer / movement / escape abilities are excluded — they are *used*
+    /// when the target is out of melee and the Mobility provider owns that
+    /// decision.
+    ///
+    /// A positive per-ability range probe wins: when the bridge's
+    /// <c>IsSpellInRange</c> for this exact slot already says Yes, the spell is
+    /// confirmed in range and the generic melee estimate (a separate
+    /// CheckInteractDistance reading) must not override it. The melee gate thus
+    /// only fires when the ability is not positively in range (probe No or
+    /// Unknown).
+    ///
+    /// Range (SlotRange) and line of sight are deliberately not otherwise
+    /// handled here. The ranged/enemy SlotRange gate already lives in every
+    /// catalogued provider with its own reason ("target out of range" /
+    /// "target out of ability range"); hoisting it centrally would rewrite
+    /// those byte-identical reasons. LoS is absent entirely because it is not
+    /// observable in Midnight (no safe unit line-of-sight API; the bridge never
+    /// probes it), and the companion must not invent a signal it cannot read.
+    /// </summary>
+    public static string? MeleeRangeHoldReason(AbilityDefinition? ability, Slot slot, CombatContext ctx)
+    {
+        if (ability is null) return null;
+        if (ctx.TargetInMelee != TriState.No) return null;
+        if (ability.Purpose is AbilityPurpose.GapCloser or AbilityPurpose.Movement or AbilityPurpose.Escape)
+            return null;
+        if (ability.Range != RangeKind.Melee && ability.TargetRange != RangeRequirement.InMelee)
+            return null;
+        var index = (int)slot;
+        if (index >= 0 && index < ctx.SlotRange.Length && ctx.SlotRange[index] == TriState.Yes)
+            return null;
+        return MeleeRangeReason;
     }
 
     public static bool IsCastReason(string reason) =>
@@ -244,8 +426,9 @@ internal sealed class PolicyInput
 /// readiness gate, which stays the authority for them — the policy never
 /// invents certainty beyond that:
 ///
-///  * Main rotation: never blocked by knowledge. Only two gates exist —
-///    out of range (SKIP) and an active cast/channel (HOLD, see
+///  * Main rotation: never blocked by knowledge. Only three gates exist —
+///    a confirmed out-of-melee target for a melee-only ability (UNAVAILABLE),
+///    out of range (UNAVAILABLE) and an active cast/channel (HOLD, see
 ///    <see cref="ExecutionSafety"/>). Identity unknown changes nothing.
 ///  * Defensives: MaxDps's own HP gate is the primary trigger; the policy
 ///    only prevents *wasteful* use (redundant buff, overlapping mitigation)
@@ -342,8 +525,17 @@ internal static class PolicyEvaluator
         var slot = (int)input.Slot;
         var range = ctx.SlotRange[slot];
 
+        if (CrowdControlVetoes.Evaluate(input, ability, catalog) is { } cc) return cc;
+
         var provider = CandidateProviders.For(input.Slot, ability);
-        var pinput = new ProviderInput { Input = input, Ability = ability, Catalog = catalog, Range = range };
+        var pinput = new ProviderInput
+        {
+            Input = input,
+            Ability = ability,
+            Catalog = catalog,
+            Range = range,
+            Fallback = opts.TimeToKillFallback,
+        };
 
         // ---- User ability policy (absolute, checked before everything) -----
         // OFF is a hard automatic-use prohibition: no urgency, MaxDps
@@ -381,7 +573,9 @@ internal static class PolicyEvaluator
             or IntelligenceStatus.UnsafeToAutomate)
         {
             var companionOnly = input.Slot is Slot.Mobility or Slot.SelfHeal
-                || (input.Slot == Slot.Defensive && ctx.DefensiveCatalogSource);
+                || (input.Slot == Slot.Defensive && ctx.DefensiveCatalogSource)
+                || (input.Slot == Slot.Offensive
+                    && catalog.IsOffensiveGapFill(ctx.Class, ctx.Spec, ability.SpellId));
             if (companionOnly || ability.Automation == AutomationContext.Manual)
                 return ProviderStamp.Stamp(provider, PolicyDecision.Skip("ability intelligence incomplete; companion never generates it"),
                     "registry: intelligence incomplete, companion never generates it");
@@ -397,6 +591,14 @@ internal static class PolicyEvaluator
         // cooldowns that do not move the player) stay usable.
         var exec = ExecutionSafety.CastHoldReason(input.Slot, input.SpellId, ctx.Cast, catalog);
         if (exec is not null) return ProviderStamp.Stamp(provider, PolicyDecision.Hold(exec), exec);
+
+        // ---- Melee-position awareness gate (AWARENESS stream) --------------
+        // Hoisted before the provider so every catalogued melee ability is
+        // gated identically (the providers' own Melee checks remain for the
+        // paths the companion builds directly). Only a confirmed out-of-melee
+        // holds; Unknown fails open. Mobility is excluded (used out of melee).
+        var melee = ExecutionSafety.MeleeRangeHoldReason(ability, input.Slot, ctx);
+        if (melee is not null) return ProviderStamp.Stamp(provider, PolicyDecision.Unavailable(melee), melee);
 
         // The category branch itself lives in the explicit provider; every
         // branch, reason string and evidence list is byte-identical to the

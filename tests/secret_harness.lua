@@ -50,7 +50,19 @@ function strlower(s) return s:lower() end
 function strlen(s) return #s end
 function strfind(s, p) return s:find(p) end
 function strmatch(s, p) return s:match(p) end
-function strsplit(sep, s) local a, b = s:match("([^" .. sep .. "]*)" .. sep .. "?(.*)"); return a, b end
+function strsplit(sep, s, limit)
+  local out = {}
+  s = tostring(s or "")
+  local start = 1
+  while true do
+    if limit and #out >= limit - 1 then out[#out + 1] = s:sub(start); break end
+    local a, b = s:find(sep, start, true)
+    if not a then out[#out + 1] = s:sub(start); break end
+    out[#out + 1] = s:sub(start, a - 1)
+    start = b + 1
+  end
+  return table.unpack(out)
+end
 function format(f, ...) return string.format(f, ...) end
 LibStub = nil
 ChatLog = {}
@@ -142,10 +154,10 @@ local function FireUnitEvent(unit, event)
   end
 end
 
-local function FirePlainEvent(event)
+local function FirePlainEvent(event, arg1, arg2)
   for _, f in ipairs(AllFrames) do
     if f._events and f._events[event] and f._scripts.OnEvent then
-      f._scripts.OnEvent(f, event)
+      f._scripts.OnEvent(f, event, arg1, arg2)
     end
   end
 end
@@ -164,6 +176,7 @@ MaxDpsBridgeDB = {}
 function UnitExists() return true end
 function UnitIsDead() return false end
 function UnitCanAttack() return true end
+function UnitGUID() return "guid-1" end
 function UnitCastingInfo() return nil end
 function UnitChannelInfo() return nil end
 function UnitClass() return "Warrior", "WARRIOR", 1 end
@@ -171,6 +184,8 @@ function GetActionInfo() return nil end
 function GetBindingKey() return nil end
 function GetSpellTexture() return nil end
 function CheckInteractDistance() return false end
+-- Default: out of combat, so the #nocombat CheckInteractDistance probe runs.
+function InCombatLockdown() return false end
 function UnitHealth() return 80 end
 function UnitHealthMax() return 100 end
 GetSpecialization = function() return 1 end
@@ -228,12 +243,18 @@ C_AssistedCombat = nil
 local MDB = {}
 _G.MaxDpsBridge = MDB
 assert(loadfile("addon/MaxDpsBridge/Catalog.lua"))("MaxDpsBridge", MDB)
+assert(loadfile("addon/MaxDpsBridge/MajorCooldowns.lua"))("MaxDpsBridge", MDB)
 -- Workstream C emits the real MDB.SpellAliases in Catalog.lua; this worktree
 -- stubs it so the variant path is exercised before C is merged.
 MDB.SpellAliases = { [202168] = { 34428 } }
 assert(loadfile("addon/MaxDpsBridge/Keymap.lua"))("MaxDpsBridge", MDB)
 assert(loadfile("addon/MaxDpsBridge/Bars.lua"))("MaxDpsBridge", MDB)
+-- Q1 fallback registry loads before Reader (Reader references MDB.MainFallback).
+assert(loadfile("addon/MaxDpsBridge/MainFallback.lua"))("MaxDpsBridge", MDB)
 assert(loadfile("addon/MaxDpsBridge/Reader.lua"))("MaxDpsBridge", MDB)
+-- 3.3.0 toggle policy loads before Bridge (Bridge builds its slash key map at
+-- load time from MDB.Toggles.Keys); pure logic, no frames.
+assert(loadfile("addon/MaxDpsBridge/Toggles.lua"))("MaxDpsBridge", MDB)
 assert(loadfile("addon/MaxDpsBridge/Bridge.lua"))("MaxDpsBridge", MDB)
 assert(type(MDB.IsSpellReady) == "function")
 assert(type(MDB.IsInterruptReady) == "function")
@@ -256,6 +277,24 @@ local Strip = _G.MaxDpsBridge_Block
 assert(Strip, "strip frame missing")
 local Update = Strip._scripts.OnUpdate
 assert(type(Update) == "function", "OnUpdate not wired")
+
+-- ================= load the Exp addon (CURRENT client) =================
+-- MaxDpsBridge stable is LEGACY/frozen: its MajorCooldowns/MainFallback no
+-- longer carry the 2026-10-04/06 routing (Ravager/Divine Toll
+-- FlagOffensiveExtra, Arms/Ret MainFallback). Those behaviours are pinned
+-- against the CURRENT client, MaxDpsBridgeExp, loaded into its own table
+-- (MDBX) so the frozen stable files stay untouched. Only the runtime modules
+-- the Reader needs are loaded; the Exp frame/overlay modules are not.
+MDBX = _G.MaxDpsBridgeExp or {}
+_G.MaxDpsBridgeExp = MDBX
+assert(loadfile("addon/MaxDpsBridgeExp/Catalog.lua"))("MaxDpsBridgeExp", MDBX)
+assert(loadfile("addon/MaxDpsBridgeExp/MajorCooldowns.lua"))("MaxDpsBridgeExp", MDBX)
+assert(loadfile("addon/MaxDpsBridgeExp/Keymap.lua"))("MaxDpsBridgeExp", MDBX)
+assert(loadfile("addon/MaxDpsBridgeExp/MainFallback.lua"))("MaxDpsBridgeExp", MDBX)
+MDBX.SpellAliases = MDBX.SpellAliases or { [202168] = { 34428 } }
+assert(loadfile("addon/MaxDpsBridgeExp/Reader.lua"))("MaxDpsBridgeExp", MDBX)
+assert(type(MDBX.GetMainSpellID) == "function")
+assert(type(MDBX.GetOffensiveCandidate) == "function")
 
 -- ================= 1. restricted cooldown shapes =================
 -- active real cooldown: isActive=true, isOnGCD=false; the Duration object
@@ -372,6 +411,45 @@ ok, ready = pcall(MDB.GetMainSpellID)
 check("secret MaxDps.Spell: no throw, no suggestion", ok and ready == nil)
 MaxDps.Spell = 185358
 
+-- ================= 6b. T3 major-cooldown denylist =================
+-- A major cooldown must never be encoded as the MAIN pick: GetMainSpellID
+-- skips denied ids in the SpellsGlowing scan and rejects a denied
+-- MaxDps.Spell, while a non-denied pick is untouched.
+check("T3 MajorCDDeny table present", type(MDB.MajorCDDeny) == "table")
+check("T3 Combustion (needs-move) is denied", MDB.MajorCDDeny[190319] == true)
+check("T3 Avatar (already-correct) is denied", MDB.MajorCDDeny[107574] == true)
+check("T3 non-major id is not denied", MDB.MajorCDDeny[185358] ~= true)
+
+-- (a) 3.7.8: a former-deny glow is now the MAIN pick — MaxDps's core rotation
+-- is authoritative and the only veto is MainUsable (here usable), so the glow
+-- encodes directly instead of falling through to the Arms filler.
+MaxDps.SpellsGlowing = { [190319] = 1 }
+MaxDps.Spell = nil
+ok, ready = pcall(MDBX.GetMainSpellID)
+check("Exp former-deny glow only -> encoded as MAIN",
+  ok and ready == 190319 and ready ~= 12294)
+
+-- (b) denied glow LOWER than a kept glow: without the denylist the scan would
+-- return the denied 1719; with it the non-denied 185358 wins.
+MaxDps.SpellsGlowing = { [1719] = 1, [185358] = 1 }
+MaxDps.Spell = nil
+ok, ready = pcall(MDB.GetMainSpellID)
+check("T3 denied glow skipped, non-denied kept", ok and ready == 185358)
+
+-- (c) a former-deny MaxDps.Spell is likewise encoded as MAIN (no deny), while a
+-- non-denied Spell is still kept.
+MaxDps.SpellsGlowing = nil
+MaxDps.Spell = 107574
+ok, ready = pcall(MDBX.GetMainSpellID)
+check("Exp former-deny MaxDps.Spell -> encoded as MAIN",
+  ok and ready == 107574 and ready ~= 12294)
+MaxDps.Spell = 185358
+ok, ready = pcall(MDB.GetMainSpellID)
+check("T3 non-denied MaxDps.Spell kept", ok and ready == 185358)
+
+-- restore the glow state later sections expect
+MaxDps.SpellsGlowing = { [185358] = 1 }
+
 -- ================= 7. Bridge hot loop =================
 -- restricted shapes on every slot + secret target flags: Update must not
 -- throw and must still paint a decodable frame.
@@ -414,8 +492,10 @@ MaxDps.Spells = {
   [185358] = { { HotKey = { GetText = function() return "1" end } } },
   [100] = { { HotKey = { GetText = function() return "2" end } } },
 }
-MaxDps.Flags = { [185358] = true }
-MaxDps.Spell = 185358
+  MaxDps.Flags = { [185358] = true }
+  MaxDps.Spell = 185358
+  MaxDps.SpellsGlowing = { [185358] = 1 }
+  MaxDps.NextSpell = nil
 -- Binding results are cached per spell id; earlier sections cached misses
 -- against the old Spells table, so drop the cache for this section.
 MDB._BindCache = {}
@@ -584,10 +664,165 @@ check("v5 target change clears cast state", bit.band(tfchanged, 1) == 0)
 
 -- v2.1: a secret/failed CheckInteractDistance must leave melee UNKNOWN (2),
 -- never collapse to a confirmed out-of-melee (0) that would fire a gap closer.
+FirePlainEvent("PLAYER_TARGET_CHANGED")   -- clear the v3.6 per-target cache
 CheckInteractDistance = function() return S(true) end
 local secretMelee = select(1, MDB.GetTargetContext())
 CheckInteractDistance = function() return false end
 check("secret melee probe stays UNKNOWN", secretMelee == 2)
+
+-- v3.6: one shared, event-gated melee probe. CheckInteractDistance is
+-- #nocombat-restricted; ADDON_ACTION_BLOCKED is the breaker of last resort.
+do
+  local SavedCID = CheckInteractDistance
+  local SavedICL = InCombatLockdown
+  local SavedUAC = UnitAffectingCombat
+  local SavedTime = GetTime
+  local function ResetProbe() FirePlainEvent("PLAYER_TARGET_CHANGED") end
+
+  -- (a) every gate blocks the call: server combat event, lockdown, and the
+  -- post-combat 0.5 s cool-off all leave melee UNKNOWN (2) with 0 stub calls.
+  local Calls = 0
+  InCombatLockdown = function() return false end
+  UnitAffectingCombat = function() return false end
+  CheckInteractDistance = function() Calls = Calls + 1; return true end
+  FirePlainEvent("PLAYER_REGEN_DISABLED")
+  local mA1 = select(1, MDB.GetTargetContext())
+  check("v3.6 (a1) regen-disabled -> 0 calls, melee UNKNOWN", mA1 == 2 and Calls == 0)
+  FirePlainEvent("PLAYER_REGEN_ENABLED")
+  Calls = 0
+  local mA2 = select(1, MDB.GetTargetContext())
+  check("v3.6 (a2) post-combat cool-off -> 0 calls", mA2 == 2 and Calls == 0)
+  InCombatLockdown = function() return true end
+  Calls = 0
+  local mA3 = select(1, MDB.GetTargetContext())
+  check("v3.6 (a3) InCombatLockdown -> 0 calls", mA3 == 2 and Calls == 0)
+  InCombatLockdown = function() return false end
+
+  -- past the cool-off: the probe resumes and calls exactly once.
+  GetTime = function() return 1001.0 end
+  ResetProbe()
+  Calls = 0
+  local mOk = select(1, MDB.GetTargetContext())
+  check("v3.6 (a4) probe resumes after cool-off", mOk == 1 and Calls == 1)
+
+  -- (b) UnitAffectingCombat=true while InCombatLockdown=false must not call.
+  UnitAffectingCombat = function() return true end
+  ResetProbe()
+  Calls = 0
+  local mB = select(1, MDB.GetTargetContext())
+  check("v3.6 (b) UnitAffectingCombat blocks -> 0 calls, melee UNKNOWN",
+    mB == 2 and Calls == 0)
+  UnitAffectingCombat = function() return false end
+
+  -- (c) 100 calls in 0.25 s hit the per-target cache: exactly one stub call.
+  ResetProbe()
+  Calls = 0
+  CheckInteractDistance = function() Calls = Calls + 1; return false end
+  for _ = 1, 100 do MDB.GetTargetContext() end
+  check("v3.6 (c) 100 calls in 0.25s -> 1 stub call", Calls == 1)
+
+  -- (d) a target change clears the cache, so the next probe calls again.
+  Calls = 0
+  CheckInteractDistance = function() Calls = Calls + 1; return true end
+  ResetProbe()
+  MDB.GetTargetContext()
+  ResetProbe()
+  MDB.GetTargetContext()
+  check("v3.6 (d) PLAYER_TARGET_CHANGED clears the cache", Calls == 2)
+
+  -- (d2) a client that does not expose InCombatLockdown is NOT refused by the
+  -- missing API (intentional weaken, plan 2026-10-03): out of combat with the
+  -- other gates open it still probes once. InCombatEv / UnitAffectingCombat
+  -- remain the lockdown signals, and the BLOCKED breaker is the backstop.
+  InCombatLockdown = nil
+  UnitAffectingCombat = function() return false end
+  CheckInteractDistance = function() Calls = Calls + 1; return true end
+  GetTime = function() return 2007.0 end
+  ResetProbe()
+  Calls = 0
+  local mD2 = select(1, MDB.GetTargetContext())
+  check("v3.6 (d2) missing InCombatLockdown -> probe proceeds (intentional)",
+    mD2 == 1 and Calls == 1)
+  InCombatLockdown = function() return false end
+
+  -- (d3) a secret-string GUID (type()=="string" but secret) is scrubbed to nil
+  -- BEFORE the cache compare, so `MeleeCache.guid == Guid` never runs on it: a
+  -- fresh probe is taken instead of a throw/cached read. Scrub is stubbed to
+  -- treat one sentinel string as secret (Lua strings cannot carry a metatable).
+  local RealScrub = scrubsecretvalues
+  UnitGUID = function() return "guid-1" end
+  CheckInteractDistance = function() Calls = Calls + 1; return true end
+  GetTime = function() return 2008.0 end
+  ResetProbe()
+  MDB.GetTargetContext()            -- prime the cache with a plain GUID
+  scrubsecretvalues = function(v)
+    if v == "guid-secret" then return nil end
+    return v
+  end
+  UnitGUID = function() return "guid-secret" end
+  Calls = 0
+  local okG, mG = pcall(MDB.GetTargetContext)
+  check("v3.6 (d3) secret-string GUID: no throw, fresh probe not cached read",
+    okG and select(1, mG) == 1 and Calls == 1)
+  scrubsecretvalues = RealScrub
+  UnitGUID = function() return "guid-1" end
+
+  -- (e) the ADDON_ACTION_BLOCKED breaker: the FIRST hit is a finite 5 s
+  -- backoff (the probe resumes after it), the SECOND disables the session.
+  CheckInteractDistance = function() Calls = Calls + 1; return true end
+  GetTime = function() return 2000.0 end
+  FirePlainEvent("ADDON_ACTION_BLOCKED", "MaxDpsBridge", "blocked CheckInteractDistance()")
+  ResetProbe()
+  Calls = 0
+  local mE1 = select(1, MDB.GetTargetContext())
+  check("v3.6 (e1) 1st BLOCKED -> 5 s backoff, 0 calls", mE1 == 2 and Calls == 0)
+  GetTime = function() return 2006.0 end   -- past the 5 s first-hit backoff
+  ResetProbe()
+  Calls = 0
+  local mE2 = select(1, MDB.GetTargetContext())
+  check("v3.6 (e2) probe resumes after first-hit backoff", mE2 == 1 and Calls == 1)
+  FirePlainEvent("ADDON_ACTION_BLOCKED", "MaxDpsBridge", "blocked CheckInteractDistance()")
+  GetTime = function() return 9999.0 end   -- far future: session-disabled
+  ResetProbe()
+  Calls = 0
+  local mE3 = select(1, MDB.GetTargetContext())
+  check("v3.6 (e3) 2nd BLOCKED disables probe for the session", mE3 == 2 and Calls == 0)
+
+  -- (f) source-grep: the addon touches CheckInteractDistance from exactly ONE
+  -- non-comment site across addon/*.lua. Comments and quoted strings are
+  -- stripped first, so the ADDON_ACTION_BLOCKED name-match (a string literal)
+  -- counts for nothing, and the type() existence guard is not a touch.
+  local Files = {
+    "addon/MaxDpsBridge/Bars.lua", "addon/MaxDpsBridge/Bridge.lua",
+    "addon/MaxDpsBridge/Catalog.lua", "addon/MaxDpsBridge/Keymap.lua",
+    "addon/MaxDpsBridge/Options.lua", "addon/MaxDpsBridge/Panel.lua",
+    "addon/MaxDpsBridge/Reader.lua", "addon/MaxDpsBridge/Toggles.lua",
+  }
+  local Sites, Invokes = 0, 0
+  for _, Path in ipairs(Files) do
+    local Fh = io.open(Path, "r")
+    assert(Fh, "source-grep cannot open " .. Path)
+    local Text = Fh:read("a"); Fh:close()
+    for L in Text:gmatch("[^\n]*") do
+      local Code = L:gsub("%-%-.*$", "")
+      Code = Code:gsub('"[^"]*"', '""'):gsub("'[^']*'", "''")
+      if Code:find("CheckInteractDistance", 1, true) then
+        if Code:find("pcall%s*%(%s*CheckInteractDistance") then
+          Sites = Sites + 1; Invokes = Invokes + 1
+        elseif not Code:find("type%s*%(%s*CheckInteractDistance") then
+          Sites = Sites + 1   -- any other reference is an unguarded touch
+        end
+      end
+    end
+  end
+  check("v3.6 (f) exactly one addon CheckInteractDistance touch site", Sites == 1)
+  check("v3.6 (f2) that one site is the guarded pcall", Invokes == 1)
+
+  GetTime = SavedTime
+  CheckInteractDistance = SavedCID
+  InCombatLockdown = SavedICL
+  UnitAffectingCombat = SavedUAC
+end
 
 -- v2.1: the deprecated GetSpecialization chain is bypassed when the modern
 -- C_SpecializationInfo namespace exists; a client with neither degrades to
@@ -711,7 +946,9 @@ cand, isCatalog = MDB.GetDefensiveCandidate()
 check("v6 candidate no-flag + Red + catalog returns catalog id, source true",
   cand == 871 and isCatalog == true)
 
--- 3) Below Red the companion never substitutes its own defensive.
+-- 3) Below Red the companion never substitutes its own defensive
+-- (group frames: Solo ladder bands NOT armed).
+MDB.SoloLadderBands = nil
 SetHp(80)   -- Yellow
 MDB.BeginTick()
 cand, isCatalog = MDB.GetDefensiveCandidate()
@@ -727,9 +964,25 @@ check("v6 candidate enableDefensives=false is nil, false even at Red",
   cand == nil and isCatalog == false)
 MaxDps.db.global.enableDefensives = true
 
+-- 5) v3.3.0 Solo ladder: bands armed -> HP-banded offers below Red.
+-- Above the minor band the ladder stays silent; arming/disarming never throws.
+MDB.SoloLadderBands = { minor = 75, major = 50, immunity = 30 }
+MDB.BeginTick()
+local ladderOk = pcall(function()
+  MaxDps.Flags = {}
+  SetHp(80)   -- Yellow, above the 75 minor band
+  MDB.BeginTick()
+  local above = MDB.GetDefensiveCandidate()
+  assert(above == nil, "solo ladder above minor band must stay silent")
+end)
+check("v3.3.0 solo ladder bands arm/disarm without throw", ladderOk)
+MDB.SoloLadderBands = nil
+MaxDps.Flags = {}
+
 -- ================= 13. extras diagnostics =================
--- Warrior/Arms catalog (v3 regenerated): mobility {100,6544} = 2,
--- selfHeal {202168,34428} = 2,
+-- Warrior/Arms catalog (v3 racial fix regenerated): mobility {100,6544} = 2,
+-- selfHeal {202168,34428} + 10 scope=Racial self-heals (Gift variants,
+-- Regeneratin', H.O.L.O.) = 12,
 -- defensive {871,97462,118038,23920,34428,202168} = 6.
 MDB.BeginTick()
 local extrasDiag = MDB.GetExtrasDiag()
@@ -737,7 +990,7 @@ check("v6 extras diag prints def count (Arms def=6)", extrasDiag:match("def=6") 
 check("v6 extras diag prints cls/spec and mob/heal counts",
   extrasDiag:match("cls=13 spec=1") ~= nil
   and extrasDiag:match("mob=2") ~= nil
-  and extrasDiag:match("heal=2") ~= nil)
+  and extrasDiag:match("heal=12") ~= nil)
 
 -- ================= 14. protocol v6 frame encode =================
 -- Drive a real Bridge.Update with a flagged+ready+bound defensive and stub
@@ -761,6 +1014,7 @@ local function ExtSumThrough33 ()
   return Sum
 end
 
+MDB.ResetRotation()
 local okV6, errV6 = pcall(Update, Strip, 0.06)
 check("v6 encode Update: no throw", okV6)
 if not okV6 then print("  v6 update error: " .. tostring(errV6)) end
@@ -805,6 +1059,111 @@ check("v6 encode catalog gap-fill source bit + Red + checksum commits all 3",
 -- Lua's 200-local limit.
 -- =====================================================================
 local function RunExt2Tests ()
+
+-- ================= 12b. offensive gap-fill + defensive Orange (r1) =====
+-- MaxDps names no bound offensive -> the curated per-spec catalog list
+-- supplies the first ready+bound entry; no wire source bit, so the bridge's
+-- isGapFill return is diagnostic and the companion derives it by membership.
+-- The whole path stays inside MaxDps's own enableCooldowns switch.
+MaxDps.classCooldowns.WARRIOR.Arms.offensive = { 262161 }
+MaxDps.Spells[107574] = { { HotKey = { GetText = function() return "V" end } } }
+MaxDps.Spells[262161] = { { HotKey = { GetText = function() return "B" end } } }
+MaxDps.db.global.enableCooldowns = true
+MaxDps.Flags = {}
+MDB._BindCache = {}
+MDB.BeginTick()
+local offCand, offGap = MDB.GetOffensiveCandidate()
+check("r1 offensive candidate no-flag + catalog list -> id, source true",
+  offCand == 107574 and offGap == true)
+
+-- MaxDps's own flagged offensive wins, even though the id is also listed.
+MaxDps.Flags = { [262161] = true }
+MDB.BeginTick()
+local offFlagged, offFlaggedGap = MDB.GetOffensiveCandidate()
+check("r1 offensive flagged MaxDps candidate wins, source false",
+  offFlagged == 262161 and offFlaggedGap == false)
+
+-- enableCooldowns off mutes the whole offensive path.
+MaxDps.Flags = {}
+MaxDps.db.global.enableCooldowns = false
+MDB.BeginTick()
+local offMuted, offMutedGap = MDB.GetOffensiveCandidate()
+check("r1 offensive gap-fill muted when enableCooldowns off",
+  offMuted == nil and offMutedGap == false)
+MaxDps.db.global.enableCooldowns = true
+
+-- 2026-10-04 arms-fury-exec-fix: Ravager 228920 is absent from MaxDps's
+-- static classCooldowns.offensive, so CategoryOf only classifies it through
+-- MDB.FlagOffensiveExtra (MajorCooldowns.lua). A flagged Ravager is now the
+-- Offensive candidate (a MaxDps-wire pick, not a gap-fill); as of 3.7.8 it is
+-- also a valid MAIN pick (the denylist is gone).
+MaxDps.classCooldowns.WARRIOR.Arms.offensive = {}
+MaxDps.Spells[228920] = { { HotKey = { GetText = function() return "F" end } } }
+MDBX._BindCache = {}
+MaxDps.Flags = { [228920] = true }
+MDBX.BeginTick()
+local ravCand, ravGap = MDBX.GetOffensiveCandidate()
+check("rv Ravager flagged -> offensive candidate 228920",
+  ravCand == 228920 and ravGap == false)
+check("rv Exp has no MajorCDDeny table", MDBX.MajorCDDeny == nil)
+-- 3.7.8: a Ravager glow is no longer held out of Main — with Arms active and
+-- the glow usable, GetMainSpellID encodes 228920 directly.
+do
+  local savedGlow = MaxDps.SpellsGlowing
+  local savedSpell = MaxDps.Spell
+  MaxDps.SpellsGlowing = { [228920] = 1 }
+  MaxDps.Spell = nil
+  MDBX.BeginTick()
+  local okMain, rvMain = pcall(MDBX.GetMainSpellID)
+  check("rv Ravager glow -> MAIN 228920 (no deny)", okMain and rvMain == 228920)
+  MaxDps.SpellsGlowing = savedGlow
+  MaxDps.Spell = savedSpell
+end
+MaxDps.Flags = {}
+
+-- 2026-10-06 divine-toll: Divine Toll 375576 is likewise absent from MaxDps's
+-- static Ret classCooldowns.offensive, so CategoryOf routes it through the same
+-- MDB.FlagOffensiveExtra tail. A flagged Divine Toll on a Paladin Retribution
+-- player is the Offensive candidate (MaxDps-wire, not gap-fill).
+do
+  local savedUnitClass = UnitClass
+  local savedGetSpec = GetSpecialization
+  local savedGetSpecInfo = GetSpecializationInfo
+  MaxDps.idtospec[70] = "Retribution"
+  MaxDps.classCooldowns.PALADIN = { Retribution = { defensive = {}, offensive = {} } }
+  UnitClass = function() return "Paladin", "PALADIN", 2 end
+  GetSpecialization = function() return 1 end
+  GetSpecializationInfo = function() return 70 end
+  MaxDps.Spells[375576] = { { HotKey = { GetText = function() return "G" end } } }
+  MDBX._BindCache = {}
+  MaxDps.Flags = { [375576] = true }
+  MDBX.BeginTick()
+  local dtCand, dtGap = MDBX.GetOffensiveCandidate()
+  check("dt Divine Toll 375576 flagged -> offensive candidate",
+    dtCand == 375576 and dtGap == false)
+  check("dt FlagOffensiveExtra[375576] is offensive",
+    MDBX.FlagOffensiveExtra ~= nil and MDBX.FlagOffensiveExtra[375576] == true)
+  UnitClass = savedUnitClass
+  GetSpecialization = savedGetSpec
+  GetSpecializationInfo = savedGetSpecInfo
+  MaxDps.idtospec[70] = nil
+  MaxDps.Flags = {}
+end
+
+-- Defensive Orange: the short-CD list (defensiveMinor) fires at Orange while
+-- the major list is only consulted at Red (majors still need Red in policy).
+MaxDps.Spells[23920] = { { HotKey = { GetText = function() return "X" end } } }
+MaxDps.Flags = {}
+MDB._BindCache = {}
+SetHp(45)   -- Orange
+MDB.BeginTick()
+local defOrange, defOrangeGap = MDB.GetDefensiveCandidate()
+check("r1 defensive Orange short-CD gap-fill -> id, source true",
+  defOrange == 23920 and defOrangeGap == true)
+SetHp(80)   -- Yellow: never a gap-fill (only Red/Orange offer one)
+MDB.BeginTick()
+local defYellow = MDB.GetDefensiveCandidate()
+check("r1 defensive Yellow still no gap-fill", defYellow == nil)
 
 -- ================= 15. spell variants (B1) =================
 FindBaseSpellByID = function(id) if id == 34428 then return 202168 end return id end
@@ -912,6 +1271,49 @@ local candsUnknown = MDB.ExtraCandidates("selfHeal", 2)
 check("B3 no known variant falls back to the listed id", candsUnknown[1] == 202168)
 C_SpellBook = { IsSpellKnown = function(id) return id == 34428 or id == 184364 end }
 
+-- ================= 17b. R2 cooldown freshness across ticks =================
+-- The bridge must re-read readiness EVERY tick: a cooldown that becomes ready
+-- (including via a reset the bridge cannot see directly) is picked up on the
+-- very next ExtraCandidates call, and a ready heal is dropped on the very next
+-- tick after it goes on cooldown. No cross-tick caching of not-ready.
+do
+  local savedSpells = MaxDps.Spells
+  local savedKnown = C_SpellBook
+  local savedHeal = realExtras.selfHeal
+  realExtras.selfHeal = { 202168 }
+  MaxDps.Spells = { [34428] = { { HotKey = { GetText = function() return "H" end } } } }
+  C_SpellBook = { IsSpellKnown = function(id) return id == 34428 end }
+
+  local function HealTick (Remaining)
+    if Remaining == nil then
+      C_Spell.GetSpellCooldown = function()
+        return { startTime = 0, duration = 0, isEnabled = true, isActive = false, isOnGCD = false }
+      end
+      RemainingBySpell[34428] = 0
+    else
+      C_Spell.GetSpellCooldown = function()
+        return { isEnabled = true, isActive = true, isOnGCD = false }
+      end
+      RemainingBySpell[34428] = Remaining
+    end
+    MDB.BeginTick()
+    local Candidates = MDB.ExtraCandidates("selfHeal", 1)
+    return Candidates[1]
+  end
+
+  MDB._BindCache = {}
+  check("R2 tick1 ready: heal encoded", HealTick(0) == 34428)
+  check("R2 tick2 on-CD: heal absent within 1 tick", HealTick(30) == nil)
+  check("R2 tick3 ready again: heal re-encoded within 1 tick", HealTick(0) == 34428)
+  -- A second on-CD -> ready transition must behave identically (no sticky CD).
+  check("R2 tick4 on-CD again: heal absent", HealTick(12) == nil)
+  check("R2 tick5 reset: heal re-encoded", HealTick(0) == 34428)
+
+  MaxDps.Spells = savedSpells
+  C_SpellBook = savedKnown
+  realExtras.selfHeal = savedHeal
+end
+
 -- ================= 18. Ext2 encode (B4/B5) =================
 MaxDps.Flags = { [34428] = true }
 MaxDps.Spell = 34428
@@ -921,10 +1323,11 @@ MaxDpsBridgeDB.HpCurve = true
 MDB._BindCache = {}
 UnitHealthPercent = function() return { GetRGBA = function() return 0.4, 0.6, 0, 1 end } end
 
+MDB.ResetRotation()
 local okEnc = pcall(Update, Strip, 0.06)
 check("B4 Ext2 encode Update: no throw", okEnc)
-check("B4 strip is 40 cells wide", type(Strip._size) == "table"
-  and Strip._size[1] == 8 * 40 and Strip._size[2] == 8)
+check("B4 strip is 43 cells wide", type(Strip._size) == "table"
+  and Strip._size[1] == 8 * 43 and Strip._size[2] == 8)
 
 local _, _, kfEnc = Nib(33)
 check("B4 cell33 B bit2 EXT2 present", bit.band(kfEnc, 4) == 4)
@@ -1037,6 +1440,666 @@ realExtras.selfHeal = { 202168 }
 
 end
 RunExt2Tests()
+
+-- =====================================================================
+-- Workstream: in-game 13-toggle gates (bridge 3.3.0, Toggles.lua).
+-- Scoped in a function so its locals do not push the main chunk over
+-- Lua's 200-local limit. Addon-only restriction: OFF always wins.
+-- =====================================================================
+local function RunToggleTests ()
+  local TG = MDB.Toggles
+  local DB = MaxDpsBridgeDB
+  local ORDER = {
+    "Main", "Offensive", "Defensive", "Consumable", "Trinket", "Interrupt",
+    "Mobility", "SelfHeal", "Solo", "OOC", "AutoTarget", "AutoInteract", "TTK",
+  }
+  local SLOT_KEYS = {
+    "Main", "Offensive", "Defensive", "Consumable",
+    "Trinket", "Interrupt", "Mobility", "SelfHeal",
+  }
+  local Ctx = { InCombat = true, HpPct = 80, Grouped = true }
+
+  local function SetAll (On)
+    for i = 1, #ORDER do DB.Toggles[ORDER[i]] = On end
+  end
+
+  -- --- API surface + defaults all ON (missing key = ON) ---
+  local Keys = TG.Keys()
+  check("T21 Keys() returns 13 canonical keys", #Keys == 13 and Keys[13] == "TTK")
+  -- OVERLAY-WINS default: every key reads ON except OOC, which is fail-closed
+  -- OFF while no companion is live and the player has not set it (2026-09-30).
+  local Snap = TG.Snapshot()
+  local SnapOn = true
+  for i = 1, #ORDER do
+    if ORDER[i] == "OOC" then
+      if Snap.OOC ~= false then SnapOn = false end
+    elseif Snap[ORDER[i]] ~= true then
+      SnapOn = false
+    end
+  end
+  check("T21 Snapshot() 12 ON + OOC fail-closed OFF by default", SnapOn)
+  check("T21 OOC getter is fail-closed when unset", TG.IsOOC() == false)
+
+  SetAll(true)
+  local AllAllow = true
+  for Slot = 1, 8 do
+    MDB._LastBlank[Slot] = nil
+    if TG.SlotAllowed(Slot, Ctx) ~= true or MDB._LastBlank[Slot] ~= nil then
+      AllAllow = false
+    end
+  end
+  check("T21 defaults ON: all 8 slots allowed, no blank reason", AllAllow)
+
+  -- --- all 13 keys OFF: every slot denies and records its reason ---
+  SetAll(false)
+  local OffRead = true
+  for i = 1, #ORDER do if TG.Get(ORDER[i]) ~= false then OffRead = false end end
+  check("T21 all 13 keys OFF read back false", OffRead)
+  local AllDeny = true
+  for Slot = 1, 8 do
+    MDB._LastBlank[Slot] = nil
+    local Allowed = TG.SlotAllowed(Slot, Ctx)
+    if Allowed ~= false or MDB._LastBlank[Slot] ~= (SLOT_KEYS[Slot] .. " off") then
+      AllDeny = false
+    end
+  end
+  check("T21 all 13 OFF: slots 1-8 denied with _LastBlank reason", AllDeny)
+  check("T21 policy getters reflect OFF",
+    TG.IsAutoTarget() == false and TG.IsAutoInteract() == false
+    and TG.IsTTK() == false and TG.IsOOC() == false)
+
+  -- --- each slot key OFF denies only its own slot ---
+  local PerSlot = true
+  for Slot = 1, 8 do
+    SetAll(true)
+    DB.Toggles[SLOT_KEYS[Slot]] = false
+    if TG.SlotAllowed(Slot, Ctx) ~= false
+      or MDB._LastBlank[Slot] ~= (SLOT_KEYS[Slot] .. " off") then
+      PerSlot = false
+    end
+    for Other = 1, 8 do
+      if Other ~= Slot and TG.SlotAllowed(Other, Ctx) ~= true then PerSlot = false end
+    end
+  end
+  check("T21 each slot key OFF denies that slot only", PerSlot)
+
+  -- --- missing DB / missing Toggles / missing key = allow ---
+  local SavedDB = _G.MaxDpsBridgeDB
+  _G.MaxDpsBridgeDB = nil
+  check("T21 missing MaxDpsBridgeDB: Get ON, slot allowed",
+    TG.Get("Main") == true and TG.SlotAllowed(1, nil) == true)
+  _G.MaxDpsBridgeDB = {}
+  check("T21 DB without Toggles table: all allowed",
+    TG.Get("Solo") == true and TG.SlotAllowed(3, Ctx) == true)
+  _G.MaxDpsBridgeDB = { Toggles = {} }
+  check("T21 Toggles table without keys: missing = ON",
+    TG.Get("Defensive") == true and TG.SlotAllowed(8, Ctx) == true)
+  _G.MaxDpsBridgeDB = SavedDB
+
+  -- --- nil / malformed ctx = allow ---
+  SetAll(true)
+  check("T21 nil ctx allows", TG.SlotAllowed(4, nil) == true)
+  check("T21 empty ctx allows", TG.SlotAllowed(4, {}) == true)
+  check("T21 non-table ctx allows", TG.SlotAllowed(4, "nope") == true)
+  check("T21 unknown/nil slot allows",
+    TG.SlotAllowed(99, Ctx) == true and TG.SlotAllowed(nil, Ctx) == true)
+
+  -- --- secret HpPct / secret ctx fields: no throw + fail open ---
+  DB.Toggles.Solo = false
+  local SecretHp = S(20)
+  local okSec, allowSec = pcall(TG.SlotAllowed, 3,
+    { InCombat = true, HpPct = SecretHp, Grouped = false })
+  check("T21 secret HpPct: no throw + allow (fail open)", okSec and allowSec == true)
+  local okSecCtx, allowSecCtx = pcall(TG.SlotAllowed, 3,
+    { InCombat = S(false), HpPct = 20, Grouped = false })
+  check("T21 secret ctx fields: no throw + allow", okSecCtx and allowSecCtx == true)
+  DB.Toggles.Solo = true
+
+  -- --- OOC OFF: strict InCombat==false blanks 1-8; nil/true allow ---
+  DB.Toggles.OOC = false
+  local OocDeny = true
+  for Slot = 1, 8 do
+    if TG.SlotAllowed(Slot, { InCombat = false, HpPct = 80, Grouped = true }) ~= false then
+      OocDeny = false
+    end
+  end
+  check("T21 OOC OFF + InCombat=false blanks slots 1-8", OocDeny)
+  local OocNil = true
+  for Slot = 1, 8 do
+    if TG.SlotAllowed(Slot, { InCombat = nil, HpPct = 80, Grouped = true }) ~= true then
+      OocNil = false
+    end
+  end
+  check("T21 OOC OFF + unknown InCombat allows 1-8", OocNil)
+  local OocTrue = true
+  for Slot = 1, 8 do
+    if TG.SlotAllowed(Slot, { InCombat = true, HpPct = 80, Grouped = true }) ~= true then
+      OocTrue = false
+    end
+  end
+  check("T21 OOC OFF + InCombat=true allows 1-8", OocTrue)
+  DB.Toggles.OOC = true
+
+  -- --- Solo OFF + ungrouped blanks 3/8; emergency/unknown HP allows ---
+  DB.Toggles.Solo = false
+  local function SoloCtx (Hp) return { InCombat = true, HpPct = Hp, Grouped = false } end
+  MDB._LastBlank[3], MDB._LastBlank[8] = nil, nil
+  local d3 = TG.SlotAllowed(3, SoloCtx(80))
+  check("T21 Solo OFF ungrouped: slot3 blank + reason",
+    d3 == false and MDB._LastBlank[3] == "solo not grouped")
+  local d8 = TG.SlotAllowed(8, SoloCtx(80))
+  check("T21 Solo OFF ungrouped: slot8 blank + reason",
+    d8 == false and MDB._LastBlank[8] == "solo not grouped")
+  check("T21 Solo OFF: emergency HpPct 35 allows 3/8",
+    TG.SlotAllowed(3, SoloCtx(35)) == true and TG.SlotAllowed(8, SoloCtx(35)) == true)
+  check("T21 Solo OFF: HpPct 36 blanks 3/8",
+    TG.SlotAllowed(3, SoloCtx(36)) == false and TG.SlotAllowed(8, SoloCtx(36)) == false)
+  check("T21 Solo OFF: unknown HP allows 3/8",
+    TG.SlotAllowed(3, SoloCtx(nil)) == true and TG.SlotAllowed(8, SoloCtx(nil)) == true)
+  check("T21 Solo OFF: non-survival slot 1 allowed", TG.SlotAllowed(1, SoloCtx(80)) == true)
+  check("T21 Solo OFF: grouped allows 3/8",
+    TG.SlotAllowed(3, Ctx) == true and TG.SlotAllowed(8, Ctx) == true)
+  check("T21 Solo OFF: unknown Grouped allows 3/8",
+    TG.SlotAllowed(3, { InCombat = true, HpPct = 80, Grouped = nil }) == true
+    and TG.SlotAllowed(8, { InCombat = true, HpPct = 80, Grouped = nil }) == true)
+  DB.Toggles.Solo = true
+
+  -- --- Set / Flip / Label persistence ---
+  local SavedTgl = DB.Toggles
+  DB.Toggles = {}
+  check("T21 Label canonical + fallback",
+    TG.Label("selfheal") == "Self-heal" and TG.Label("Bogus") == "Bogus")
+  TG.Set("selfheal", false)
+  check("T21 Set stores canonical key false",
+    DB.Toggles.SelfHeal == false and TG.Get("SelfHeal") == false)
+  check("T21 Flip toggles back ON", TG.Flip("SelfHeal") == true and TG.Get("SelfHeal") == true)
+  DB.Toggles = SavedTgl
+  SetAll(true)
+
+  -- --- TTK gate in a real frame (WriteTarget): ON keeps the computed band,
+  -- OFF forces UNKNOWN (15) while MeleeFlag/CastFlags survive. ---
+  MaxDps.Spells = { [185358] = { { HotKey = { GetText = function() return "1" end } } } }
+  MaxDps.Flags = { [185358] = true }
+  MaxDps.Spell = 185358
+  MDB._BindCache = {}
+  C_Spell.GetSpellCooldown = function()
+    return { startTime = 0, duration = 0, isEnabled = true, isActive = false, isOnGCD = false }
+  end
+  C_Spell.GetSpellCharges = function() return nil end
+  UnitHealth = function() return 80 end
+  UnitHealthMax = function() return 100 end
+  pcall(Update, Strip, 0.06)
+  local _, bandOn = Nib(29)
+  check("T21 TTK ON keeps target hp band (80% -> 12)", bandOn == 12)
+  DB.Toggles.TTK = false
+  pcall(Update, Strip, 0.06)
+  local _, bandOff = Nib(29)
+  check("T21 TTK OFF forces target hp band UNKNOWN (15)", bandOff == 15)
+  DB.Toggles.TTK = true
+end
+RunToggleTests()
+
+-- =====================================================================
+-- Workstream: v3.5 Ext3 app mask + multi-candidate slot rotation.
+-- =====================================================================
+local function RunExt3Tests ()
+  local TG = MDB.Toggles
+  local DB = MaxDpsBridgeDB
+
+  local function MaskAt ()
+    local r0, g0, b0 = Nib(40)
+    local r1 = Nib(41)
+    return (bit.band(r1, 3) * 4096) + (b0 * 256) + (g0 * 16) + r0
+  end
+
+  -- Clean Warrior/Arms frame: Main + Charge + Heroic Leap bound, no CDs.
+  MaxDps.Spells = {
+    [185358] = { { HotKey = { GetText = function() return "1" end } } },
+    [100]    = { { HotKey = { GetText = function() return "2" end } } },
+    [6544]   = { { HotKey = { GetText = function() return "T" end } } },
+  }
+  MaxDps.Flags = { [185358] = true }
+  MaxDps.Spell = 185358
+  MaxDps.SpellsGlowing = { [185358] = 1 }
+  MaxDps.NextSpell = nil
+  MaxDps.classCooldowns = { WARRIOR = { Arms = { defensive = {}, offensive = {} } } }
+  MaxDps.classInterrupts = { WARRIOR = { Arms = {} } }
+  MaxDps.db.global.enableCooldowns = true
+  MaxDps.db.global.enableDefensives = true
+  C_Spell.GetSpellCooldown = function()
+    return { startTime = 0, duration = 0, isEnabled = true, isActive = false, isOnGCD = false }
+  end
+  C_Spell.GetSpellCharges = function() return nil end
+  UnitHealth = function() return 80 end
+  UnitHealthMax = function() return 100 end
+  UnitAffectingCombat = function() return true end
+  MDB._BindCache = {}
+  DB.Toggles = {}
+  DB.AppMask, DB.AppEpoch, DB.AppBlocked = nil, nil, nil
+  MaxDpsBridgeDB.RotationDwell = 3
+
+  -- --- Ext3 presence + local effective mask (epoch 0) ---
+  MDB.ResetRotation()
+  local okEx3 = pcall(Update, Strip, 0.06)
+  check("T35 Ext3 encode Update: no throw", okEx3)
+  local _, _, c28b = Nib(28)
+  check("T35 cell28 B bit2 Ext3 present", bit.band(c28b, 4) == 4)
+  -- OVERLAY-WINS: with no explicit in-game value, the Ext3 mirror is all ON
+  -- except OOC, which is fail-closed OFF (hold) while no companion default
+  -- exists. 0x3FFF minus bit9.
+  check("T35 epoch 0 publishes the fail-closed effective mask (0x3DFF)",
+    MaskAt() == 0x3DFF)
+  -- An explicit in-game OOC ON flips the mirror bit back on immediately.
+  DB.Toggles.OOC = true
+  pcall(Update, Strip, 0.06)
+  check("T35 explicit in-game OOC ON republishes 0x3FFF", MaskAt() == 0x3FFF)
+  DB.Toggles.OOC = nil
+  pcall(Update, Strip, 0.06)
+  local m40r, m40g, m40b = Nib(40)
+  local m41r, m41g, m41b = Nib(41)
+  local _, e3cs, e3commit = Nib(42)
+  local _, hb3 = Nib(9)
+  check("T35 Ext3 checksum over cells 40-41",
+    ((m40r + m40g + m40b + m41r + m41g + m41b) % 16) == e3cs)
+  check("T35 Ext3 commit == heartbeat", e3commit == hb3)
+  check("T35 epoch 0 encodes epoch nibble 0", m41g == 0)
+
+  -- --- overlay-wins while the app epoch is live ---
+  TG.SetAppMask(0x0001, 5, 0)
+  check("T35 AppControlled at epoch 5",
+    TG.AppControlled() == true and TG.AppEpoch() == 5)
+  check("T35 app bit ON for Main / unset Mobility falls back to the app OFF",
+    TG.Get("Main") == true and TG.Get("Mobility") == false)
+  MDB._LastBlank[7] = nil
+  check("T35 unset key takes the app default (slot 7 denied, reason local)",
+    TG.SlotAllowed(7, { InCombat = true, HpPct = 80, Grouped = true }) == false
+    and MDB._LastBlank[7] == "Mobility off")
+  DB.Toggles.Mobility = true   -- explicit in-game ON is authoritative
+  check("T35 explicit in-game ON beats the app OFF (overlay-wins)",
+    TG.SlotAllowed(7, { InCombat = true, HpPct = 80, Grouped = true }) == true)
+  check("T35 EffectiveMask reflects the in-game overlay (app Main + local Mobility)",
+    TG.EffectiveMask() == 0x0041)
+  check("T35 Conflict detects the explicit local vs app disagreement",
+    TG.Conflict("Mobility") == true)
+  -- An explicit in-game OFF must beat an app ON (the old masked veto is gone).
+  DB.Toggles.Main = false
+  check("T35 explicit in-game OFF beats the app ON",
+    TG.Get("Main") == false
+    and TG.SlotAllowed(1, { InCombat = true, HpPct = 80, Grouped = true }) == false)
+  DB.Toggles.Main = true
+
+  -- Wire while the app epoch is live: the mirror is the EFFECTIVE mask, and
+  -- the explicit in-game Mobility ON keeps the mobility slot alive.
+  MDB.ResetRotation()
+  pcall(Update, Strip, 0.06)
+  check("T35 wire publishes the effective mask 0x0041", MaskAt() == 0x0041)
+  local f41r, f41g, f41b = Nib(41)
+  check("T35 wire publishes epoch 5 + blocked 0",
+    f41g == 5 and f41b == 0 and bit.band(f41r, 3) == 0)
+  local _, _, slot7flags = Nib(7)
+  check("T35 explicit in-game ON keeps the mobility slot alive",
+    bit.band(slot7flags, 8) == 8)
+  local _, _, slot1flags = Nib(1)
+  check("T35 app default ON keeps the main slot alive", bit.band(slot1flags, 8) == 8)
+
+  -- --- /mdb mask refusals raise blocked bit1, valid push clears it ---
+  local Cmd = SlashCmdList["MAXDPSBRIDGE"]
+  ClearChat()
+  Cmd("mask 0002 6")   -- in combat -> refused
+  check("T35 /mdb mask refused in combat, blocks bit1",
+    TG.AppEpoch() == 5 and TG.AppMask() == 0x0001
+    and bit.band(TG.AppBlocked(), 2) == 2)
+  UnitAffectingCombat = function() return false end
+  Cmd("mask 0002 6")
+  check("T35 /mdb mask applies out of combat",
+    TG.AppMask() == 0x0002 and TG.AppEpoch() == 6 and TG.AppBlocked() == 0)
+  Cmd("mask ffff 8")   -- mask > 0x3FFF -> bad checksum
+  check("T35 /mdb mask bad checksum refused, blocks bit1",
+    TG.AppEpoch() == 6 and bit.band(TG.AppBlocked(), 2) == 2)
+  Cmd("mask 0002 99")  -- epoch out of range
+  check("T35 /mdb mask bad epoch refused",
+    TG.AppEpoch() == 6 and bit.band(TG.AppBlocked(), 2) == 2)
+  Cmd("mask 0002 0")
+  check("T35 /mdb mask valid clears the blocked bit",
+    TG.AppEpoch() == 0 and TG.AppMask() == 0x0002 and TG.AppBlocked() == 0)
+  DB.AppEpoch = 3
+  DB.Toggles.Mobility = true
+  ClearChat()
+  Cmd("mobility off")
+  check("T35 /mdb key writes the in-game value even while app epoch live",
+    DB.Toggles.Mobility == false
+    and (ChatLog[#ChatLog] or ""):find("off", 1, true) ~= nil)
+  Cmd("mobility on")
+  check("T35 /mdb key flips the in-game value back on",
+    DB.Toggles.Mobility == true
+    and (ChatLog[#ChatLog] or ""):find("on", 1, true) ~= nil)
+  DB.AppEpoch = 0
+  DB.AppMask = nil
+  -- The rotation tests below run out of combat (UnitAffectingCombat=false), so
+  -- the fail-closed OOC gate needs an explicit in-game ON to allow slots.
+  DB.Toggles.OOC = true
+
+  -- --- rotation: cap 4 + never-automatic filter ---
+  local SavedMobility = MDB.Extras.WARRIOR.Arms.mobility
+  local SavedSpells = MaxDps.Spells
+  MDB.Extras.WARRIOR.Arms.mobility = { 100, 6544, 2983, 102401, 33786 }
+  MaxDps.Spells = {
+    [100]    = { { HotKey = { GetText = function() return "2" end } } },
+    [6544]   = { { HotKey = { GetText = function() return "T" end } } },
+    [2983]   = { { HotKey = { GetText = function() return "S" end } } },
+    [102401] = { { HotKey = { GetText = function() return "W" end } } },
+    [33786]  = { { HotKey = { GetText = function() return "C" end } } },
+  }
+  MDB._BindCache = {}
+  MDB.BeginTick()
+  local Pool = MDB.RotationCandidates(7, 10)
+  check("T35 rotation pool is capped at 4", #Pool == 4)
+  local HasNever = false
+  for i = 1, #Pool do if Pool[i] == 33786 then HasNever = true end end
+  check("T35 rotation pool excludes never-automatic ids", HasNever == false)
+  check("T35 IsNeverAutomatic knows Cyclone", MDB.IsNeverAutomatic(33786) == true)
+  check("T35 IsNeverAutomatic fails open on a plain id",
+    MDB.IsNeverAutomatic(6544) == false)
+
+  -- --- rotation: independent per-slot clocks + weighted advance ---
+  MDB.Extras.WARRIOR.Arms.mobility = SavedMobility
+  MaxDps.Spells = SavedSpells
+  MDB._BindCache = {}
+  MaxDpsBridgeDB.RotationDwell = 1
+  MDB.ResetRotation()
+  local Seen = {}
+  for _ = 1, 4 do
+    pcall(Update, Strip, 0.06)
+    local Id = IdAt(23, 24)
+    Seen[Id] = (Seen[Id] or 0) + 1
+  end
+  check("T35 weighted rotation offers both mobility candidates",
+    (Seen[100] or 0) >= 1 and (Seen[6544] or 0) >= 1)
+  check("T35 rotation advances every tick at dwell 1",
+    ((Seen[100] or 0) + (Seen[6544] or 0)) == 4)
+  check("T35 per-slot clocks are independent (4 rotating slots tracked)",
+    type(MDB._RotCounts) == "table" and (MDB._RotCounts[3] or -1) >= 0
+    and (MDB._RotCounts[6] or -1) >= 0 and (MDB._RotCounts[7] or -1) >= 0
+    and (MDB._RotCounts[8] or -1) >= 0)
+  ClearChat()
+  Cmd("status")
+  local Line = ChatLog[#ChatLog] or ""
+  check("T35 /mdb status reports ext3=1", Line:find("ext3=1", 1, true) ~= nil)
+  check("T35 /mdb status reports per-slot candidate counts",
+    Line:find("rot=3:", 1, true) ~= nil and Line:find("dwell=1", 1, true) ~= nil)
+
+  -- --- dwell command ---
+  Cmd("dwell 5")
+  check("T35 /mdb dwell persists", MaxDpsBridgeDB.RotationDwell == 5)
+  Cmd("dwell 0")
+  check("T35 /mdb dwell clamps to 1", MaxDpsBridgeDB.RotationDwell == 1)
+  MaxDpsBridgeDB.RotationDwell = 3
+  MDB.ResetRotation()
+
+  -- --- user pause + fail-closed OOC hold (2026-09-30) ---
+  -- `/mdb off` is sticky: even a re-enabled DB holds with state 2 (Paused).
+  Cmd("off")
+  check("T35 /mdb off sets the sticky user pause",
+    MDB.IsUserPaused() == true and MaxDpsBridgeDB.UserPaused == true)
+  MaxDpsBridgeDB.Enabled = true   -- simulate another writer forcing it on
+  pcall(Update, Strip, 0.06)
+  check("T35 user pause outranks Enabled (Paused frame)", (Nib(9)) == 2)
+  local PauseSlots = true
+  for i = 1, 8 do
+    local _, _, F = Nib(i)
+    if bit.band(F, 8) == 8 then PauseSlots = false end
+  end
+  check("T35 user pause leaves every slot empty", PauseSlots)
+  Cmd("on")
+  check("T35 /mdb on clears the sticky user pause",
+    MDB.IsUserPaused() == false and MaxDpsBridgeDB.UserPaused == false)
+
+  -- An explicit in-game OOC OFF while out of combat holds: every slot blank
+  -- and the Ext3 OOC mirror bit (bit 9) clear, so the companion also holds.
+  DB.Toggles.OOC = false
+  pcall(Update, Strip, 0.06)
+  local OocHold = true
+  for i = 1, 8 do
+    local _, _, F = Nib(i)
+    if bit.band(F, 8) == 8 then OocHold = false end
+  end
+  check("T35 in-game OOC OFF blanks every slot out of combat", OocHold)
+  check("T35 OOC OFF clears the Ext3 OOC mirror bit 9",
+    bit.band(MaskAt(), 512) == 0)
+  DB.Toggles.OOC = true
+
+  UnitAffectingCombat = nil
+end
+RunExt3Tests()
+
+-- =====================================================================
+-- Workstream: v3.5 CC fix (Storm Bolt 107570 / Shockwave 46968).
+-- =====================================================================
+local function RunCcFixTests ()
+  local TG = MDB.Toggles
+  local DB = MaxDpsBridgeDB
+
+  -- ---- IsCC delegates Get("CC") (local + app mask + fail-open) ----
+  local SavedToggles = DB.Toggles
+  local SavedMask, SavedEpoch = DB.AppMask, DB.AppEpoch
+  local SavedCc = SavedToggles and SavedToggles.CC
+  DB.Toggles = {}
+  DB.AppMask, DB.AppEpoch = nil, nil
+  check("CCF IsCC missing CC = ON (fail open)", TG.IsCC() == true)
+  DB.Toggles.CC = false
+  check("CCF IsCC local CC off = false", TG.IsCC() == false)
+  check("CCF Get('CC') resolves the local key", TG.Get("CC") == false)
+  DB.Toggles.CC = true
+  check("CCF local EffectiveMask sets CC bit 13",
+    bit.band(TG.EffectiveMask(), 8192) == 8192)
+  DB.Toggles.CC = false
+  check("CCF local EffectiveMask clears CC bit 13 when CC off",
+    bit.band(TG.EffectiveMask(), 8192) == 0)
+
+  -- OVERLAY-WINS: an explicit in-game CC OFF beats an app bit13 ON...
+  TG.SetAppMask(8192, 5, 0)
+  check("CCF explicit in-game CC off beats the app ON (overlay-wins)",
+    DB.Toggles.CC == false and TG.IsCC() == false)
+  -- ...and an unset CC key falls back to the live app bit (defaults).
+  DB.Toggles.CC = nil
+  check("CCF unset CC falls back to the app bit13 ON", TG.IsCC() == true)
+  TG.SetAppMask(0, 5, 0)
+  check("CCF unset CC falls back to the app bit13 OFF", TG.IsCC() == false)
+  DB.AppMask, DB.AppEpoch = SavedMask, SavedEpoch
+
+  -- ---- IsBossTarget fail-open + classification ----
+  local SavedCI, SavedUL = UnitClassification, UnitLevel
+  UnitClassification = function() return "worldboss" end
+  check("CCF IsBossTarget worldboss -> true", MDB.IsBossTarget() == true)
+  UnitClassification = function() error("secret") end
+  UnitLevel = function() error("secret") end
+  check("CCF IsBossTarget pcall failure -> fail open (false)",
+    MDB.IsBossTarget() == false)
+  UnitClassification = function() return "normal" end
+  UnitLevel = function() return 72 end
+  check("CCF IsBossTarget normal/72 -> false", MDB.IsBossTarget() == false)
+  UnitClassification, UnitLevel = SavedCI, SavedUL
+
+  -- ---- slot-6 CC pool skips a boss, includes otherwise ----
+  MaxDps.Spells = {
+    [5246]   = { { HotKey = { GetText = function() return "5" end } } },
+    [107570] = { { HotKey = { GetText = function() return "6" end } } },
+    [46968]  = { { HotKey = { GetText = function() return "7" end } } },
+  }
+  MaxDps.classInterrupts = { WARRIOR = { Arms = {} } }
+  MDB._BindCache = {}
+  DB.Toggles = DB.Toggles or {}
+  DB.Toggles.CC = true
+
+  local Pool = MDB.RotationCandidates(6, 4)
+  local HasCc = false
+  for i = 1, #Pool do
+    if Pool[i] == 5246 or Pool[i] == 107570 or Pool[i] == 46968 then HasCc = true end
+  end
+  check("CCF slot-6 pool includes curated CC when not a boss", HasCc)
+
+  UnitClassification = function() return "worldboss" end
+  MDB._BindCache = {}
+  local BossPool = MDB.RotationCandidates(6, 4)
+  check("CCF slot-6 pool empty for a worldboss target",
+    type(BossPool) == "table" and #BossPool == 0)
+  UnitClassification, UnitLevel = SavedCI, SavedUL
+
+  DB.Toggles = SavedToggles
+  if SavedToggles then SavedToggles.CC = SavedCc end
+  MaxDps.classInterrupts = nil
+end
+RunCcFixTests()
+
+-- =====================================================================
+-- Q1 no-downtime Main (plan 2026-10-03-no-downtime-main): sorted glowing
+-- scan gated by MainUsable (only plain usable==false AND noPower==true
+-- vetoes), then the per-spec MainFallback filler, then nil. Scoped so its
+-- locals do not push the main chunk over Lua's 200-local limit.
+-- =====================================================================
+local function RunMainFallbackTests ()
+  -- CURRENT client (Exp) owns the per-spec fillers pinned here (Arms/Ret were
+  -- added 2026-10-04/06); stable is frozen with Fury only.
+  local MDB = MDBX
+  local savedGlow = MaxDps.SpellsGlowing
+  local savedSpell = MaxDps.Spell
+  local savedUsable = C_Spell.IsSpellUsable
+  local savedGetSpecInfo = GetSpecializationInfo
+  local savedCooldown = C_Spell.GetSpellCooldown
+  local savedCharges = C_Spell.GetSpellCharges
+
+  -- Cooldowns stay out of the way: MainUsable is power-only, so a plain
+  -- no-cooldown shape keeps every id "castable" except power-starved ones.
+  C_Spell.GetSpellCooldown = function()
+    return { startTime = 0, duration = 0, isEnabled = true, isActive = false, isOnGCD = false }
+  end
+  C_Spell.GetSpellCharges = function() return nil end
+  GetSpecializationInfo = function() return 72 end   -- Fury (specID 72)
+
+  local function Usability (NoPower)
+    C_Spell.IsSpellUsable = function(id)
+      if NoPower[id] then return false, true end
+      return true, false
+    end
+  end
+
+  -- (1) Rampage glow no-power + Bloodthirst glow usable -> Bloodthirst.
+  Usability({ [184367] = true })
+  MaxDps.SpellsGlowing = { [184367] = 1, [23881] = 1 }
+  MaxDps.Spell = nil
+  MDB.BeginTick()
+  local ok1, id1 = pcall(MDB.GetMainSpellID)
+  check("MF rampage no-power + bloodthirst glow -> Bloodthirst", ok1 and id1 == 23881)
+
+  -- (2) A power-starved glow with a LOWER id is skipped, not returned:
+  --     synthetic 100 starved + 185358 usable -> 185358 (old lowest-id code
+  --     would have returned 100 and stranded the slot).
+  Usability({ [100] = true })
+  MaxDps.SpellsGlowing = { [100] = 1, [185358] = 1 }
+  MaxDps.Spell = nil
+  MDB.BeginTick()
+  local ok2, id2 = pcall(MDB.GetMainSpellID)
+  check("MF lower-id power-starved glow skipped, next usable wins", ok2 and id2 == 185358)
+
+  -- (3) Only a power-starved glow -> Fury fallback filler (Bloodthirst).
+  Usability({ [184367] = true })
+  MaxDps.SpellsGlowing = { [184367] = 1 }
+  MaxDps.Spell = nil
+  MDB.BeginTick()
+  local ok3, id3 = pcall(MDB.GetMainSpellID)
+  check("MF all glows power-starved -> Fury fallback filler", ok3 and id3 == 23881)
+
+  -- (4) Fallback filler itself power-starved -> nil (never press blind).
+  Usability({ [184367] = true, [23881] = true })
+  MaxDps.SpellsGlowing = { [184367] = 1 }
+  MaxDps.Spell = nil
+  MDB.BeginTick()
+  local ok4, id4 = pcall(MDB.GetMainSpellID)
+  check("MF fallback filler power-starved -> nil", ok4 and id4 == nil)
+
+  -- (5) Unverified spec (Protection 73) has no filler -> nil. (Arms now has
+  --     a filler as of 2026-10-04; see (9) below.)
+  Usability({ [184367] = true })
+  GetSpecializationInfo = function() return 73 end   -- Protection
+  MaxDps.SpellsGlowing = { [184367] = 1 }
+  MaxDps.Spell = nil
+  MDB.BeginTick()
+  local ok5, id5 = pcall(MDB.GetMainSpellID)
+  check("MF unverified spec (Protection) -> nil", ok5 and id5 == nil)
+  GetSpecializationInfo = function() return 72 end
+
+  -- (6) secret / nil / throwing usability probes -> fail OPEN (glow kept),
+  --     never a stripped slot on an unobservable verdict.
+  MaxDps.SpellsGlowing = { [185358] = 1 }
+  MaxDps.Spell = nil
+  C_Spell.IsSpellUsable = function() return S(false), S(true) end
+  MDB.BeginTick()
+  local ok6, id6 = pcall(MDB.GetMainSpellID)
+  check("MF secret usability -> fail open, glow kept", ok6 and id6 == 185358)
+  C_Spell.IsSpellUsable = function() return nil end
+  MDB.BeginTick()
+  local ok7, id7 = pcall(MDB.GetMainSpellID)
+  check("MF nil usability -> fail open, glow kept", ok7 and id7 == 185358)
+  C_Spell.IsSpellUsable = function() error("secret probe throw") end
+  MDB.BeginTick()
+  local ok8, id8 = pcall(MDB.GetMainSpellID)
+  check("MF throwing usability -> fail open, glow kept", ok8 and id8 == 185358)
+
+  -- (7) 3.7.8: former-deny ids are ordinary Main candidates now. With both
+  --     190319 and 185358 glowing and usable, the ascending sort returns the
+  --     lower usable id 185358; a lone 190319 glow returns 190319.
+  Usability({})
+  MaxDps.SpellsGlowing = { [190319] = 1, [185358] = 1 }
+  MaxDps.Spell = nil
+  MDB.BeginTick()
+  local ok9, id9 = pcall(MDB.GetMainSpellID)
+  check("MF lower usable glow wins (no deny)", ok9 and id9 == 185358)
+  MaxDps.SpellsGlowing = { [190319] = 1 }                 -- former deny id only
+  MDB.BeginTick()
+  local ok10, id10 = pcall(MDB.GetMainSpellID)
+  check("MF former-deny-only glow -> encoded as MAIN", ok10 and id10 == 190319)
+
+  -- (8) a former-deny MaxDps.Spell (no glow at all) is encoded as MAIN too:
+  --     3.7.8 trusts the engine's named pick when it is usable.
+  MaxDps.SpellsGlowing = nil
+  MaxDps.Spell = 190319                                   -- former deny id only
+  MDB.BeginTick()
+  local ok11, id11 = pcall(MDB.GetMainSpellID)
+  check("MF former-deny Spell -> encoded as MAIN", ok11 and id11 == 190319)
+
+  -- (9) 2026-10-04 arms-fury-exec-fix: Arms has a filler and Colossus Smash
+  --     167105 is a normal Main candidate (former deny id).
+  GetSpecializationInfo = function() return 71 end   -- Arms
+  Usability({})
+  -- (a) a plain Colossus Smash glow is encoded as Main (deny removed).
+  MaxDps.SpellsGlowing = { [167105] = 1 }
+  MaxDps.Spell = nil
+  MDB.BeginTick()
+  local ok12, id12 = pcall(MDB.GetMainSpellID)
+  check("MF Arms glow 167105 (Colossus Smash) no longer denied", ok12 and id12 == 167105)
+
+  -- (b) a former-deny glow is encoded as MAIN, not routed to the Arms filler.
+  MaxDps.SpellsGlowing = { [190319] = 1 }   -- former Mage major deny id
+  MDB.BeginTick()
+  local ok13, id13 = pcall(MDB.GetMainSpellID)
+  check("MF Arms former-deny glow -> MAIN 190319", ok13 and id13 == 190319)
+
+  -- (c) Ravager 228920 is a former deny id; a usable glow now encodes as MAIN.
+  MaxDps.SpellsGlowing = { [228920] = 1 }
+  MDB.BeginTick()
+  local ok14, id14 = pcall(MDB.GetMainSpellID)
+  check("MF Arms Ravager-only glow -> MAIN 228920", ok14 and id14 == 228920)
+  GetSpecializationInfo = function() return 72 end
+
+  MaxDps.SpellsGlowing = savedGlow
+  MaxDps.Spell = savedSpell
+  C_Spell.IsSpellUsable = savedUsable
+  GetSpecializationInfo = savedGetSpecInfo
+  C_Spell.GetSpellCooldown = savedCooldown
+  C_Spell.GetSpellCharges = savedCharges
+  MDB.BeginTick()
+end
+RunMainFallbackTests()
 
 print(string.format("RESULT: %d passed, %d failed", PASS, FAIL))
 if FAIL > 0 then os.exit(1) end
