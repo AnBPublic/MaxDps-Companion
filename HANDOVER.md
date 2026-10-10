@@ -25,11 +25,19 @@ identity in `MaxDpsBridgeExp.toc` / `addon/MaxDpsBridgeExp/VERSION.txt` / repo
 `docs/plans/2026-10-10-main-no-deny-3.7.8.md` and this section. Stable
 addon/TOC/VERSION untouched.
 
-VERIFY: docs-only in this pass (no build/test/addon run here). The offline bar
-is run as part of the implementing release — `dotnet build/test -c Release`,
-`lua tests/secret_harness.lua`, `luac -p addon/MaxDpsBridgeExp/*.lua`,
-`pwsh tools/ability_audit.ps1` (see `VERSION.txt` at commit time). Static ≠
-automated test ≠ live in-game.
+VERIFY (this machine): `dotnet build app/MaxDpsCompanion/MaxDpsCompanion.csproj
+-c Release` **0 warnings / 0 errors**; `dotnet test -c Release` **985 passed /
+2 failed / 987** — both failures are the known ClassicUi STA/timing environment
+flakes (`ClassicUi_PopupOpen_Fast_StaticOpaqueScrim` 660.3 ms > 500 and
+`ClassicUi_WidthTiers_ScaleFontAndRowHeight` "STA UI thread timed out"), which
+also fail standalone here and are unrelated to this diff; `lua
+tests/secret_harness.lua` **283 passed / 0 failed**; `luac -p` clean (**Exp
+top-level + Exp/ + stable**); `pwsh tools/ability_audit.ps1` clean (Violations 0
+/ Warnings 0 / Missing 0 / Stale 0; exit 2 is the documented pre-existing
+stable-Catalog drift — stable stays frozen at 3.7.7). Published: `dist-exp` exe
+**3.7.8.0** (`InGameConfigMode=1` preserved) and `tools/install-addon-exp.ps1`
+installed **3.7.8-exp** into the retail AddOns; commit `7d13285` pushed to
+`v3.5-class-browser`. Static ≠ automated test ≠ live in-game.
 
 OWED (live retail 12.1): (1) formerly denied MaxDps core-rotation
 recommendations (e.g. Combustion 190319, Avatar 107574, Ravager 228920) ARE
