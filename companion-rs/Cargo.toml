@@ -1,0 +1,38 @@
+# MaxDps Companion — Rust workspace (side-by-side with app/ until the parity gate).
+# See docs/plans/2026-10-10-rust-companion.md §3.
+# Work targets MaxDpsBridgeExp + dist-exp only; no branding is carried over.
+#
+# Scaffold task 1/3: only mdc-protocol is implemented (pure decode, no I/O).
+# The remaining members are dependency-free contract stubs so the workspace
+# resolves and `cargo test -p mdc-protocol` runs before their features land.
+[workspace]
+resolver = "2"
+members = [
+    "crates/mdc-protocol",
+    "crates/mdc-platform",
+    "crates/mdc-platform-win",
+    "crates/mdc-platform-mac",
+    "crates/mdc-engine",
+    "crates/mdc-settings",
+    "crates/mdc-telemetry",
+    "crates/mdc-commands",
+    "crates/mdc-cli",
+    "crates/mdc-app",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT"
+publish = false
+
+[workspace.dependencies]
+mdc-protocol = { path = "crates/mdc-protocol" }
+mdc-platform = { path = "crates/mdc-platform" }
+mdc-platform-win = { path = "crates/mdc-platform-win" }
+mdc-platform-mac = { path = "crates/mdc-platform-mac" }
+mdc-engine = { path = "crates/mdc-engine" }
+mdc-settings = { path = "crates/mdc-settings" }
+mdc-telemetry = { path = "crates/mdc-telemetry" }
+mdc-commands = { path = "crates/mdc-commands" }

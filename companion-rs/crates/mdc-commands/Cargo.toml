@@ -1,0 +1,14 @@
+[package]
+name = "mdc-commands"
+description = "Single command registry (register + invoke JSON->JSON) shared by the UI, CLI and control surface."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mdc-engine = { path = "../mdc-engine" }
+mdc-telemetry = { path = "../mdc-telemetry" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

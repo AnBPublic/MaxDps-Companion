@@ -623,10 +623,57 @@ MainForm (borderless; 660-wide fixed frame; no frame ring; tray; pause
   dist/ui-snapshots.
 ```
 
+## companion-rs (Rust port, side-by-side) — 2026-10-10
+
+`companion-rs/` is a Cargo workspace that ports the C# companion
+(`docs/plans/2026-10-10-rust-companion.md`), kept beside `app/` until a parity
+gate. It consumes the SAME bridge wire (v5/Ext2/Ext3) and the SAME hybrid
+input contract as `KeySender.cs` — keyboard PostMessage-only, mouse/wheel
+`SendInput` behind a mandatory foreground gate; `addon/*.lua`, `app/*.cs` and
+`vendor/` are untouched and there is no `docs/PROTOCOL.md` change.
+
+```
+mdc-protocol  decode v5/v4/v1 + Ext2/Ext3 (pure; golden harness)
+      │
+mdc-engine    candidate tracker → scheduler → decision/rotation (injected Clock)
+      │
+mdc-platform{,-win,-mac}   find_wow / capture (BitBlt DIB) / post_key (PostMessage)
+                           / post_mouse + is_foreground (gated SendInput mouse)
+      │
+mdc-settings / mdc-telemetry / mdc-commands / mdc-cli / mdc-app (eframe shell)
+```
+
+Toolchain is pinned to `stable-x86_64-pc-windows-gnu`
+(`companion-rs/rust-toolchain.toml`); MSVC has no linker on the dev box (no VS
+C++ build tools), and the GNU host requires a MinGW-w64 sysroot on PATH
+(WinLibs `mingw64\bin`) for the `-lshlwapi` import libs that `mdc-app` needs.
+`#![forbid(unsafe_code)]` in every crate except `mdc-platform-win` (documented
+Win32 FFI). Offline bar: `cargo build --workspace`, `cargo test --workspace`,
+`cargo clippy --workspace --all-targets -- -D warnings`. `mdc-app` live
+window/capture and real captured golden vectors remain OWED.
+Static ≠ automated test ≠ live in-game.
+
+### 2026-10-10 legacy declaration — C# client frozen, Rust is the future
+
+**`app/MaxDpsCompanion/` + `dist/` are LEGACY/FROZEN** repo-wide (`LEGACY.md`,
+`app/MaxDpsCompanion/LEGACY.md`): no future rollouts/features, only critical
+security fixes on explicit request. The future is **`companion-rs/`**; the
+current target addon + distribution stays `MaxDpsBridgeExp` + `dist-exp`
+(the stable `addon/MaxDpsBridge` + `dist\` pair is likewise frozen). Physical
+directories are not renamed (would break the csproj/workflows); the C# tree is
+retained as the behavioural fidelity reference for the Rust port.
+
 ## File map
 
 ```
 MaxDps-Companion/
+  companion-rs/              Rust port of the companion (side-by-side with app/
+                             until the parity gate; no wire/PROTOCOL change).
+                             Cargo workspace; rust-toolchain.toml pins
+                             stable-x86_64-pc-windows-gnu; needs a MinGW-w64
+                             sysroot on PATH; #![forbid(unsafe_code)] except
+                             mdc-platform-win. Mouse `SendInput` + foreground
+                             gate implemented; mdc-app live run OWED.
   addon/MaxDpsBridge/        bridge addon 3.7.7 (v5 + Ext2 + additive Ext3
                              encoder, candidate rotation, in-game toggle UI,
                              /mdb commands)
@@ -729,7 +776,10 @@ MaxDps-Companion/
                               all-fixed ⇒ skip the run entirely); publishes to
                               `\Interface\AddOns` only on a clean run, with a
                               `_backup/<stamp>/` rollback; vendor/ never written
-   app/MaxDpsCompanion/       WinForms companion (sampler → PostMessage)
+   app/MaxDpsCompanion/       WinForms companion (sampler → PostMessage).
+                              LEGACY/FROZEN 2026-10-10 (LEGACY.md): no future
+                              rollouts; fidelity reference for companion-rs/.
+                              dist/ + addon/MaxDpsBridge/ (stable) also frozen.
     Knowledge/               ability knowledge base (v2.0; defensive v2.3; registry v2.6)
       AbilityModel.cs        enums + AbilityDefinition + slot mapping,
                              `Scope` ("Racial" = race-carried, carried by every

@@ -11,6 +11,66 @@
   via `tools/install-addon-exp.ps1` + `dist-exp` publish, verify **Exp** hashes.
   `install-addon.ps1` / `dist\` are legacy-only.
 
+## 2026-10-10 LEGACY DECLARATION (C# client frozen, Rust is the future)
+
+STATUS: the **C# WinForms client** (`app/MaxDpsCompanion/` + `dist/`) is now
+declared **LEGACY/FROZEN** repo-wide — see `LEGACY.md` and
+`app/MaxDpsCompanion/LEGACY.md`. No future rollouts/features; only critical
+security fixes, and only when explicitly requested. The future is
+**`companion-rs/`**; the current target addon + distribution stays
+`MaxDpsBridgeExp` + `dist-exp`. Physical directories are NOT renamed (would
+break the csproj/workflows). The C# tree is retained as the behavioural
+fidelity reference for the Rust port.
+
+NEXT: continue the `companion-rs/` parity work below; do not add work to the
+C# client, `dist/` or `addon/MaxDpsBridge`.
+
+## 2026-10-10 RUST COMPANION SCAFFOLD (companion-rs/, side-by-side)
+
+STATUS: new Cargo workspace `companion-rs/` per
+`docs/plans/2026-10-10-rust-companion.md` (side-by-side with `app/` until the
+parity gate). Crates: `mdc-protocol` (pure v5/Ext2/Ext3 decode + golden
+harness), `mdc-platform`(+`-win` BitBlt capture + PostMessage keyboard + gated
+SendInput mouse, `-mac` stub),
+`mdc-engine` (injected `Clock`; candidate tracker/scheduler/decision/rotation),
+`mdc-settings` (`settings.ini` compatible, preserves unknown keys),
+`mdc-telemetry` (local-only JSONL), `mdc-commands` (registry), `mdc-cli`,
+`mdc-app` (`eframe`/`egui` shell). No wire/PROTOCOL change; `addon/*.lua`,
+`app/*.cs` and `vendor/` untouched. `#![forbid(unsafe_code)]` in every crate
+except `mdc-platform-win` (documented Win32 FFI). No branding carried over.
+
+TOOLCHAIN (this change): `companion-rs/rust-toolchain.toml` pins
+`stable-x86_64-pc-windows-gnu`. MSVC is NOT usable here — `vswhere` finds no
+VS C++ build tools and there is no `link.exe`. The GNU host needs a MinGW-w64
+sysroot on PATH: rustc's bundled self-contained linker ships `dlltool.exe` but
+not the Windows import libs, so `mdc-app` (eframe/winit/windows) failed with
+`ld: cannot find -lshlwapi`. Fix: WinLibs POSIX/UCRT `mingw64\bin` (gcc +
+dlltool + sysroot) on the user PATH. `mdc-app` now links, so it is no longer
+blocked; a CI/other box must install an equivalent mingw-w64.
+
+VERIFY (this machine, WinLibs bin on PATH): `cargo build --workspace` exit 0;
+`cargo test --workspace` exit 0 (27 passed / 0 failed / 1 ignored — the
+`golden.rs` real-capture vectors stay `#[ignore]` TODO task 2/3);
+`cargo clippy --workspace --all-targets -- -D warnings` exit 0 (fixed
+needless_range_loop, identity_op, manual_range_patterns, field_reassign,
+assertions_on_constants; `mdc-platform-win` minors: stride debug_assert,
+PostMessageW failures now `PlatformError::PostFailed`, EnumWindows early-stop
+documented). Static ≠ automated test ≠ live.
+
+OWED: `mdc-app` live window/render + capture/PostMessage into a real client
+(same live-retail bar as the C# shell); real captured golden vectors (task
+2/3). Static ≠ automated test ≠ live in-game.
+
+UPDATE 2026-10-10 (mouse parity): `mdc-platform` gained `MouseButton`/`MouseEvent`
++ `post_mouse`/`is_foreground`; `mdc-platform-win` now mirrors the `KeySender.cs`
+hybrid — keyboard stays PostMessage-only, mouse/wheel go through `SendInput`
+behind the mandatory foreground gate (`PlatformError::NotForeground`, sends
+nothing when WoW is not in front). Pure encoder + gate unit tests (8 pass).
+VERIFY: `cargo build -p mdc-platform -p mdc-platform-win` exit 0;
+`cargo test -p mdc-platform-win` 8 passed/0 failed;
+`cargo clippy -p mdc-platform -p mdc-platform-win --all-targets -- -D warnings`
+exit 0. Mouse/wheel live retail validation stays OWED; static ≠ live.
+
 ## 2026-10-07 RELEASE 3.7.7 "GALLANT" (version-only identity bump)
 
 STATUS: release bump **3.7.6 "Templar" → 3.7.7 "Gallant"**. No protocol/wire

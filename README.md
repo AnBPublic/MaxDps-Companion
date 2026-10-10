@@ -1,3 +1,11 @@
+> [!IMPORTANT]
+> **LEGACY:** The C# WinForms client (`app/MaxDpsCompanion/`), the legacy
+> distribution (`dist/`) and the stable bridge (`addon/MaxDpsBridge/`) are
+> **frozen**. They receive no updates except critical security fixes.
+> The future is the Rust companion in **`companion-rs/`**, targeting
+> `MaxDpsBridgeExp` + `dist-exp`. See [`LEGACY.md`](LEGACY.md) and
+> [`docs/plans/2026-10-10-rust-companion.md`](docs/plans/2026-10-10-rust-companion.md).
+
 # MaxDPS Companion (Retail Midnight 12.1, v3.7.7 "Gallant")
 
 Pixel bridge driver for [kaminaris MaxDps](https://www.curseforge.com/wow/addons/maxdps)
