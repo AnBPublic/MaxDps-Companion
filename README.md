@@ -24,6 +24,20 @@
 > [`docs/plans/2026-10-10-rust-companion.md`](docs/plans/2026-10-10-rust-companion.md)
 > and [`docs/plans/2026-10-10-gallant-parity.md`](docs/plans/2026-10-10-gallant-parity.md).
 
+> [!TIP]
+> **macOS Companion — `3.7.9 "Unyielding" (mac)`:** the macOS client lives in
+> [`app/MaxDpsCompanion.Mac/`](app/MaxDpsCompanion.Mac/) (+ the portable brain
+> in `app/MaxDpsCompanion.Core/`) and targets **`MaxDpsBridgeExp`** on retail.
+> Build with `./build-mac.sh`, install to `/Applications`, grant **Screen
+> Recording** + **Accessibility**, then Start (or run `--probe` for a
+> read-only report). Capture is a **window-filtered ScreenCaptureKit stream
+> bounded to the strip rect** (no screen recording, no per-tick capture call),
+> keystrokes go per-process via `CGEventPostToPid`, and every coordinate is
+> window-relative so it works on any monitor/resolution. Numbers:
+> `--bench-capture`. Full client doc:
+> [`app/MaxDpsCompanion.Mac/README.md`](app/MaxDpsCompanion.Mac/README.md);
+> live retail checks are OWED (`docs/TESTING.md` §4).
+
 # MaxDPS Companion (Retail Midnight 12.1, v3.7.9 "Unyielding")
 
 Pixel bridge driver for [kaminaris MaxDps](https://www.curseforge.com/wow/addons/maxdps)

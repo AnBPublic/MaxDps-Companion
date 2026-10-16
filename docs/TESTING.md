@@ -492,7 +492,37 @@ Exp bridge **3.7.9** addon loaded, Intelligence ON:
 This supersedes the offensive parts of §3e/§3f/§3g, which remain as the
 v3.2–v3.8 history of the removed conservation.
 
-## Benchmarks / diagnostics (no game)
+## 4. macOS client (live retail, OWED)
+
+Everything in this section needs a real client on a Mac. Static/offline
+results never close these items.
+
+Preconditions: `MaxDpsBridgeExp` (3.7.9-exp) installed and enabled, the stable
+`MaxDpsBridge` **disabled** (the Exp bridge is inert while the stable one is
+loaded), Screen Recording + Accessibility granted to the app bundle.
+
+```sh
+APP="/Applications/MaxDPS Companion.app/Contents/MacOS/MaxDpsCompanion.Mac"
+"$APP" --probe          # writes ~/Library/Application Support/MaxDpsCompanion/probe.txt
+```
+
+| # | Step | Expected |
+| :--- | :--- | :--- |
+| 4.1 | `--probe` with the game running | `capture-backend=ScreenCaptureKit ... granted`; `stream=started region=1024x128pt`; `locate=<x>,<y> cell=8`; `decode=proto=5 state=...` |
+| 4.2 | `--probe` again | `stream=after-locate regionPx` small (~352x16 for 8 px cells); frames/fps reported |
+| 4.3 | `--probe` on the other display (1080p monitor <-> MacBook panel, incl. a Retina-scale display) | locate succeeds at the same window-relative offsets; no recalibration needed |
+| 4.4 | Start in the UI, game focused, press a key the addon suggests | the status line's "Now:" matches the pressed ability; no stray input in other apps |
+| 4.5 | Start, then focus another app while a keyboard slot fires | stroke still lands in the game (per-process delivery), nothing leaks |
+| 4.6 | A mouse-slot ability (if bound) while the game is unfocused | hold with the "needs focus (mouse input)" reason (by design) |
+| 4.7 | Watch `repairs` over a session (`--probe` after playing) | ideally 0; non-zero means the display's ICC pipeline distorts the strip (report the count and the display profile) |
+| 4.8 | `/mdbx status` in game | `cell=8`, offsets match the app's located values; protocol 5 |
+| 4.9 | Change the strip (`/mdbx cellsize 12`, or move the offset), then Start | the ladder re-locates within ~5 s and the stream region shrinks to the new strip |
+| 4.10 | Move the game window / switch resolution while running | the supervisor rebuilds the stream within ~1 s; the strip keeps decoding |
+| 4.11 | `--bench-capture=10` while playing | steady-state region ~20-40 KB/frame; per-sample mean well under 0.5 ms; our CPU near 1 % of one core |
+| 4.12 | Quit the app after playing | no capture session left behind (`Activity Monitor`: no SCK helper burning CPU; app gone) |
+
+## 5. Benchmarks / diagnostics (no game)
+
 
 ```powershell
 MaxDpsCompanion.exe --bench-scheduler            # scripted 27000-tick plan + plan hash

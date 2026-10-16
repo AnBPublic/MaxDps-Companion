@@ -1,0 +1,51 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <Import Project="../Version.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>MaxDpsCompanion.Core</AssemblyName>
+    <RootNamespace>MaxDpsCompanion</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Portable library: deliberately NO UseWindowsForms, NO DllImport
+         P/Invoke, NO System.Drawing.Common package, NO System.Windows.Forms. -->
+  </PropertyGroup>
+
+  <!-- Default glob includes only this directory's new Core files. -->
+
+  <!-- System.Drawing primitives (Color/Point/Size/Rectangle) are implicit on
+       the Windows host via the WindowsDesktop SDK; Core re-adds the using
+       explicitly so the same verbatim files compile on net8.0 anywhere. -->
+  <ItemGroup>
+    <Using Include="System.Drawing" />
+  </ItemGroup>
+
+  <!-- System.Drawing.Common: Color/Point/Size/Rectangle primitives for the
+       protocol/sampler surface. Version-locked to the inbox 8.x line (no
+       MAUI-era major bump without review). Not used for Bitmap/Graphics —
+       those stay Windows-only (ScreenSampler/BlockLocator/ColorLearner). -->
+  <ItemGroup>
+    <PackageReference Include="System.Drawing.Common" Version="8.0.0" />
+  </ItemGroup>
+
+  <!-- Ability knowledge base: copied verbatim from the Windows app (copy, not
+       move — Windows stays byte-identical). LogicalNames preserve the
+       MaxDpsCompanion.Knowledge.* resource names the loaders expect. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Knowledge\vendor-abilities.json" LogicalName="MaxDpsCompanion.Knowledge.vendor-abilities.json" />
+    <EmbeddedResource Include="Knowledge\abilities.json" LogicalName="MaxDpsCompanion.Knowledge.abilities.json" />
+    <EmbeddedResource Include="Knowledge\class-spells.json" LogicalName="MaxDpsCompanion.Knowledge.class-spells.json" />
+    <EmbeddedResource Include="Knowledge\spell-verification.json" LogicalName="MaxDpsCompanion.Knowledge.spell-verification.json" />
+    <EmbeddedResource Include="RegistryResearch\registry-research.json" LogicalName="MaxDpsCompanion.Knowledge.registry-research.json" />
+  </ItemGroup>
+
+  <!-- P1 Mac host consumes Core internals (ColorProfile, PixelSampler, Keys);
+       same allowance the approved .NET split grants the Windows host. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="MaxDpsCompanion.Mac" />
+  </ItemGroup>
+
+</Project>

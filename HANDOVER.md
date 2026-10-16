@@ -1,5 +1,82 @@
 # Handover — MaxDps-Companion
 
+## 2026-10-16 macOS CLIENT REBUILD (3.7.9 + ScreenCaptureKit capture + send fixes)
+
+STATUS: the macOS client (`app/MaxDpsCompanion.Mac` + `app/MaxDpsCompanion.Core`)
+is brought up to the 3.7.9 brain and its capture/input path is rebuilt. No wire
+change anywhere (protocol stays v5 + Ext2/Ext3, cells byte-identical; the addon
+`MaxDpsBridgeExp` ships 3.7.9-exp unchanged).
+
+WHY IT DID NOT WORK BEFORE (three independent root causes, all found in code):
+1. **Capture API obsoleted.** The whole sampler/scan path was built on
+   `CGWindowListCreateImage`, which is **obsoleted in macOS 15** and marked
+   unavailable in current SDKs; on macOS 27 it survives only as a legacy symbol.
+   The host now uses a persistent **ScreenCaptureKit** stream
+   (`native/MdcCapture.swift` -> `libmdc_capture.dylib`, small C ABI); the
+   legacy path stays only as a fallback when the native library is missing.
+2. **Nothing could ever send.** `MacGameWindow.IsForeground` was hard-coded
+   `false`, and the engine gates every mouse stroke (and keyboard strokes when
+   background keys are off) on it. And `MacKeySender.SendToWindow` posted to the
+   **global HID tap**, so strokes went to whatever was focused (leaking into
+   other apps) instead of the game. Fixed: real frontmost check via
+   `NSWorkspace.frontmostApplication`, and keyboard strokes now go per-process
+   with **`CGEventPostToPid`** (the macOS counterpart of `PostMessage`; no
+   focus needed, cannot leak). Mouse/wheel keep the HID path and stay
+   foreground-gated, matching the Windows hybrid.
+3. **Colour pipeline can corrupt the wire.** macOS colour-manages window
+   content through the display ICC profile; saturated cells are gamut-mapped
+   and a channel painted as 0 can return several level-steps high (measured on
+   the reference Philips 272S1: blue cell -> green +68/255 = 4 levels), which
+   fails the frame checksum and reads as "no strip". `MacPixelRepair` now
+   repairs a failed frame with a bounded set of one-level corrections on
+   gamut-lifted channels **using the wire's own checksum as the acceptance
+   oracle**; the exact case never enters the path. Repair count is reported by
+   `--probe`.
+
+PERFORMANCE (hard goal: no frametime impact on the game)
+- Capture is a **window-filtered** SCK stream (`desktopIndependentWindow`), not
+  a screen recording; the region is a `sourceRect` that starts as a small
+  locate band (1024x128 pt) and **shrinks to the strip rect** after locate
+  (~352x16 pt ~= 22 KB/frame for the default 8 px cells).
+- **No capture call on the engine tick**: the tick reads the newest frame
+  through a seqlock (no syscall, no lock, no allocation); the window server
+  pushes frames asynchronously, `queueDepth = 2` drops frames instead of
+  back-pressuring capture. The old design called `CGWindowListCreateImage` per
+  sample (20-60 ms of blocking window-server work).
+- **Screen-agnostic**: all coordinates are window-relative (points -> device
+  pixels via the display scale), so the same strip position works on the
+  1080p monitor and on the MacBook panel at any resolution.
+- **Adaptive**: a supervisor rebuilds the stream within a second after a window
+  move / resolution or display change / stream error; a changed strip (addon
+  update, new cell size or offset) is re-located by an escalation ladder
+  (micro band -> wide band -> 20%-tall -> full window, throttled by the
+  engine's 5 s relocate) and the stream shrinks back to the new strip rect.
+  The stream exists only while the engine runs (idle costs nothing).
+- `--bench-capture[=seconds]` prints the hard numbers (locate ms, region size,
+  per-sample us mean/p50/p95/p99/max, managed allocations, our CPU share,
+  delivered fps).
+
+OTHER CHANGES
+- `tools/mac-signing.sh`: local **self-signed code-signing identity** so TCC
+  grants (Screen Recording / Accessibility) survive rebuilds; ad-hoc signing
+  silently loses them on every rebuild.
+- Core synced to the 3.7.8/3.7.9 brain (MAIN = MaxDps core rotation, offensive
+  TTK conservation removed) + identity 3.7.9 "Unyielding".
+- Bundle seeds `dist-exp/settings.ini` (InGameConfigMode=1) instead of the
+  legacy root settings; `dist-mac/` is gitignored like `dist/` and `dist-exp/`.
+- Docs: `app/MaxDpsCompanion.Mac/README.md` (client doc), README macOS callout,
+  ARCHITECTURE macOS capture section, `docs/TESTING.md` 7.
+
+VALIDATED (this machine, offline): Core + Mac build 0 warnings / 0 errors;
+native library builds with `swiftc`; `native/selftest.swift` verifies pattern
+pixels through the stream, region reconfiguration and read cost (0.03 us per
+43-cell read) against a synthetic window; `--probe` runs headless.
+
+OWED (live retail, unproven): strip locate + decode + send on a real client
+(including the repair count on the real display), mouse-slot focus behaviour,
+and `--bench-capture` numbers while playing. Static != automated test != live
+in-game E2E. See docs/TESTING.md 4.
+
 ## 2026-10-10 RELEASE 3.7.9 "UNYIELDING" (MaxDps recommendations = used; offensive TTK conservation removed)
 
 STATUS: **companion behaviour change**, no wire change. The hard TTK

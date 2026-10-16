@@ -725,6 +725,55 @@ current target addon + distribution stays `MaxDpsBridgeExp` + `dist-exp`
 directories are not renamed (would break the csproj/workflows); the C# tree is
 retained as the behavioural fidelity reference for the Rust port.
 
+## macOS host (app/MaxDpsCompanion.Mac) — 2026-10-16
+
+The macOS client is a thin host around the portable brain: it implements the
+Core platform seams (`IGameWindow`, `IScreenSampler`, `IBlockScanner`,
+`IKeySender`, `IPhysicalKeys`, `IClock`, `IPermissions`) with macOS primitives
+and runs the same `RotationEngine`, `PixelProtocol`, scheduler and knowledge
+registry as the Windows app.
+
+```
+engine tick (33 ms)            window server (out of process)
+  RotationEngine.Loop            SCStream (window filter, sourceRect)
+        |                             |
+        |  IScreenSampler.Sample()     |  async frames (~60 fps)
+        v                             v
+   MacScreenSampler  <----- seqlock double buffer (libmdc_capture.dylib)
+        |  43x cellSize px, BGRA, window-relative
+        v
+   MacPixelRepair (only when the frame fails to decode: bounded one-level
+        |          corrections on gamut-lifted channels, checksum as oracle)
+        v
+   PixelProtocol.Decode -> Decision -> Scheduler
+        |
+        v
+   MacKeySender: keyboard -> CGEventPostToPid(pid)   (per-process, no focus)
+                 mouse    -> CGEventPost(HID)        (foreground-gated)
+```
+
+Module map (all under `app/MaxDpsCompanion.Mac/`):
+
+| File | Role |
+| :--- | :--- |
+| `native/MdcCapture.swift` | the whole native surface: persistent SCK stream (window filter, `sourceRect`, BGRA, queueDepth 2), double-buffer publish with a seqlock, one-shot capture (`SCScreenshotManager`) for locate escalation, window frame/scale lookups, frontmost-pid lookup. Built to `libmdc_capture.dylib` by `build-mac.sh`. |
+| `MacCaptureStream.cs` | managed half of that C ABI: region management (window-relative points), frame reads, geometry/scale refresh, stats, one-shot capture. |
+| `MacScreenSampler.cs` | `IScreenSampler`: reads the newest frame (no capture call on the tick), fractional-grid sampling + 5-tap median, grows the region when the engine asks for a rect it does not cover. |
+| `MacBlockScanner.cs` | `IBlockScanner`: scans the current frame, then the escalation ladder (1024x128 -> 2048x400 -> 20%-tall -> full window) via one-shots; on a hit it shrinks the stream to the strip rect. Results are window-relative points. |
+| `MacPixelRepair.cs` | gamut-lift repair (see HANDOVER 2026-10-16). |
+| `MacGameWindow.cs` | window identity/bounds via CGWindowList metadata; `IsForeground` via the native frontmost check (250 ms cache). |
+| `MacKeySender.cs` | keyboard = `CGEventPostToPid`, mouse/wheel = HID (foreground-gated). |
+| `MacEngineHost.cs` | owns the engine + capture lifecycle; a 1 s supervisor restarts capture on window/display changes or stream errors; Stop tears the stream down. |
+| `MacAdapters.cs` | `MacPhysicalKeys` (CGEventSourceKeyState), `MacClock`, `MacPermissions` (TCC checks/prompt). |
+| `MacLegacyCapture.cs` | fallback capture over the obsoleted `CGWindowListCreateImage` (used only when the native library is missing). |
+| `Program.cs` | CLI: `--probe`, `--locate`, `--run`, `--bench-capture`, no-arg UI; `NativeMac` window list helpers. |
+| `MacApp.cs` / `MacAppPaths.cs` | Avalonia shell; settings/probe under `~/Library/Application Support/MaxDpsCompanion/`. |
+| `native/selftest.swift` | capture self-test against a synthetic window (pattern pixels, region reconfig, read cost). |
+
+Invariants: no screen-wide capture; no per-tick capture call; window-relative
+coordinates only; per-process key delivery for keyboard; the checksum is the
+only oracle that may accept a repaired frame.
+
 ## File map
 
 ```
