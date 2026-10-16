@@ -19,63 +19,124 @@ namespace MaxDpsCompanion.Mac;
 // works. Windows has no such pipeline, which is why the wire is unaffected
 // there.
 //
-// SIGNATURE THIS REPAIRS: a SMALL channel level (1..6) in a cell whose sibling
+// SIGNATURE REPAIRED: a SMALL channel level (1..6) in a cell whose sibling
 // channel sits near maximum (>= 12). That is the gamut-lift shape; it is the
 // only distortion the reference display produced.
 //
-// SAFETY: corrections are hypotheses, and the protocol's own checksum is the
-// acceptance oracle — a candidate is used only when the whole frame decodes
-// from it. Unambiguous nonsense cannot be repaired (we never move a channel
-// that already sits on its level), the candidate set is bounded (<= 6
-// hypotheses, singles then pairs), and the exact case never enters this path.
+// SAFETY
+//   * Corrections are hypotheses; the protocol's own checksum is the oracle —
+//     a candidate is used only when the whole frame decodes from it.
+//   * Channels are only moved by whole levels (never to an arbitrary byte) and
+//     the caller's array is always restored exactly, so a failed attempt
+//     cannot corrupt the sample.
+//   * A candidate must repeat on two consecutive samples before it is accepted
+//     (the checksum is only 4 bits; requiring two identical hits makes a
+//     random collision astronomically unlikely). Cost: one tick (33 ms) on the
+//     repaired path only.
 internal static class MacPixelRepair
 {
     private const int SmallLevelMax = 6;
     private const int HighLevelMin = 12;
     private const int MaxAttempts = 400;
 
-    private readonly record struct Hypothesis(int Cell, int Axis, byte Target);
+    private readonly record struct Hypothesis(int Cell, int Axis, byte Value);
+
+    /// <summary>
+    /// Confirmation state: the last repaired cell set, so a candidate must be
+    /// produced twice in a row before it is accepted.
+    /// </summary>
+    private static Color[]? _pending;
+    private static int _pendingCount;
 
     /// <summary>
     /// Returns a corrected colour set that decodes, or null when the plain
-    /// frame already decodes / no bounded correction works. Never throws.
+    /// frame already decodes / no bounded correction works (or a correction is
+    /// still awaiting confirmation). Never throws, never leaves
+    /// <paramref name="cells"/> modified.
     /// </summary>
     public static Color[]? Repair(Color[] cells, ColorProfile? profile, int cellCount)
     {
         if (cells.Length < cellCount) return null;
-
-        var hypotheses = Build(cells, cellCount, profile);
-        if (hypotheses.Count == 0) return null;
-
-        // Singles first: the common case is exactly one lifted cell.
-        foreach (var h in hypotheses)
+        // Never touch a frame that already decodes: the repair is only for the
+        // case where the display pipeline corrupted an otherwise valid frame.
+        if (PixelProtocol.Decode(Slice(cells, cellCount), profile) is not null)
         {
-            var original = Swap(cells, h, h.Target);
-            if (PixelProtocol.Decode(Slice(cells, cellCount), profile) is not null) return Slice(cells, cellCount);
-            Swap(cells, h, original);
+            _pending = null;
+            return null;
         }
 
-        // Then pairs, bounded.
+        var hypotheses = Build(cells, cellCount, profile);
+        if (hypotheses.Count == 0)
+        {
+            _pending = null;
+            return null;
+        }
+
+        var candidate = TrySingles(cells, hypotheses, profile, cellCount)
+            ?? TryPairs(cells, hypotheses, profile, cellCount);
+        if (candidate is null)
+        {
+            _pending = null;
+            return null;
+        }
+
+        // Confirmation: the same candidate must appear on two consecutive
+        // samples. (The caller samples every tick, so this is one tick.)
+        if (_pending is not null && _pendingCount == cellCount && Same(_pending, candidate))
+        {
+            _pending = null;
+            return candidate;
+        }
+        _pending = candidate;
+        _pendingCount = cellCount;
+        return null;
+    }
+
+    private static bool Same(Color[] a, Color[] b)
+    {
+        if (a.Length != b.Length) return false;
+        for (var i = 0; i < a.Length; i++) if (a[i] != b[i]) return false;
+        return true;
+    }
+
+    private static Color[]? TrySingles(Color[] cells, List<Hypothesis> hypotheses, ColorProfile? profile, int cellCount)
+    {
+        foreach (var h in hypotheses)
+        {
+            var previous = SetLevel(cells, h);
+            var ok = PixelProtocol.Decode(Slice(cells, cellCount), profile) is not null;
+            SetByte(cells, h.Cell, h.Axis, previous);       // exact restore
+            if (ok) return Apply(cells, new List<Hypothesis> { h }, cellCount);
+        }
+        return null;
+    }
+
+    private static Color[]? TryPairs(Color[] cells, List<Hypothesis> hypotheses, ColorProfile? profile, int cellCount)
+    {
         var attempts = 0;
         for (var i = 0; i < hypotheses.Count && attempts < MaxAttempts; i++)
         {
             for (var j = i + 1; j < hypotheses.Count && attempts < MaxAttempts; j++)
             {
-                var oi = Swap(cells, hypotheses[i], hypotheses[i].Target);
-                var oj = Swap(cells, hypotheses[j], hypotheses[j].Target);
+                var pi = SetLevel(cells, hypotheses[i]);
+                var pj = SetLevel(cells, hypotheses[j]);
                 attempts++;
-                var hit = PixelProtocol.Decode(Slice(cells, cellCount), profile) is not null;
-                Swap(cells, hypotheses[j], oj);
-                Swap(cells, hypotheses[i], oi);
-                if (hit)
-                {
-                    Swap(cells, hypotheses[i], hypotheses[i].Target);
-                    Swap(cells, hypotheses[j], hypotheses[j].Target);
-                    return Slice(cells, cellCount);
-                }
+                var ok = PixelProtocol.Decode(Slice(cells, cellCount), profile) is not null;
+                SetByte(cells, hypotheses[j].Cell, hypotheses[j].Axis, pj);
+                SetByte(cells, hypotheses[i].Cell, hypotheses[i].Axis, pi);
+                if (ok) return Apply(cells, new List<Hypothesis> { hypotheses[i], hypotheses[j] }, cellCount);
             }
         }
         return null;
+    }
+
+    /// <summary>Copies the cells and applies the winning hypotheses to the copy.</summary>
+    private static Color[] Apply(Color[] cells, List<Hypothesis> winners, int cellCount)
+    {
+        var result = new Color[cellCount];
+        Array.Copy(cells, result, cellCount);
+        foreach (var h in winners) SetLevel(result, h);
+        return result;
     }
 
     /// <summary>
@@ -101,25 +162,22 @@ internal static class MacPixelRepair
                 var level = levels[axis];
                 if (level < 1 || level > SmallLevelMax) continue;
                 if (list.Count >= 6) return list;
-                list.Add(new Hypothesis(i, axis, 0));                     // full lift (blue case: 4 -> 0)
-                if (level > 1) list.Add(new Hypothesis(i, axis, (byte)(level - 1))); // partial lift
+                list.Add(new Hypothesis(i, axis, 0));                                  // full lift (blue case: 4 -> 0)
+                if (level > 1) list.Add(new Hypothesis(i, axis, (byte)(level - 1)));    // partial lift
             }
         }
         return list;
     }
 
-    /// <summary>Sets a channel to the given level and returns the previous byte.</summary>
-    private static byte Swap(Color[] cells, Hypothesis h, byte level)
+    /// <summary>Sets a channel to LEVEL * 17 and returns the previous byte.</summary>
+    private static byte SetLevel(Color[] cells, Hypothesis h) =>
+        SetByte(cells, h.Cell, h.Axis, (byte)Math.Clamp(h.Value * 17, 0, 255));
+
+    private static byte SetByte(Color[] cells, int cell, int axis, byte value)
     {
-        var c = cells[h.Cell];
-        var value = (byte)Math.Clamp(level * 17, 0, 255);
-        var previous = h.Axis switch
-        {
-            0 => c.R,
-            1 => c.G,
-            _ => c.B,
-        };
-        cells[h.Cell] = h.Axis switch
+        var c = cells[cell];
+        var previous = axis switch { 0 => c.R, 1 => c.G, _ => c.B };
+        cells[cell] = axis switch
         {
             0 => Color.FromArgb(value, c.G, c.B),
             1 => Color.FromArgb(c.R, value, c.B),
@@ -127,6 +185,8 @@ internal static class MacPixelRepair
         };
         return previous;
     }
+
+    private static byte Channel(Color c, int axis) => axis switch { 0 => c.R, 1 => c.G, _ => c.B };
 
     private static int Level(byte channel, int axis, ColorProfile? profile)
     {

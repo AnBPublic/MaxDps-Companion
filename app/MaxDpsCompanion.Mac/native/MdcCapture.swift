@@ -449,14 +449,23 @@ private final class CaptureEngine {
                     return
                 }
                 let imgStride = img.bytesPerRow
-                let need = imgStride * img.height
+                let packed = img.width * 4
+                let need = packed * img.height
                 guard need <= dstCap else {
                     box.code = errTooSmall
                     sem.signal()
                     return
                 }
-                memcpy(dst, ptr, need)
-                gotW = Int32(img.width); gotH = Int32(img.height); gotStride = Int32(imgStride)
+                if imgStride == packed {
+                    memcpy(dst, ptr, need)
+                } else {
+                    // Padded rows: pack them on the way out (the same
+                    // normalisation the stream publish path does).
+                    for row in 0..<img.height {
+                        memcpy(dst + row * packed, ptr + row * imgStride, packed)
+                    }
+                }
+                gotW = Int32(img.width); gotH = Int32(img.height); gotStride = Int32(packed)
                 box.code = errOK
             } catch {
                 box.code = CGPreflightScreenCaptureAccess() ? errStream : errNotAuthorized

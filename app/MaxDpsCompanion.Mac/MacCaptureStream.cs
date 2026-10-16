@@ -416,8 +416,10 @@ internal sealed class MacCaptureStream : IDisposable
         var clamp = ClampToWindow(x, y, w, h);
         var wPx = (int)Math.Round(clamp.W * _scale);
         var hPx = (int)Math.Round(clamp.H * _scale);
-        var cap = wPx * hPx * 4 + 64;
-        if (cap <= 64) return false;
+        // The native one-shot packs rows (stride = width*4), so the buffer can
+        // be sized from the point dimensions with a small allowance.
+        var cap = wPx * hPx * 4 + 1024;
+        if (cap <= 1024) return false;
         var buf = new byte[cap];
         var handle = GCHandle.Alloc(buf, GCHandleType.Pinned);
         try
@@ -449,6 +451,25 @@ internal sealed class MacCaptureStream : IDisposable
         if (!MdcNative.AvailableSafe || pid <= 0) return false;
         try { return MdcNative.FrontmostPid() == pid; }
         catch { return false; }
+    }
+
+    /// <summary>
+    /// Debug helper: hex RGBA of the first <paramref name="count"/> pixels of a
+    /// frame row, straight out of the published buffer (probe diagnostics only).
+    /// </summary>
+    public unsafe string RawRowDump(int row, int count)
+    {
+        if (!TryFrame(out var frame) || !frame.Valid) return "no frame";
+        if (row < 0 || row >= frame.Height) return "row out of range";
+        var n = Math.Min(count, frame.Width);
+        var sb = new System.Text.StringBuilder(n * 12);
+        var p = (byte*)frame.Ptr + (long)row * frame.Stride;
+        for (var x = 0; x < n; x++)
+        {
+            var q = p + x * 4;
+            sb.Append(q[2].ToString("x2")).Append(q[1].ToString("x2")).Append(q[0].ToString("x2")).Append(' ');
+        }
+        return $"seq={frame.Seq} row={row} {frame.Width}x{frame.Height} stride={frame.Stride}: {sb}";
     }
 
     public void Dispose() => Stop();

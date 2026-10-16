@@ -59,8 +59,14 @@ internal static class Program
         return 0;
     }
 
+    /// <summary>True for an exact flag or its --flag=value form.</summary>
     private static bool HasFlag(string[] args, string flag) =>
-        args.Any(a => string.Equals(a, flag, StringComparison.OrdinalIgnoreCase));
+        args.Any(a =>
+        {
+            var i = a.IndexOf('=');
+            var name = i > 0 ? a[..i] : a;
+            return string.Equals(name, flag, StringComparison.OrdinalIgnoreCase);
+        });
 
     internal static AppSettings LoadSettings()
     {
@@ -174,7 +180,17 @@ internal static class Program
             }
 
             var scanner = new MacBlockScanner(stream.Running ? stream : null, settings.Color);
-            var found = scanner.Locate(origin, size);
+            (int OffsetX, int OffsetY, int CellSize)? found = null;
+            for (var attempt = 0; attempt < 3 && found is null; attempt++)
+            {
+                if (attempt > 0)
+                {
+                    // Make sure we are not judging a pre-paint frame.
+                    WaitForFreshFrame(stream, 500);
+                    Thread.Sleep(120);
+                }
+                found = scanner.Locate(origin, size);
+            }
             if (found is null)
             {
                 lines.Add($"locate=null (no strip in {size.Width}x{size.Height} at {origin.X},{origin.Y})");
@@ -183,6 +199,19 @@ internal static class Program
                 return lines;
             }
             lines.Add($"locate={found.Value.OffsetX},{found.Value.OffsetY} cell={found.Value.CellSize}");
+            if (stream.Running)
+            {
+                // Raw first cells: the fastest way to tell a geometry error from
+                // a colour/blank-frame problem when the decode fails.
+                var probeCells = new MacScreenSampler(stream, settings.Color)
+                    .Sample(new System.Drawing.Point(origin.X + found.Value.OffsetX, origin.Y + found.Value.OffsetY), found.Value.CellSize);
+                var head = string.Join(" ", probeCells.Take(6).Select(c => $"{c.R},{c.G},{c.B}"));
+                var geom = stream.RefreshGeometry()
+                    ? $"win={stream.WindowOrigin.X},{stream.WindowOrigin.Y} scale={stream.Scale:0.##} region={stream.Region.X:0},{stream.Region.Y:0} {stream.Region.W:0}x{stream.Region.H:0}pt"
+                    : "geometry unknown";
+                var st = stream.Stats();
+                lines.Add($"sample: {head} | {geom} | frames={st.Delivered} skipped={st.Skipped} ageMs={stream.FrameAgeMs}");
+            }
             var sampler = new MacScreenSampler(stream.Running ? stream : null, settings.Color);
             var at = new System.Drawing.Point(origin.X + found.Value.OffsetX, origin.Y + found.Value.OffsetY);
             var cells = sampler.Sample(at, found.Value.CellSize);
@@ -213,6 +242,21 @@ internal static class Program
             stream?.Dispose();
         }
         return lines;
+    }
+
+    /// <summary>
+    /// Waits (bounded) until the newest frame is fresh (a static strip legitimately
+    /// stops changing, in which case the existing frame is still correct).
+    /// </summary>
+    private static void WaitForFreshFrame(MacCaptureStream stream, int timeoutMs)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        while (sw.ElapsedMilliseconds < timeoutMs)
+        {
+            var age = stream.FrameAgeMs;
+            if (age >= 0 && age < 120) return;
+            Thread.Sleep(10);
+        }
     }
 
     /// <summary>Waits (bounded) for the first delivered frame.</summary>
@@ -251,7 +295,7 @@ internal static class Program
         }
         if (!window.TryGetClientOrigin(out var origin, out var size))
         {
-            Console.WriteLine("bench: game window has no client area");
+            Console.WriteLine($"bench: game window has no client area (pid={WowPid()} bounds={WowBounds()})");
             return 1;
         }
 
@@ -331,6 +375,13 @@ internal static class Program
     {
         var lines = new List<string>();
         var sampler = new MacScreenSampler(stream is { Running: true } ? stream : null, settings.Color);
+        if (stream is { Running: true })
+        {
+            var (pw, ph) = stream.RegionPixels;
+            var st = stream.Stats();
+            lines.Add($"diag frame: regionPx={pw}x{ph} window={stream.WindowOrigin.X},{stream.WindowOrigin.Y} scale={stream.Scale:0.##} region={stream.Region.X:0},{stream.Region.Y:0} {stream.Region.W:0}x{stream.Region.H:0}pt frames={st.Delivered} skipped={st.Skipped} ageMs={stream.FrameAgeMs} err=\"{stream.LastErrorText}\"");
+            lines.Add("diag raw: " + stream.RawRowDump(1, 24));
+        }
         foreach (var cs in new[] { 6, 7, 8, 9, 10, 11, 12, 13, 14, 16 })
         {
             try
@@ -340,7 +391,9 @@ internal static class Program
                 var version = cells.Length > 10 ? (int)Math.Round(cells[10].R / 17.0) : -1;
                 var fault = PixelProtocol.Diagnose(cells, settings.Color);
                 var decoded = PixelProtocol.Decode(cells, settings.Color) is not null;
-                lines.Add($"diag cs={cs}: magic={c0.R},{c0.G},{c0.B} versionNibble={version} fault={fault} decoded={decoded}");
+                var head = string.Join(" ", cells.Take(4).Select(c => $"{c.R},{c.G},{c.B}"));
+                lines.Add($"diag cs={cs}: magic={c0.R},{c0.G},{c0.B} versionNibble={version} fault={fault} decoded={decoded} first4=[{head}]");
+                lines.Add($"diag trace: {sampler.Trace}");
             }
             catch (Exception ex)
             {

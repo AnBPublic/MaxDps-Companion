@@ -41,6 +41,9 @@ internal sealed class MacScreenSampler : IScreenSampler
     /// <summary>Cells of the last sample that decoded only after repair (diagnostics).</summary>
     public int LastRepairCells { get; private set; }
 
+    /// <summary>Last grid computation + the raw row it sampled (diagnostics).</summary>
+    public string Trace { get; private set; } = "";
+
     /// <summary>
     /// Current capture stream. The engine keeps ONE adapter instance for its
     /// lifetime, so the host swaps the stream here when it restarts capture
@@ -136,6 +139,7 @@ internal sealed class MacScreenSampler : IScreenSampler
 
         var cells = ReadCells(stream, relX, relY, (int)Math.Round((relX - rx) * scale), (int)Math.Round((relY - ry) * scale),
             cellSize * scale, cellCount);
+        if (cells is not null && IsBlank(cells)) return null;   // pre-paint frame: not data
         return cells;
     }
 
@@ -168,6 +172,12 @@ internal sealed class MacScreenSampler : IScreenSampler
         var run = PixelSampler.MagicRun(At, y: 1, limit: limitX);
         var baseStep = run > 0 ? run : Math.Max(1, (int)Math.Round(step));
         var height = Math.Min((int)Math.Max(1, step), limitY);
+        var probeGrid = PixelSampler.SampleGrid(At, Math.Min(cellCount, 6), baseStep + 0.5, height);
+        var col = string.Join(",", Enumerable.Range(0, Math.Min(8, limitY)).Select(y => { var c = At(4, y); return $"{c.R}/{c.G}/{c.B}"; }));
+        Trace = $"px={px} py={py} run={run} step={baseStep} height={height} grid0=" +
+            string.Join(",", probeGrid.Select(c => $"{c.R}/{c.G}/{c.B}")) +
+            $" col4=" + col +
+            $" row1=" + string.Join(",", new[] { 0, 3, 4, 7, 8, 11, 12 }.Select(x => { var c = At(x, 1); return $"{c.R}/{c.G}/{c.B}"; }));
 
         foreach (var f in new[] { 0.0, 0.5, 0.25, 0.75, 0.99 })
         {
@@ -200,6 +210,22 @@ internal sealed class MacScreenSampler : IScreenSampler
             if (PixelProtocol.Decode(candidate, _profile) is not null) return candidate;
         }
         return cells;
+    }
+
+    /// <summary>
+    /// True when every sampled cell is near-white or near-black: the window had
+    /// not painted yet (or is blanked), so the frame carries no wire content.
+    /// </summary>
+    private static bool IsBlank(Color[] cells)
+    {
+        if (cells.Length == 0) return false;
+        var blank = 0;
+        foreach (var c in cells)
+        {
+            var luma = (c.R + c.G + c.B) / 3;
+            if (luma <= 6 || luma >= 249) blank++;
+        }
+        return blank == cells.Length;
     }
 
     private void UpdateMirror(Color[] colors)
