@@ -521,6 +521,26 @@ APP="/Applications/MaxDPS Companion.app/Contents/MacOS/MaxDpsCompanion.Mac"
 | 4.11 | `--bench-capture=10` while playing | steady-state region ~20-40 KB/frame; per-sample mean well under 0.5 ms; our CPU near 1 % of one core |
 | 4.12 | Quit the app after playing | no capture session left behind (`Activity Monitor`: no SCK helper burning CPU; app gone) |
 
+### 4.0 Offline app-level capture check (no game needed)
+
+A synthetic window exercises the real capture path without WoW. Build a stub
+whose executable is named `Wow` (any process whose name matches the app's
+window list: `World of Warcraft`, `World of Warcraft.app`, `Wow`) drawing a
+43-cell strip (cell size 8, magenta magic cell + `n*17` channel ramps) at its
+top-left corner, then:
+
+```sh
+"/Applications/MaxDPS Companion.app/Contents/MacOS/MaxDpsCompanion.Mac" --probe
+```
+
+Expected: `process=... bounds=...`; `diag frame:` shows the window origin and
+`region=0,0 ...pt`; `diag trace:` shows `run=8 step=8` and the sampled first
+cells matching the drawn pattern (magenta 255,70,255 at cell 0, then 17/33/51);
+`locate=null ... fault=Version` is CORRECT for a stub (it has no valid v5
+checksums). If the sampled cells are blank/shifted, the geometry or the blank
+frame handling regressed. `--bench-capture=3` must also run (it reports "strip
+not found" for a stub).
+
 ## 5. Benchmarks / diagnostics (no game)
 
 

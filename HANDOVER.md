@@ -72,6 +72,17 @@ native library builds with `swiftc`; `native/selftest.swift` verifies pattern
 pixels through the stream, region reconfiguration and read cost (0.03 us per
 43-cell read) against a synthetic window; `--probe` runs headless.
 
+APP-LEVEL SYNTHETIC CHECK (no game needed): a small window whose binary is
+named `Wow` (see docs/TESTING.md 4.0) draws a known 43-cell pattern at its
+top-left; the installed app's `--probe`/`--bench-capture` then exercise the
+real path (process match -> window frame/scale -> window-relative region ->
+stream -> sampling grid -> 5-tap median). This caught three real defects that
+would have presented as "locate=null" in-game: MacPixelRepair restored probed
+channels with byte-as-level units (corrupting the sample), `mdc_cap_once`
+overflowed its managed buffer because ScreenCaptureKit pads rows (900 px ->
+stride 3712 vs 3600 packed) so the escalation ladder could never capture, and
+a pre-paint blank frame was treated as data. All three are fixed.
+
 OWED (live retail, unproven): strip locate + decode + send on a real client
 (including the repair count on the real display), mouse-slot focus behaviour,
 and `--bench-capture` numbers while playing. Static != automated test != live
