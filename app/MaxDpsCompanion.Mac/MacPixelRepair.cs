@@ -48,6 +48,13 @@ internal static class MacPixelRepair
     private static Color[]? _pending;
     private static int _pendingCount;
 
+    /// <summary>Drops the confirmation state (stream restart / locate reset).</summary>
+    public static void Forget()
+    {
+        _pending = null;
+        _pendingCount = 0;
+    }
+
     /// <summary>
     /// Returns a corrected colour set that decodes, or null when the plain
     /// frame already decodes / no bounded correction works (or a correction is

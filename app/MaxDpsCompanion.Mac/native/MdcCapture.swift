@@ -17,19 +17,28 @@
 //   * ONE persistent SCStream per run, filtered to the WoW window only
 //     (desktopIndependentWindow) with a sourceRect bounded to the strip
 //     band -> the compositor never runs a screen-wide capture, and the game
-//     render loop is never synchronously captured. (The old design called
-//     CGWindowListCreateImage on the engine tick: 20-60 ms of blocking
-//     window-server work per sample.)
+//     render loop is never synchronously captured.
 //   * Frames arrive asynchronously at up to `fps`; the delegate memcpys the
 //     band into a double buffer and returns. queueDepth 2 => a busy consumer
 //     drops frames instead of back-pressuring the capture pipeline.
 //   * The hot path (engine tick) is a seqlock READ of the newest frame: no
 //     syscall, no lock, no allocation, no IPC with the game.
-//   * No audio, no cursor, no shadow, no scaling: 1:1 32BGRA at the
-//     display's native scale.
+//   * No audio, no cursor, no shadow, no scaling: 1:1 32BGRA.
 //   * Region is reconfigurable at runtime (updateConfiguration): the host
 //     starts on a bounded locate band and shrinks to the discovered strip
-//     rect (43 cells x cellSize), which is <1% of a 1080p screen.
+//     rect, which is <1% of a 1080p screen.
+//
+// LIFETIME / RACE RULES (each addressed deliberately):
+//   * Each stream start creates a fresh SESSION (its own sink, output and
+//     watchdog). A stopped-but-not-yet-quiesced stream therefore writes into
+//     ITS OWN sink, never into the live one, and `mdc_cap_dead` reports the
+//     CURRENT session only.
+//   * Frame buffers are never freed while the process lives: a reader's
+//     snapshot pointer may be held across a region change, and freeing it
+//     would be a use-after-free. Region changes are rare and the retired
+//     buffers are small (the whole point of the bounded region).
+//   * All control operations (start/stop/setRegion/once) are serialised by
+//     one lock, so a supervisor-driven restart cannot interleave with a stop.
 //
 // ABI (C, called from C# DllImport — see MacCaptureStream.cs):
 //   int32  mdc_cap_available(void);
@@ -42,13 +51,14 @@
 //   int32  mdc_cap_set_region(double x, double y, double w, double h);
 //   int32  mdc_cap_region(int32 *w, int32 *h);
 //   int32  mdc_cap_snapshot(uint64 *seq, const uint8 **ptr, int32 *w, int32 *h, int32 *stride);
-//   int32  mdc_cap_snapshot_if(uint64 minSeq, uint64 *seq, const uint8 **ptr, int32 *w, int32 *h, int32 *stride);
+//   int32  mdc_cap_snapshot_if(uint64 minSeq, ...) — same shape;
 //   int64  mdc_cap_frame_age_ms(void);
 //   int32  mdc_cap_stats(uint64 *delivered, uint64 *skipped, int32 *fps);
 //   int32  mdc_cap_dead(void);
+//   const char *mdc_cap_last_error(void);
+//   const char *mdc_cap_last_skip(void);
 //   int32  mdc_cap_once(uint32 pid, double x, double y, double w, double h,
 //                       uint8 *dst, int32 dstCap, int32 *outW, int32 *outH, int32 *outStride);
-//   const char *mdc_cap_last_error(void);
 //
 // Error codes: 0 ok, -1 unavailable, -2 not authorized, -3 window not found,
 //              -4 stream/config error, -5 timeout, -6 buffer too small,
@@ -75,6 +85,10 @@ private let errBadArgs: Int32 = -8
 private final class Sink {
     private var bufA: UnsafeMutablePointer<UInt8>?
     private var bufB: UnsafeMutablePointer<UInt8>?
+    /// Retired buffers: never freed, so a pointer handed out by snapshot()
+    /// stays valid across a region change (see LIFETIME RULES).
+    private var retired: [UnsafeMutablePointer<UInt8>] = []
+
     private var cap = 0
     private var which = 0                 // buffer the NEXT frame is written to
     private var valid = false             // false until a frame of the current config lands
@@ -87,33 +101,28 @@ private final class Sink {
     private var fpsWindowNs: UInt64 = 0
     private var fpsWindowCount = 0
     private var fpsValue: Int32 = 0
+    private var lastSkip = "none"
 
     private var width: Int32 = 0
     private var height: Int32 = 0
     private var stride: Int32 = 0
-    private var lastSkip = "none"
 
     var skipReason: String {
         lock.lock(); defer { lock.unlock() }
         return lastSkip
     }
 
-    deinit {
-        bufA?.deallocate()
-        bufB?.deallocate()
-    }
-
     /// (Re)allocates for a new region and invalidates the published frame.
-    /// Frames are NORMALISED to a packed stride (w*4): ScreenCaptureKit pads
+    /// Old buffers are RETIRED, never freed (a reader may still hold one).
+    /// Frames are normalised to a packed stride (w*4): ScreenCaptureKit pads
     /// rows (measured: 400 px -> stride 1664, i.e. +64 B/row), so the publish
-    /// path row-copies when the delivered stride is wider. The managed reader
-    /// therefore always sees stride == width*4.
+    /// path row-copies when the delivered stride is wider.
     func prepare(w: Int, h: Int, strideBytes: Int) {
         lock.lock(); defer { lock.unlock() }
         let need = strideBytes * h
         if need > cap {
-            bufA?.deallocate()
-            bufB?.deallocate()
+            if let a = bufA { retired.append(a) }
+            if let b = bufB { retired.append(b) }
             bufA = UnsafeMutablePointer<UInt8>.allocate(capacity: need)
             bufB = UnsafeMutablePointer<UInt8>.allocate(capacity: need)
             cap = need
@@ -137,8 +146,7 @@ private final class Sink {
         guard let px = CMSampleBufferGetImageBuffer(sb) else {
             lock.lock()
             skipped &+= 1
-            let flags = CMSampleBufferGetNumSamples(sb)
-            lastSkip = "no image buffer (\(statusText), samples=\(flags))"
+            lastSkip = "no image buffer (\(statusText), samples=\(CMSampleBufferGetNumSamples(sb)))"
             lock.unlock()
             return
         }
@@ -222,20 +230,32 @@ private final class Sink {
         lock.lock(); defer { lock.unlock() }
         return (delivered, skipped, fpsValue)
     }
+
+    /// Marks the current configuration as unusable (a failed reconfigure).
+    func invalidate() {
+        lock.lock(); defer { lock.unlock() }
+        valid = false
+    }
 }
 
 private final class SinkOutput: NSObject, SCStreamOutput {
     private let sink: Sink
-    init(_ s: Sink) { sink = s }
+    private let generation: UInt64
+    private let owner: CaptureEngine
+
+    init(_ s: Sink, generation: UInt64, owner: CaptureEngine) {
+        sink = s
+        self.generation = generation
+        self.owner = owner
+    }
+
     func stream(_ stream: SCStream, didOutputSampleBuffer sb: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .screen else { return }
+        // A stream that was replaced (stop timeout, restart) must not publish
+        // into the live session's sink.
+        guard owner.isCurrent(generation) else { return }
         sink.publish(sb)
     }
-}
-
-/// Reference box for results produced inside an escaping Task.
-private final class ResultBox {
-    var code: Int32 = errTimeout
 }
 
 private final class StreamWatchdog: NSObject, SCStreamDelegate {
@@ -256,20 +276,46 @@ private final class StreamWatchdog: NSObject, SCStreamDelegate {
 private final class CaptureEngine {
     static let shared = CaptureEngine()
 
-    private let sink = Sink()
-    private lazy var sinkOutput = SinkOutput(sink)
-    private let watchdog = StreamWatchdog()
-    private let frameQueue = DispatchQueue(label: "com.maxdps.companion.capture.frames", qos: .userInitiated)
+    /// One live capture run: stream + sink + watchdog + geometry.
+    private final class Session {
+        let generation: UInt64
+        let sink: Sink
+        let output: SinkOutput
+        var watchdog: StreamWatchdog
+        var stream: SCStream?
+        var region: CGRect
+        var scale: CGFloat
+        var fps: Int32
 
-    private var stream: SCStream?
-    private let ctl = NSLock()            // start/stop/setRegion are control-plane only
-    private var region = CGRect(x: 0, y: 0, width: 1400, height: 48)
-    private var scale: CGFloat = 1
-    private var fps: Int32 = 60
+        init(generation: UInt64, sink: Sink, output: SinkOutput, watchdog: StreamWatchdog,
+             stream: SCStream?, region: CGRect, scale: CGFloat, fps: Int32) {
+            self.generation = generation
+            self.sink = sink
+            self.output = output
+            self.watchdog = watchdog
+            self.stream = stream
+            self.region = region
+            self.scale = scale
+            self.fps = fps
+        }
+    }
+
+    private let ctl = NSRecursiveLock()            // serialises every control op
+    private let frameQueue = DispatchQueue(label: "com.maxdps.companion.capture.frames", qos: .userInitiated)
+    private var session: Session?
+    private var nextGeneration: UInt64 = 0
     private var lastError = ""
+    /// Stored string backing the const char* returned by the error getters
+    /// (a temporary NSString's utf8String would dangle once it is released).
+    var cachedError: NSString = ""
 
     private func setError(_ s: String) { lastError = s }
     var errorText: String { lastError }
+
+    func isCurrent(_ generation: UInt64) -> Bool {
+        ctl.lock(); defer { ctl.unlock() }
+        return session?.generation == generation
+    }
 
     /// Blocking fetch of shareable content. Control paths only (start /
     /// setRegion / once) — never the engine tick.
@@ -283,11 +329,7 @@ private final class CaptureEngine {
                 code = errOK
             } catch {
                 let ns = error as NSError
-                if !CGPreflightScreenCaptureAccess() {
-                    code = errNotAuthorized
-                } else {
-                    code = errStream
-                }
+                code = CGPreflightScreenCaptureAccess() ? errStream : errNotAuthorized
                 self.setError("SCShareableContent \(ns.domain)#\(ns.code): \(ns.localizedDescription)")
             }
             sem.signal()
@@ -319,12 +361,12 @@ private final class CaptureEngine {
         return best
     }
 
-    private func pixelSize(_ rect: CGRect) -> (Int, Int) {
+    private func pixelSize(_ rect: CGRect, scale: CGFloat) -> (Int, Int) {
         (max(1, Int((rect.width * scale).rounded())), max(1, Int((rect.height * scale).rounded())))
     }
 
-    private func makeConfig(_ rect: CGRect) -> SCStreamConfiguration {
-        let (pxW, pxH) = pixelSize(rect)
+    private func makeConfig(_ rect: CGRect, scale: CGFloat, fps: Int32) -> SCStreamConfiguration {
+        let (pxW, pxH) = pixelSize(rect, scale: scale)
         let cfg = SCStreamConfiguration()
         cfg.sourceRect = rect
         cfg.width = pxW
@@ -342,10 +384,9 @@ private final class CaptureEngine {
     }
 
     func start(pid wantPid: UInt32, rect: CGRect, wantFps: Int32) -> Int32 {
+        ctl.lock(); defer { ctl.unlock() }
         if !CGPreflightScreenCaptureAccess() { return errNotAuthorized }
-        _ = stop()
-        region = rect
-        fps = max(1, min(120, wantFps))
+        _ = stopLocked()
 
         let (content, code) = shareable()
         guard let content else { return code }
@@ -353,15 +394,24 @@ private final class CaptureEngine {
             setError("no capturable window for pid \(wantPid)")
             return errNoWindow
         }
-        scale = scale(for: win)
-        let (pxW, pxH) = pixelSize(region)
-        sink.prepare(w: pxW, h: pxH, strideBytes: pxW * 4)
+        let scale = scale(for: win)
+        // Clamp to the window so a tiny window cannot produce a region that
+        // never matches the delivered frames.
+        let w = max(8, min(rect.width, win.frame.width))
+        let h = max(8, min(rect.height, win.frame.height))
+        let region = CGRect(x: max(0, rect.origin.x), y: max(0, rect.origin.y), width: w, height: h)
 
-        let filter = SCContentFilter(desktopIndependentWindow: win)
-        let cfg = makeConfig(region)
-        let s = SCStream(filter: filter, configuration: cfg, delegate: watchdog)
+        nextGeneration &+= 1
+        let sink = Sink()
+        let (pxW, pxH) = pixelSize(region, scale: scale)
+        sink.prepare(w: pxW, h: pxH, strideBytes: pxW * 4)
+        let watchdog = StreamWatchdog()
+        let output = SinkOutput(sink, generation: nextGeneration, owner: self)
+        let s = SCStream(filter: SCContentFilter(desktopIndependentWindow: win),
+                         configuration: makeConfig(region, scale: scale, fps: wantFps),
+                         delegate: watchdog)
         do {
-            try s.addStreamOutput(sinkOutput, type: .screen, sampleHandlerQueue: frameQueue)
+            try s.addStreamOutput(output, type: .screen, sampleHandlerQueue: frameQueue)
         } catch {
             setError("addStreamOutput: \(error)")
             return errStream
@@ -380,32 +430,53 @@ private final class CaptureEngine {
             return errTimeout
         }
         if startCode != errOK { return startCode }
-        stream = s
+
+        session = Session(generation: nextGeneration, sink: sink, output: output,
+                          watchdog: watchdog, stream: s, region: region,
+                          scale: scale, fps: max(1, min(120, wantFps)))
         setError("")
         return errOK
     }
 
     func stop() -> Int32 {
-        guard let s = stream else { return errOK }
-        stream = nil
+        ctl.lock(); defer { ctl.unlock() }
+        return stopLocked()
+    }
+
+    private func stopLocked() -> Int32 {
+        guard let current = session else { return errOK }
+        // Drop the session FIRST: a stream that does not quiesce within the
+        // timeout can no longer publish (its generation is no longer current).
+        session = nil
         let sem = DispatchSemaphore(value: 0)
-        s.stopCapture { _ in sem.signal() }
-        _ = sem.wait(timeout: .now() + 3.0)
+        current.stream?.stopCapture { _ in sem.signal() }
+        if sem.wait(timeout: .now() + 3.0) == .timedOut {
+            setError("stopCapture timed out; the retired stream keeps running into its own sink")
+        }
         return errOK
     }
 
     func setRegion(_ rect: CGRect) -> Int32 {
-        region = rect
-        guard let s = stream else { return errStream }
-        let (pxW, pxH) = pixelSize(rect)
-        sink.prepare(w: pxW, h: pxH, strideBytes: pxW * 4)
+        ctl.lock(); defer { ctl.unlock() }
+        guard let current = session, let stream = current.stream else { return errStream }
+        let w = max(8, min(rect.width, current.region.width + 8192))
+        let h = max(8, min(rect.height, current.region.height + 8192))
+        let clamped = CGRect(x: max(0, rect.origin.x), y: max(0, rect.origin.y), width: w, height: h)
+        let (pxW, pxH) = pixelSize(clamped, scale: current.scale)
+        current.sink.prepare(w: pxW, h: pxH, strideBytes: pxW * 4)
+
         let sem = DispatchSemaphore(value: 0)
         var code: Int32 = errOK
-        s.updateConfiguration(makeConfig(rect)) { err in
+        stream.updateConfiguration(makeConfig(clamped, scale: current.scale, fps: current.fps)) { err in
             if let err { code = errStream; self.setError("updateConfiguration: \(err)") }
             sem.signal()
         }
         if sem.wait(timeout: .now() + 3.0) == .timedOut { return errTimeout }
+        if code == errOK {
+            current.region = clamped          // commit only on success
+        } else {
+            setError("updateConfiguration failed; region left at \(current.region)")
+        }
         return code
     }
 
@@ -420,7 +491,6 @@ private final class CaptureEngine {
         let winScale = scale(for: win)
         let pxW = max(1, Int((rect.width * winScale).rounded()))
         let pxH = max(1, Int((rect.height * winScale).rounded()))
-        let filter = SCContentFilter(desktopIndependentWindow: win)
         let cfg = SCStreamConfiguration()
         cfg.sourceRect = rect
         cfg.width = pxW
@@ -437,12 +507,11 @@ private final class CaptureEngine {
         var gotW: Int32 = 0
         var gotH: Int32 = 0
         var gotStride: Int32 = 0
-        // Boxed results: the Task is an escaping closure and cannot capture
-        // inout parameters.
         let box = ResultBox()
         Task.detached {
             do {
-                let img = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg)
+                let img = try await SCScreenshotManager.captureImage(
+                    contentFilter: SCContentFilter(desktopIndependentWindow: win), configuration: cfg)
                 guard let data = img.dataProvider?.data, let ptr = CFDataGetBytePtr(data) else {
                     box.code = errStream
                     sem.signal()
@@ -459,8 +528,7 @@ private final class CaptureEngine {
                 if imgStride == packed {
                     memcpy(dst, ptr, need)
                 } else {
-                    // Padded rows: pack them on the way out (the same
-                    // normalisation the stream publish path does).
+                    // Packed rows on the way out (same normalisation as the stream path).
                     for row in 0..<img.height {
                         memcpy(dst + row * packed, ptr + row * imgStride, packed)
                     }
@@ -481,14 +549,48 @@ private final class CaptureEngine {
         return result
     }
 
-    var shell: Sink { sink }
+    var currentSink: Sink? {
+        ctl.lock(); defer { ctl.unlock() }
+        return session?.sink
+    }
+
     var regionPixels: (Int32, Int32) {
-        let (w, h) = pixelSize(region)
+        ctl.lock(); defer { ctl.unlock() }
+        guard let s = session else { return (0, 0) }
+        let (w, h) = pixelSize(s.region, scale: s.scale)
         return (Int32(w), Int32(h))
     }
-    var isDead: Bool { watchdog.isDead }
-    var watchdogText: String { watchdog.errorText }
-    var errorOrWatchdog: String { watchdog.isDead ? watchdog.errorText : lastError }
+
+    var regionRect: CGRect {
+        ctl.lock(); defer { ctl.unlock() }
+        return session?.region ?? .zero
+    }
+
+    var isDead: Bool {
+        ctl.lock(); defer { ctl.unlock() }
+        return session?.watchdog.isDead ?? false
+    }
+
+    var watchdogText: String {
+        ctl.lock(); defer { ctl.unlock() }
+        return session?.watchdog.errorText ?? ""
+    }
+
+    var errorOrWatchdog: String {
+        ctl.lock(); defer { ctl.unlock() }
+        if let s = session, s.watchdog.isDead { return s.watchdog.errorText }
+        return lastError
+    }
+
+    var hasSession: Bool {
+        ctl.lock(); defer { ctl.unlock() }
+        return session != nil
+    }
+}
+
+/// Reference box for results produced inside an escaping Task.
+private final class ResultBox {
+    var code: Int32 = errTimeout
 }
 
 // MARK: - C ABI
@@ -556,7 +658,11 @@ public func mdc_cap_region(_ w: UnsafeMutablePointer<Int32>?, _ h: UnsafeMutable
 public func mdc_cap_snapshot(_ seq: UnsafeMutablePointer<UInt64>?, _ ptr: UnsafeMutablePointer<UnsafePointer<UInt8>?>?,
                              _ w: UnsafeMutablePointer<Int32>?, _ h: UnsafeMutablePointer<Int32>?,
                              _ stride: UnsafeMutablePointer<Int32>?) -> Int32 {
-    let snap = CaptureEngine.shared.shell.snapshot(minSeq: 0)
+    guard let sink = CaptureEngine.shared.currentSink else {
+        seq?.pointee = 0; ptr?.pointee = nil; w?.pointee = 0; h?.pointee = 0; stride?.pointee = 0
+        return errNoFrame
+    }
+    let snap = sink.snapshot(minSeq: 0)
     seq?.pointee = snap.seq
     ptr?.pointee = snap.ptr
     w?.pointee = snap.w
@@ -570,7 +676,11 @@ public func mdc_cap_snapshot_if(_ minSeq: UInt64, _ seq: UnsafeMutablePointer<UI
                                 _ ptr: UnsafeMutablePointer<UnsafePointer<UInt8>?>?,
                                 _ w: UnsafeMutablePointer<Int32>?, _ h: UnsafeMutablePointer<Int32>?,
                                 _ stride: UnsafeMutablePointer<Int32>?) -> Int32 {
-    let snap = CaptureEngine.shared.shell.snapshot(minSeq: minSeq)
+    guard let sink = CaptureEngine.shared.currentSink else {
+        seq?.pointee = 0; ptr?.pointee = nil; w?.pointee = 0; h?.pointee = 0; stride?.pointee = 0
+        return errNoFrame
+    }
+    let snap = sink.snapshot(minSeq: minSeq)
     seq?.pointee = snap.seq
     ptr?.pointee = snap.ptr
     w?.pointee = snap.w
@@ -580,12 +690,16 @@ public func mdc_cap_snapshot_if(_ minSeq: UInt64, _ seq: UnsafeMutablePointer<UI
 }
 
 @_cdecl("mdc_cap_frame_age_ms")
-public func mdc_cap_frame_age_ms() -> Int64 { CaptureEngine.shared.shell.ageMs }
+public func mdc_cap_frame_age_ms() -> Int64 { CaptureEngine.shared.currentSink?.ageMs ?? -1 }
 
 @_cdecl("mdc_cap_stats")
 public func mdc_cap_stats(_ delivered: UnsafeMutablePointer<UInt64>?, _ skipped: UnsafeMutablePointer<UInt64>?,
                           _ fps: UnsafeMutablePointer<Int32>?) -> Int32 {
-    let s = CaptureEngine.shared.shell.stats
+    guard let sink = CaptureEngine.shared.currentSink else {
+        delivered?.pointee = 0; skipped?.pointee = 0; fps?.pointee = 0
+        return errNoFrame
+    }
+    let s = sink.stats
     delivered?.pointee = s.0
     skipped?.pointee = s.1
     fps?.pointee = s.2
@@ -594,11 +708,15 @@ public func mdc_cap_stats(_ delivered: UnsafeMutablePointer<UInt64>?, _ skipped:
 
 @_cdecl("mdc_cap_last_skip")
 public func mdc_cap_last_skip() -> UnsafePointer<CChar>? {
-    return (CaptureEngine.shared.shell.skipReason as NSString).utf8String
+    CaptureEngine.shared.cacheError(CaptureEngine.shared.currentSink?.skipReason ?? "")
+    return CaptureEngine.shared.cachedErrorPointer
 }
 
 @_cdecl("mdc_cap_dead")
 public func mdc_cap_dead() -> Int32 { CaptureEngine.shared.isDead ? 1 : 0 }
+
+@_cdecl("mdc_cap_has_session")
+public func mdc_cap_has_session() -> Int32 { CaptureEngine.shared.hasSession ? 1 : 0 }
 
 @_cdecl("mdc_cap_once")
 public func mdc_cap_once(_ pid: UInt32, _ x: Double, _ y: Double, _ w: Double, _ h: Double,
@@ -615,5 +733,18 @@ public func mdc_cap_once(_ pid: UInt32, _ x: Double, _ y: Double, _ w: Double, _
 
 @_cdecl("mdc_cap_last_error")
 public func mdc_cap_last_error() -> UnsafePointer<CChar>? {
-    return (CaptureEngine.shared.errorOrWatchdog as NSString).utf8String
+    CaptureEngine.shared.cacheError(CaptureEngine.shared.errorOrWatchdog)
+    return CaptureEngine.shared.cachedErrorPointer
+}
+
+private extension CaptureEngine {
+    /// Copies a Swift string into a stored NSString so the returned C pointer
+    /// stays valid until the next call (a temporary would dangle).
+    func cacheError(_ text: String) {
+        cachedError = text as NSString
+    }
+
+    var cachedErrorPointer: UnsafePointer<CChar>? {
+        cachedError.utf8String
+    }
 }

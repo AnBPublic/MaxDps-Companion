@@ -19,7 +19,11 @@ echo "== native capture library (ScreenCaptureKit) =="
 # signed with the same identity as the app.
 NATIVE_SRC="$ROOT/app/MaxDpsCompanion.Mac/native/MdcCapture.swift"
 NATIVE_OUT="$ROOT/app/MaxDpsCompanion.Mac/native/libmdc_capture.dylib"
+# -target pins the deployment target: an unpinned build inherits the builder's
+# macOS and would fail to dlopen on the declared minimum (silently falling back
+# to the obsolete blocking CGWindowListCreateImage path).
 swiftc -O -emit-library -module-name mdc_capture \
+  -target "$(uname -m)-apple-macos14.0" \
   -o "$NATIVE_OUT" "$NATIVE_SRC"
 codesign --force --sign - "$NATIVE_OUT" >/dev/null 2>&1 || true
 
@@ -55,7 +59,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleExecutable</key><string>MaxDpsCompanion.Mac</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>LSMinimumSystemVersion</key><string>13.0</string>
+  <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>LSUIElement</key><false/>
   <key>NSPrincipalClass</key><string>NSApplication</string>

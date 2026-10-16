@@ -23,6 +23,9 @@ internal sealed class MacGameWindow : IGameWindow
     private long _lastVerifyMs;
     private long _lastFrontmostCheckMs;
     private bool _frontmost;
+    private long _lastBoundsMs;
+    private System.Drawing.Point _boundsOrigin;
+    private System.Drawing.Size _boundsSize;
     private const long VerifyIntervalMs = 1000;
     private const long FrontmostIntervalMs = 250;
 
@@ -81,9 +84,27 @@ internal sealed class MacGameWindow : IGameWindow
         origin = Point.Empty;
         clientSize = Size.Empty;
         if (!IsValid) return false;
+
+        // The engine asks every tick; a window-list query per tick would run a
+        // full CGWindowListCopyWindowInfo (with CFString allocation per window)
+        // 30 times a second. The 1 s cache matches the handle re-verify
+        // cadence and keeps the tick free of system enumerations.
+        var now = Environment.TickCount64;
+        if (_boundsSize.Width > 0 && now - _lastBoundsMs < 1000)
+        {
+            origin = _boundsOrigin;
+            clientSize = _boundsSize;
+            return true;
+        }
         if (NativeMac.WowBoundsRaw() is not { } b) return false;
-        origin = new Point((int)Math.Round(b.X), (int)Math.Round(b.Y));
-        clientSize = new Size((int)Math.Round(b.W), (int)Math.Round(b.H));
+        _boundsOrigin = new Point((int)Math.Round(b.X), (int)Math.Round(b.Y));
+        _boundsSize = new Size((int)Math.Round(b.W), (int)Math.Round(b.H));
+        _lastBoundsMs = now;
+        origin = _boundsOrigin;
+        clientSize = _boundsSize;
         return clientSize.Width > 0 && clientSize.Height > 0;
     }
+
+    /// <summary>Drops the cached client rect (resolution/window change).</summary>
+    public void InvalidateBounds() => _lastBoundsMs = 0;
 }

@@ -32,8 +32,10 @@ internal sealed class MacBlockScanner : IBlockScanner
     private readonly ColorProfile? _profile;
     private readonly MacFrameReader _reader = new();
 
-    private int _rung;                 // 0 = band, 1 = 20% of the window, 2 = full window
+    private int _rung;                  // 0 = micro band, 1 = wide band, 2 = 20%-tall, 3 = full window
     private long _lastHitMs;
+    private bool _escalationRequested;
+    private (int OffsetX, int OffsetY, int CellSize)? _cachedHit;
 
     public MacBlockScanner(MacCaptureStream? stream = null, ColorProfile? profile = null)
     {
@@ -48,7 +50,9 @@ internal sealed class MacBlockScanner : IBlockScanner
         set
         {
             _stream = value;
-            _rung = 0;   // a new stream starts on the small band again
+            _rung = 0;             // a new stream starts on the small band again
+            _cachedHit = null;
+            _escalationRequested = false;
         }
     }
 
@@ -58,43 +62,67 @@ internal sealed class MacBlockScanner : IBlockScanner
 
         if (_stream is { Running: true } stream && stream.RefreshGeometry())
         {
-            var hit = LocateViaStream(stream, origin);
-            if (hit is not null) return hit;
+            // 0. A hit the supervisor's escalation found is authoritative (and
+            //    consumed exactly once).
+            if (_cachedHit is { } cached)
+            {
+                _cachedHit = null;
+                return cached;
+            }
+
+            // 1. Newest stream frame: already captured, torn-safe read, the
+            //    normal case costs microseconds.
+            if (stream.TryFrame(out var frame) && frame.Valid
+                && ScanFrame(stream, frame) is { } hit)
+            {
+                return Accept(stream, hit.CellPx, hit.XPx, hit.YPx, origin.X - stream.WindowOrigin.X, origin.Y - stream.WindowOrigin.Y);
+            }
+
+            // 2. Miss: hand the escalation ladder to the host's capture
+            //    supervisor. One-shot captures take 20-60 ms each and must
+            //    never run on the engine tick.
+            _escalationRequested = true;
+            return null;
         }
         return LocateLegacy(origin, area);
     }
 
-    private (int, int, int)? LocateViaStream(MacCaptureStream stream, Point clientOrigin)
+    /// <summary>
+    /// Supervisor-side escalation: run the one-shot ladder and cache a hit.
+    /// Blocking by design (SUPERVISOR THREAD ONLY - never call from the tick).
+    /// </summary>
+    public bool ServiceEscalation(bool force = false)
     {
-        var win = stream.WindowOrigin;
-        var relX = clientOrigin.X - win.X;
-        var relY = clientOrigin.Y - win.Y;
+        if (!force && !_escalationRequested) return false;
+        _escalationRequested = false;
+        var stream = _stream;
+        if (stream is not { Running: true } || !stream.RefreshGeometry()) return false;
 
-        // 1. Newest stream frame (band on startup, strip rect after a hit).
-        if (stream.TryFrame(out var frame) && frame.Valid)
-        {
-            var hit = ScanFrame(stream, frame);
-            if (hit is not null) return Accept(stream, hit.Value.CellPx, hit.Value.XPx, hit.Value.YPx, relX, relY);
-        }
-
-        // 2. Escalation ladder via one-shots, from the last rung onwards.
         var size = stream.WindowSize;
         for (var rung = _rung; rung <= 3; rung++)
         {
             var (rw, rh) = RungRect(rung, size.Width, size.Height);
             if (!stream.TryOnceCapture(0, 0, rw, rh, out var bgra, out var iw, out var ih, out var stride))
-                return null;
+                return false;
             _reader.Bind(bgra, iw, ih, stride);
             var found = BlockScanner.Scan(_reader.ReadBgra, iw, ih, _profile, (x, y, cell) => Verify(iw, ih, x, y, cell));
             if (found is { } f)
             {
-                _rung = rung;
-                return Accept(stream, f.CellSize, f.X, f.Y, relX, relY);
+                var hit = Accept(stream, f.CellSize, f.X, f.Y, 0, 0);   // one-shots are window-relative
+                if (hit is { } h)
+                {
+                    _cachedHit = h;
+                    return true;
+                }
+                return false;
             }
             _rung = Math.Min(3, rung + 1);
         }
-        return null;
+        return false;
     }
+
+    /// <summary>Marks that the next supervisor pass should escalate (engine saw a miss).</summary>
+    public void RequestEscalation() => _escalationRequested = true;
 
     /// <summary>
     /// Escalation ladder, smallest first: micro band (1024x128 pt), wide band
@@ -131,6 +159,7 @@ internal sealed class MacBlockScanner : IBlockScanner
         var margin = 2;
         stream.SetRegion(xPt - margin, yPt - margin,
             cellPt * PixelProtocol.CellCountExt3 + margin * 2, cellPt + margin * 2);
+        _rung = 0;                          // next loss starts cheap again
         _lastHitMs = Environment.TickCount64;
         return (xPt, yPt, cellPt);
     }
@@ -140,6 +169,8 @@ internal sealed class MacBlockScanner : IBlockScanner
     {
         _reader.Bind(frame);
         var found = BlockScanner.Scan(_reader.ReadBgra, frame.Width, frame.Height, _profile, (x, y, cell) => Verify(frame.Width, frame.Height, x, y, cell));
+        // Never accept a candidate read across a buffer swap.
+        if (!stream.StillCurrent(frame.Seq)) return null;
         if (found is not { } f) return null;
         return (f.X, f.Y, f.CellSize);
     }

@@ -73,6 +73,12 @@ internal static class MdcNative
     [DllImport(Lib, EntryPoint = "mdc_cap_last_error")]
     private static extern IntPtr LastErrorPtr();
 
+    [DllImport(Lib, EntryPoint = "mdc_cap_last_skip")]
+    private static extern IntPtr LastSkipPtr();
+
+    [DllImport(Lib, EntryPoint = "mdc_cap_has_session")]
+    internal static extern int HasSessionRaw();
+
     private static int _probeState; // 0 unknown, 1 available, 2 missing
     private static string _probeError = "";
 
@@ -103,6 +109,20 @@ internal static class MdcNative
         try
         {
             var p = LastErrorPtr();
+            return p == IntPtr.Zero ? "" : Marshal.PtrToStringUTF8(p) ?? "";
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    /// <summary>Why the last delivered frame was skipped (diagnostics).</summary>
+    internal static string LastSkip()
+    {
+        try
+        {
+            var p = LastSkipPtr();
             return p == IntPtr.Zero ? "" : Marshal.PtrToStringUTF8(p) ?? "";
         }
         catch
@@ -265,6 +285,37 @@ internal sealed class MacCaptureStream : IDisposable
     }
 
     private long _lastGeomMs;
+    private double _pendingX, _pendingY, _pendingW, _pendingH;
+    private bool _hasPendingRegion;
+
+    /// <summary>
+    /// Queues a region change for the host's capture supervisor. The engine
+    /// tick must never block on a capture syscall, so Sample/Locate only ever
+    /// REQUEST a region here; <see cref="ApplyPendingRegion"/> performs it off
+    /// the tick.
+    /// </summary>
+    public void RequestRegion(double x, double y, double w, double h)
+    {
+        if (!_started) return;
+        _pendingX = x; _pendingY = y; _pendingW = w; _pendingH = h;
+        _hasPendingRegion = true;
+    }
+
+    public bool HasPendingRegion => _hasPendingRegion;
+
+    /// <summary>
+    /// Applies a queued region change (blocking; supervisor thread only).
+    /// Returns true when a reconfigure was attempted successfully.
+    /// </summary>
+    public bool ApplyPendingRegion()
+    {
+        if (!_started || !_hasPendingRegion) return false;
+        _hasPendingRegion = false;
+        return SetRegion(_pendingX, _pendingY, _pendingW, _pendingH);
+    }
+
+    /// <summary>Skip reason of the last delivered frame (diagnostics).</summary>
+    public string LastSkipReason => MdcNative.LastSkip();
 
     /// <summary>
     /// Cheap check (CGWindowList metadata, no capture) that the cached window
@@ -285,22 +336,30 @@ internal sealed class MacCaptureStream : IDisposable
     /// <summary>Pixels per point for the display holding the given global rect.</summary>
     public static double DisplayScaleFor(double x, double y, double w, double h) => DisplayScale(x, y, w, h);
 
+    /// <summary>
+    /// Pixels per point for a window rect. Mirrors the native rule exactly
+    /// (maximum backing scale over the displays the rect intersects), because
+    /// the two values drive the same region -> pixel mapping: a mismatch on a
+    /// window straddling displays of different scale would offset every sample.
+    /// </summary>
     private static double DisplayScale(double x, double y, double w, double h)
     {
         try
         {
             var ids = new uint[8];
             if (CGGetActiveDisplayList(8, ids, out var count) != 0) return 1;
-            var cx = x + w / 2;
-            var cy = y + h / 2;
+            double best = 1;
             for (var i = 0; i < count; i++)
             {
                 var b = CGDisplayBounds(ids[i]);
-                if (cx < b.X || cx >= b.X + b.Width || cy < b.Y || cy >= b.Y + b.Height) continue;
+                if (b.Width <= 0 || b.Height <= 0) continue;
+                var intersects = x < b.X + b.Width && x + w > b.X && y < b.Y + b.Height && y + h > b.Y;
+                if (!intersects) continue;
                 var px = (double)CGDisplayPixelsWide(ids[i]);
-                if (b.Width > 0 && px > 0)
-                    return Math.Max(1, Math.Round(px / b.Width * 2) / 2); // 1, 1.5, 2 …
+                if (px <= 0) continue;
+                best = Math.Max(best, Math.Max(1, Math.Round(px / b.Width * 2) / 2));
             }
+            return best;
         }
         catch { /* fall through: 1:1 is the safe assumption */ }
         return 1;

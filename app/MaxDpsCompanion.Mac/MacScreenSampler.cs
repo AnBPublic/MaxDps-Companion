@@ -16,8 +16,11 @@ namespace MaxDpsCompanion.Mac;
 // display scale. `cellSize` from the engine is in points (the addon's UI
 // size); the pixel step is `cellSize * scale`.
 //
-// FALLBACK PATH: the legacy CGWindowListCreateImage one-shot (macOS < 12.3 or
-// a missing native library), same behaviour as the original MVP port.
+// FALLBACK PATH: the legacy CGWindowListCreateImage one-shot, used ONLY while
+// no stream exists (native library missing, Screen Recording denied, or before
+// the supervisor has attached). While a stream is running the tick never falls
+// back to it — an uncovered region answers with an empty frame and the host
+// reconfigures off the tick.
 internal sealed class MacScreenSampler : IScreenSampler
 {
     private volatile MacCaptureStream? _stream;
@@ -131,9 +134,11 @@ internal sealed class MacScreenSampler : IScreenSampler
 
         if (!covered)
         {
-            // Grow to exactly what the engine asked for (window-clamped). The
-            // engine retries next tick; meanwhile the legacy path answers.
-            stream.SetRegion(wantX, wantY, wantW, wantH);
+            // Ask for exactly what the engine asked for; the host's capture
+            // supervisor performs the reconfigure OFF the tick (the engine
+            // retries next tick). Never block here: a tick must not wait on a
+            // capture syscall.
+            stream.RequestRegion(wantX, wantY, wantW, wantH);
             return null;
         }
 
@@ -248,6 +253,7 @@ internal sealed class MacScreenSampler : IScreenSampler
         Ext3Mirror = null;
         Ext3MirrorPresent = false;
         _reader.Reset();
+        MacPixelRepair.Forget();
     }
 
     public void Dispose() => Reset();

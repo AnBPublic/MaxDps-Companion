@@ -130,6 +130,7 @@ internal static class Program
         // origin coordinate space).
         lines.Add($"client origin={WowClientOrigin()} size={WowClientSize()} displayScale={DisplayScale()} (window-relative capture)");
         lines.Add($"capture-backend={CaptureBackend()}");
+        lines.Add($"capture-skip='{MdcNative.LastSkip()}'");
         lines.Add($"screen-recording={(new MacPermissions().CheckCapturePermission() ? "granted" : "NOT-GRANTED (capture returns blank; grant in System Settings > Privacy & Security)")}");
         // Live sweep + sample + decode through the real capture path.
         lines.AddRange(SweepAndDecode(settings));
@@ -180,6 +181,7 @@ internal static class Program
             }
 
             var scanner = new MacBlockScanner(stream.Running ? stream : null, settings.Color);
+            if (stream.Running) scanner.ServiceEscalation(force: true);   // off-tick by design
             (int OffsetX, int OffsetY, int CellSize)? found = null;
             for (var attempt = 0; attempt < 3 && found is null; attempt++)
             {
@@ -308,7 +310,14 @@ internal static class Program
         WaitForFirstFrame(stream, 1000);
         var scanner = new MacBlockScanner(stream, settings.Color);
         var locateSw = System.Diagnostics.Stopwatch.StartNew();
+        scanner.ServiceEscalation(force: true);        // off-tick by design
         var found = scanner.Locate(origin, size);
+        if (found is null)
+        {
+            // The ladder's hit is consumed on the next Locate call (the engine
+            // retries within its 5 s relocate throttle).
+            found = scanner.Locate(origin, size);
+        }
         locateSw.Stop();
         if (found is not { } loc)
         {

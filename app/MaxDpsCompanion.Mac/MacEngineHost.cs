@@ -31,6 +31,9 @@ internal sealed class MacEngineHost : IDisposable
     private MacBlockScanner? _scanner;
     private Thread? _supervisor;
     private volatile bool _running;
+    /// <summary>Serialises Start/Stop/EnsureStream (a supervisor pass must never
+    /// race a UI Stop). Reentrant: Start calls EnsureStream while holding it.</summary>
+    private readonly object _control = new();
 
     public event Action<EngineStatus>? StatusChanged;
 
@@ -65,7 +68,11 @@ internal sealed class MacEngineHost : IDisposable
             var (rx, ry, rw, rh) = stream.Region;
             var (pw, ph) = stream.RegionPixels;
             var stats = stream.Stats();
-            return $"ScreenCaptureKit region={rw:F0}x{rh:F0}pt@{rx:F0},{ry:F0} px={pw}x{ph} fps={stats.Fps} frames={stats.Delivered}";
+            var repairs = _sampler?.Repairs ?? 0;
+            var skip = stream.LastSkipReason;
+            return $"ScreenCaptureKit region={rw:F0}x{rh:F0}pt@{rx:F0},{ry:F0} px={pw}x{ph} fps={stats.Fps} " +
+                   $"frames={stats.Delivered} skipped={stats.Skipped} repairs={repairs}" +
+                   (string.IsNullOrEmpty(skip) || skip == "none" ? "" : $" lastSkip='{skip}'");
         }
     }
 
@@ -90,19 +97,32 @@ internal sealed class MacEngineHost : IDisposable
 
     public void Start()
     {
-        _running = true;
-        EnsureStream();
-        StartSupervisor();
-        _engine.Start();
+        lock (_control)
+        {
+            _running = true;
+            EnsureStream();
+            // Warm locate while the engine is still stopped: the ladder needs
+            // one-shot captures and must not run on the tick.
+            _scanner?.ServiceEscalation(force: true);
+            StartSupervisor();
+            _engine.Start();
+        }
     }
 
     public void Stop()
     {
-        _running = false;
-        try { _engine.Stop(); } catch { /* stop is best effort */ }
-        _stream?.Stop();
-        if (_sampler is not null) _sampler.Stream = null;
-        if (_scanner is not null) _scanner.Stream = null;
+        lock (_control)
+        {
+            _running = false;
+            try { _engine.Stop(); } catch { /* stop is best effort */ }
+            var supervisor = _supervisor;
+            _supervisor = null;
+            if (supervisor is { IsAlive: true } && supervisor != Thread.CurrentThread)
+                supervisor.Join(2000);
+            _stream?.Stop();
+            if (_sampler is not null) _sampler.Stream = null;
+            if (_scanner is not null) _scanner.Stream = null;
+        }
     }
 
     /// <summary>
@@ -111,6 +131,14 @@ internal sealed class MacEngineHost : IDisposable
     /// supervisor; cheap and idempotent while the stream is healthy.
     /// </summary>
     public bool EnsureStream()
+    {
+        lock (_control)
+        {
+            return EnsureStreamLocked();
+        }
+    }
+
+    private bool EnsureStreamLocked()
     {
         if (!_running) return false;
         if (!MdcNative.AvailableSafe) return false;
@@ -157,10 +185,22 @@ internal sealed class MacEngineHost : IDisposable
             {
                 try
                 {
-                    EnsureStream();
+                    lock (_control)
+                    {
+                        if (!_running) break;
+                        EnsureStreamLocked();
+                        // Off-tick capture work: region requests and the locate
+                        // escalation ladder. 250 ms keeps startup responsiveness
+                        // while costing one sleeping thread.
+                        if (_stream is { Running: true } stream)
+                        {
+                            stream.ApplyPendingRegion();
+                            _scanner?.ServiceEscalation();
+                        }
+                    }
                 }
                 catch { /* never let the supervisor kill the app */ }
-                Thread.Sleep(1000);
+                Thread.Sleep(250);
             }
         })
         {

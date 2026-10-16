@@ -26,6 +26,12 @@ internal sealed class MacKeySender : IKeySender
 
     private const int kCGHIDEventTap = 0;
 
+    // CGEventType (CGEventTypes.h)
+    private const int kCGEventLeftMouseDown = 1;    // +1 = up
+    private const int kCGEventRightMouseDown = 3;   // +1 = up
+    private const int kCGEventOtherMouseDown = 25;  // +1 = up (middle / X1 / X2)
+    private const int kCGEventScrollWheel = 22;
+
     // CGEventFlags (CGEventTypes.h)
     private const ulong kCGEventFlagMaskShift = 0x00020002;
     private const ulong kCGEventFlagMaskControl = 0x00040001;
@@ -54,6 +60,12 @@ internal sealed class MacKeySender : IKeySender
     [DllImport(CoreGraphics, EntryPoint = "CGEventCreateMouseEvent")]
     private static extern IntPtr CGEventCreateMouseEvent(
         IntPtr source, int mouseType, CgPoint mouseCursorPosition, int mouseButton);
+
+    [DllImport(CoreGraphics, EntryPoint = "CGEventCreate")]
+    private static extern IntPtr CGEventCreate(IntPtr source);
+
+    [DllImport(CoreGraphics, EntryPoint = "CGEventGetLocation")]
+    private static extern CgPoint CGEventGetLocation(IntPtr ev);
 
     [DllImport(CoreGraphics, EntryPoint = "CGEventCreateScrollWheelEvent")]
     private static extern IntPtr CGEventCreateScrollWheelEvent1(
@@ -144,11 +156,12 @@ internal sealed class MacKeySender : IKeySender
 
     private void SendMouse(Keys.KeyRef stroke, ulong flags, int holdMilliseconds)
     {
-        // Mouse buttons need a cursor position; (0,0) is replaced by the
-        // current position by the system for click-type events. Modifiers
-        // ride as keyboard flags around the click (matches the Windows
-        // SendInput batch: modifiers keyboard + button mouse).
-        var at = new CgPoint { X = 0, Y = 0 };
+        // Mouse events are global (no per-process route the game reads), so the
+        // focus requirement is re-checked HERE, at send time: the engine's
+        // cached foreground flag can be up to 250 ms stale, and a click that
+        // lands in another app is worse than a skipped action.
+        if (TargetPid > 0 && !MacCaptureStream.GameIsFrontmost(TargetPid)) return;
+
         switch (stroke.Vk)
         {
             case 0x07: Scroll(1); return;   // WheelUp
@@ -157,13 +170,18 @@ internal sealed class MacKeySender : IKeySender
         int type, button;
         switch (stroke.Vk)
         {
-            case 0x01: type = 1; button = 0; break;  // left down/up
-            case 0x02: type = 3; button = 1; break;  // right down/up
-            case 0x04: type = 7; button = 2; break;  // center (other) down/up
-            case 0x05: type = 7; button = 3; break;  // X1
-            case 0x06: type = 7; button = 4; break;  // X2
+            case 0x01: type = kCGEventLeftMouseDown; button = 0; break;
+            case 0x02: type = kCGEventRightMouseDown; button = 1; break;
+            case 0x04: type = kCGEventOtherMouseDown; button = 2; break;  // middle
+            case 0x05: type = kCGEventOtherMouseDown; button = 3; break;  // X1 (MB4)
+            case 0x06: type = kCGEventOtherMouseDown; button = 4; break;  // X2 (MB5)
             default: return; // fail-closed
         }
+
+        // A CGEvents mouse event carries its own cursor location; posting at
+        // (0,0) would move the pointer into the screen corner and click there.
+        var at = CurrentCursor();
+
         var modDowns = new List<IntPtr>();
         try
         {
@@ -193,6 +211,15 @@ internal sealed class MacKeySender : IKeySender
             if (stroke.Ctrl) PostFlag(0x3B, false);
             if (stroke.Alt) PostFlag(0x3A, false);
         }
+    }
+
+    /// <summary>Current cursor position (the click must land where the user's pointer is).</summary>
+    private static CgPoint CurrentCursor()
+    {
+        var probe = CGEventCreate(IntPtr.Zero);
+        if (probe == IntPtr.Zero) return new CgPoint { X = 0, Y = 0 };
+        try { return CGEventGetLocation(probe); }
+        finally { CFRelease(probe); }
     }
 
     private static IntPtr FlagEvent(ushort code, bool down) =>

@@ -83,10 +83,36 @@ overflowed its managed buffer because ScreenCaptureKit pads rows (900 px ->
 stride 3712 vs 3600 packed) so the escalation ladder could never capture, and
 a pre-paint blank frame was treated as data. All three are fixed.
 
+REVIEW PASS (independent reviewer on the pushed diff) — findings fixed in the
+same session:
+- native: frame buffers are never freed while a reader may hold a snapshot
+  (use-after-free on a region change); each stream start gets its own
+  session/sink/generation so a stopped-but-not-quiesced stream cannot publish
+  into the live sink; the stream watchdog is per-session (a dead stream no
+  longer forces a rebuild every second); all control ops serialise on one lock;
+  `set_region` commits only after `updateConfiguration` succeeds; the start
+  region is clamped to the window; error strings are stored so the returned
+  C pointers cannot dangle; the dylib is built with an explicit `-target`
+  (macOS 14.0) and the bundle declares 14.0.
+- tick purity (the hard requirement): Sample/Locate no longer perform ANY
+  blocking capture call. An uncovered region and a missed locate only REQUEST
+  work; the host's capture supervisor (250 ms cadence) applies region changes
+  and runs the one-shot escalation ladder, and a located hit is consumed by the
+  next engine Locate. The engine tick is now read-only over the newest frame.
+- input: middle/X1/X2 buttons used CGEventType 7 (rightMouseDragged) and posted
+  the click at (0,0) (cursor warp to the screen corner); now 25/26
+  (otherMouseDown/Up) at the CURRENT cursor position, and the mouse path
+  re-checks the frontmost app at send time instead of trusting the engine's
+  250 ms-cached flag.
+- perf: window bounds are cached for 1 s (the tick previously ran a full
+  process enumeration plus a CGWindowListCopyWindowInfo 30x/second); the
+  scanner resets the ladder rung after a hit and rejects torn frame reads.
+
 OWED (live retail, unproven): strip locate + decode + send on a real client
 (including the repair count on the real display), mouse-slot focus behaviour,
-and `--bench-capture` numbers while playing. Static != automated test != live
-in-game E2E. See docs/TESTING.md 4.
+multi-display scale on a window straddling two displays, and `--bench-capture`
+numbers while playing. Static != automated test != live in-game E2E. See
+docs/TESTING.md 4.
 
 ## 2026-10-10 RELEASE 3.7.9 "UNYIELDING" (MaxDps recommendations = used; offensive TTK conservation removed)
 
