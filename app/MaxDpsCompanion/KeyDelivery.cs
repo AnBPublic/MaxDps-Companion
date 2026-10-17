@@ -190,7 +190,7 @@ internal sealed class KeyDelivery
                 }
 
                 default:
-                    return PostStroke(target, stroke, holdMilliseconds, null);
+                    return PostStroke(target, stroke, holdMilliseconds, plan.Note);
             }
         }
     }

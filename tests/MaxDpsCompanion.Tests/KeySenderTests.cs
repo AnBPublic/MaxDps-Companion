@@ -245,6 +245,23 @@ public class KeySenderTests
     }
 
     [Fact]
+    public void Auto_Background_Chord_Delivery_Reports_The_Planner_Note()
+    {
+        // Regression (lead review): the planner's "background chord" note was
+        // dropped by KeyDelivery's Post branch, so the status line never
+        // showed that modifiers may not have registered.
+        var backend = new FakeBackend { Foreground = (IntPtr)0x9999 };
+        var outcome = Sender(backend).SendToWindow(
+            backend.Target, backend.Pid, new KeyStroke(0x46, false, true, false), holdMilliseconds: 0,
+            ModifierInputMode.Auto, gameForeground: false);
+
+        Assert.True(outcome.Sent);
+        Assert.Contains("background chord", outcome.Note);
+        Assert.Empty(backend.Inputs);   // never SendInput while the game is not focused
+        Assert.Equal(4, backend.Posts.Count);
+    }
+
+    [Fact]
     public void SendInput_Background_Chord_Defers_Instead_Of_Leaking_Input()
     {
         var plan = ChordPlanner.Decide(ModifierInputMode.SendInput, new KeyStroke(0x46, false, true, false), false, false, false, false);
