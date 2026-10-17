@@ -1,5 +1,7 @@
+extern alias win;
+
 using System.Drawing;
-using MaxDpsCompanion.Ui.Shell;
+using win::MaxDpsCompanion.Ui.Shell;
 using Xunit;
 
 namespace MaxDpsCompanion.Tests;

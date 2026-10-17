@@ -100,7 +100,7 @@ internal static class ReplayRunner
                 MaxAgeSec: options.TtkHistoryMaxAgeSec ?? 240,
                 Quantile: options.TtkHistoryQuantile ?? 75,
                 DurFactor: options.TtkHistoryDurFactor ?? 0.5);
-        var pendingSends = new List<(Slot? Slot, int SpellId, long TMs)>();
+        var pendingSends = new List<(string What, Slot? Slot, int SpellId, long TMs)>();
         int? recordedCatalog = null;
         var catalogSkew = false;
 
@@ -111,8 +111,12 @@ internal static class ReplayRunner
         {
             if (pendingSends.Count == 0) return;
             replayCatalog ??= AbilityCatalog.Default;
-            foreach (var (sendSlot, sendSpell, sendTMs) in pendingSends)
+            foreach (var (sendWhat, sendSlot, sendSpell, sendTMs) in pendingSends)
             {
+                // v4.0.3: a "user" send is the player's own hotbar press; it
+                // never feeds policy memory live, so it must not feed the
+                // replayed memory either (the verdicts must recompute identically).
+                if (sendWhat == "user") continue;
                 if (sendSpell > 0 && replayCatalog.TryGet(sendSpell) is { } sentAbility)
                     policyMemory.NoteUse(sentAbility, sendTMs);
                 else if (sendSlot == Slot.Trinket)
@@ -165,7 +169,7 @@ internal static class ReplayRunner
                             Sec(evt.TMs), lastSendDesc, send.IntervalMs));
                         // Buffered: the following tick(s) were evaluated BEFORE
                         // this send in the live run (see the ordering note).
-                        pendingSends.Add((send.Slot, send.SpellId, evt.TMs));
+                        pendingSends.Add((send.What, send.Slot, send.SpellId, evt.TMs));
                     }
                     break;
 

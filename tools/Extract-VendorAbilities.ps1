@@ -5,7 +5,7 @@
 #     ns.classCooldowns[CLASS][SPEC] = { offensive = {...}, defensive = {...} }
 #     ns.classInterrupts[CLASS][SPEC] = { ["Name"] = id, ... }
 #
-# Output: app/MaxDpsCompanion/Knowledge/vendor-abilities.json
+# Output: app/MaxDpsCompanion.Core/Knowledge/vendor-abilities.json
 #
 # The vendor snapshot is READ-ONLY input. This script never writes to vendor/.
 # Run from the repository root:
@@ -15,7 +15,7 @@ $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
 $luaPath = Join-Path $root 'vendor/MaxDps/Cooldowns.lua'
-$outPath = Join-Path $root 'app/MaxDpsCompanion/Knowledge/vendor-abilities.json'
+$outPath = Join-Path $root 'app/MaxDpsCompanion.Core/Knowledge/vendor-abilities.json'
 
 if (-not (Test-Path -LiteralPath $luaPath)) {
     throw "vendor Cooldowns.lua not found at $luaPath"

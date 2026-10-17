@@ -3,13 +3,13 @@
 Verifies the Companion's modeled class-skill ids against the live retail client
 DB2 export and resolves their icon slugs, then downloads the missing icons.
 
-Input  : app/MaxDpsCompanion/Knowledge/class-spells.json  (read-only)
+Input  : app/MaxDpsCompanion.Core/Knowledge/class-spells.json  (read-only)
 Sources: https://wago.tools/db2/SpellName/csv
          https://wago.tools/db2/SpellMisc/csv
          https://wago.tools/db2/ManifestInterfaceData/csv
          https://render.worldofwarcraft.com/us/icons/56/{slug}.jpg
          https://wow.zamimg.com/images/wow/icons/large/{slug}.jpg
-Output : app/MaxDpsCompanion/Knowledge/spell-verification.json  (UTF-8 no BOM)
+Output : app/MaxDpsCompanion.Core/Knowledge/spell-verification.json  (UTF-8 no BOM)
          dist/assets/icons/{id}.jpg
          app/MaxDpsCompanion/bin/Release/net8.0-windows/win-x64/assets/icons/{id}.jpg
 
@@ -27,8 +27,8 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 $root = Split-Path -Parent $PSScriptRoot
-$classSpellsPath = Join-Path $root 'app/MaxDpsCompanion/Knowledge/class-spells.json'
-$outPath         = Join-Path $root 'app/MaxDpsCompanion/Knowledge/spell-verification.json'
+$classSpellsPath = Join-Path $root 'app/MaxDpsCompanion.Core/Knowledge/class-spells.json'
+$outPath         = Join-Path $root 'app/MaxDpsCompanion.Core/Knowledge/spell-verification.json'
 $iconDirs = @(
     (Join-Path $root 'dist/assets/icons'),
     (Join-Path $root 'app/MaxDpsCompanion/bin/Release/net8.0-windows/win-x64/assets/icons')

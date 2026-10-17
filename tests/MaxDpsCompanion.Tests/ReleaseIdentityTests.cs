@@ -1,4 +1,6 @@
-using MaxDpsCompanion.Ui.Shell;
+extern alias win;
+
+using win::MaxDpsCompanion.Ui.Shell;
 using Xunit;
 
 namespace MaxDpsCompanion.Tests;

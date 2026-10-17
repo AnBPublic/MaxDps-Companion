@@ -5,6 +5,18 @@ using Windows.Storage.Pickers;
 using WinRT.Interop;
 using WColor = Windows.UI.Color;
 
+// Wave B (4.1 "Paragon"): this file is the ONLY Windows file that both declares
+// and uses the Windows RotationEngine instance, and RotationEngine is the one
+// type intentionally still defined in BOTH MaxDpsCompanion.Core and this
+// assembly until Wave C merges the engines. CS0436 ("type in source conflicts
+// with the imported type ... using the type defined in source") is therefore
+// expected HERE for exactly that type, with the local (Windows, concrete
+// capture/input) copy correctly winning. The suppression is file-scoped on
+// purpose: ShadowedTypeGateTests asserts the shadow set is exactly
+// {MaxDpsCompanion.RotationEngine}, so any OTHER duplicate still fails the
+// build loudly, and this pragma disappears together with the Windows engine.
+#pragma warning disable CS0436
+
 namespace MaxDpsCompanion.Ui.Shell;
 
 /// <summary>
@@ -1030,3 +1042,5 @@ public sealed partial class ShellWindow
         SetStatus($"Battle.net path: {file.Path}", ControlTheme.TextPrimary);
     }
 }
+
+#pragma warning restore CS0436

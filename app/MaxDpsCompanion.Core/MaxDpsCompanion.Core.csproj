@@ -43,9 +43,14 @@
   </ItemGroup>
 
   <!-- P1 Mac host consumes Core internals (ColorProfile, PixelSampler, Keys);
-       same allowance the approved .NET split grants the Windows host. -->
+       same allowance the approved .NET split grants the Windows host.
+       Wave B: the Windows app now consumes Core internals directly (AppSettings,
+       AbilityCatalog, Scheduler/Decision/Telemetry types live here now), and the
+       Windows test project exercises those internals through it. -->
   <ItemGroup>
     <InternalsVisibleTo Include="MaxDpsCompanion.Mac" />
+    <InternalsVisibleTo Include="MaxDpsCompanion" />
+    <InternalsVisibleTo Include="MaxDpsCompanion.Tests" />
   </ItemGroup>
 
 </Project>

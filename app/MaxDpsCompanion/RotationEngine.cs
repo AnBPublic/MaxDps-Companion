@@ -2,21 +2,9 @@ using System.Diagnostics;
 
 namespace MaxDpsCompanion;
 
-internal readonly record struct EngineStatus(
-    string Message,
-    bool BridgeVisible,
-    BridgeState State,
-    string SlotSummary,
-    string LastKeySent,
-    string RawSample,
-    string Decision);
 
-/// <summary>
-/// Immutable, secret-safe snapshot of one action (or the current plan head)
-/// for the UI: name, reason, provider and a human-readable "why" list.
-/// Frozen v2.7 contract — the UI codes against these exact members.
-/// </summary>
-public sealed record LiveActionSnapshot(string Action, string Reason, string Provider, IReadOnlyList<string> Why);
+// Wave B: EngineStatus / LiveActionSnapshot moved to Core (EngineStatus.cs).
+// Both engines expose the one Core identity.
 
 /// <summary>
 /// Reads the addon's pixel block on a background thread and replays the encoded

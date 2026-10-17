@@ -30,7 +30,30 @@
     <Version>4.0.4</Version>
     <Codename>Aegis</Codename>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Wave B (4.1 Paragon): the shared brain now lives in MaxDpsCompanion.Core
+         and this app consumes it through the ProjectReference below. Everything
+         that used to be a byte-identical Windows copy (CombatGate, Knowledge/**,
+         Decision/**, Scheduler/**, Telemetry renders, KeyNames, PixelProtocol,
+         AppSettings, ToggleSync, ...) is deleted from this project; the Core
+         assembly is the single source.
+
+         The one intentional duplicate is RotationEngine (Wave C has not merged
+         the engines: this one binds concrete WowWindow/ScreenSampler/KeySender,
+         Core's binds IPlatform). Its CS0436 warning is suppressed AT THE SINGLE
+         USE SITE (Ui/Shell/ShellWindow.Engine.cs), never project-wide.
+         ShadowedTypeGateTests reflects over both assemblies and fails if ANY
+         other full type name is defined twice. -->
   </PropertyGroup>
+
+  <!-- Wave B: MAXDPSCOMPANION.CORE IS THE SINGLE SOURCE for the shared brain.
+       PrivateAssets="all" stops the reference flowing INTO the test project's
+       compilation as an unaliased assembly (the test project references Core
+       itself, under an extern alias, so the intentional RotationEngine shadow
+       does not make every shared type ambiguous there). -->
+  <ItemGroup>
+    <ProjectReference Include="..\MaxDpsCompanion.Core\MaxDpsCompanion.Core.csproj"
+                      PrivateAssets="all" />
+  </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="MaxDpsCompanion.Tests" />
@@ -69,17 +92,14 @@
        system variable-font chain (DesignTokens.FamilyName). The ttf/OFL assets
        were deleted with UiFonts; nothing embeds or references them. -->
 
-  <!-- Ability knowledge base (see Knowledge/AbilityCatalog.cs). -->
-  <ItemGroup>
-    <EmbeddedResource Include="Knowledge\vendor-abilities.json" />
-    <EmbeddedResource Include="Knowledge\abilities.json" />
-    <EmbeddedResource Include="Knowledge\class-spells.json" />
-    <EmbeddedResource Include="Knowledge\spell-verification.json" />
-    <!-- v2.7: the 12.1 research staging file is embedded so the coverage audit
-         can fail when researched abilities are missing or stale (single source
-         of truth stays in docs/research). -->
-    <EmbeddedResource Include="..\..\docs\research\registry-research.json"
-                      LogicalName="MaxDpsCompanion.Knowledge.registry-research.json" />
-  </ItemGroup>
+  <!-- Ability knowledge base: Wave B moved ALL five embedded resources to
+       MaxDpsCompanion.Core (the single source). AbilityCatalog /
+       AbilityCoverage / ClassSpellBook load them with
+       Assembly.GetExecutingAssembly(), so the bytes are read from the Core
+       assembly whose LogicalNames are still MaxDpsCompanion.Knowledge.*.
+       Do not re-add EmbeddedResource entries here: a Windows-side copy would
+       shadow the Core resource and silently fork the catalogue again.
+       The per-class overlay files under Knowledge\classes\ stay here: they
+       are schema inputs read from disk (tests + tooling), never embedded. -->
 
 </Project>
