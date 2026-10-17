@@ -63,7 +63,7 @@ local BLIZZARD_ICONS = {
 
 -- ---- slice 4 readability helpers (display only) --------------------------
 local EFFECT = {
-  Main = "Primary rotational filler / spender.",
+  Main = "Master switch: OFF suspends every slot, targeting, interact and queued presses; other toggles keep their state.",
   Offensive = "Offensive cooldowns and burst abilities.",
   Defensive = "Defensive cooldowns and damage reduction.",
   Consumable = "Health potions and combat consumables.",

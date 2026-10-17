@@ -24,9 +24,10 @@ The toggle overlay also drops the `profile:` footer (profiles remain in the
 `/mdbx` Config window) and shrinks 300x210 -> 300x165; the 13 pills and
 4-column grid are unchanged.
 
-CHANGED: `addon/MaxDpsBridgeExp/{Toggles.lua, Exp/Overlay.lua, Bridge.lua
-(identity), MaxDpsBridgeExp.toc, VERSION.txt}`;
-`app/MaxDpsCompanion/{ToggleSync.cs, RotationEngine.cs, Native.cs, csproj}`;
+CHANGED: `addon/MaxDpsBridgeExp/{Toggles.lua, Exp/Overlay.lua, Exp/Config.lua,
+Bridge.lua (identity), MaxDpsBridgeExp.toc, VERSION.txt}`;
+`app/MaxDpsCompanion/{ToggleSync.cs, RotationEngine.cs, Native.cs,
+Ui/Shell/ShellWindow.Content.cs (Main label/tooltip -> Master switch), csproj}`;
 `tests/MaxDpsCompanion.Tests/{ToggleSyncTests.cs, ReleaseIdentityTests.cs}`;
 `tests/secret_harness.lua` (+3 E4x master pins); docs `README.md`,
 `ARCHITECTURE.md`, `docs/PROTOCOL.md`, `docs/TESTING.md` 3m, `VERSION.txt`.
