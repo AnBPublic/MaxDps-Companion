@@ -113,12 +113,15 @@ macos-latest job (`dotnet build` Core + Mac, `swiftc` compile of `MdcCapture.swi
 executed locally -> OWED until the first GitHub run. Do not touch `HANDOVER.md` here (Wave D owns it).
 
 ## Wave B - Core consolidation, stages 1-2 (owner: `app/MaxDpsCompanion.Core/**`, both csproj, tests csproj). Starts after Wave A is green. `code-worker-max`.
-Safety gates (architect): both projects use `namespace MaxDpsCompanion`, so a leftover Windows copy shadows Core with only warning
-CS0436 -> **delete the Windows duplicates and add the ProjectReference in ONE commit, `<WarningsAsErrors>CS0436`** for the wave.
-Before B1 record baselines: `dotnet test` count (expected unchanged), replay filter 0 mismatches, sha256 list of every Core `.cs` vs
-the Windows same-path file (commit the exact identical list; only identical files are deleted in B1; differing files go to B2 with an
-explicit diff review). B2 is ONE superset file per commit with the full bar green, `PixelProtocol.cs` first (architect-trigger path;
-Ext4/`TypingActive` decode must stay byte-identical on the wire). Before deleting `UpdateExt3Mirror`/`SampleV1` (A2.3) grep Core + Mac.
+Safety gates (architect, adapted by lead): both projects use `namespace MaxDpsCompanion`, so a leftover Windows copy shadows Core with only warning
+CS0436. Because Wave C is cut, `RotationEngine` (+ its nested/helper types) intentionally stays in BOTH assemblies, so CS0436 cannot be an error.
+Instead: **delete the Windows duplicates and add the ProjectReference in ONE commit**, and add a test `ShadowedTypeGate` that reflects over
+Core's assembly and the Windows assembly and asserts the set of full type names defined in both is EXACTLY the allow-list (RotationEngine and its
+own nested types) - any other collision fails the build. Baselines recorded before B1: `dotnet test` = 1047 passed / 0 failed, replay filter
+0 mismatches, `docs/plans/2026-10-17-wave-b-identical-files.txt` (32 sha256-identical files, EOL-normalised; only these are deleted in B1).
+B2 = one superset file per commit with the full bar green, `PixelProtocol.cs` first (architect-trigger path; Ext4/`TypingActive` decode stays
+byte-identical on the wire). B3 = the two parity P0s in Core's own engine (Main master gate + typing veto), nothing else.
+Before deleting `UpdateExt3Mirror`/`SampleV1` (A2.3) grep Core + Mac - done in A2 (zero callers).
 1. Windows csproj `ProjectReference` -> Core (`InternalsVisibleTo` for `MaxDpsCompanion` and `MaxDpsCompanion.Tests`);
    delete the 33 byte-identical copies from the Windows project. Zero behaviour change; full test bar must stay at the same count.
 2. Make Core the **superset** of the additive shared types: Ext4 decode + `TypingActive` in `PixelProtocol`, `[UserQueue]` in
