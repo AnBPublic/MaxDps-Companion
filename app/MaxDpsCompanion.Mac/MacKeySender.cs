@@ -18,7 +18,11 @@ namespace MaxDpsCompanion.Mac;
 // (identical to the Windows hybrid).
 //
 // Fail-closed: an unmapped virtual key or an unknown mouse code is refused,
-// never guessed.
+// never guessed. A KEYBOARD stroke is NEVER posted to the global HID tap: with
+// no target pid the stroke is dropped (and reported), because a global key
+// event goes to whatever app is frontmost. Only mouse/wheel strokes use the
+// global route, and those are re-gated on the game being frontmost right
+// before the event.
 internal sealed class MacKeySender : IKeySender
 {
     private const string CoreGraphics =
@@ -83,12 +87,19 @@ internal sealed class MacKeySender : IKeySender
 
     public bool SendToWindow(IntPtr target, uint expectedProcessId, Keys.KeyRef stroke, int holdMilliseconds)
     {
-        if (expectedProcessId == 0 || IsMouse(stroke.VirtualKey))
+        if (IsMouse(stroke.VirtualKey))
         {
-            // No process identity, or a mouse stroke (HID-only): the engine
-            // gates those on focus itself.
-            Send(stroke, holdMilliseconds);
+            // Mouse strokes are HID-only: the engine gates them on focus and
+            // SendMouse re-checks the frontmost pid at send time.
+            SendMouse(stroke, Flags(stroke), holdMilliseconds);
             return true;
+        }
+        if (expectedProcessId == 0)
+        {
+            // No process identity -> no per-process route -> fail closed.
+            // Never fall back to the global tap for a keyboard stroke.
+            NoteNoTarget(stroke);
+            return false;
         }
         return SendKeyboardToPid((int)expectedProcessId, stroke, holdMilliseconds);
     }
@@ -100,12 +111,31 @@ internal sealed class MacKeySender : IKeySender
             SendMouse(stroke, Flags(stroke), holdMilliseconds);
             return;
         }
-        if (TargetPid > 0)
+        // Keyboard: per-process only (the host keeps TargetPid current). With
+        // no pid the stroke is dropped — IKeySender.Send cannot report a
+        // failure, so the drop is reported once per VK.
+        if (TargetPid <= 0)
         {
-            if (SendKeyboardToPid(TargetPid, stroke, holdMilliseconds)) return;
+            NoteNoTarget(stroke);
+            return;
         }
-        // Fallback (no pid known): global HID tap.
-        SendKeyboardGlobal(stroke, holdMilliseconds);
+        SendKeyboardToPid(TargetPid, stroke, holdMilliseconds);
+    }
+
+    /// <summary>Raised once per VK when a keyboard stroke had no target pid.</summary>
+    internal static event Action<string>? Dropped;
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<byte, byte> DropReported = new();
+
+    private static void NoteNoTarget(Keys.KeyRef stroke)
+    {
+        if (!DropReported.TryAdd(stroke.VirtualKey, 0)) return;
+        try
+        {
+            Dropped?.Invoke(
+                $"keyboard stroke VK 0x{stroke.VirtualKey:X2} has no target pid: dropped (fail-closed)");
+        }
+        catch { /* logging must never throw */ }
     }
 
     private static ulong Flags(Keys.KeyRef stroke)
@@ -120,8 +150,13 @@ internal sealed class MacKeySender : IKeySender
     /// <summary>Per-process keyboard stroke: target needs neither focus nor a window handle.</summary>
     private bool SendKeyboardToPid(int pid, Keys.KeyRef stroke, int holdMilliseconds)
     {
+        if (pid <= 0) { NoteNoTarget(stroke); return false; }
         var code = MacVkMap.Map(stroke.VirtualKey);
-        if (code is null) return false; // fail-closed: unmapped VK never fires
+        if (code is null)
+        {
+            MacVkMap.NoteUnmapped(stroke.VirtualKey); // fail-closed, reported once
+            return false;
+        }
         var flags = Flags(stroke);
         var ok = Post(pid, code.Value, down: true, flags);
         if (!ok) return false;
@@ -130,28 +165,24 @@ internal sealed class MacKeySender : IKeySender
         return true;
     }
 
+    /// <summary>
+    /// Keyboard event delivery. pid MUST be > 0: keyboard events are only ever
+    /// posted per-process (CGEventPostToPid). The global tap is not reachable
+    /// from here by construction, so a missing pid can never type into the
+    /// frontmost app.
+    /// </summary>
     private static bool Post(int pid, ushort code, bool down, ulong flags)
     {
+        if (pid <= 0) return false;                  // fail-closed
         var ev = CGEventCreateKeyboardEvent(IntPtr.Zero, code, down);
         if (ev == IntPtr.Zero) return false;
         try
         {
             if (flags != 0) CGEventSetFlags(ev, flags);
-            if (pid > 0) CGEventPostToPid(pid, ev);
-            else CGEventPost(kCGHIDEventTap, ev);
+            CGEventPostToPid(pid, ev);
             return true;
         }
         finally { CFRelease(ev); }
-    }
-
-    private static void SendKeyboardGlobal(Keys.KeyRef stroke, int holdMilliseconds)
-    {
-        var code = MacVkMap.Map(stroke.VirtualKey);
-        if (code is null) return;
-        var flags = Flags(stroke);
-        Post(0, code.Value, down: true, flags);
-        if (holdMilliseconds > 0) Thread.Sleep(holdMilliseconds);
-        Post(0, code.Value, down: false, flags);
     }
 
     private void SendMouse(Keys.KeyRef stroke, ulong flags, int holdMilliseconds)

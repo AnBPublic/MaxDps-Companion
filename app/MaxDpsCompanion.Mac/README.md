@@ -36,6 +36,47 @@ identity your grants survive rebuilds — with an ad-hoc signature they would be
 lost on every rebuild (which silently looks like "the companion stopped
 working").
 
+Before the app build the script also compiles and runs
+`native/selftest.swift` against the fresh dylib (synthetic strip: capture,
+43-cell pixel check, per-sample read cost). A compile error fails the build; a
+runtime `FAIL` normally means the *terminal* has no Screen Recording grant —
+grant it and re-run, or set `SELFTEST=0`. The bundle version comes from
+`app/Version.props` (never hardcoded).
+
+### Signing & notarization
+
+| Path | Identity | Used for |
+| :--- | :--- | :--- |
+| local dev | `MaxDPS Companion Local` (self-signed, `tools/mac-signing.sh`) | your own machine; TCC grants survive rebuilds |
+| release | `Developer ID Application: <Team> (<TEAMID>)` + hardened runtime | anything you hand to someone else; must be notarized |
+
+Release steps (manual, on a Mac with the Developer ID in the keychain):
+
+```sh
+# 1. Hardened runtime + Developer ID (notarization rejects otherwise).
+#    Add --entitlements <file> only if a runtime component needs JIT/unsigned
+#    memory (the .NET runtime ships signed; no file is committed for this).
+codesign --force --deep --options runtime \
+  --sign "Developer ID Application: <Team Name> (<TEAMID>)" \
+  "dist-mac/MaxDPS Companion.app"
+
+# 2. Notarize the zipped bundle and staple the ticket
+ditto -c -k --keepParent "dist-mac/MaxDPS Companion.app" dist-mac/MaxDPS-Companion.zip
+xcrun notarytool submit dist-mac/MaxDPS-Companion.zip \
+  --keychain-profile maxdps-notary --wait
+xcrun stapler staple "dist-mac/MaxDPS Companion.app"
+
+# 3. Verify what Gatekeeper will see
+spctl -a -vvv -t exec "dist-mac/MaxDPS Companion.app"
+```
+
+`notarytool` needs an app-specific password (or API key) stored once:
+`xcrun notarytool store-credentials maxdps-notary --apple-id <id> --team-id <TEAMID>`.
+The entitlements file is only required if a runtime component is unsigned
+(the .NET runtime ships signed); create it empty if `codesign` asks for it.
+**Notarization is OWED** until it is actually run — a local ad-hoc/self-signed
+build proves nothing about Gatekeeper.
+
 ## Permissions (required, both are per-app)
 
 | Permission | Needed for | Where |
@@ -45,8 +86,11 @@ working").
 
 The app prompts once via the OS when a capture is first attempted. `--probe`
 never prompts. Without Screen Recording the stream cannot start (the app says
-so; the capture backend reports `NOT granted`). Without Accessibility the
-rotation holds every send.
+so; the capture backend reports `NOT granted`) and **Start is refused** — the
+status line shows the missing grant and the engine is never started
+(`--run` exits with code 2). Without Accessibility the rotation still starts
+and holds every send until granted (system input is delivered per-process;
+without the grant the events are dropped by TCC).
 
 ## Capture design (performance contract)
 
@@ -107,7 +151,10 @@ display that needs it is visible rather than silent.
 
 * Keyboard: **`CGEventPostToPid`** — the stroke goes into the game's own event
   stream. The game needs no focus and strokes can never leak into another app
-  (the macOS counterpart of the Windows `PostMessage` route).
+  (the macOS counterpart of the Windows `PostMessage` route). There is **no
+  global fallback**: a keyboard stroke with no target pid is dropped, and a VK
+  the Mac cannot map is reported once per key (`unmapped VK n`) instead of
+  being silently skipped.
 * Mouse / wheel: global HID events (there is no per-process equivalent the game
   reads correctly), so the engine's foreground gate stays mandatory for them —
   identical to the Windows hybrid.
@@ -120,7 +167,7 @@ display that needs it is visible rather than silent.
 
 | Flag | What it does |
 | :--- | :--- |
-| *(none)* / `--ui` | opens the Avalonia window (Start/Pause/Stop, Launch Game, Open Folder, status) |
+| *(none)* / `--ui` | opens the Avalonia window (Start/Pause/Stop, Launch Game, Open Folder, a minimal settings block for the pause / target / interact key — saved to `settings.ini` on "Save settings" and on close, status) |
 | `--probe` | read-only report → `~/Library/Application Support/MaxDpsCompanion/probe.txt`: process/window/scale, capture backend, permissions, stream stats, locate + decode result |
 | `--locate` | strip sweep only |
 | `--run` | headless rotation loop (Ctrl+C stops) |

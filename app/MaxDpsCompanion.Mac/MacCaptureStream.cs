@@ -287,6 +287,10 @@ internal sealed class MacCaptureStream : IDisposable
     private long _lastGeomMs;
     private double _pendingX, _pendingY, _pendingW, _pendingH;
     private bool _hasPendingRegion;
+    /// <summary>Guards the pending region triple: the tick writes it, the
+    /// capture supervisor reads+clears it (a torn mix of two requests would
+    /// configure a region nobody asked for).</summary>
+    private readonly object _pendingGate = new();
 
     /// <summary>
     /// Queues a region change for the host's capture supervisor. The engine
@@ -297,11 +301,17 @@ internal sealed class MacCaptureStream : IDisposable
     public void RequestRegion(double x, double y, double w, double h)
     {
         if (!_started) return;
-        _pendingX = x; _pendingY = y; _pendingW = w; _pendingH = h;
-        _hasPendingRegion = true;
+        lock (_pendingGate)
+        {
+            _pendingX = x; _pendingY = y; _pendingW = w; _pendingH = h;
+            _hasPendingRegion = true;
+        }
     }
 
-    public bool HasPendingRegion => _hasPendingRegion;
+    public bool HasPendingRegion
+    {
+        get { lock (_pendingGate) return _hasPendingRegion; }
+    }
 
     /// <summary>
     /// Applies a queued region change (blocking; supervisor thread only).
@@ -309,9 +319,15 @@ internal sealed class MacCaptureStream : IDisposable
     /// </summary>
     public bool ApplyPendingRegion()
     {
-        if (!_started || !_hasPendingRegion) return false;
-        _hasPendingRegion = false;
-        return SetRegion(_pendingX, _pendingY, _pendingW, _pendingH);
+        if (!_started) return false;
+        double x, y, w, h;
+        lock (_pendingGate)
+        {
+            if (!_hasPendingRegion) return false;
+            _hasPendingRegion = false;
+            x = _pendingX; y = _pendingY; w = _pendingW; h = _pendingH;
+        }
+        return SetRegion(x, y, w, h);
     }
 
     /// <summary>Skip reason of the last delivered frame (diagnostics).</summary>

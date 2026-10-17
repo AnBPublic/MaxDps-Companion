@@ -48,6 +48,13 @@ internal sealed class MacScreenSampler : IScreenSampler
     public string Trace { get; private set; } = "";
 
     /// <summary>
+    /// Builds <see cref="Trace"/> (string concatenation per sample). OFF for
+    /// the engine tick; probe/diagnose turn it on. Tick purity: no per-sample
+    /// string allocation unless somebody is actually reading the trace.
+    /// </summary>
+    public static bool Diagnostics { get; set; }
+
+    /// <summary>
     /// Current capture stream. The engine keeps ONE adapter instance for its
     /// lifetime, so the host swaps the stream here when it restarts capture
     /// (game restart, stream error) instead of rewiring the engine.
@@ -94,8 +101,12 @@ internal sealed class MacScreenSampler : IScreenSampler
             {
                 Repairs++;
                 LastRepairCells = CountDifferences(cells, repaired, cellCount);
-                return repaired;
+                cells = repaired;
             }
+            // The Ext3 mirror is published from ONE decode per tick, on both
+            // the stream and the legacy path (it used to be legacy-only, so
+            // the stream mode reported "no mirror" forever).
+            UpdateMirror(cells);
         }
         return cells;
     }
@@ -177,12 +188,17 @@ internal sealed class MacScreenSampler : IScreenSampler
         var run = PixelSampler.MagicRun(At, y: 1, limit: limitX);
         var baseStep = run > 0 ? run : Math.Max(1, (int)Math.Round(step));
         var height = Math.Min((int)Math.Max(1, step), limitY);
-        var probeGrid = PixelSampler.SampleGrid(At, Math.Min(cellCount, 6), baseStep + 0.5, height);
-        var col = string.Join(",", Enumerable.Range(0, Math.Min(8, limitY)).Select(y => { var c = At(4, y); return $"{c.R}/{c.G}/{c.B}"; }));
-        Trace = $"px={px} py={py} run={run} step={baseStep} height={height} grid0=" +
-            string.Join(",", probeGrid.Select(c => $"{c.R}/{c.G}/{c.B}")) +
-            $" col4=" + col +
-            $" row1=" + string.Join(",", new[] { 0, 3, 4, 7, 8, 11, 12 }.Select(x => { var c = At(x, 1); return $"{c.R}/{c.G}/{c.B}"; }));
+        if (Diagnostics)
+        {
+            // Diagnostic-only string building (probe/diagnose paths). Never on
+            // the engine tick: it allocates several strings per sample.
+            var probeGrid = PixelSampler.SampleGrid(At, Math.Min(cellCount, 6), baseStep + 0.5, height);
+            var col = string.Join(",", Enumerable.Range(0, Math.Min(8, limitY)).Select(y => { var c = At(4, y); return $"{c.R}/{c.G}/{c.B}"; }));
+            Trace = $"px={px} py={py} run={run} step={baseStep} height={height} grid0=" +
+                string.Join(",", probeGrid.Select(c => $"{c.R}/{c.G}/{c.B}")) +
+                $" col4=" + col +
+                $" row1=" + string.Join(",", new[] { 0, 3, 4, 7, 8, 11, 12 }.Select(x => { var c = At(x, 1); return $"{c.R}/{c.G}/{c.B}"; }));
+        }
 
         foreach (var f in new[] { 0.0, 0.5, 0.25, 0.75, 0.99 })
         {
@@ -200,7 +216,7 @@ internal sealed class MacScreenSampler : IScreenSampler
 
         _reader.Bind(bgra, iw, ih, stride);
         var cells = SampleGridFromBytes(_reader.Read, iw, ih, cellSize, cellCount);
-        UpdateMirror(cells);
+        // The Ext3 mirror is published by SampleCells (one decode per tick).
         return cells;
     }
 

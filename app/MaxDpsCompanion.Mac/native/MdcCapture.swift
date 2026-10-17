@@ -33,10 +33,12 @@
 //     watchdog). A stopped-but-not-yet-quiesced stream therefore writes into
 //     ITS OWN sink, never into the live one, and `mdc_cap_dead` reports the
 //     CURRENT session only.
-//   * Frame buffers are never freed while the process lives: a reader's
-//     snapshot pointer may be held across a region change, and freeing it
-//     would be a use-after-free. Region changes are rare and the retired
-//     buffers are small (the whole point of the bounded region).
+//   * Frame buffers are retired for TWO generations after a region change,
+//     then freed: a reader's snapshot pointer may be held across a region
+//     change (use-after-free if freed immediately), and two generations is
+//     far longer than any tick read. A discarded SESSION's sink is not freed
+//     explicitly — the buffer is small and the process-lifetime leak is the
+//     price of never invalidating a snapshot (see LIFETIME RULES above).
 //   * All control operations (start/stop/setRegion/once) are serialised by
 //     one lock, so a supervisor-driven restart cannot interleave with a stop.
 //
@@ -85,9 +87,12 @@ private let errBadArgs: Int32 = -8
 private final class Sink {
     private var bufA: UnsafeMutablePointer<UInt8>?
     private var bufB: UnsafeMutablePointer<UInt8>?
-    /// Retired buffers: never freed, so a pointer handed out by snapshot()
-    /// stays valid across a region change (see LIFETIME RULES).
-    private var retired: [UnsafeMutablePointer<UInt8>] = []
+    /// Retired buffers tagged with the generation they were retired in. A
+    /// snapshot pointer handed out before a region change stays valid, so
+    /// buffers are kept for TWO generations and then freed (see LIFETIME
+    /// RULES in the header). Never freed immediately: that is a use-after-free.
+    private var retired: [(gen: UInt64, buf: UnsafeMutablePointer<UInt8>)] = []
+    private var generation: UInt64 = 0
 
     private var cap = 0
     private var which = 0                 // buffer the NEXT frame is written to
@@ -113,7 +118,8 @@ private final class Sink {
     }
 
     /// (Re)allocates for a new region and invalidates the published frame.
-    /// Old buffers are RETIRED, never freed (a reader may still hold one).
+    /// Old buffers are retired for two generations, then freed (a reader may
+    /// still hold one across the reconfigure).
     /// Frames are normalised to a packed stride (w*4): ScreenCaptureKit pads
     /// rows (measured: 400 px -> stride 1664, i.e. +64 B/row), so the publish
     /// path row-copies when the delivered stride is wider.
@@ -121,8 +127,22 @@ private final class Sink {
         lock.lock(); defer { lock.unlock() }
         let need = strideBytes * h
         if need > cap {
-            if let a = bufA { retired.append(a) }
-            if let b = bufB { retired.append(b) }
+            generation &+= 1
+            if let a = bufA { retired.append((gen: generation, buf: a)) }
+            if let b = bufB { retired.append((gen: generation, buf: b)) }
+            // Free what was retired two or more generations ago: no snapshot
+            // handed out since then can still point at it.
+            let oldestKept = generation >= 2 ? generation - 2 : 0
+            var kept: [(gen: UInt64, buf: UnsafeMutablePointer<UInt8>)] = []
+            kept.reserveCapacity(retired.count)
+            for entry in retired {
+                if entry.gen <= oldestKept {
+                    entry.buf.deallocate()
+                } else {
+                    kept.append(entry)
+                }
+            }
+            retired = kept
             bufA = UnsafeMutablePointer<UInt8>.allocate(capacity: need)
             bufB = UnsafeMutablePointer<UInt8>.allocate(capacity: need)
             cap = need
@@ -307,7 +327,32 @@ private final class CaptureEngine {
     private var lastError = ""
     /// Stored string backing the const char* returned by the error getters
     /// (a temporary NSString's utf8String would dangle once it is released).
-    var cachedError: NSString = ""
+    /// LOCKED: cacheError runs on the capture queue while the getters run on
+    /// the probe/UI thread; an unlocked NSString swap is a retain/release data
+    /// race (crash class: EXC_BAD_ACCESS in _objc_release).
+    private let errorLock = NSLock()
+    private var storedError: NSString = ""
+
+    var cachedError: NSString {
+        get {
+            errorLock.lock()
+            defer { errorLock.unlock() }
+            return storedError
+        }
+        set {
+            errorLock.lock()
+            defer { errorLock.unlock() }
+            storedError = newValue
+        }
+    }
+
+    /// Pointer valid until the next cacheError (the C# side copies it
+    /// immediately), returned under the same lock as the swap.
+    var cachedErrorPointer: UnsafePointer<CChar>? {
+        errorLock.lock()
+        defer { errorLock.unlock() }
+        return storedError.utf8String
+    }
 
     private func setError(_ s: String) { lastError = s }
     var errorText: String { lastError }
@@ -739,12 +784,9 @@ public func mdc_cap_last_error() -> UnsafePointer<CChar>? {
 
 private extension CaptureEngine {
     /// Copies a Swift string into a stored NSString so the returned C pointer
-    /// stays valid until the next call (a temporary would dangle).
+    /// stays valid until the next call (a temporary would dangle). The store
+    /// is locked (see cachedError).
     func cacheError(_ text: String) {
         cachedError = text as NSString
-    }
-
-    var cachedErrorPointer: UnsafePointer<CChar>? {
-        cachedError.utf8String
     }
 }

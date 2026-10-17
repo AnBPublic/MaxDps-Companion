@@ -108,7 +108,7 @@ internal sealed class MacBlockScanner : IBlockScanner
             var found = BlockScanner.Scan(_reader.ReadBgra, iw, ih, _profile, (x, y, cell) => Verify(iw, ih, x, y, cell));
             if (found is { } f)
             {
-                var hit = Accept(stream, f.CellSize, f.X, f.Y, 0, 0);   // one-shots are window-relative
+                var hit = Accept(stream, f.CellSize, f.X, f.Y, 0, 0, onSupervisor: true);   // one-shots are window-relative
                 if (hit is { } h)
                 {
                     _cachedHit = h;
@@ -145,9 +145,14 @@ internal sealed class MacBlockScanner : IBlockScanner
 
     /// <summary>
     /// Converts a pixel hit into engine coordinates (window-relative points),
-    /// shrinks the stream to the strip and returns it.
+    /// queues the shrink-to-strip region and returns the hit.
+    /// OFF-TICK RULE: the engine tick only ever REQUESTS the region
+    /// (<see cref="MacCaptureStream.RequestRegion"/>); the capture supervisor
+    /// applies it (250 ms cadence). The supervisor's own escalation passes
+    /// <paramref name="onSupervisor"/> = true and applies it inline, since it
+    /// is already off the tick.
     /// </summary>
-    private (int, int, int)? Accept(MacCaptureStream stream, int cellPx, int xPx, int yPx, double clientRelX, double clientRelY)
+    private (int, int, int)? Accept(MacCaptureStream stream, int cellPx, int xPx, int yPx, double clientRelX, double clientRelY, bool onSupervisor = false)
     {
         var scale = stream.Scale <= 0 ? 1 : stream.Scale;
         var cellPt = Math.Max(1, (int)Math.Round(cellPx / scale));
@@ -155,10 +160,12 @@ internal sealed class MacBlockScanner : IBlockScanner
         var yPt = (int)Math.Round(yPx / scale + clientRelY);
 
         // Shrink the stream to exactly the strip (+2 pt tap margin) so every
-        // later tick reads a few KB instead of the band.
+        // later tick reads a few KB instead of the band. Never a blocking
+        // reconfigure on the tick: queue it for the supervisor.
         var margin = 2;
-        stream.SetRegion(xPt - margin, yPt - margin,
+        stream.RequestRegion(xPt - margin, yPt - margin,
             cellPt * PixelProtocol.CellCountExt3 + margin * 2, cellPt + margin * 2);
+        if (onSupervisor) stream.ApplyPendingRegion();
         _rung = 0;                          // next loss starts cheap again
         _lastHitMs = Environment.TickCount64;
         return (xPt, yPt, cellPt);

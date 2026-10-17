@@ -37,6 +37,7 @@ internal static class Program
         // Headless CLI first: --probe/--locate/--run never open a window.
         if (HasFlag(args, "--probe"))
         {
+            MacScreenSampler.Diagnostics = true;   // probe reports the grid trace
             var lines = Probe(settings);
             Directory.CreateDirectory(AppSupportDir);
             File.WriteAllLines(Path.Combine(AppSupportDir, "probe.txt"), lines);
@@ -46,7 +47,10 @@ internal static class Program
         }
 
         if (HasFlag(args, "--locate"))
+        {
+            MacScreenSampler.Diagnostics = true;
             return Locate(settings);
+        }
 
         if (HasFlag(args, "--bench-capture"))
             return BenchCapture(settings, args);
@@ -85,36 +89,6 @@ internal static class Program
         // Mac default process name: the short "Wow" owner string also
         // matches, but the full name is the documented canonical value.
         return settings;
-    }
-
-    /// <summary>Shows probe output when launched from Finder (no terminal).
-    /// osascript only — no new native dependency, never prompts for permissions.
-    /// Newlines use AppleScript's `return` concatenation: a literal line break
-    /// inside a display-dialog string is a syntax error, so the text is split
-    /// per line (only `"` needs escaping — backslash is literal in AppleScript).</summary>
-    private static void ShowDialog(string text)
-    {
-        // osascript via a script FILE: the -e "..." form breaks on the
-        // shell-quoting layer ((...)) parens + & return & + embedded quotes,
-        // which is why the dialog never appeared while probe.txt was written.
-        var scriptPath = Path.Combine(Path.GetTempPath(), "maxdps-probe-dialog.applescript");
-        try
-        {
-            var parts = text.Split('\n').Select(l => "\"" + l.Replace("\"", "\\\"") + "\"");
-            var expr = string.Join(" & return & ", parts);
-            var script = $"display dialog {expr} with title \"MaxDPS Companion (Mac probe)\" buttons {{\"Show probe.txt\", \"OK\"}} default button \"OK\" with icon note";
-            File.WriteAllText(scriptPath, script);
-            var psi = new System.Diagnostics.ProcessStartInfo("osascript", $"\"{scriptPath}\"")
-            {
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-            };
-            using var p = System.Diagnostics.Process.Start(psi);
-            p?.WaitForExit(30000);
-            if (p?.StandardOutput.ReadToEnd().Contains("Show probe.txt") == true)
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("open", $"\"{Path.Combine(AppSupportDir, "probe.txt")}\"") { UseShellExecute = true });
-        }
-        catch { /* dialog is best-effort; probe.txt is the record */ }
     }
 
     private static List<string> Probe(AppSettings settings)
@@ -201,6 +175,9 @@ internal static class Program
                 return lines;
             }
             lines.Add($"locate={found.Value.OffsetX},{found.Value.OffsetY} cell={found.Value.CellSize}");
+            // The CLI has no capture supervisor, so the shrink-to-strip region
+            // the scanner QUEUED (never set on the tick) is applied here.
+            if (stream.Running) stream.ApplyPendingRegion();
             if (stream.Running)
             {
                 // Raw first cells: the fastest way to tell a geometry error from
@@ -324,6 +301,9 @@ internal static class Program
             Console.WriteLine("bench: strip not found - start the game with the MaxDpsBridgeExp addon loaded, then re-run");
             return 1;
         }
+        // No supervisor in the CLI: apply the queued shrink-to-strip region so
+        // the steady-state numbers measure the strip, not the locate band.
+        stream.ApplyPendingRegion();
         var at = new System.Drawing.Point(origin.X + loc.OffsetX, origin.Y + loc.OffsetY);
         var sampler = new MacScreenSampler(stream, settings.Color);
         var (rw, rh) = stream.RegionPixels;
@@ -417,15 +397,17 @@ internal static class Program
     {
         using var host = new MacEngineHost(settings);
         host.StatusChanged += s => Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {s.Message} | {s.SlotSummary} | {s.LastKeySent}");
+        MacVkMap.Unmapped += Console.WriteLine;
+        MacKeySender.Dropped += Console.WriteLine;
         if (!host.EnsurePermissions(out var perm))
         {
+            // FAIL CLOSED: no Screen Recording -> nothing can decode, so the
+            // engine is not started at all (same rule as the UI Start button).
             Console.WriteLine(perm);
-            Console.WriteLine("Grant Screen Recording, then re-run. (Accessibility can follow; sends hold until granted.)");
+            Console.WriteLine("Grant Screen Recording (System Settings > Privacy & Security), then re-run. Engine NOT started.");
+            return 2;
         }
-        else
-        {
-            Console.WriteLine(perm);
-        }
+        Console.WriteLine(perm);
         Console.WriteLine("Starting rotation (Ctrl+C to stop)...");
         host.Start();
         var done = new ManualResetEventSlim(false);
