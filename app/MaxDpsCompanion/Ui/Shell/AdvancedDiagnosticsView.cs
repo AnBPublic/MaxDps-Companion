@@ -184,7 +184,9 @@ internal sealed class AdvancedDiagnosticsView : UserControl
         settings.CellSize = (int)NumberOr(_cellSize, settings.CellSize);
         settings.OffsetX = (int)NumberOr(_offsetX, settings.OffsetX);
         settings.OffsetY = (int)NumberOr(_offsetY, settings.OffsetY);
-        settings.Color.Tolerance = (int)NumberOr(_tolerance, settings.Color.Tolerance);
+        // 4.1 A2.10: copy-on-write — a new profile instance replaces the
+        // reference; the engine's per-tick snapshot never sees a field change.
+        settings.Color = settings.Color.WithTolerance((int)NumberOr(_tolerance, settings.Color.Tolerance));
         settings.BNetPath = _bnetPath.Text.Trim();
     }
 

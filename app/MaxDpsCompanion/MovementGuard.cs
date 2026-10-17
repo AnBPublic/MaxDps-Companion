@@ -278,6 +278,36 @@ internal static class MovementGuard
         }
     }
 
+    // Modifier VKs (4.1 A2.2 b): the harness only ever queries these three.
+    public const byte VkShift = 0x10;
+    public const byte VkControl = 0x11;
+    public const byte VkMenu = 0x12;
+
+    /// <summary>
+    /// 4.1 A2.2 (b) — modifier half of the hold-collision rule. A modifier the
+    /// user physically holds that the stroke does NOT contain would leak into a
+    /// synthesised chord (Shift held + Ctrl+X is delivered as Shift+Ctrl+X),
+    /// and pressing/releasing our own modifiers cannot clear it. Returns the
+    /// held modifier's name, or null when the stroke is safe.
+    ///
+    /// Only the SendInput chord path consumes this: the default Post path
+    /// never queried physical modifiers and must keep behaving identically.
+    /// </summary>
+    public static string? HeldModifierNotIn(in KeyStroke stroke, bool shiftDown, bool ctrlDown, bool altDown)
+    {
+        if (ctrlDown && !stroke.Ctrl) return "Ctrl";
+        if (altDown && !stroke.Alt) return "Alt";
+        if (shiftDown && !stroke.Shift) return "Shift";
+        return null;
+    }
+
+    /// <summary>Physical-state overload of <see cref="HeldModifierNotIn(KeyStroke,bool,bool,bool)"/>.</summary>
+    public static string? HeldModifierNotIn(KeyStroke stroke, Func<byte, bool>? isDown = null)
+    {
+        var down = isDown ?? IsPhysicallyDown;
+        return HeldModifierNotIn(stroke, down(VkShift), down(VkControl), down(VkMenu));
+    }
+
     /// <summary>
     /// Pure combat-aware auto-target gate, kept static for testability.
     /// With combatOnly on, NeedTarget only auto-targets shortly after the

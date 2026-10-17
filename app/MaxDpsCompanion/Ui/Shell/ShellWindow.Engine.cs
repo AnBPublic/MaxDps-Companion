@@ -684,11 +684,9 @@ public sealed partial class ShellWindow
     /// <summary>MainForm.ResetColors :2504-2513.</summary>
     internal void ResetColors()
     {
-        var profile = _settings.Color;
-        profile.MagicR = 255; profile.MagicG = 0; profile.MagicB = 255;
-        for (var i = 0; i < 3; i++) { profile.Black[i] = 0; profile.White[i] = 255; }
-        profile.Tolerance = 64;
-        profile.LearnedAt = "";
+        // 4.1 A2.10: replace the reference with a fresh profile; never mutate
+        // the instance a live engine tick may be reading.
+        _settings.Color = new ColorProfile();
         SaveSettings();
         RefreshColorStatus();
     }
@@ -853,17 +851,10 @@ public sealed partial class ShellWindow
                 return;
             }
 
-            var profile = _settings.Color;
-            profile.MagicR = learned.Profile.MagicR;
-            profile.MagicG = learned.Profile.MagicG;
-            profile.MagicB = learned.Profile.MagicB;
-            for (var i = 0; i < 3; i++)
-            {
-                profile.Black[i] = learned.Profile.Black[i];
-                profile.White[i] = learned.Profile.White[i];
-            }
-            profile.Tolerance = learned.Profile.Tolerance;
-            profile.LearnedAt = learned.Profile.LearnedAt;
+            // 4.1 A2.10: the learned profile is already a fresh instance built
+            // by ColorLearner.Build — publish it by reference instead of
+            // copying eight fields into the object an engine tick may be using.
+            _settings.Color = learned.Profile;
             SaveSettings();
             Post(RefreshColorStatus); // marshal-site parity (:2471 BeginInvoke)
             SetStatus(learned.Note + " - saved.", ControlTheme.TextPrimary);

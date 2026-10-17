@@ -13,9 +13,26 @@ internal sealed class WowWindow
     // strip until restart" bug. Cheap (~1/s) and self-healing.
     private const long VerifyIntervalMs = 1000;
 
+    private readonly Func<long> _clock;
+    private readonly Func<string, IntPtr> _findMainWindow;
+
     private IntPtr _handle = IntPtr.Zero;
     private string _processName = "";
     private long _lastVerifyMs;
+    // 4.1 A2.7: when no game window resolves, Process.GetProcesses() used to be
+    // re-enumerated on EVERY tick (33 ms) while waiting for the game — the most
+    // expensive thing the idle path did. Sweeps are throttled to the same 1 s
+    // cadence as the handle re-verify; a configured-name change bypasses it.
+    private long _lastMissMs = long.MinValue;
+
+    public WowWindow() : this(() => Environment.TickCount64, FindMainWindow) { }
+
+    /// <summary>Test seam: injected clock + process-name → main-window lookup.</summary>
+    internal WowWindow(Func<long> clock, Func<string, IntPtr> findMainWindow)
+    {
+        _clock = clock;
+        _findMainWindow = findMainWindow;
+    }
 
     public IntPtr Handle => _handle;
     public bool IsValid => _handle != IntPtr.Zero && Native.IsWindow(_handle);
@@ -41,12 +58,13 @@ internal sealed class WowWindow
     {
         _handle = IntPtr.Zero;
         _lastVerifyMs = 0;
+        _lastMissMs = long.MinValue;
     }
 
     /// <summary>
     /// Finds the game window by process name. The name is matched
     /// case-insensitively and without the .exe suffix, so "Wow", "WowClassic"
-    /// and "Legion" all work as written in settings.ini. The cached handle is
+    /// and "Legion" all work as written in settings. The cached handle is
     /// trusted only while it is STILL the process's live main window: after a
     /// relog / character switch / display-mode change the game can recreate
     /// (or replace) its window, leaving our old handle alive but wrong. That
@@ -56,12 +74,13 @@ internal sealed class WowWindow
     public bool Refresh(string processName)
     {
         var wanted = Normalise(processName);
+        var nameChanged = !string.Equals(processName, _processName, StringComparison.OrdinalIgnoreCase);
 
         if (_handle != IntPtr.Zero
             && IsValid
-            && string.Equals(processName, _processName, StringComparison.OrdinalIgnoreCase))
+            && !nameChanged)
         {
-            var now = Environment.TickCount64;
+            var now = _clock();
             if (now - _lastVerifyMs < VerifyIntervalMs) return true;
             _lastVerifyMs = now;
             if (StillCurrentMainWindow(wanted)) return true;
@@ -71,7 +90,29 @@ internal sealed class WowWindow
 
         _handle = IntPtr.Zero;
         _processName = processName;
+        if (nameChanged) _lastMissMs = long.MinValue;
 
+        var nowMs = _clock();
+        if (_lastMissMs != long.MinValue && nowMs - _lastMissMs < VerifyIntervalMs) return false;
+        _lastMissMs = nowMs;
+
+        var found = _findMainWindow(wanted);
+        if (found == IntPtr.Zero) return false;
+
+        _handle = found;
+        _lastVerifyMs = nowMs;
+        _lastMissMs = long.MinValue;
+        return true;
+    }
+
+    private static string Normalise(string processName) =>
+        processName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+            ? processName[..^4]
+            : processName;
+
+    /// <summary>Default lookup: enumerate processes for the wanted name's main window.</summary>
+    private static IntPtr FindMainWindow(string wanted)
+    {
         foreach (var process in Process.GetProcesses())
         {
             using (process)
@@ -80,20 +121,11 @@ internal sealed class WowWindow
                     continue;
                 if (process.MainWindowHandle == IntPtr.Zero)
                     continue;
-
-                _handle = process.MainWindowHandle;
-                _lastVerifyMs = Environment.TickCount64;
-                return true;
+                return process.MainWindowHandle;
             }
         }
-
-        return false;
+        return IntPtr.Zero;
     }
-
-    private static string Normalise(string processName) =>
-        processName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
-            ? processName[..^4]
-            : processName;
 
     /// <summary>
     /// True while the cached handle belongs to the wanted process AND Windows

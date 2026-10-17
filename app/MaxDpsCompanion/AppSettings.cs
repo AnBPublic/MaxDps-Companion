@@ -77,6 +77,16 @@ internal sealed class AppSettings
     // the engine; mouse/interact input has always required the foreground.)
     public bool AllowBackgroundKeys { get; set; } = true;
 
+    /// <summary>
+    /// [Window] ModifierInput (4.1 A2.2): how a stroke carrying Ctrl/Alt/Shift
+    /// is delivered. Default <see cref="ModifierInputMode.Post"/> = today's
+    /// exact behaviour (WM_KEYDOWN to the game window, no focus needed).
+    /// Auto = SendInput while the game is foreground, Post + note otherwise;
+    /// SendInput = force it while foreground, hold with a note otherwise.
+    /// A stroke WITHOUT modifiers always keeps the per-window Post route.
+    /// </summary>
+    public ModifierInputMode ModifierInput { get; set; } = ModifierInputMode.Post;
+
     /// <summary>Saved client size (0 = use the built-in default). Written on resize/close.</summary>
     public int WindowWidth { get; set; }
     public int WindowHeight { get; set; }
@@ -293,7 +303,9 @@ internal sealed class AppSettings
 
     // [Color] — display-chain profile learned from `/mdb calibrate`.
     // Absent section = legacy behaviour (fixed magenta test, shared ramp).
-    public ColorProfile Color { get; } = new();
+    // 4.1 A2.10: the REFERENCE is replaced (new immutable instance) by the UI
+    // instead of mutating shared fields, and the engine reads it once per tick.
+    public ColorProfile Color { get; set; } = new();
 
     // [Launch] — Battle.net override for the Launch Game button.
     // Empty = auto-detect. The launcher's remembered account signs in;
@@ -410,6 +422,7 @@ internal sealed class AppSettings
             case ("bridge", "offsety"): OffsetY = ParseInt(value, OffsetY); break;
             case ("window", "processname"): ProcessName = value; break;
             case ("window", "allowbackgroundkeys"): AllowBackgroundKeys = ParseBool(value, AllowBackgroundKeys); break;
+            case ("window", "modifierinput"): ModifierInput = ModifierInputSetting.Parse(value); break;
             case ("window", "width"): WindowWidth = Math.Clamp(ParseInt(value, WindowWidth), 0, 8000); break;
             case ("window", "height"): WindowHeight = Math.Clamp(ParseInt(value, WindowHeight), 0, 8000); break;
             case ("window", "layout"): WindowLayout = value.Trim(); break;
@@ -507,6 +520,11 @@ internal sealed class AppSettings
             .AppendLine("[Window]")
             .AppendLine($"ProcessName={ProcessName}")
             .AppendLine($"AllowBackgroundKeys={(AllowBackgroundKeys ? 1 : 0)}")
+            .AppendLine("; ModifierInput: how a stroke carrying Ctrl/Alt/Shift reaches the game.")
+            .AppendLine("; Post = post window messages only (default, background-safe);")
+            .AppendLine("; Auto = SendInput while the game is focused, Post + note in the background;")
+            .AppendLine("; SendInput = force SendInput for chords and hold with a note when unfocused.")
+            .AppendLine($"ModifierInput={ModifierInputSetting.Format(ModifierInput)}")
             .AppendLine("; Saved client size (0 = default); written on resize/close.")
             .AppendLine($"Width={WindowWidth}")
             .AppendLine($"Height={WindowHeight}")

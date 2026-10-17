@@ -40,6 +40,19 @@ internal sealed class ColorProfile
 
     public bool IsLearned => LearnedAt.Length > 0;
 
+    /// <summary>
+    /// 4.1 A2.10: copy-on-write update for the one hot field the UI edits.
+    /// Returns a NEW profile so a live engine tick always reads a complete,
+    /// immutable-by-convention profile (the reference is replaced, never
+    /// mutated under the reader).
+    /// </summary>
+    public ColorProfile WithTolerance(int tolerance)
+    {
+        var copy = Clone();
+        copy.Tolerance = Math.Clamp(tolerance, 16, 128);
+        return copy;
+    }
+
     /// <summary>Largest per-channel gap between magic reference and black.</summary>
     public int Separation()
     {

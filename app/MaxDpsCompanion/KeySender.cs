@@ -4,57 +4,56 @@ namespace MaxDpsCompanion;
 
 /// <summary>
 /// Replays a keystroke into one window only: keyboard input is posted as
-/// WM_KEYDOWN/WM_KEYUP to the attached game window, so it can never leak into
-/// whatever happens to be focused (browser, chat, ...). The game does not
-/// need focus and neither window needs to be in front.
+/// WM_KEYDOWN/WM_KEYUP to the attached game window by default, so it can never
+/// leak into whatever happens to be focused (browser, chat, ...). The game does
+/// not need focus and neither window needs to be in front.
+///
+/// 4.1 A2.2: a stroke carrying Ctrl/Alt/Shift can instead be routed through
+/// SendInput ([Window] ModifierInput=Auto/SendInput — see
+/// <see cref="ModifierInputMode"/> and <see cref="ChordPlanner"/>); the default
+/// stays Post, i.e. today's exact delivery.
+///
 /// Mouse buttons and the wheel have no per-window message equivalent and still
 /// go through SendInput to the focused window — the foreground gate in the
 /// engine stays mandatory for those.
 /// </summary>
-internal static class KeySender
+internal sealed class KeySender
 {
-    private const byte VkShift = 0x10;
-    private const byte VkControl = 0x11;
-    private const byte VkMenu = 0x12;
+    internal const byte VkShift = 0x10;
+    internal const byte VkControl = 0x11;
+    internal const byte VkMenu = 0x12;
+
+    /// <summary>Process-wide sender (the engine's seam). Tests build their own with a fake backend.</summary>
+    public static KeySender Default { get; } = new();
+
+    private readonly KeyDelivery _delivery;
+
+    public KeySender(KeyDelivery? delivery = null) => _delivery = delivery ?? new KeyDelivery();
 
     /// <summary>
-    /// Sends a keyboard stroke to <paramref name="target"/>. Returns false and
-    /// sends nothing when the handle is dead or belongs to another process.
+    /// Sends a keyboard stroke to <paramref name="target"/>. Returns a failure
+    /// outcome when the handle is dead or belongs to another process (nothing
+    /// is sent), or a held outcome with the visible reason when the chord was
+    /// deferred. <paramref name="mode"/> + <paramref name="gameForeground"/>
+    /// are the [Window] ModifierInput seam (A2.2 f).
     /// </summary>
-    public static bool SendToWindow(IntPtr target, uint expectedProcessId, KeyStroke stroke, int holdMilliseconds)
-    {
-        if (target == IntPtr.Zero || !Native.IsWindow(target)) return false;
-        Native.GetWindowThreadProcessId(target, out var pid);
-        if (expectedProcessId != 0 && pid != expectedProcessId) return false;
+    public SendOutcome SendToWindow(
+        IntPtr target,
+        uint expectedProcessId,
+        KeyStroke stroke,
+        int holdMilliseconds,
+        ModifierInputMode mode,
+        bool gameForeground) =>
+        _delivery.SendToWindow(target, expectedProcessId, stroke, holdMilliseconds, mode, gameForeground);
 
-        var keys = new List<(byte Vk, bool Alt)>();
-        if (stroke.Ctrl) keys.Add((VkControl, false));
-        if (stroke.Alt) keys.Add((VkMenu, true));
-        if (stroke.Shift) keys.Add((VkShift, false));
-        keys.Add((stroke.VirtualKey, stroke.Alt));
+    /// <summary>True while our own synthetic press of <paramref name="virtualKey"/> is settling.</summary>
+    public bool IsOwnInjection(byte virtualKey) => _delivery.IsOwnInjection(virtualKey);
 
-        foreach (var (vk, alt) in keys)
-        {
-            var scan = (IntPtr)Native.MapVirtualKey(vk, Native.MAPVK_VK_TO_VSC);
-            // lParam: repeat=1, scancode in bits 16-23, extended flag as needed.
-            var lParam = (IntPtr)(1 | ((int)scan << 16) | (ExtendedKeys.Contains(vk) ? 1 << 24 : 0));
-            var down = stroke.Alt || alt ? Native.WM_SYSKEYDOWN : Native.WM_KEYDOWN;
-            Native.PostMessage(target, down, (IntPtr)vk, lParam);
-        }
+    /// <summary>Key-up Ctrl/Shift/Alt only while our own injection is outstanding (A2.2 e).</summary>
+    public void PanicRelease() => _delivery.PanicRelease();
 
-        if (holdMilliseconds > 0) Thread.Sleep(holdMilliseconds);
-
-        for (var i = keys.Count - 1; i >= 0; i--)
-        {
-            var (vk, alt) = keys[i];
-            var scan = (IntPtr)Native.MapVirtualKey(vk, Native.MAPVK_VK_TO_VSC);
-            var lParam = (IntPtr)(1 | ((int)scan << 16) | (ExtendedKeys.Contains(vk) ? 1 << 24 : 0) | (1 << 30) | (1 << 31));
-            var up = stroke.Alt || alt ? Native.WM_SYSKEYUP : Native.WM_KEYUP;
-            Native.PostMessage(target, up, (IntPtr)vk, lParam);
-        }
-
-        return true;
-    }
+    /// <summary>Sends a stroke (keyboard or mouse) to the focused window; false when SendInput was blocked.</summary>
+    public bool SendFocused(KeyStroke stroke, int holdMilliseconds) => _delivery.SendFocused(stroke, holdMilliseconds);
 
     // Mouse codes as encoded by the addon. Buttons reuse their real virtual-key
     // codes, which a keyboard can never produce; the wheel borrows two values
@@ -67,13 +66,51 @@ internal static class KeySender
     private const byte VkWheelUp = 0x07;
     private const byte VkWheelDown = 0x0B;
 
+    /// <summary>
+    /// VKs whose lParam carries the extended-key bit (bit 24).
+    ///
+    /// VK_CONTROL / VK_MENU (0x11/0x12) are deliberately NOT extended: the wire
+    /// only carries the generic VK, MapVirtualKey resolves it to the LEFT scan
+    /// code (0x1D/0x38), and marking it extended would silently turn a
+    /// left-Ctrl binding into right-Ctrl. VK_RETURN (0x0D) is left alone for
+    /// the same reason: there is no separate numpad-Enter VK, so the encoding
+    /// cannot distinguish main Enter from numpad Enter, and an extended flag
+    /// would turn every Enter into the numpad key.
+    ///
+    /// The right-hand modifier VKs (0xA3 right Ctrl, 0xA5 right Alt) ARE
+    /// unambiguous when they arrive (a future addon / a direct config can send
+    /// them), so they are marked extended "where the VK allows".
+    /// </summary>
     private static readonly HashSet<byte> ExtendedKeys =
     [
         0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, // page/home/end/arrows
         0x2D, 0x2E,                                     // insert, delete
         0x6F,                                           // numpad divide
         0x90,                                           // num lock
+        0xA3,                                           // right Ctrl
+        0xA5,                                           // right Alt
     ];
+
+    internal static bool IsExtendedKey(byte virtualKey) => ExtendedKeys.Contains(virtualKey);
+
+    /// <summary>
+    /// Pure lParam composition. Bit 0 = repeat count 1, bits 16-23 = scan code,
+    /// bit 24 = extended key, bits 30/31 = previous state / transition on key-up.
+    /// The uint cast is required: bit 31 makes the int negative, and
+    /// <c>(nint)(int)</c> sign-extends on x64 (the pre-4.1 bug: every key-up
+    /// lParam became 0xFFFFFFFF80000001 instead of 0x0000000080000001).
+    /// </summary>
+    internal static nint ComposeLParam(uint scanCode, bool extended, bool up)
+    {
+        var value = 1u | ((scanCode & 0xFFu) << 16);
+        if (extended) value |= 1u << 24;
+        if (up) value |= (1u << 30) | (1u << 31);
+        return unchecked((nint)value);
+    }
+
+    /// <summary>lParam for one key event of <paramref name="virtualKey"/>.</summary>
+    internal static nint BuildLParam(byte virtualKey, bool up) =>
+        ComposeLParam(Native.MapVirtualKey(virtualKey, Native.MAPVK_VK_TO_VSC), IsExtendedKey(virtualKey), up);
 
     public static bool IsMouse(byte virtualKey) => virtualKey switch
     {
@@ -102,69 +139,47 @@ internal static class KeySender
         _ => $"VK{vk:X2}",
     };
 
-    public static void Send(KeyStroke stroke, int holdMilliseconds)
-    {
-        var down = new List<Native.INPUT>(4);
-        var up = new List<Native.INPUT>(4);
-
-        // Modifiers are always keyboard, even when the bound input is a mouse button.
-        if (stroke.Ctrl) { down.Add(Key(VkControl, false)); up.Insert(0, Key(VkControl, true)); }
-        if (stroke.Alt) { down.Add(Key(VkMenu, false)); up.Insert(0, Key(VkMenu, true)); }
-        if (stroke.Shift) { down.Add(Key(VkShift, false)); up.Insert(0, Key(VkShift, true)); }
-
-        if (IsMouse(stroke.VirtualKey))
-        {
-            AppendMouse(stroke.VirtualKey, down, up);
-        }
-        else
-        {
-            down.Add(Key(stroke.VirtualKey, false));
-            up.Insert(0, Key(stroke.VirtualKey, true));
-        }
-
-        Native.SendInput((uint)down.Count, down.ToArray(), Marshal.SizeOf<Native.INPUT>());
-        if (holdMilliseconds > 0) Thread.Sleep(holdMilliseconds);
-        if (up.Count > 0) Native.SendInput((uint)up.Count, up.ToArray(), Marshal.SizeOf<Native.INPUT>());
-    }
+    /// <summary>Focused send (keyboard or mouse) through the process-wide sender.</summary>
+    public static bool Send(KeyStroke stroke, int holdMilliseconds) => Default.SendFocused(stroke, holdMilliseconds);
 
     /// <summary>
     /// Adds the mouse half of the input. A wheel tick is a single event with no
     /// release, so it only contributes to the "down" batch.
     /// </summary>
-    private static void AppendMouse(byte virtualKey, List<Native.INPUT> down, List<Native.INPUT> up)
+    internal static void AppendMouse(byte virtualKey, List<Native.INPUT> down, List<Native.INPUT> up)
     {
         switch (virtualKey)
         {
             case VkLeftButton:
-                down.Add(Mouse(Native.MOUSEEVENTF_LEFTDOWN));
-                up.Insert(0, Mouse(Native.MOUSEEVENTF_LEFTUP));
+                down.Add(MouseInput(Native.MOUSEEVENTF_LEFTDOWN));
+                up.Insert(0, MouseInput(Native.MOUSEEVENTF_LEFTUP));
                 break;
             case VkRightButton:
-                down.Add(Mouse(Native.MOUSEEVENTF_RIGHTDOWN));
-                up.Insert(0, Mouse(Native.MOUSEEVENTF_RIGHTUP));
+                down.Add(MouseInput(Native.MOUSEEVENTF_RIGHTDOWN));
+                up.Insert(0, MouseInput(Native.MOUSEEVENTF_RIGHTUP));
                 break;
             case VkMiddleButton:
-                down.Add(Mouse(Native.MOUSEEVENTF_MIDDLEDOWN));
-                up.Insert(0, Mouse(Native.MOUSEEVENTF_MIDDLEUP));
+                down.Add(MouseInput(Native.MOUSEEVENTF_MIDDLEDOWN));
+                up.Insert(0, MouseInput(Native.MOUSEEVENTF_MIDDLEUP));
                 break;
             case VkXButton1:
-                down.Add(Mouse(Native.MOUSEEVENTF_XDOWN, Native.XBUTTON1));
-                up.Insert(0, Mouse(Native.MOUSEEVENTF_XUP, Native.XBUTTON1));
+                down.Add(MouseInput(Native.MOUSEEVENTF_XDOWN, Native.XBUTTON1));
+                up.Insert(0, MouseInput(Native.MOUSEEVENTF_XUP, Native.XBUTTON1));
                 break;
             case VkXButton2:
-                down.Add(Mouse(Native.MOUSEEVENTF_XDOWN, Native.XBUTTON2));
-                up.Insert(0, Mouse(Native.MOUSEEVENTF_XUP, Native.XBUTTON2));
+                down.Add(MouseInput(Native.MOUSEEVENTF_XDOWN, Native.XBUTTON2));
+                up.Insert(0, MouseInput(Native.MOUSEEVENTF_XUP, Native.XBUTTON2));
                 break;
             case VkWheelUp:
-                down.Add(Mouse(Native.MOUSEEVENTF_WHEEL, unchecked((uint)Native.WHEEL_DELTA)));
+                down.Add(MouseInput(Native.MOUSEEVENTF_WHEEL, unchecked((uint)Native.WHEEL_DELTA)));
                 break;
             case VkWheelDown:
-                down.Add(Mouse(Native.MOUSEEVENTF_WHEEL, unchecked((uint)(-Native.WHEEL_DELTA))));
+                down.Add(MouseInput(Native.MOUSEEVENTF_WHEEL, unchecked((uint)(-Native.WHEEL_DELTA))));
                 break;
         }
     }
 
-    private static Native.INPUT Mouse(uint flags, uint mouseData = 0) => new()
+    private static Native.INPUT MouseInput(uint flags, uint mouseData = 0) => new()
     {
         type = Native.INPUT_MOUSE,
         mi = new Native.MOUSEINPUT
@@ -178,11 +193,12 @@ internal static class KeySender
         },
     };
 
-    private static Native.INPUT Key(byte virtualKey, bool keyUp)
+    /// <summary>Keyboard event (scancode-based, extended flag where the VK is unambiguous).</summary>
+    internal static Native.INPUT KeyInput(byte virtualKey, bool keyUp)
     {
         var flags = Native.KEYEVENTF_SCANCODE;
         if (keyUp) flags |= Native.KEYEVENTF_KEYUP;
-        if (ExtendedKeys.Contains(virtualKey)) flags |= Native.KEYEVENTF_EXTENDEDKEY;
+        if (IsExtendedKey(virtualKey)) flags |= Native.KEYEVENTF_EXTENDEDKEY;
 
         return new Native.INPUT
         {
