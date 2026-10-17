@@ -95,12 +95,28 @@ bit = {
   end,
 }
 SlashCmdList = {}
-C_Timer = { After = function() end }
+-- A1.1/A1.7: C_Timer.After QUEUES the callback instead of dropping it, so the
+-- offline harness can drive deferred/coalesced work deterministically with
+-- runDeferred() (the client's frame scheduler is replaced by an explicit
+-- flush, which no other section calls).
+local Deferred = {}
+C_Timer = { After = function(_, Fn) Deferred[#Deferred + 1] = Fn end }
+local function runDeferred ()
+  local Pending = Deferred
+  Deferred = {}
+  for i = 1, #Pending do
+    local Ok, Err = pcall(Pending[i])
+    if not Ok then print("  deferred error: " .. tostring(Err)) end
+  end
+  return #Pending
+end
 
 -- frames
 local AnonCount = 0
 local AllFrames = {}
 local Textures = {}
+local ColorWrites = {}   -- texture id -> SetColorTexture call count (A1.5 pin)
+local VertexWrites = {}  -- texture id -> SetVertexColor call count (A1.5 pin)
 Vertex = {}   -- texture id -> first SetVertexColor arg (secret passthrough)
 local TextureCount = 0
 local function FakeFrame(name)
@@ -123,8 +139,14 @@ local function FakeFrame(name)
     TextureCount = TextureCount + 1
     local id = TextureCount
     local t = { _id = id }
-    t.SetColorTexture = function(self2, r, g, b, a) Textures[self2._id] = { r, g, b } end
-    t.SetVertexColor = function(self2, r, g, b, a) Vertex[self2._id] = r end
+    t.SetColorTexture = function(self2, r, g, b, a)
+      Textures[self2._id] = { r, g, b }
+      ColorWrites[self2._id] = (ColorWrites[self2._id] or 0) + 1
+    end
+    t.SetVertexColor = function(self2, r, g, b, a)
+      Vertex[self2._id] = r
+      VertexWrites[self2._id] = (VertexWrites[self2._id] or 0) + 1
+    end
     t.SetAlpha = function() end
     t.ClearAllPoints = function() end
     t.SetPoint = function() end
@@ -138,6 +160,11 @@ local function FakeFrame(name)
   f.ClearAllPoints = function() end
   f.SetPoint = function() end
   f.SetSize = function(self, w, h) self._size = { w, h } end
+  -- A1.10 pin hooks: a frame only reports a size when a test sets _w / _h
+  -- (real frames always answer; the default harness frame answers nil so the
+  -- Layout clamp is skipped exactly like a client without a laid-out UIParent).
+  f.GetWidth = function(self) return self._w end
+  f.GetHeight = function(self) return self._h end
   f.SetWidth = function() end
   f.SetHeight = function() end
   f.SetColorTexture = function() end
@@ -2365,5 +2392,404 @@ local function RunExt4Tests ()
 end
 RunExt4Tests()
 
+
+-- =====================================================================
+-- Wave A / A1 "Paragon" (plan 2026-10-17): Exp addon hot-path remediation.
+-- Every pin below fails against the pre-A1 code (proved by swapping the
+-- HEAD file back in for a red run; see the wave report).
+-- Scoped in a function so its locals do not push the main chunk over
+-- Lua's 200-local limit.
+-- =====================================================================
+local function RunParagonTests ()
+  local TG = MDBX.Toggles
+  local DB = MaxDpsBridgeExpDB
+  local HW = MDBX.HotbarWatch
+  local StripExp = _G.MaxDpsBridgeExp_Block
+  local UpdateExp = StripExp and StripExp._scripts and StripExp._scripts.OnUpdate
+  assert(type(UpdateExp) == "function", "Exp OnUpdate missing for A1 pins")
+
+  local SavedClock = GetTime
+  local Now = 5000.0
+  GetTime = function () return Now end
+
+  -- Drain anything queued before this section (the boot EnsureHooks retry).
+  runDeferred()
+
+  -- Shared action-bar state for the A1.7 / A1.8 / A1.11 pins.
+  local Actions, Binds = {}, {}
+  GetActionInfo = function (slot)
+    local A = Actions[slot]
+    if not A then return nil end
+    return A[1], A[2]
+  end
+  GetBindingKey = function (cmd) return Binds[cmd] end
+  GetMacroSpell = function () return nil end
+  GetMacroItem = function () return nil end
+  IsUsableItem = nil
+  GetItemCooldown = nil
+
+  -- ---- A1.1: SPELL_UPDATE_COOLDOWN must not touch the bind caches -----
+  do
+    MDBX._BindCache = { [185358] = { Miss = true } }
+    local Cache = MDBX._BindCache
+    local Rev = MDBX._BindRevision or 0
+    local Wipes = 0
+    local SavedInvalidate = MDBX.InvalidateBindings
+    MDBX.InvalidateBindings = function () Wipes = Wipes + 1; SavedInvalidate() end
+    local OkMode, Mode = pcall(MDBX.BarsEvent, "SPELL_UPDATE_COOLDOWN")
+    check("A1.1 cooldown event is revision-only", OkMode and Mode == "revision")
+    check("A1.1 cooldown event bumps _BindRevision", (MDBX._BindRevision or 0) == Rev + 1)
+    check("A1.1 cooldown event keeps the cached Miss (same table)",
+      MDBX._BindCache == Cache and Cache[185358] ~= nil)
+    check("A1.1 cooldown event runs no full invalidation", Wipes == 0)
+    local OkFlush, Pend = pcall(MDBX.BarsFlush)
+    check("A1.1 cooldown event leaves nothing deferred", OkFlush and Pend == false)
+    MDBX.InvalidateBindings = SavedInvalidate
+  end
+  do
+    -- The live path: the Listener -> C_Timer -> BarsFlush chain.
+    MDBX._BindCache = { [185358] = { Miss = true } }
+    local Cache = MDBX._BindCache
+    FirePlainEvent("SPELL_UPDATE_COOLDOWN")
+    runDeferred()
+    check("A1.1 cooldown EVENT keeps the cached Miss",
+      MDBX._BindCache == Cache and Cache[185358] ~= nil)
+  end
+
+  -- ---- A1.1: full path stays deferred and coalesces to 1 / 0.25 s -----
+  do
+    MDBX._BindCache = { [185358] = { Miss = true } }
+    local Rev = MDBX._BindRevision or 0
+    FirePlainEvent("UPDATE_BINDINGS")
+    check("A1.1 bar event is DEFERRED (bars repaint late)", MDBX._BindCache[185358] ~= nil)
+    runDeferred()
+    check("A1.1 deferred bar event wipes the VK cache", MDBX._BindCache[185358] == nil)
+    check("A1.1 deferred bar event bumps _BindRevision", (MDBX._BindRevision or 0) == Rev + 1)
+    local Rev2 = MDBX._BindRevision or 0
+    MDBX._BindCache = { [185358] = { Miss = true } }
+    FirePlainEvent("UPDATE_BINDINGS")
+    FirePlainEvent("UPDATE_MACROS")
+    FirePlainEvent("ACTIONBAR_SLOT_CHANGED")
+    runDeferred()
+    check("A1.1 an event burst coalesces to ONE wipe", (MDBX._BindRevision or 0) == Rev2 + 1)
+    check("A1.1 the coalesced wipe still happened", MDBX._BindCache[185358] == nil)
+    Now = Now + 1.0
+    FirePlainEvent("UPDATE_MACROS")
+    runDeferred()
+    check("A1.1 next event after the window wipes again", (MDBX._BindRevision or 0) == Rev2 + 2)
+  end
+
+  -- ---- A1.4: a parse miss no longer writes a global -------------------
+  do
+    MDBX.LastMissBinding = nil
+    local VK = MDBX.ParseBinding("BUTTON9")
+    check("A1.4 unknown token is still a nil VK", VK == nil)
+    check("A1.4 parse miss no longer writes MDBX.LastMissBinding", MDBX.LastMissBinding == nil)
+  end
+
+  -- ---- A1.2: FrameKey uses the DECISION EDGES, not the raw HP ---------
+  local SavedHealth, SavedHealthMax = UnitHealth, UnitHealthMax
+  local SavedStagger, SavedInGroup, SavedUACombat = UnitStagger, IsInGroup, UnitAffectingCombat
+  local SavedSpell = MaxDps.Spell
+  IsInGroup = function () return true end
+  UnitAffectingCombat = function () return true end
+  UnitStagger = nil
+  local function HWIsDirty ()
+    local Ok, V = pcall(HW.IsDirty)
+    return Ok and V == true
+  end
+  local function Fk (Hp, Combat, Grouped)
+    if Hp ~= nil then
+      UnitHealth = function () return Hp end
+      UnitHealthMax = function () return 100 end
+    end
+    local Ok, K = pcall(MDBX.FrameKey, { InCombat = Combat, Grouped = Grouped })
+    if not Ok or type(K) ~= "number" then return -1 end
+    return K
+  end
+  do
+    local K = Fk(60, true, true)
+    check("A1.2 FrameKey is a numeric hash", K > 1000)
+    check("A1.2 FrameKey is stable for HP inside a band",
+      Fk(60, true, true) == Fk(61, true, true)
+      and Fk(80, true, true) == Fk(99, true, true)
+      and Fk(20, true, true) == Fk(29, true, true)
+      and Fk(36, true, true) == Fk(49, true, true))
+    check("A1.2 30/31 (Red -> Orange) crosses a band", Fk(30, true, true) ~= Fk(31, true, true))
+    check("A1.2 35/36 (Solo emergency) crosses a band", Fk(35, true, true) ~= Fk(36, true, true))
+    check("A1.2 49/50 (Orange -> Yellow + solo major) crosses a band",
+      Fk(49, true, true) ~= Fk(50, true, true))
+    check("A1.2 75/76 (solo minor) crosses a band", Fk(75, true, true) ~= Fk(76, true, true))
+    check("A1.2 99/100 (Yellow -> White) crosses a band", Fk(99, true, true) ~= Fk(100, true, true))
+    check("A1.2 Ctx.InCombat is an input", Fk(60, true, true) ~= Fk(60, false, true))
+    check("A1.2 Ctx.Grouped is an input", Fk(60, true, true) ~= Fk(60, true, false))
+    check("A1.2 unknown Ctx fields differ from known ones", Fk(60, true, true) ~= Fk(60, nil, true))
+    MDBX.SoloLadderBands = { minor = 75, major = 50, immunity = 30 }
+    local Armed = Fk(60, true, true)
+    MDBX.SoloLadderBands = nil
+    check("A1.2 SoloLadderBands arming is an input", Armed ~= Fk(60, true, true))
+    UnitStagger = function () return 10 end
+    local White = Fk(60, true, true)
+    UnitStagger = function () return 60 end
+    check("A1.2 stagger stage is an input", White ~= Fk(60, true, true))
+    UnitStagger = nil
+    MaxDps.Spell = S(1)
+    local S1 = Fk(60, true, true)
+    MaxDps.Spell = S(2)
+    check("A1.2 a secret value hashes to a FIXED key (no throw)",
+      S1 > 1000 and S1 == Fk(60, true, true))
+    MaxDps.Spell = SavedSpell
+  end
+  do
+    -- Live path: HP drift inside a band keeps the cached scan; crossing 50 %
+    -- still repins (DefPin -> RotationTick -> SlotCache invalidated).
+    UnitAffectingCombat = function () return false end
+    TG.Set("OOC", true)
+    DB.Enabled = true
+    MDBX.SetUserPaused(false)
+    UnitHealthMax = function () return 100 end
+    UnitHealth = function () return 60 end
+    pcall(UpdateExp, StripExp, 0.06)          -- primes the cache
+    local N0 = MDBX._SlotScans or 0
+    UnitHealth = function () return 61 end
+    pcall(UpdateExp, StripExp, 0.06)
+    local N1 = MDBX._SlotScans or 0
+    check("A1.2 HP drift inside a band reuses the cached scan", N1 == N0)
+    UnitHealth = function () return 49 end
+    pcall(UpdateExp, StripExp, 0.06)
+    check("A1.2 crossing 50 % repins the scan", (MDBX._SlotScans or 0) == N1 + 1)
+  end
+
+  -- ---- A1.3: per-tick memo -------------------------------------------
+  do
+    local SavedBase, SavedOver, SavedGetOv = FindBaseSpellByID, FindSpellOverrideByID, GetOverrideSpell
+    local Probes = 0
+    FindBaseSpellByID = function (id) Probes = Probes + 1; return id end
+    FindSpellOverrideByID = function (id) Probes = Probes + 1; return nil end
+    GetOverrideSpell = function (id) Probes = Probes + 1; return nil end
+    pcall(MDBX.BeginTick)
+    local First = MDBX.SpellVariants(185358)
+    local P1 = Probes
+    local Second = MDBX.SpellVariants(185358)
+    check("A1.3 SpellVariants evaluates once per tick", P1 > 0 and Probes == P1)
+    check("A1.3 SpellVariants memo returns the same array", First == Second)
+    pcall(MDBX.EndTick)
+    MDBX.SpellVariants(185358)
+    check("A1.3 SpellVariants outside a tick reads live again", Probes > P1)
+    FindBaseSpellByID, FindSpellOverrideByID, GetOverrideSpell = SavedBase, SavedOver, SavedGetOv
+  end
+  do
+    local SavedCD = C_Spell.GetSpellCooldown
+    local Reads = 0
+    C_Spell.GetSpellCooldown = function ()
+      Reads = Reads + 1
+      return { startTime = 0, duration = 0, isEnabled = true, isActive = false, isOnGCD = false }
+    end
+    pcall(MDBX.BeginTick)
+    MDBX.IsSpellReady(185358); MDBX.IsSpellReady(185358); MDBX.IsSpellReady(185358)
+    check("A1.3 IsSpellReady probes once per tick", Reads == 1)
+    pcall(MDBX.EndTick)
+    MDBX.IsSpellReady(185358)
+    check("A1.3 IsSpellReady outside a tick probes again", Reads == 2)
+    C_Spell.GetSpellCooldown = SavedCD
+  end
+  do
+    local SavedNever = MDBX.IsNeverAutomatic
+    local SavedHeal = MDBX.Extras.WARRIOR.Arms.selfHeal
+    local Walks = 0
+    MDBX.Extras.WARRIOR.Arms.selfHeal = { 202168 }
+    MDBX.IsNeverAutomatic = function (id) Walks = Walks + 1; return SavedNever(id) end
+    pcall(MDBX.BeginTick)
+    local P1 = MDBX.RotationCandidates(8, 4)
+    local W1 = Walks
+    local P2 = MDBX.RotationCandidates(8, 4)
+    check("A1.3 RotationCandidates reuses the per-tick pool",
+      P1 == P2 and W1 >= 1 and Walks == W1)
+    pcall(MDBX.EndTick)
+    MDBX.RotationCandidates(8, 4)
+    check("A1.3 RotationCandidates outside a tick re-walks", Walks > W1)
+    MDBX.Extras.WARRIOR.Arms.selfHeal = SavedHeal
+    MDBX.IsNeverAutomatic = SavedNever
+  end
+
+  -- ---- A1.5: the HP-curve cell paints black once, not per tick --------
+  do
+    -- The last 51 textures created are the Exp strip's cells 0-50, so cell 35
+    -- is TextureCount - 51 + 1 + 35. (Vertex cannot identify it: the stable
+    -- addon's own HP-curve cell also calls SetVertexColor.)
+    local HpId = TextureCount - 15
+    check("A1.5 Exp HP-curve texture identified", Textures[HpId] ~= nil)
+    local SavedHpCurve = DB.HpCurve
+    DB.HpCurve = true
+    pcall(UpdateExp, StripExp, 0.06)
+    local VOn = VertexWrites[HpId] or 0
+    pcall(UpdateExp, StripExp, 0.06)
+    check("A1.5 HP curve on paints the colour cell", (VertexWrites[HpId] or 0) > VOn)
+    DB.HpCurve = false
+    pcall(UpdateExp, StripExp, 0.06)              -- leaves the cell black
+    local Before = ColorWrites[HpId] or 0
+    pcall(UpdateExp, StripExp, 0.06)
+    pcall(UpdateExp, StripExp, 0.06)
+    check("A1.5 HP curve off does not repaint black every tick",
+      (ColorWrites[HpId] or 0) == Before)
+    DB.HpCurve = SavedHpCurve
+    pcall(UpdateExp, StripExp, 0.06)
+  end
+
+  -- ---- A1.6: cached SavedVariables table + precomputed keys -----------
+  do
+    local SavedDBGlobal = _G.MaxDpsBridgeExpDB
+    TG.Set("Main", false)
+    check("A1.6 canonical and lowercase spellings agree",
+      TG.Get("Main") == false and TG.Get("main") == false and TG.Get("MAIN") == false)
+    _G.MaxDpsBridgeExpDB = { Toggles = { Main = true } }
+    check("A1.6 Toggles reads the cached DB (not the swapped global)", TG.Get("Main") == false)
+    pcall(TG.RefreshDatabase)
+    check("A1.6 RefreshDatabase re-points the cache", TG.Get("Main") == true)
+    _G.MaxDpsBridgeExpDB = SavedDBGlobal
+    pcall(TG.RefreshDatabase)
+    TG.Set("Main", true)
+    check("A1.6 restored DB drives the gate again", TG.Get("Main") == true)
+  end
+
+  -- ---- A1.7: HotbarWatch debounce + signature-gated gen ---------------
+  do
+    Actions = { [1] = { "spell", 185358 } }
+    Binds = { ["ACTIONBUTTON1"] = "1" }
+    pcall(HW.MarkDirty); pcall(HW.Flush)
+    local GenA = HW.Gen()
+    check("A1.7 first rebuild streams one entry", HW.Count() == 1)
+    pcall(HW.MarkDirty); pcall(HW.Flush)
+    check("A1.7 an unchanged map keeps gen", HW.Gen() == GenA)
+    Binds = { ["ACTIONBUTTON1"] = "SHIFT-1" }
+    pcall(HW.MarkDirty); pcall(HW.Flush)
+    check("A1.7 a changed map bumps gen", HW.Gen() == (GenA + 1) % 16)
+    Actions = { [1] = { "spell", 185358 }, [2] = { "spell", 100 } }
+    Binds = { ["ACTIONBUTTON1"] = "1", ["ACTIONBUTTON2"] = "2" }
+    FirePlainEvent("UPDATE_BINDINGS")
+    local CountBefore = HW.Count()
+    pcall(HW.Frame)                              -- the paint tick
+    check("A1.7 Frame never rebuilds inside the paint tick",
+      HW.Count() == CountBefore and HWIsDirty())
+    pcall(HW.Flush)
+    check("A1.7 the coalesced flush applies the new map", HW.Count() == 2)
+    local SweepAt = Now
+    pcall(HW.Frame)                              -- arms LastSweep
+    Now = Now + 3.0                              -- > SWEEP_SECONDS
+    Actions[3] = { "spell", 6544 }
+    Binds["ACTIONBUTTON3"] = "3"
+    pcall(HW.Frame)
+    check("A1.7 the 2 s sweep schedules instead of rebuilding",
+      HW.Count() == 2 and HWIsDirty())
+    pcall(HW.Flush)
+    check("A1.7 the sweep flush picks the change up", HW.Count() == 3)
+    Now = SweepAt
+  end
+
+  -- ---- A1.8: vehicle / override / bonus bar events --------------------
+  do
+    runDeferred()   -- drain anything queued before this pin
+    MDBX._BindCache = { [185358] = { Miss = true } }
+    local Rev = MDBX._BindRevision or 0
+    Actions = { [1] = { "spell", 100 } }
+    Binds = { ["ACTIONBUTTON1"] = "1" }
+    FirePlainEvent("UPDATE_BONUS_ACTIONBAR")
+    check("A1.8 bonus-bar event marks HotbarWatch dirty", HWIsDirty())
+    pcall(HW.Flush)
+    runDeferred()
+    check("A1.8 bonus-bar event invalidates the bindings",
+      (MDBX._BindRevision or 0) > Rev and MDBX._BindCache[185358] == nil)
+    local Entries = HW.Entries()
+    check("A1.8 bonus-bar event rebuilds the pressed map",
+      HW.Count() == 1 and Entries[1] and Entries[1].Id == 100)
+  end
+
+  -- ---- A1.9: SavedVariables schema migration --------------------------
+  do
+    local Schema = MDBX.SCHEMA_VERSION
+    check("A1.9 boot migrated the DB to schema 1",
+      Schema == 1 and DB.SchemaVersion == 1)
+    local Legacy = { Enabled = false }
+    local OkMig = pcall(MDBX.Migrate, Legacy)
+    check("A1.9 v0 Enabled=false seeds the sticky pause",
+      OkMig and Legacy.UserPaused == true and Legacy.SchemaVersion == 1)
+    local Cleared = { SchemaVersion = 1, Enabled = false, UserPaused = false }
+    local OkMig2 = pcall(MDBX.Migrate, Cleared)
+    check("A1.9 v1 never resurrects a cleared pause", OkMig2 and Cleared.UserPaused == false)
+    local Fresh = {}
+    local OkMig3 = pcall(MDBX.Migrate, Fresh)
+    check("A1.9 a fresh DB gets schema 1 and no pause",
+      OkMig3 and Fresh.SchemaVersion == 1 and Fresh.UserPaused == nil)
+  end
+
+  -- ---- A1.10: layout clamps to the screen -----------------------------
+  do
+    local SavedX, SavedY, SavedCell = DB.OffsetX, DB.OffsetY, DB.CellSize
+    UIParent._w, UIParent._h = 100, 40
+    DB.OffsetX, DB.OffsetY, DB.CellSize = 5000, 5000, 999
+    MDBX.Layout()
+    check("A1.10 cell size clamped to 64", DB.CellSize == 64)
+    check("A1.10 offset clamped onto the screen", DB.OffsetX == 0 and DB.OffsetY == 0)
+    UIParent._w, UIParent._h = 4000, 2000
+    DB.OffsetX, DB.OffsetY = 5000, 5000
+    MDBX.Layout()
+    check("A1.10 oversized offset clamped to the screen edge",
+      DB.OffsetX == 4000 - DB.CellSize * 51 and DB.OffsetY == 2000 - DB.CellSize)
+    UIParent._w, UIParent._h = nil, nil
+    DB.OffsetX, DB.OffsetY, DB.CellSize = SavedX, SavedY, SavedCell
+    MDBX.Layout()
+  end
+
+  -- ---- A1.11: one shared, documented slot -> command table ------------
+  do
+    local SC = MDBX.SlotCommand
+    check("A1.11 main bar 1-12 -> ACTIONBUTTON",
+      SC and SC(1) == "ACTIONBUTTON1" and SC(12) == "ACTIONBUTTON12")
+    check("A1.11 13-24 are Action Bar 1 page 2 (ACTIONBUTTON)",
+      SC and SC(13) == "ACTIONBUTTON1" and SC(24) == "ACTIONBUTTON12")
+    check("A1.11 61-72 -> MULTIACTIONBAR1 (bottom-left)",
+      SC and SC(61) == "MULTIACTIONBAR1BUTTON1" and SC(72) == "MULTIACTIONBAR1BUTTON12")
+    check("A1.11 documented rows 25-60 unchanged",
+      SC and SC(25) == "MULTIACTIONBAR3BUTTON1" and SC(37) == "MULTIACTIONBAR4BUTTON1"
+      and SC(49) == "MULTIACTIONBAR2BUTTON1" and SC(60) == "MULTIACTIONBAR2BUTTON12")
+    check("A1.11 bars 6-8 -> MULTIACTIONBAR5/6/7",
+      SC and SC(145) == "MULTIACTIONBAR5BUTTON1" and SC(156) == "MULTIACTIONBAR5BUTTON12"
+      and SC(157) == "MULTIACTIONBAR6BUTTON1" and SC(169) == "MULTIACTIONBAR7BUTTON1"
+      and SC(180) == "MULTIACTIONBAR7BUTTON12")
+    check("A1.11 bonus/vehicle slots have no command",
+      SC and SC(73) == nil and SC(144) == nil and SC(181) == nil and SC(0) == nil)
+    Actions = { [13] = { "spell", 185358 } }
+    Binds = { ["ACTIONBUTTON1"] = "1" }
+    pcall(HW.MarkDirty); pcall(HW.Flush)
+    local E = HW.Entries()
+    check("A1.11 HotbarWatch binds slot 13 through ACTIONBUTTON",
+      HW.Count() == 1 and E[1] and E[1].Slot == 13 and E[1].VK == 0x31)
+    local SavedSpells = MaxDps.Spells
+    MaxDps.Spells = {}
+    MDBX._BindCache = {}
+    local VK = MDBX.ResolveBinding(185358)
+    check("A1.11 Reader binds slot 13 through ACTIONBUTTON", VK == 0x31)
+    MaxDps.Spells = SavedSpells
+  end
+
+  -- ---- A1.12: stale diagnostics comments ------------------------------
+  do
+    ClearChat()
+    if MDBX.Diag then pcall(MDBX.Diag) end
+    local Line = table.concat(ChatLog, "\n")
+    check("A1.12 /mdb diag reports proto=5", Line:find("proto=5", 1, true) ~= nil)
+  end
+
+  -- restore the action-bar stubs and the clock
+  GetActionInfo = function () return nil end
+  GetBindingKey = function () return nil end
+  GetMacroSpell = function () return nil end
+  GetMacroItem = function () return nil end
+  GetTime = SavedClock
+  UnitHealth, UnitHealthMax = SavedHealth, SavedHealthMax
+  UnitStagger, IsInGroup, UnitAffectingCombat = SavedStagger, SavedInGroup, SavedUACombat
+  MaxDps.Spell = SavedSpell
+end
+RunParagonTests()
 print(string.format("RESULT: %d passed, %d failed", PASS, FAIL))
 if FAIL > 0 then os.exit(1) end

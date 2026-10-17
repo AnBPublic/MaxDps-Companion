@@ -3,9 +3,10 @@
 -- a screen corner. MaxDpsCompanion.exe samples those pixels and replays the
 -- encoded keystrokes.
 --
--- Protocol v5 + Ext2/Ext3 -- 43 cells, left to right, each CellSize physical
--- pixels square (cells 0-34 the v5 core, 35-39 the Ext2 block, 40-42 the Ext3
--- app toggle mask block; the version nibble stays 5 throughout).
+-- Protocol v5 + Ext2/Ext3/Ext4 -- 51 cells, left to right, each CellSize
+-- physical pixels square (cells 0-34 the v5 core, 35-39 the Ext2 block, 40-42
+-- the Ext3 app toggle mask block, 43-50 the Ext4 hotbar map block; the version
+-- nibble stays 5 throughout).
 -- Every channel carries one nibble, encoded as nibble * 17 (0, 17, ... 255),
 -- which leaves enough headroom to survive gamma and scaling.
 --
@@ -239,12 +240,37 @@ local function MergeDefaults (DB, Def)
   end
 end
 
+-- SavedVariables schema (A1.9). Bump SCHEMA_VERSION when a step is added.
+-- Migrate runs BEFORE MergeDefaults, so a legacy value is read while it is
+-- still the only source of truth (MergeDefaults would otherwise mask it with
+-- a default). Steps are version-gated and idempotent: they run at most once
+-- per stored DB, so a later user decision can never be resurrected.
+local SCHEMA_VERSION = 1;
+
+local function Migrate (DB)
+  if type(DB) ~= "table" then return 0; end
+  local From = tonumber(DB.SchemaVersion) or 0;
+  if From < 1 then
+    -- v0 -> v1: a stored Enabled=false from pre-UserPaused builds means "the
+    -- user paused", so seed the sticky flag from it. The old ADDON_LOADED
+    -- applied this on EVERY login, which resurrected a pause the user had
+    -- cleared once UserPaused existed; gating it here fixes that.
+    if DB.Enabled == false then DB.UserPaused = true; end
+  end
+  DB.SchemaVersion = SCHEMA_VERSION;
+  return From;
+end
+
+MDBX.Migrate = Migrate;
+MDBX.SCHEMA_VERSION = SCHEMA_VERSION;
+
 local Root, Cells;
 local Heartbeat = 0;
 local Elapsed = 0;
 local CalStep = 0;
 local CalTick = 0;
 local HpCurveBase = false;     -- cell 35 base (white) painted for vertex colour
+local HpCurveBlack = false;    -- cell 35 currently painted opaque black (A1.5)
 local EnsureEngineElapsed = 0; -- B7: 1/s EnsureEngine throttle for a cold login
 
 -- Explicit user pause (`/mdb off`). Sticky until `/mdb on` (or a same-session
@@ -307,6 +333,37 @@ end
 local function Layout ()
   local DB = MaxDpsBridgeExpDB;
   if not Root or not DB then return; end
+  -- A1.10: clamp the stored geometry to the current screen. A UI-scale or
+  -- resolution change used to leave the strip parked off-screen (the
+  -- companion then reported "no pixel block" with a healthy addon). The
+  -- clamped values are written back so /mdb status and the panel tell the
+  -- truth. Missing UIParent size (offline harness / pre-layout client) skips
+  -- the bound rather than guessing.
+  do
+    local Cell = tonumber(DB.CellSize) or 8;
+    Cell = math.floor(Cell);
+    if Cell < 1 then Cell = 1 elseif Cell > 64 then Cell = 64; end
+    local Width, Height = nil, nil;
+    if UIParent and type(UIParent.GetWidth) == "function" then
+      local OkW, W = pcall(UIParent.GetWidth, UIParent);
+      if OkW and type(W) == "number" and W > 0 then Width = W; end
+      local OkH, H = pcall(UIParent.GetHeight, UIParent);
+      if OkH and type(H) == "number" and H > 0 then Height = H; end
+    end
+    local X = math.floor(tonumber(DB.OffsetX) or 0);
+    local Y = math.floor(tonumber(DB.OffsetY) or 0);
+    if Width then
+      local MaxX = Width - Cell * CELL_COUNT;
+      if MaxX < 0 then MaxX = 0; end
+      if X < 0 then X = 0 elseif X > MaxX then X = MaxX; end
+    end
+    if Height then
+      local MaxY = Height - Cell;
+      if MaxY < 0 then MaxY = 0; end
+      if Y < 0 then Y = 0 elseif Y > MaxY then Y = MaxY; end
+    end
+    DB.CellSize, DB.OffsetX, DB.OffsetY = Cell, X, Y;
+  end
   -- Cancel out the UI scale so that one frame unit is exactly one screen pixel.
   Root:SetScale(1 / UIParent:GetEffectiveScale());
   Root:ClearAllPoints();
@@ -322,6 +379,7 @@ local function Layout ()
   LastPaint = {};
   SlotCache.Valid = false;   -- the repainted strip must be re-derived too
   HpCurveBase = false;
+  HpCurveBlack = false;
   SetNibbles(0, 15, 0, 15);
   LastPaint[0] = 15 * 256 + 0 * 16 + 15;
 end
@@ -387,16 +445,25 @@ end
 -- castability verdict; re-gating it with tainted reads vetoed correct mains.
 -- Situational slots keep the gate; unready spells encode as EMPTY (FLAG_VALID
 -- clear) so the companion skips the slot and fires the next ready one.
+-- Readiness for one candidate. File-scope so the hot loop allocates no
+-- closures (A1.4); the pcall stays because the probe can throw under taint.
+-- Only a plain `true` counts (fail closed), matching the old `not Ready` test.
+local function SlotReady (SpellID, IsInterrupt)
+  if IsInterrupt then return MDBX.IsInterruptReady(SpellID) == true; end
+  return MDBX.IsSpellReady(SpellID) == true;
+end
+
+local function IsSlotReady (SpellID, IsInterrupt)
+  local Ok, Ready = pcall(SlotReady, SpellID, IsInterrupt);
+  return Ok and Ready == true;
+end
+
 local function WriteSlot (CellIndex, SpellID, IsInterrupt, SkipGate)
   if SpellID then
     if type(SpellID) ~= "number" or SpellID == 0 then
       SpellID = nil;
-    elseif not SkipGate then
-      local Ok, Ready = pcall(function ()
-        if IsInterrupt then return MDBX.IsInterruptReady(SpellID);
-        else return MDBX.IsSpellReady(SpellID); end
-      end);
-      if not Ok or not Ready then SpellID = nil; end
+    elseif not SkipGate and not IsSlotReady(SpellID, IsInterrupt) then
+      SpellID = nil;
     end
   end
   local VirtualKey, Modifiers = MDBX.ResolveBinding(SpellID);
@@ -409,6 +476,49 @@ local function WriteSlot (CellIndex, SpellID, IsInterrupt, SkipGate)
   local Flags = bit.bor(Modifiers or 0, FLAG_VALID);
   Paint(CellIndex, Hi, Lo, Flags);
   return Hi, Lo, Flags, SpellID;
+end
+
+--- ======= PER-TICK SLOT HELPERS (A1.4: file-scope, no per-tick closures) =======
+-- TickCtx / TickToggles are refreshed once per Update from the very objects
+-- (Ctx table + MDBX.Toggles) the scan uses, so the hoisted readers see exactly
+-- what the old closures captured.
+local TickCtx = nil;
+local TickToggles = nil;
+
+-- Single slot gate (one call per slot): the per-slot key, the OOC master and
+-- the Solo gate all live in Toggles.SlotAllowed; denials are recorded in
+-- MDBX._LastBlank and read by /mdb why.
+local function Allowed (Slot)
+  if TickToggles and TickToggles.SlotAllowed then
+    return TickToggles.SlotAllowed(Slot, TickCtx);
+  end
+  return true;
+end
+
+-- Containment: a getter that throws must never abort the frame (which would
+-- leave every slot stale) or spam the UI error handler. Degrade to nil and
+-- warn exactly once.
+local function SafeRead (Fn)
+  if type(Fn) ~= "function" then return nil; end
+  local Ok, Value = pcall(Fn);
+  if Ok then return Value; end
+  if not MDBX._ReadoutWarned then
+    MDBX._ReadoutWarned = true;
+    Print("a MaxDps read failed; the bridge keeps running (see /mdb diag)");
+  end
+  return nil;
+end
+
+-- One slot: gate, read, paint. A denied slot must PAINT EMPTY (0,0,0): it used
+-- to return zeros without repainting, leaving the previous candidate's pixels
+-- while the core checksum was computed from the zeros (live report
+-- 2026-10-11). Paint() caches, so a repeated deny is free.
+local function ReadSlot (Slot, Fn, IsInterrupt, SkipGate)
+  if not Allowed(Slot) then
+    Paint(Slot, 0, 0, 0);
+    return 0, 0, 0, nil;
+  end
+  return WriteSlot(Slot, SafeRead(Fn), IsInterrupt, SkipGate);
 end
 
 -- Spell id cells: 24-bit id, 6 nibbles, two cells. 0 = no identity (the
@@ -627,6 +737,15 @@ end
 -- and forwards the returned colour straight into SetVertexColor. Nothing is
 -- compared, stringified or arithmetized. Returns 1 when the cell is live so
 -- cell 33 B bit3 is set; 0 (black cell) otherwise.
+-- Forward the HP-curve colour into SetVertexColor. File-scope (A1.4): the pcall
+-- containment stays, but the closure the old code allocated every tick does
+-- not. The colour object is secret-capable and is only ever passed straight
+-- through GetRGBA -> SetVertexColor, never compared or stringified.
+local function PaintHpCurve (Tex, Curve)
+  local Color = UnitHealthPercent("player", false, Curve);
+  Tex:SetVertexColor(Color:GetRGBA());
+end
+
 local function WriteHpCurve ()
   local Tex = Cells[HP_CURVE_CELL];
   if not Tex then return 0; end
@@ -636,7 +755,12 @@ local function WriteHpCurve ()
     if OkC then Curve = C; end
   end
   if not Curve then
-    Tex:SetColorTexture(0, 0, 0, 1);
+    -- A1.5: the off path used to call SetColorTexture every single tick. Paint
+    -- black once and remember it; Layout/command changes reset the flag.
+    if not HpCurveBlack then
+      Tex:SetColorTexture(0, 0, 0, 1);
+      HpCurveBlack = true;
+    end
     HpCurveBase = false;
     LastPaint[HP_CURVE_CELL] = nil;
     return 0;
@@ -646,18 +770,17 @@ local function WriteHpCurve ()
     -- is a single engine call.
     Tex:SetColorTexture(1, 1, 1, 1);
     HpCurveBase = true;
+    HpCurveBlack = false;
   end
   -- The returned colour object is secret-capable: it is only ever passed
   -- through GetRGBA -> SetVertexColor, all inside the pcall. A failure
   -- degrades to black and bit3=0.
-  local Ok = pcall(function ()
-    local Color = UnitHealthPercent("player", false, Curve);
-    Tex:SetVertexColor(Color:GetRGBA());
-  end);
+  local Ok = pcall(PaintHpCurve, Tex, Curve);
   LastPaint[HP_CURVE_CELL] = nil;   -- never let Paint() clobber the colour
   if Ok then return 1; end
   Tex:SetColorTexture(0, 0, 0, 1);
   HpCurveBase = false;
+  HpCurveBlack = true;
   return 0;
 end
 
@@ -976,14 +1099,10 @@ local function Update (self, Delta)
   end
 
   local Toggles = MDBX.Toggles;
-  -- Single slot gate. One call per slot: the per-slot key (slots 1-8), the
-  -- OOC master (InCombat == false blanks all), and Solo (blank defensive /
-  -- self-heal while known ungrouped, emergency HP excepted) all live in
-  -- Toggles.SlotAllowed. Denials are recorded in MDBX._LastBlank.
-  local function Allowed (Slot)
-    if Toggles and Toggles.SlotAllowed then return Toggles.SlotAllowed(Slot, Ctx); end
-    return true;
-  end
+  -- Single slot gate (Toggles.SlotAllowed: per-slot key, OOC master and the
+  -- Solo gate; denials land in MDBX._LastBlank). A1.4: the per-tick context is
+  -- handed to the file-scope helper instead of allocating closures.
+  TickCtx, TickToggles = Ctx, Toggles;
 
   -- v3.3.0 Solo ladder bands (ADDITIVE, in-game truth): armed ONLY while the
   -- in-game Solo toggle is ON and the player is known ungrouped; Solo OFF or
@@ -1031,64 +1150,40 @@ local function Update (self, Delta)
   end
   if RotationTick(DefPin) then SlotCache.Valid = false; end
 
-  -- Containment: a getter that throws must never abort the frame (which
-  -- would leave every slot stale) or spam the UI error handler. Degrade to
-  -- nil and warn exactly once.
-  local function SafeRead (Fn)
-    if type(Fn) ~= "function" then return nil; end
-    local Ok, Value = pcall(Fn);
-    if Ok then return Value; end
-    if not MDBX._ReadoutWarned then
-      MDBX._ReadoutWarned = true;
-      Print("a MaxDps read failed; the bridge keeps running (see /mdb diag)");
-    end
-    return nil;
-  end
+  -- Containment (A1.4): SafeRead is file-scope now (see the SLOT HELPERS
+  -- block); a getter that throws still degrades to nil and warns exactly once.
 
   -- PERF 3.4.0 DIRTY-FLAG. FrameKey captures every cheap input that can
-  -- change a slot candidate (suggestion, HP band affecting the defensive
-  -- gap-fill, combat/group-adjacent toggle state, readiness/binding/variant
-  -- resolver identities, per-spec curated lists). When it is unchanged the
-  -- scan below is skipped and the cached nibbles are reused; sensor cells are
-  -- still recomputed further down and cells 9/10/34/39 (heartbeat + status +
-  -- both checksums) are rewritten every tick. A nil key fails open to a full
-  -- scan, so a client without the helper still behaves exactly as before.
+  -- change a slot candidate (suggestion, the HP decision edges, combat/group
+  -- state, toggle state, readiness/binding/variant resolver identities,
+  -- per-spec curated lists). When it is unchanged the scan below is skipped
+  -- and the cached nibbles are reused; sensor cells are still recomputed
+  -- further down and cells 9/10/34/39 (heartbeat + status + both checksums)
+  -- are rewritten every tick. A nil key fails open to a full scan, so a client
+  -- without the helper still behaves exactly as before.
   local Key = nil;
   do
-    local OkK, K = pcall(MDBX.FrameKey);
-    if OkK and type(K) == "string" then Key = K; end
+    -- A1.2: the key is a numeric fold now and it takes the SAME ctx the slot
+    -- gates use (combat/group state used to be missing from it entirely).
+    local OkK, K = pcall(MDBX.FrameKey, Ctx);
+    if OkK and type(K) == "number" then Key = K; end
   end
   local Clean = Key ~= nil and SlotCache.Valid and SlotCache.Key == Key;
 
-  local R, G, B, Id = {}, {}, {}, {};
-  local DefCatalog = false;
-  local Heal2 = nil;
-  local SH2 = nil;   -- Ext2 cells 36-38 raw nibbles { Hi, Lo, Flags, Id }
+  -- A1.4: the four tables are allocated ONLY on a scan tick; the clean path
+  -- borrows the cached arrays (read-only) instead of allocating and copying.
+  local R, G, B, Id;
+  local DefCatalog, Heal2, SH2;   -- SH2 = Ext2 cells 36-38 raw nibbles
 
   if Clean then
-    for i = 1, SLOT_COUNT do
-      R[i], G[i], B[i], Id[i] = SlotCache.R[i], SlotCache.G[i], SlotCache.B[i], SlotCache.Id[i];
-    end
-    DefCatalog = SlotCache.DefCatalog;
-    Heal2 = SlotCache.Heal2;
-    SH2 = SlotCache.SH2;
+    R, G, B, Id = SlotCache.R, SlotCache.G, SlotCache.B, SlotCache.Id;
+    DefCatalog, Heal2, SH2 = SlotCache.DefCatalog, SlotCache.Heal2, SlotCache.SH2;
   else
+    R, G, B, Id = {}, {}, {}, {};
     -- 3.3.0 gate: check the toggle BEFORE the reader call, so an OFF slot
     -- never even invokes MaxDps (no wasted work, no side effects). A denied
     -- slot paints an all-zero/FLAG_VALID-clear cell (= EMPTY).
-    local function ReadSlot (Slot, Fn, IsInterrupt, SkipGate)
-      if not Allowed(Slot) then
-        -- A denied slot must PAINT EMPTY (0,0,0). It used to return zeros
-        -- without repainting, which left the previous candidate's pixels on
-        -- screen while the core checksum was computed from the zeros — every
-        -- frame then failed the companion's core checksum ("No pixel block"
-        -- while the strip was visibly rendering; live report 2026-10-11).
-        -- Paint() caches, so this is free on repeated denies.
-        Paint(Slot, 0, 0, 0);
-        return 0, 0, 0, nil;
-      end
-      return WriteSlot(Slot, SafeRead(Fn), IsInterrupt, SkipGate);
-    end
+    DefCatalog, Heal2, SH2 = false, nil, nil;
     R[1], G[1], B[1], Id[1] = ReadSlot(1, MDBX.GetMainSpellID, false, true);
     -- Offensive: MaxDps flagged+bound first; when MaxDps names none the
     -- curated gap-fill list supplies the first ready+bound entry (v3.0.0). No
@@ -1183,9 +1278,8 @@ local function Update (self, Delta)
     if Key ~= nil then
       SlotCache.Valid = true;
       SlotCache.Key = Key;
-      for i = 1, SLOT_COUNT do
-        SlotCache.R[i], SlotCache.G[i], SlotCache.B[i], SlotCache.Id[i] = R[i], G[i], B[i], Id[i];
-      end
+      -- Swap the arrays in (no 32-value copy); the clean path borrows them.
+      SlotCache.R, SlotCache.G, SlotCache.B, SlotCache.Id = R, G, B, Id;
       SlotCache.DefCatalog = DefCatalog;
       SlotCache.Heal2 = Heal2;
       SlotCache.SH2 = SH2;
@@ -1194,6 +1288,10 @@ local function Update (self, Delta)
       SlotCache.Valid = false;
     end
   end
+
+  -- A1.3: the scan is done — drop the per-tick memo so a direct caller
+  -- (diagnostics, tests, HotbarWatch's own bracket) always sees live reads.
+  if MDBX.EndTick then MDBX.EndTick(); end
 
   for i = 1, SLOT_COUNT do
     WriteSpellId(i, Id[i] or 0);
@@ -1636,14 +1734,23 @@ do
       end
 
       MaxDpsBridgeExpDB = MaxDpsBridgeExpDB or {};
+      -- A1.9: versioned migration BEFORE the per-key defaults merge, so a
+      -- legacy Enabled=false / UserPaused pair is read while it is still the
+      -- only truth.
+      Migrate(MaxDpsBridgeExpDB);
       -- Per-key merge so an old SavedVariables file stays valid: existing
       -- top-level values and existing toggles are preserved; only missing
       -- keys are seeded from Defaults (nested tables are copied, not aliased).
       MergeDefaults(MaxDpsBridgeExpDB, Defaults);
+      -- A1.6: give Toggles the cached DB table (it reads it several times per
+      -- slot per tick; the global lookup is only needed until load).
+      if MDBX.Toggles and MDBX.Toggles.RefreshDatabase then
+        MDBX.Toggles.RefreshDatabase();
+      end
 
-      -- Legacy pause memory: a DB saved with Enabled=false (pre-UserPaused)
-      -- means the user paused, so seed the sticky flag from it.
-      UserPaused = (MaxDpsBridgeExpDB.UserPaused == true) or (MaxDpsBridgeExpDB.Enabled == false);
+      -- Legacy pause memory is folded into the v0 -> v1 migration above; from
+      -- here on only the explicit flag is authoritative.
+      UserPaused = (MaxDpsBridgeExpDB.UserPaused == true);
       MaxDpsBridgeExpDB.UserPaused = UserPaused;
 
       CreateBlock();
