@@ -2,7 +2,7 @@
 > **LEGACY:** The frozen 3.7.9 WinForms client (shipped in `dist/`, built by
 > `build.ps1`) and the stable bridge (`addon/MaxDpsBridge/`) are **frozen**.
 > They receive no updates except critical security fixes. The current C# client
-> (`app/MaxDpsCompanion/`) is the WinUI 3 4.0.3 "Bulwark" shell.
+> (`app/MaxDpsCompanion/`) is the WinUI 3 4.0.4 "Aegis" shell.
 > The future is the Rust companion in **`companion-rs/`**, targeting
 > `MaxDpsBridgeExp` + `dist-exp`. See [`LEGACY.md`](LEGACY.md) and
 > [`docs/plans/2026-10-10-rust-companion.md`](docs/plans/2026-10-10-rust-companion.md).
@@ -39,7 +39,7 @@
 > [`app/MaxDpsCompanion.Mac/README.md`](app/MaxDpsCompanion.Mac/README.md);
 > live retail checks are OWED (`docs/TESTING.md` §4).
 
-# MaxDPS Companion (Retail Midnight 12.1, v4.0.3 "Bulwark")
+# MaxDPS Companion (Retail Midnight 12.1, v4.0.4 "Aegis")
 
 Pixel bridge driver for [kaminaris MaxDps](https://www.curseforge.com/wow/addons/maxdps)
 (vendor pin: MaxDps v11.3.49). No memory read, no injection, no OCR, no LLM.
@@ -56,6 +56,19 @@ Two pieces:
 The stable `MaxDpsBridge` addon (`addon/MaxDpsBridge/`, 40-cell strip) and the
 old WinForms client (`dist/`) are **legacy/frozen**; all current work targets
 `MaxDpsBridgeExp` + `dist-exp`.
+
+## v4.0.4 "Aegis" - Main is the master switch; compact overlay (no wire change)
+
+The in-game **Main** pill is now the master switch for the whole rotation. While
+it is OFF, the addon blanks all eight slots (`main off (master switch)`) and the
+companion suspends every send path - core rotation, offensive/defensive/utility
+slots, auto-target, auto-interact and queued hotbar presses. The other pills are
+**not rewritten**: their stored state stays exactly as it was, and turning Main
+back ON restores the previous per-slot policy. A missing/stale Ext3 mirror fails
+open for old addons. The toggle overlay also loses its `profile:` footer
+(profiles remain in the `/mdbx` Config window) and shrinks from 300x210 to
+300x165. No cell, checksum or layout change on the wire; the strip stays 51
+cells. Stable `MaxDpsBridge` + `dist\` stay frozen.
 
 ## v4.0.3 "Bulwark" - hotbar press queue (additive Ext4 wire)
 

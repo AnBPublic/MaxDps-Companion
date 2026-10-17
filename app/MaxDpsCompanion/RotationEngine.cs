@@ -584,6 +584,21 @@ internal sealed class RotationEngine : IDisposable
             }
         }
 
+        // v4.0.4 MASTER GATE. Main OFF in the in-game overlay suspends the
+        // ENTIRE companion, not just the core rotation: the addon blanks every
+        // slot without rewriting the other toggles, and this gate stops the
+        // companion-only paths that do not ride a slot (auto-target /
+        // auto-interact) plus a queued user press. A valid mirror is the
+        // authority; a missing mirror fails open for old addons. Turning Main
+        // back ON resumes exactly the previous per-slot policy.
+        if (!ToggleSync.MainAllowsExecution(_mirrorValid, _mirrorMask))
+        {
+            _userPressQueue.Reset();
+            Report("holding (addon Main off - rotation suspended)", true, frame.State, summary, "-");
+            _idle = true;
+            return;
+        }
+
         // 2026-09-30 FAIL-CLOSED OUT-OF-COMBAT GATE. Out of combat the
         // companion holds unless the app's out-of-combat toggle is ON
         // (CombatOnly=false) AND the in-game bridge echoed the Ext3 OOC toggle
@@ -778,7 +793,7 @@ internal sealed class RotationEngine : IDisposable
         var gcdHold = !sent && _holdNote is null && !idleActive && frame.OnGcd;
         Report(sent ? "sending"
                 : (_holdNote ?? UserQueueHoldNote()
-                    ?? ToggleSync.AddonOffWarning(_mirrorValid, _mirrorMask, _settings.SlotEnabled[(int)Slot.Main])
+                    ?? ToggleSync.MainOffNote(_mirrorValid, _mirrorMask)
                     ?? (gcdHold ? "waiting for GCD"
                     : (idleActive ? "holding (no suggestion from MaxDps)" : "holding"))),
             true, frame.State, summary, "-");

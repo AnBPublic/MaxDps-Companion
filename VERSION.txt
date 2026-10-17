@@ -1,3 +1,15 @@
+4.0.4
+Date: 2026-10-17 - "Aegis"
+Companion 4.0.4 "Aegis" / bridge 4.0.4-exp. Behavior change, NO wire change:
+the in-game Main toggle is now the MASTER switch. While Main is OFF the addon
+blanks all eight slots with reason "main off (master switch)" and the companion
+suspends every send path (rotation, auto-target, auto-interact and queued user
+presses) from the Ext3 mirror. The other toggle pills are never rewritten -
+their stored state is untouched and Main ON restores exactly the previous
+per-slot policy. The overlay drops the profile footer (profiles remain in the
+/mdbx Config window) and shrinks from 300x210 to 300x165. New codename Aegis;
+the v5 core + Ext2 + Ext3 + Ext4 layouts and every cell stay byte-identical.
+
 4.0.3
 Date: 2026-10-11 - "Bulwark"
 Companion 4.0.3 "Bulwark" / bridge 4.0.3-exp. ADDITIVE protocol change: new

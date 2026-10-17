@@ -1,6 +1,59 @@
 # Handover — MaxDps-Companion
 
 
+## 2026-10-17 RELEASE 4.0.4 "AEGIS" (Main = master switch; compact overlay; no wire change)
+
+STATUS: behavior-only companion + Exp-addon release, **NO wire change**. The
+in-game **Main** pill is now the master switch for the whole rotation, not just
+the core slot. While Main is OFF:
+- the addon's `Toggles.SlotAllowed` denies all eight slots with reason
+  `main off (master switch)` and leaves every other stored toggle physically
+  untouched;
+- the companion's `ToggleSync.MainAllowsExecution` reads the Ext3 mirror and
+  `RotationEngine` returns before every send path (queued user press,
+  auto-target, auto-interact, legacy and scheduled rotation) with
+  `holding (addon Main off - rotation suspended)`; the user queue is cleared so
+  a press buffered before the flip never replays.
+
+Turning Main back ON restores exactly the previous per-slot policy with no
+migration. A missing/stale mirror fails open for old addons; the addon's own
+blanking still prevents rotation sends. No cell, checksum, layout or
+version-nibble change; the strip stays 51 cells.
+
+The toggle overlay also drops the `profile:` footer (profiles remain in the
+`/mdbx` Config window) and shrinks 300x210 -> 300x165; the 13 pills and
+4-column grid are unchanged.
+
+CHANGED: `addon/MaxDpsBridgeExp/{Toggles.lua, Exp/Overlay.lua, Bridge.lua
+(identity), MaxDpsBridgeExp.toc, VERSION.txt}`;
+`app/MaxDpsCompanion/{ToggleSync.cs, RotationEngine.cs, Native.cs, csproj}`;
+`tests/MaxDpsCompanion.Tests/{ToggleSyncTests.cs, ReleaseIdentityTests.cs}`;
+`tests/secret_harness.lua` (+3 E4x master pins); docs `README.md`,
+`ARCHITECTURE.md`, `docs/PROTOCOL.md`, `docs/TESTING.md` 3m, `VERSION.txt`.
+Identity: **4.0.4 "Aegis"** (csproj, Native fallback, ReleaseIdentityTests,
+Exp TOC/VERSION, `MDBX.VERSION`). Stable `addon/MaxDpsBridge` + `dist\` stay
+frozen.
+
+VERIFY (this machine, 2026-10-17): `dotnet build
+app/MaxDpsCompanion/MaxDpsCompanion.csproj -c Release` **0 warnings / 0
+errors**; `dotnet test -c Release` **975 passed / 0 failed**; `lua
+tests/secret_harness.lua` **324 passed / 0 failed**; `luac -p` **25** Lua files
+clean; `pwsh tools/ability_audit.ps1` **Violations 0 / Warnings 0 / Missing 0 /
+Stale 0** (exit 2 is the documented pre-existing stable-Catalog drift);
+`--ui-smoke-test` **PASS** (title `MaxDPS Companion v4.0.4 Aegis`).
+
+ROLLOUT (2026-10-17): `pwsh tools/publish-exp.ps1` -> `dist-exp` exe
+**FileVersion 4.0.4.0**, `VERSION.txt` = `4.0.4 Aegis`, `settings.ini` hash
+unchanged; published exe `--ui-smoke-test` **PASS** (exp mode, title
+`MaxDPS Companion v4.0.4 Aegis`). `pwsh tools/install-addon-exp.ps1` ->
+installed **4.0.4-exp** (stable `MaxDpsBridge` left untouched; `/reload`
+required). Pushed to GitHub with tag `v4.0.4-exp` and a release entry.
+
+OWED (live retail 12.1): `docs/TESTING.md` 3m - Main OFF stops every send while
+the other pills keep their state; Main ON restores the previous policy; no
+Tab/MB5 on master-off; no queued-press replay; overlay has no profile line and
+is 300x165. Static != automated test != live in-game E2E.
+
 ## 2026-10-11 RELEASE 4.0.3 "BULWARK" (hotbar press queue; ADDITIVE Ext4 wire)
 
 STATUS: new companion + addon feature with an **additive** protocol extension.

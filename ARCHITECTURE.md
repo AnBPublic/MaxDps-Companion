@@ -484,7 +484,9 @@ addon/MaxDpsBridgeExp/
   Exp/Profiles.lua         v1 Global/Spec/Talent store, per-character
                            override, versioned export/import line
   Exp/Overlay.lua          insecure BackdropTemplate overlay (Header +
-                           14-pill/4-col grid + Footer), drag-if-unlocked,
+                           13-pill/4-col grid + status-dot footer; v4.0.4
+                           removed the profile line and shrunk 300x165),
+                           drag-if-unlocked,
                            SetClampedToScreen, dirty flag + 0.2 s ticker only
                            OnShow, InCombatLockdown→PLAYER_REGEN_ENABLED
                            defer queue; no secure templates
@@ -500,6 +502,28 @@ The fork owns toggles (ADDON-WINS, the same `Toggles.SlotAllowed` single
 gate); the companion Exp mode mirrors the Ext3 mask cells 40-42 read-only.
 Offline bar: `luac -p` every file, `lua tests/secret_harness.lua`,
 `pwsh tools/ability_audit.ps1`. Live retail checks stay OWED.
+
+## Main master switch (v4.0.4, no wire change)
+
+2026-10-17. The in-game **Main** pill is the master switch for the whole
+rotation, not just the core slot. The addon honours it at the top of
+`Toggles.SlotAllowed`: while `Toggles.Get("Main") == false` all eight slots are
+denied with reason `main off (master switch)`, and every other stored toggle is
+left untouched (the overlay pills keep their physical state). Turning Main back
+ON restores the previous per-slot policy with no migration.
+
+The companion is belt-and-braces: `ToggleSync.MainAllowsExecution(mirrorValid,
+mirrorMask)` reads the Ext3 mirror (addon-wins) and `RotationEngine` returns
+before every send path - queued user presses, auto-target, auto-interact, the
+legacy path and the scheduled rotation - with
+`holding (addon Main off - rotation suspended)`. The user queue is cleared so a
+press buffered before the flip never replays. A missing/stale mirror fails open
+(old 40-cell addon); the addon's own blanking still prevents rotation sends.
+No cell, checksum or version-nibble change.
+
+The overlay drops the `profile:` footer (profiles stay in the `/mdbx` Config
+window) and shrinks 300x210 -> 300x165; the 13 pills and 4-column grid are
+unchanged.
 
 ## Hotbar press queue (v4.0.3, additive Ext4)
 

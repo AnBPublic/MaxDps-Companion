@@ -288,23 +288,45 @@ public class ToggleSyncTests
     }
 
     [Fact]
-    public void AddonOffWarning_Says_Main_Off_From_A_Valid_Mirror()
+    public void BuildMask_MainOff_Leaves_Every_Other_Toggle_Physically_On()
+    {
+        var s = Settings();
+        s.SlotEnabled[0] = false;      // Main OFF only
+
+        var mask = ToggleSync.BuildMask(s);
+
+        Assert.False(ToggleSync.IsSet(mask, ToggleSync.BitMain));
+        Assert.True(ToggleSync.IsSet(mask, ToggleSync.BitOffensive));
+        Assert.True(ToggleSync.IsSet(mask, ToggleSync.BitDefensive));
+        Assert.True(ToggleSync.IsSet(mask, ToggleSync.BitConsumable));
+        Assert.True(ToggleSync.IsSet(mask, ToggleSync.BitTrinket));
+        Assert.True(ToggleSync.IsSet(mask, ToggleSync.BitInterrupt));
+        Assert.True(ToggleSync.IsSet(mask, ToggleSync.BitMobility));
+        Assert.True(ToggleSync.IsSet(mask, ToggleSync.BitSelfHeal));
+    }
+
+    [Fact]
+    public void Main_MasterGate_Closes_Every_Send_On_A_Valid_Off_Mirror()
     {
         var allOn = ToggleSync.MaskField;
         var mainOff = allOn & ~(1 << ToggleSync.BitMain);
 
-        // No mirror: never nag (fail open), the engine already holds quietly.
-        Assert.Null(ToggleSync.AddonOffWarning(mirrorValid: false, mainOff, mainSlotEnabled: true));
+        // No mirror: fail open for old 40-cell addons / pre-first-mirror frames.
+        Assert.True(ToggleSync.MainAllowsExecution(mirrorValid: false, mainOff));
+        Assert.Null(ToggleSync.MainOffNote(mirrorValid: false, mainOff));
 
-        // Mirror valid and Main on: nothing to say.
-        Assert.Null(ToggleSync.AddonOffWarning(mirrorValid: true, allOn, mainSlotEnabled: true));
+        // Valid mirror and Main ON: execution allowed, no note.
+        Assert.True(ToggleSync.MainAllowsExecution(mirrorValid: true, allOn));
+        Assert.Null(ToggleSync.MainOffNote(mirrorValid: true, allOn));
 
-        // Companion-side Main disabled: its own setting already explains the
-        // silence, so the addon note must not mask that.
-        Assert.Null(ToggleSync.AddonOffWarning(mirrorValid: true, mainOff, mainSlotEnabled: false));
+        // Valid mirror and Main OFF: the master gate closes and says why.
+        Assert.False(ToggleSync.MainAllowsExecution(mirrorValid: true, mainOff));
+        Assert.Equal("addon Main toggle is OFF - rotation suspended (/mdbx main on)",
+            ToggleSync.MainOffNote(mirrorValid: true, mainOff));
 
-        // The live regression: companion wants Main, the addon has it OFF.
-        Assert.Equal("addon Main toggle is OFF (/mdbx main on)",
-            ToggleSync.AddonOffWarning(mirrorValid: true, mainOff, mainSlotEnabled: true));
+        // The master bit is the only cleared bit: every other toggle persists.
+        Assert.True(ToggleSync.IsSet(mainOff, ToggleSync.BitOffensive));
+        Assert.True(ToggleSync.IsSet(mainOff, ToggleSync.BitDefensive));
+        Assert.True(ToggleSync.IsSet(mainOff, ToggleSync.BitSelfHeal));
     }
 }
