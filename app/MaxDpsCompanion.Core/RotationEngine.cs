@@ -387,7 +387,13 @@ internal sealed class RotationEngine : IDisposable
         }
     }
 
-    private void Tick()
+    /// <summary>
+    /// One engine tick: capture → decode → publish → gates → send.
+    /// Internal (not private) ONLY so the test project can drive one
+    /// deterministic tick against fake IPlatform adapters; the production
+    /// <see cref="Loop"/> calls it unchanged.
+    /// </summary>
+    internal void Tick()
     {
         // Per-tick telemetry state: a fresh frame/context replaces these; a
         // hold or decode error leaves them null/None.
@@ -535,6 +541,37 @@ internal sealed class RotationEngine : IDisposable
                 _idle = true;
                 return;
             }
+        }
+
+        // v4.0.4 MASTER GATE. Main OFF in the in-game overlay suspends the
+        // ENTIRE companion, not just the core rotation: the addon blanks every
+        // slot without rewriting the other toggles, and this gate stops the
+        // companion-only paths that do not ride a slot (auto-target /
+        // auto-interact) too. A valid mirror is the authority; a missing mirror
+        // fails open for old addons. Turning Main back ON resumes exactly the
+        // previous per-slot policy.
+        // Mirrors the Windows engine's gate byte-for-byte (message included);
+        // the user-press queue reset there is Wave C (Core has no queue yet).
+        if (!ToggleSync.MainAllowsExecution(_mirrorValid, _mirrorMask))
+        {
+            Report("holding (addon Main off - rotation suspended)", true, frame.State, summary, "-");
+            _idle = true;
+            return;
+        }
+
+        // v4.0.3 TYPING VETO (cell 41 R bit2). While the player is typing in
+        // chat or an edit box, a posted keystroke would land in the chat frame
+        // instead of the game, so EVERY send path holds. The Windows engine
+        // applies the same veto to its queued user presses; Core's engine has
+        // no user-press queue yet (Wave C), so it is applied to the rotation /
+        // target / interact send paths here. An absent or invalid Ext3 block
+        // decodes TypingActive=false (PixelProtocol masks the flag out of the
+        // mirror), so an old addon fails OPEN, never bricked.
+        if (frame.TypingActive)
+        {
+            Report("holding (typing in game chat)", true, frame.State, summary, "-");
+            _idle = true;
+            return;
         }
 
         // 2026-09-30 FAIL-CLOSED OUT-OF-COMBAT GATE. Out of combat the
