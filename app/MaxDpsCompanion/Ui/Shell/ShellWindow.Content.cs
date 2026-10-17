@@ -230,8 +230,8 @@ public sealed partial class ShellWindow
         stack.Children.Add(liveValue);
 
         stack.Children.Add(HeaderFor("Rotation"));
-        stack.Children.Add(TwoToggleRow("Main", "Core rotation", _main, "Offensive", "Burst cooldowns", _offensive, alt: false,
-            "Core rotation: highest-priority ability each GCD.", "Burst cooldowns fire in burst windows / TTK-valid boss."));
+        stack.Children.Add(TwoToggleRow("Main", "Master switch", _main, "Offensive", "Burst cooldowns", _offensive, alt: false,
+            "Master switch: OFF suspends all sends (all slots, targeting, interact, queued presses); other toggles keep their state.", "Burst cooldowns fire in burst windows / TTK-valid boss."));
         stack.Children.Add(TwoToggleRow("Defensive", "Mitigation and absorbs", _defensives, "Interrupt", "Kick casts", _interrupt, alt: true,
             "Mitigation at urgency Yellow+, majors at Red.", "Fires on interruptible cast in range."));
         stack.Children.Add(TwoToggleRow("Self-heal", "Solo self-sustain", _selfHeal, "Mobility", "Gap closers", _mobility, alt: false,
