@@ -87,6 +87,18 @@ internal sealed class RotationEngine : IDisposable
     private readonly ActionScheduler _scheduler = new();
     private SchedulePlan _lastPlan = SchedulePlan.Hold(ScheduleReason.NoCandidate);
 
+    // v4.0.3 hotbar press queue (protocol Ext4): the probe reads only the
+    // watched strokes, the assembler rebuilds the key->ability map from the
+    // wire, and the queue is a pure, fake-clock-tested state machine.
+    private readonly KeyStateProbe _keyProbe = new();
+    private readonly UserPressQueue _userPressQueue = new();
+    private Ext4Assembler _ext4Assembler = new();
+    private HotbarMap _hotbarMap = HotbarMap.Unavailable;
+    private IReadOnlyList<Ext4Entry> _watchEntries = Array.Empty<Ext4Entry>();
+    private readonly Dictionary<byte, List<Ext4Entry>> _watchGroups = new();
+    private readonly Dictionary<byte, bool> _watchPrevDown = new();
+    private BridgeFrame? _lastFrame;
+
     // v2.0 ability knowledge + situational policy. The catalog is immutable;
     // options are rebuilt per tick from settings (cheap record).
     private readonly AbilityCatalog _catalog = AbilityCatalog.Default;
@@ -250,6 +262,13 @@ internal sealed class RotationEngine : IDisposable
         _lastDecision = DecisionResult.Fallback();
         _scheduler.Reset();
         _legacyPolicyMemory.Reset();
+        _ext4Assembler = new Ext4Assembler();
+        _hotbarMap = HotbarMap.Unavailable;
+        _watchEntries = Array.Empty<Ext4Entry>();
+        _watchGroups.Clear();
+        _watchPrevDown.Clear();
+        _lastFrame = null;
+        _userPressQueue.Reset();
         _lastPlan = SchedulePlan.Hold(ScheduleReason.NoCandidate);
         _telemetryFrame = null;
         _telemetryFault = DecodeFault.None;
@@ -368,17 +387,28 @@ internal sealed class RotationEngine : IDisposable
                     var dutyFloorMs = (int)Math.Ceiling(tickUs * 10 / 1000.0);
                     if (dutyFloorMs > wait && dutyFloorMs <= 250) wait = dutyFloorMs;
                 }
-                if (timer != IntPtr.Zero)
+                // v4.0.3: while a usable hotbar map is loaded, slice the wait
+                // into <=10 ms steps and run the physical-key scan between
+                // captures. The scan is a handful of GetAsyncKeyState reads —
+                // orders of magnitude cheaper than one screen capture.
+                var remaining = wait;
+                while (_running && remaining > 0)
                 {
-                    var due = -(long)wait * 10_000;   // relative, 100 ns units
-                    if (Native.SetWaitableTimer(timer, ref due, 0, IntPtr.Zero, IntPtr.Zero, false))
-                        Native.WaitForSingleObject(timer, (uint)wait + 2);
+                    var slice = UserQueueScanActive ? Math.Min(remaining, UserQueueScanMs) : remaining;
+                    if (timer != IntPtr.Zero)
+                    {
+                        var due = -(long)slice * 10_000;   // relative, 100 ns units
+                        if (Native.SetWaitableTimer(timer, ref due, 0, IntPtr.Zero, IntPtr.Zero, false))
+                            Native.WaitForSingleObject(timer, (uint)slice + 2);
+                        else
+                            Thread.Sleep(slice);
+                    }
                     else
-                        Thread.Sleep(wait);
-                }
-                else
-                {
-                    Thread.Sleep(wait);
+                    {
+                        Thread.Sleep(slice);
+                    }
+                    remaining -= slice;
+                    if (UserQueueScanActive) ScanUserKeys();
                 }
             }
         }
@@ -501,6 +531,22 @@ internal sealed class RotationEngine : IDisposable
         // real frame (stroke, first-seen, last-changed, pressed-since-change).
         _candidateTracker.Update(frame, _lastFrameMs);
 
+        // v4.0.3: feed the Ext4 hotbar-map assembler (a no-op on a 43-cell or
+        // narrower addon — the presence bit is clear and cells 43-50 are never
+        // read) and refresh the watched-stroke groups when a new map cycle
+        // landed. The scan only ever queries these VKs.
+        _ext4Assembler.Feed(frame, _lastFrameMs);
+        _hotbarMap = _ext4Assembler.Map;
+        var watchEntries = _hotbarMap.Status == HotbarMapStatus.Ok
+            ? _hotbarMap.Entries
+            : Array.Empty<Ext4Entry>();
+        if (!ReferenceEquals(watchEntries, _watchEntries))
+        {
+            _watchEntries = watchEntries;
+            RefreshWatchGroups();
+        }
+        _lastFrame = frame;
+
         // v3.2.0: feed the per-target TTK estimator once per real frame, before
         // any policy runs. The estimate is attached to the combat context later
         // this tick (WithTtk) and recorded with the exact feed timestamp so a
@@ -597,6 +643,15 @@ internal sealed class RotationEngine : IDisposable
         // Re-resolve the PID at send time: the handle could have been
         // recycled between Refresh and now.
         Native.GetWindowThreadProcessId(gameHandle, out gamePid);
+
+        // v4.0.3: a recognised user press is the user's own intent and is
+        // polled before every automation ask (rotation / target / interact),
+        // so a due press wins the next send; it never blocks the plan.
+        if (TrySendUserPress(frame, gameHandle, gamePid, _clock.ElapsedMilliseconds))
+        {
+            Report("sending (your key)", true, frame.State, summary, _lastKeySent);
+            return;
+        }
 
         // v1.3.6 TARGET GATE (user: "attack out of combat is ok, it just
         // shouldn't spam into empty space — wait until I target
@@ -722,7 +777,9 @@ internal sealed class RotationEngine : IDisposable
         var idleActive = !sent && _holdNote is null && !AnyEnabledSlot(frame);
         var gcdHold = !sent && _holdNote is null && !idleActive && frame.OnGcd;
         Report(sent ? "sending"
-                : (_holdNote ?? (gcdHold ? "waiting for GCD"
+                : (_holdNote ?? UserQueueHoldNote()
+                    ?? ToggleSync.AddonOffWarning(_mirrorValid, _mirrorMask, _settings.SlotEnabled[(int)Slot.Main])
+                    ?? (gcdHold ? "waiting for GCD"
                     : (idleActive ? "holding (no suggestion from MaxDps)" : "holding"))),
             true, frame.State, summary, "-");
     }
@@ -850,6 +907,196 @@ internal sealed class RotationEngine : IDisposable
     {
         var snapshot = new LiveActionSnapshot(action, reason, provider, why);
         lock (_snapshotLock) _lastAction = snapshot;
+    }
+
+    /// <summary>v4.0.3: cadence of the between-tick physical-key scan.</summary>
+    private const int UserQueueScanMs = 10;
+
+    /// <summary>True while the scan has a usable hotbar map to watch.</summary>
+    private bool UserQueueScanActive =>
+        _settings.UserQueueEnabled && !Paused
+        && _hotbarMap.Status == HotbarMapStatus.Ok && _watchGroups.Count > 0;
+
+    /// <summary>Re-groups the Ext4 map entries by VK for the scan (runs on a map swap only).</summary>
+    private void RefreshWatchGroups()
+    {
+        _watchGroups.Clear();
+        foreach (var entry in _watchEntries)
+        {
+            if (!_watchGroups.TryGetValue(entry.Stroke.VirtualKey, out var list))
+                _watchGroups[entry.Stroke.VirtualKey] = list = new List<Ext4Entry>(1);
+            list.Add(entry);
+        }
+        if (_watchPrevDown.Count > _watchGroups.Count)
+        {
+            List<byte>? dead = null;
+            foreach (var vk in _watchPrevDown.Keys)
+                if (!_watchGroups.ContainsKey(vk)) (dead ??= []).Add(vk);
+            if (dead is not null)
+                foreach (var vk in dead) _watchPrevDown.Remove(vk);
+        }
+    }
+
+    /// <summary>Exact modifier match — mirrors how WoW fires a binding (Shift+F ≠ F).</summary>
+    private bool ModifiersMatch(KeyStroke stroke) =>
+        _keyProbe.IsDown(0x10) == stroke.Shift
+        && _keyProbe.IsDown(0x11) == stroke.Ctrl
+        && _keyProbe.IsDown(0x12) == stroke.Alt;
+
+    /// <summary>
+    /// Physical-key edge scan (runs in the loop's ≤10 ms slices). Only VKs
+    /// present in the decoded Ext4 map are queried; every candidate press is
+    /// filtered against the last decoded frame (typing veto, OOC gate, link
+    /// freshness) and the focus rules before it enters the queue.
+    /// </summary>
+    private void ScanUserKeys()
+    {
+        if (!_settings.UserQueueEnabled || Paused) return;
+        if (_hotbarMap.Status != HotbarMapStatus.Ok || _watchGroups.Count == 0) return;
+
+        // The raw key state is ALWAYS tracked while a map is loaded (so a key
+        // held across a gate transition can never read as a fresh edge later);
+        // only the queueing action is gated.
+        var frame = _lastFrame;
+        var focused = _window.IsForeground;
+        var canAct = frame is { Ext4Present: true }
+            && !frame.TypingActive   // typing veto: chat/edit box focused
+            && _clock.ElapsedMilliseconds - _lastFrameMs <= _settings.SchedulerHeartbeatTimeoutMs
+            && (focused || _settings.UserQueueBackground)
+            && CombatGate.OutOfCombatPermitted(frame.InCombat, _settings.CombatOnly,
+                CombatGate.MirrorOutOfCombatSet(_mirrorValid, _mirrorMask), frame.State, frame.HasTarget);
+
+        var now = _clock.ElapsedMilliseconds;
+        foreach (var (vk, entries) in _watchGroups)
+        {
+            var state = _keyProbe.Query(vk);
+            var down = (state & 0x8000) != 0;
+            var was = _watchPrevDown.GetValueOrDefault(vk);
+            _watchPrevDown[vk] = down;
+            // Edge: a fresh press only (down && !was). The low bit is NOT used
+            // — it is a shared latch, see KeyStateProbe.IsFreshPress.
+            if (!KeyStateProbe.IsFreshPress(state, was) || !canAct) continue;
+
+            Ext4Entry? match = null;
+            foreach (var entry in entries)
+            {
+                if (ModifiersMatch(entry.Stroke)) { match = entry; break; }
+            }
+            if (match is not { } pressed) continue;   // a modifier variant we do not watch
+
+            OnRecognizedPress(pressed, focused, frame!, now);
+            break;   // one physical press = one queued stroke
+        }
+    }
+
+    /// <summary>
+    /// Classifies a recognised press and queues it (or records it as native).
+    /// Focused game: the OS already delivered the press — a GCD-riding stroke
+    /// pressed mid-GCD is queued (the client's ~400 ms queue window would drop
+    /// an early press otherwise); an off-GCD press or a press while the GCD is
+    /// free casts natively, so the companion never re-sends it (no double
+    /// trinket/charge use). Background delivery (opt-in) queues everything.
+    /// </summary>
+    private void OnRecognizedPress(Ext4Entry entry, bool focused, BridgeFrame frame, long nowMs)
+    {
+        var ridesGcd = UserPressClassifier.RidesGcd(entry, _catalog);
+        var queueable = !focused || (frame.OnGcd && ridesGcd);
+        if (!queueable)
+        {
+            TelemetryUser(nowMs, entry.Stroke, entry.Id, "native");
+            return;
+        }
+        _userPressQueue.OnPress(new UserPress(
+            entry.Stroke, entry.Id, entry.IsItem, entry.Ready, ridesGcd, nowMs));
+        TelemetryUser(nowMs, entry.Stroke, entry.Id, "queued");
+    }
+
+    private void TelemetryUser(long nowMs, KeyStroke stroke, int spellId, string note)
+    {
+        if (_telemetry is not { } telemetry) return;
+        var interval = _lastAnyPress <= 0 ? 0 : nowMs - _lastAnyPress;
+        telemetry.Append(TelemetryEvent.Sent(nowMs, "user", null, stroke, interval, spellId, note));
+    }
+
+    /// <summary>
+    /// v4.0.3: delivers the queue head at its allowed moment through the SAME
+    /// keyboard path (PostMessage to the game window only) and OS gates as
+    /// every other press. Returns true when a stroke was sent.
+    /// </summary>
+    private bool TrySendUserPress(BridgeFrame frame, IntPtr gameHandle, uint gamePid, long now)
+    {
+        if (!_settings.UserQueueEnabled)
+        {
+            _userPressQueue.Reset();
+            return false;
+        }
+        if (!_userPressQueue.HasPending) return false;
+
+        var head = _userPressQueue.Head;
+        var keyDown = head is { } held && _keyProbe.IsDown(held.Stroke.VirtualKey);
+        var action = _userPressQueue.Poll(now, frame.OnGcd, keyDown);
+        switch (action.Kind)
+        {
+            case UserPressActionKind.Deliver:
+            {
+                // Belt (spec §4): the map already excludes movement keys and
+                // the mouse/wheel sentinels, but never trust the wire alone: a
+                // stroke this guard exists to protect is dropped, never sent.
+                if (MovementGuard.IsMovementStroke(action.Stroke) || KeySender.IsMouse(action.Stroke.VirtualKey))
+                {
+                    _userPressQueue.DropHead();
+                    _holdNote ??= $"your {action.Stroke.Describe()} is not queueable";
+                    TelemetryUser(now, action.Stroke, head?.SpellId ?? 0, "dropped:excluded-stroke");
+                    return false;
+                }
+                if (!_settings.AllowBackgroundKeys && !_window.IsForeground)
+                {
+                    _holdNote ??= "your key: game not focused";
+                    return false;
+                }
+                if (!KeySender.SendToWindow(gameHandle, gamePid, action.Stroke, _settings.KeyPressMs))
+                {
+                    _holdNote ??= "your key: game window lost";
+                    return false;
+                }
+
+                var id = head?.SpellId ?? 0;
+                var retry = _userPressQueue.HeadIsRetry;
+                var interval = _lastAnyPress <= 0 ? 0 : now - _lastAnyPress;
+                _lastAnyPress = now;
+                _userPressQueue.NoteSent(now);
+                _telemetry?.Append(TelemetryEvent.Sent(now, "user", null, action.Stroke, interval, id,
+                    retry ? "retry" : "delivered"));
+                _lastKeySent = $"User: {action.Stroke.Describe()}";
+                SetLastAction(
+                    id > 0 ? $"{ActionNameOf(id, action.Stroke)} (you)" : action.Stroke.Describe(),
+                    "your press", "User", []);
+                return true;
+            }
+
+            case UserPressActionKind.Drop:
+                _holdNote ??= $"your key dropped ({action.Reason})";
+                TelemetryUser(now, head?.Stroke ?? default, head?.SpellId ?? 0, $"dropped:{action.Reason}");
+                return false;
+
+            default:
+                _holdNote ??= UserQueueHoldNote();
+                return false;
+        }
+    }
+
+    /// <summary>v4.0.3 status text for the tick Report (null = nothing to say).</summary>
+    private string? UserQueueHoldNote()
+    {
+        if (!_settings.UserQueueEnabled) return null;
+        if (_userPressQueue.Head is { } head)
+            return $"your {ActionNameOf(head.SpellId, head.Stroke)} queued ({head.Stroke.Describe()})";
+        return _hotbarMap.Status switch
+        {
+            HotbarMapStatus.OldAddon => "user queue: addon too old for hotbar keys (install-addon-exp + /reload)",
+            HotbarMapStatus.Stale => "user queue: waiting for the hotbar map",
+            _ => null,
+        };
     }
 
     private bool TrySendOne(BridgeFrame frame, IntPtr gameHandle, uint gamePid)

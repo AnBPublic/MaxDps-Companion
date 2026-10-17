@@ -1,9 +1,9 @@
 ## Interface: 120100
 ## Title: MaxDps Bridge Exp
-## Notes: Experimental in-game-config fork of MaxDpsBridge. Owns its toggles (overlay-wins, SlotAllowed gate), adds a RICE-style insecure overlay, a 6-tab Settings canvas and /mdbx. Mutually exclusive with the stable MaxDpsBridge: if the stable bridge is loaded this addon stays inert. No secure templates, no protected Lua. Same 43-cell protocol v5 wire as the stable bridge.
+## Notes: Experimental in-game-config fork of MaxDpsBridge. Owns its toggles (overlay-wins, SlotAllowed gate), adds a RICE-style insecure overlay, a 6-tab Settings canvas and /mdbx. Mutually exclusive with the stable MaxDpsBridge: if the stable bridge is loaded this addon stays inert. No secure templates, no protected Lua. Same additive protocol v5 wire as the stable bridge plus the Ext4 hotbar-map block (51-cell strip; version nibble stays 5).
 ## Author: AnBPublic
-## Version: 3.7.9-exp
-## X-Codename: Unyielding
+## Version: 4.0.3-exp
+## X-Codename: Bulwark
 ## OptionalDeps: MaxDps, GW2_UI
 ## SavedVariables: MaxDpsBridgeExpDB
 ## SavedVariablesPerCharacter: MaxDpsBridgeExpCharDB

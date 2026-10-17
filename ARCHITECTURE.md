@@ -469,12 +469,16 @@ addon/MaxDpsBridgeExp/
                            SavedVariables MaxDpsBridgeExpDB,
                            SavedVariablesPerCharacter MaxDpsBridgeExpCharDB
   Exp.xml                  load order (Toggles, Catalog, MajorCooldowns,
-                           Keymap, Bars, MainFallback, Reader, Bridge, Core,
-                           Profiles, Overlay, Settings, Slash)
-  Toggles.lua ... Bridge.lua  stable copies renamed MDB→MDBX /
-                           MaxDpsBridge→MaxDpsBridgeExp, VERSION 3.7.1-exp;
+                           Keymap, Bars, MainFallback, Reader, HotbarWatch,
+                           Bridge, Core, Profiles, Overlay, Settings, Slash)
+  Toggles.lua ... Reader.lua  stable copies renamed MDB→MDBX /
+                           MaxDpsBridge→MaxDpsBridgeExp;
                            Bridge.lua no longer registers /mdb and exposes
                            MDBX.HandleCommand for diagnostics
+  HotbarWatch.lua          v4.0.3 Ext4 hotbar-map streamer: keybound action-bar
+                           walk (spells/items/macros, ready flag, 32-entry cap),
+                           gen/seq frame cycle held ≥2 paint ticks, typing veto,
+                           /mdbx hotbar diagnostic
   Exp/Core.lua             identity, Print, 200-line console ring,
                            MDBX.IsInert() mutual-exclusion guard
   Exp/Profiles.lua         v1 Global/Spec/Talent store, per-character
@@ -496,6 +500,57 @@ The fork owns toggles (ADDON-WINS, the same `Toggles.SlotAllowed` single
 gate); the companion Exp mode mirrors the Ext3 mask cells 40-42 read-only.
 Offline bar: `luac -p` every file, `lua tests/secret_harness.lua`,
 `pwsh tools/ability_audit.ps1`. Live retail checks stay OWED.
+
+## Hotbar press queue (v4.0.3, additive Ext4)
+
+2026-10-11, spec `docs/plans/2026-10-11-hotbar-press-queue.md`. The companion
+recognises the player's OWN hotbar keypresses and queues the stroke into the
+current GCD window. The wire grows **additively** to 51 cells (v5 core + Ext2 +
+Ext3 byte-identical; version nibble stays 5); presence = cell 28 B bit3,
+typing veto = cell 41 R bit2 (committed by the Ext3 checksum).
+
+```
+addon/MaxDpsBridgeExp/HotbarWatch.lua (NEW)
+  └─ walks action slots 1-180 (GetActionInfo; macros via GetMacroSpell/Item),
+     resolves each keybind (Bars.BarSets / ButtonBinding / GetBindingKey
+     command map), ready flag via MDBX.IsSpellReady / item cooldown
+     (fail-closed), caps at 32 entries (bar order), bumps gen on rebuild
+     (Bars event family + 2 s sweep), streams gen/seq frames held >=2 paint
+     ticks; typing veto from the chat edit box; /mdbx hotbar diagnostic
+        │  cells 43-50: header (gen/seq/LAST/EMPTY) + 2 x 3-cell entries
+        │  (vk+mods | idTop(isItem,ready,id21-20) | id | commit)
+        ▼
+PixelProtocol.cs Ext4 decode (gated on cell 28 B bit3 + 51-cell capture; a
+  checksum/commit failure drops ONLY the frame) + BridgeFrame.TypingActive
+        │
+        ▼
+HotbarMapAssembler.cs (NEW): Ext4Assembler.Feed -> atomic map swap on LAST;
+  a seq gap / gen change / torn frame discards the partial cycle; the map goes
+  Stale after 5 s, OldAddon without the presence bit; HotbarMap.Lookup(stroke)
+        │
+        ▼
+RotationEngine (scan between capture ticks, <=10 ms slices; ONLY the map's VKs)
+  └─ KeyStateProbe.cs (NEW): GetAsyncKeyState, injectable; edge = fresh down or
+     the low-bit tap latch; exact modifier match (Shift+F != F)
+  └─ gates: typing veto, link freshness, the OOC predicate, focus
+     (Background=0 default = focused game only)
+  └─ UserPressQueue.cs (NEW, pure/fake-clock): one press (the newest replaces
+     the previous), coalesce 250 ms, delivery (GCD-riding waits for the
+     observed GCD to fall; off-GCD immediate), 600 ms confirm + 1 retry,
+     1.2 s expiry
+  └─ delivery BEFORE the rotation/target paths (pending-first ordering — the
+     queue NEVER suppresses the plan; the 4.0.3 hotfix removed an earlier
+     SuppressGcdRiding that could starve the core rotation); a focused native
+     press is never re-sent; telemetry kind "user"
+     (queued/delivered/retry/dropped/native) and replay never feeds policy
+     memory from a user send
+```
+
+Structural exclusions (spec §4): UI binds (only ACTIONBUTTON-family commands
+are read), movement keys (MovementGuard set, also excluded in the addon map),
+mouse wheel / mouse buttons, VK 0, modifier-only strokes; unknown abilities
+classify as GCD-riding (fail-closed). Live retail checks OWED
+(`docs/TESTING.md` §3l).
 
 ## Class Browser (S6) / Class skills screen
 
@@ -523,29 +578,33 @@ AbilityPolicy.With / WithMode + AppSettings override store
 The browser CONSUMES the already-resolved registry entry (registry + overlay +
 overrides) and the engine's published live verdict; it never evaluates a
 scheduler gate — the scheduler owns evaluation. `ClassSkillTree` still owns the
-membership/ordering used by the legacy `ClassSkillsView` (kept as a test seam)
-and `--dump-class-skills`. Icons come from `SpellIconCache`, never from game
-memory.
+membership/ordering used by `--dump-class-skills` and the WinUI class-browser
+precompute (`Ui/Shell/Abilities/AbilityRowsPrecompute.cs`). Icons come from
+`SpellIconCache`, never from game memory.
 `MaxDpsCompanion.exe --dump-class-skills=<path>` dumps the merged tree for
-filter curation, and `--ui-snapshot-class-skills=<png>`
-[`--ui-snapshot-class=CLASS --ui-snapshot-spec=SPEC`] renders the screen for
-design review without a game.
+filter curation. 4.0.0 DROPS the class-skills/scroll snapshots
+(`--ui-snapshot-class-skills`, `--ui-snapshot-scroll` print "unavailable in
+this build", exit 3); screenshots run through `--ui-snapshot-page=` instead.
 
-## Console home (S7, v3.5) / diagnostics
+## Console home (S7, v3.5; WinUI 4.0.0) / diagnostics
 
 ```
-MainForm
-  └─ ConsoleHome (default view, mounted over the classic body; S7)
+ShellWindow
+  └─ ConsoleHomeView (default body view; Ui/Shell/ConsoleHomeView.cs)
        top bar: Pause · Folder · Console · Binds · Settings · Rotation ▾ · Debug
        spec header: inferred role badge + per-spec summary
        status block: app/bridge state · now-action + why · last change
-       rolling status + update logs (RollingLog)
+       rolling status + update logs (RollingLogView)
        preset strip (PresetChip): Solo · Levelling · Dungeon · Raid · Tank
          │  PresetRequested / RotationRequested
          ▼
-MainForm.ApplyPreset → writes the SAME 14 hero ToggleSwitch.Checked values
-  through the existing SaveNow path (never a hidden mode, never a wire change)
+ShellWindow.ApplyPreset → the frozen ToggleModel writes the SAME 14 toggle
+  values through the existing SaveNow path (never a hidden mode, no wire change)
 ```
+
+`ExpConsoleView` (`Ui/Shell/ExpConsoleView.cs`) is the minimal in-game-config
+body (`InGameConfigMode=1`): transport row + one read-only status pill, zero
+toggles.
 
 `ConsolePresets.cs` expresses the five bundles as the same 14 toggles plus a
 `ConsoleRole` spec-name role inference. Every `ConsoleHome` update method is
@@ -560,65 +619,59 @@ best-effort file reads: exe build commit vs repo HEAD, configured vs emitted
 (major/minor). `WhyNotFiring` (S8) explains a non-firing row (toggle state,
 scheduler verdict, candidate staleness) and is rendered owner-drawn.
 
-## Classic UI shell (v3.0.0; replaces the v2.8 rail/pages shell)
+## UI shell (v4.0.0 WinUI 3 "Lumen"; replaces the WinForms shell)
 
 ```
-MainForm (borderless; 660-wide fixed frame; no frame ring; tray; pause
-          hotkey; remembered size only when [Window] Layout=classic3)
-  ├─ title bar 48px
-  └─ GradientCanvas
-       ├─ classic body (TableLayoutPanel, fixed absolute rows; NO AutoScroll on
-       │   any timer path — the v2.8.1 NormalizeScroll defect class is pinned
-       │   by ClassicUiTests.ClassicUi_ScrollSurvivesRefresh)
-       │     hero RoundedCard: status 42 (LinkLamp + state + ClassBadge)
-       │       · live 42 ("Now: <action> — <why>", ellipsis + tooltip)
-       │       · strip 40 (StripView, live sampled cells)
-       │       · "Rotation" header + 4 two-toggle rows (Main|Offensive,
-       │         Defensive|Interrupt, Self-heal|Mobility, Consumable|Trinket)
-       │       · "Automation" header + 3 two-toggle rows (Solo|Out of combat,
-       │         Auto-target|Auto-interact, Time-to-kill|Crowd control)
-       │     button row 1 (52): Start | Stop | Launch Game
-       │     button row 2 (46): Recalibrate | Abilities… | Advanced… | Open Folder
-       │     status line (26)
-        ├─ Advanced scrim + centred card (tabs Configuration | Diagnostics |
-        │   Intelligence), built lazily once, measured GlassCards per tab
-         └─ Abilities scrim + centred card (one "Class browser" tab, S6)
-           Both masks are built by the one BuildUnifiedPopup shell and fill
-           client-24 × client-24 (min 360×280), capped at their maxWidth
-           (Advanced 620 / Class browser 900)
-    One full-window overlay at a time: opening Advanced/Abilities hides the S7
-    console home and the other scrim (RestoreConsoleAfterPopup only if a popup
-    hid it). v3.5.2: the scrims are parented to the top-level Form (not the
-    canvas) and track Form.ClientRectangle, and Form.Padding is empty, so ONE
-    opaque mask covers the entire window; the 24/10/24/12 inset lives on the
-    classic body scroll and the console home stretches to the full body canvas —
-    no background menu/ring peeks behind.
-
-  Default client 660 × min(content, working area); MinimumSize 520×560; Esc
-  closes the topmost popup. Width tiers (UiScale, D5): client width picks
-  Compact (≤560) / Classic (≤700, the 660 default) / Roomy (≤950) / Wide
-  (>950); a tier scales font step, row heights, card padding, button heights
-  and toggle size and is applied to the main window plus both popups on a
-  120 ms debounced resize (never mid-drag). The client height is the MEASURED
-  content height (`MainForm.LayoutHero` measures the hero + body rows and
-  `ApplyContentHeight` clamps it to the working area), so the window grows with
-  its content instead of scrolling. Restored classic primitives live in UiControls.cs
-  (LinkLamp, StripView, ClassBadge, RoundedCard, GradientCanvas,
-  WheelSafeNumeric forwarding the wheel to its scrollable parent); the tabbed
-  pages still use Ui/Layout.cs (VertStack/WrapFlow/GridPanel/BentoSplit/
-  UiMeasure) and Ui/UiPrimitives.cs (GlassCard/KvRow/pills/tiles/chips/
-  UiClickable, the v2.8.1 mouse-gesture base). Type: system variable-font chain
-  (DesignTokens.FamilyName) — bundled Geist/UiFonts removed in v3.
-  --ui-smoke-test shows the form offscreen, opens every popup tab and runs the
-  structural invariants (zero size, text fit, card content, Tab reachability,
-  accessible names, sibling overlap); exits 1 on findings.
-  --bench-ui: 2000× RefreshStatus → mean/p95 µs + startup-to-shown ms
-  (targets mean < 300 µs, p95 < 1 ms, startup < 500 ms).
-  --ui-snapshot-page=main|advanced-config|advanced-diag|advanced-intel|
-  abilities-class|abilities-explorer [--ui-snapshot= --ui-snapshot-width=
-  --ui-snapshot-height=]; the review set is 6 pages × {660×920, 520×560} in
-  dist/ui-snapshots.
+ShellWindow (Ui/Shell/ShellWindow.xaml.cs; borderless OverlappedPresenter;
+             min 520×560, default 660×920; title "MaxDPS Companion v4.0.3 Bulwark")
+  ├─ Win32Host (SetWindowSubclass): WM_NCHITTEST edge resize (8 px DPI-scaled),
+  │    WM_GETMINMAXINFO min size, WM_HOTKEY pause, tray Shell_NotifyIcon
+  │    (WM_APP+1; Show/Pause/Quit), minimize-to-tray via AppWindow.Changed
+  ├─ title bar: icon + DisplayVersion, Minimize/Close (InputNonClientPointerSource
+  │    caption region; DWM rounded corners; solid backdrop, no Mica)
+  ├─ BodyHost: ConsoleHomeView (classic S7 parity) | ExpConsoleView (Exp mode)
+  ├─ Advanced overlay (scrim Grid, Esc/x closes): Configuration / Diagnostics /
+  │    Intelligence tabs (Ui/Shell/Advanced*View.cs)
+  └─ Abilities overlay: ClassBrowserView + AbilityExplorer/Inspector,
+       CastAuditView, WhyNotFiringPanel (Ui/Shell/Abilities/*)
 ```
+
+- `Ui/Controls/*` = WinUI primitives: ChamferButton (Path chamfer + VSM),
+  ToggleSwitch (~150 ms Composition thumb; same IsOn/Toggled semantics as the
+  old 15 ms WinForms knob), StripView (43 cells, 250 ms tick), SettingRow,
+  Readouts (MetricTile/StatusPill/KvRow), Surfaces (RoundedCard/GlassCard),
+  Feeds (BannerView/InfoBar), Chrome, ControlTheme (frozen palette as
+  `Windows.UI.Color`; point→DIP via `ControlTheme.Dip`).
+- `Ui/Foundation/*` = XAML-free models + tokens: ToggleModel (frozen 14-toggle
+  AppSettings projection; ADDON-WINS), ConsolePresets + ConsoleRole, UiScale
+  (4 width tiers), DesignTokens (numeric tokens + StatusTone only — the
+  colour/font half moved to ControlTheme/Theme.xaml in P3), ExpTheme, Layout
+  (VertStack/WrapFlow/GridPanel/BentoSplit), OwnedControls, SegmentedTabs,
+  ThemedScrollHost.
+- Threading: engine thread unchanged; the UI reads on a 250 ms
+  DispatcherQueueTimer; calibration marshals via `DispatcherQueue.TryEnqueue`;
+  the four WinForms timers are gone. Popups are an in-window scrim Grid (one
+  overlay at a time, Esc closes).
+- UI CLI (`Ui/Shell/UiCliRunner.cs`; `App.xaml.cs` hosts a shown window):
+  `--ui-smoke-test [--exp]` = ShellValidation visual-tree walk (title, zero-size
+  elements, accessible names, classic=14 hero toggles / Exp=0 toggles) +
+  RenderTargetBitmap PNG (non-blank colour grid), exit 3 on findings;
+  `--ui-snapshot-page=main|configuration|diagnostics|intelligence|abilities`,
+  `--ui-snapshot`, `--ui-snapshot-advanced`; `--bench-ui` = startup
+  construct+Activate, 2000× RefreshStatus mean/p95 µs, snapshot ms (targets
+  mean < 300 µs / p95 < 1 ms / startup < 500 ms; **4.0.0 known miss: startup
+  774.9 ms FAIL, refresh 19.8 µs and snapshot 26.3 ms pass; exit 1**).
+  `--dump-class-skills` kept; `--ui-snapshot-class-skills`/`--ui-snapshot-scroll`
+  dropped (print "unavailable in this build", exit 3).
+- Publish: `pwsh tools/publish-exp.ps1` → unpackaged framework-dependent WinUI 3
+  (one exe, ~43 files; `WindowsPackageType=None` + `EnableMsixTooling=true` must
+  stay paired or `MaxDpsCompanion.pri` is missing and the app dies
+  `0xC000027B`). Requires the Windows App SDK 1.8 runtime. Never deletes
+  `dist-exp\settings.ini` or the Rust `mdc-*.exe` (hash-checked); writes
+  `VERSION.txt` = `4.0.3 Bulwark` (derived from the built exe). `build.ps1`/`dist\` stay legacy/frozen.
+- OWED live (cannot be closed offline): retail run (sampling, key sending,
+  pause hotkey), tray + minimize-to-tray, per-monitor DPI across monitors, a
+  clean machine with only the WinAppSDK runtime, visual-parity review.
 
 ## companion-rs (Rust port, side-by-side) — 2026-10-10
 
@@ -886,10 +939,12 @@ MaxDps-Companion/
                               all-fixed ⇒ skip the run entirely); publishes to
                               `\Interface\AddOns` only on a clean run, with a
                               `_backup/<stamp>/` rollback; vendor/ never written
-   app/MaxDpsCompanion/       WinForms companion (sampler → PostMessage).
-                              LEGACY/FROZEN 2026-10-10 (LEGACY.md): no future
-                              rollouts; fidelity reference for companion-rs/.
-                              dist/ + addon/MaxDpsBridge/ (stable) also frozen.
+   app/MaxDpsCompanion/       WinUI 3 companion (sampler → PostMessage), 4.0.0
+                              "Lumen": unpackaged, framework-dependent
+                              WinAppSDK 1.8, one exe. The WinForms UI was
+                              deleted in P3 (2026-10-11); dist/ ships the frozen
+                              LEGACY 3.7.9 client and addon/MaxDpsBridge/
+                              (stable) stays frozen.
     Knowledge/               ability knowledge base (v2.0; defensive v2.3; registry v2.6)
       AbilityModel.cs        enums + AbilityDefinition + slot mapping,
                              `Scope` ("Racial" = race-carried, carried by every
@@ -989,49 +1044,31 @@ MaxDps-Companion/
       spell-verification.json GENERATED live-client name/icon/verified per
                              class-spell id (wago.tools DB2 export); unverified
                              ids are not merged (see ClassSpellBook)
-    ClassSkillsView.cs       legacy full-size Class skills screen (superseded
-                             by Ui/ClassBrowserView.cs in S6; kept as a test
-                             seam): class/spec dropdowns, shared + per-spec
-                             sections, toggles; S5 TreeBuilder seam (S8 routes
-                             it to the cache)
-    Ui/ClassBrowserPrecompute.cs  S8: off-thread Class Browser row cache keyed
-                             by (class, spec); warmed on Application.Idle and
-                             consumed through ClassSkillsView.TreeBuilder
-    Ui/ScaledIconCache.cs    S8: device-scaled icon bitmaps keyed by
-                             (spell id, px); evicted on SpellIconCache.IconReady
-    Ui/WhyNotFiring.cs       S8: pure explainer — toggle state + scheduler
-                             verdict + candidate staleness (frame age)
-    Ui/WhyNotFiringPanel.cs  S8: owner-drawn render of the explainer
+    Ui/                      v4.0.0 WinUI 3 UI (Lumen; docs/plans/
+                             2026-10-11-winui3-v4-migration.md). The WinForms
+                             shell — MainForm.cs, UiControls.cs,
+                             ClassSkillsView.cs, old Ui/*.cs — was deleted in P3.
+      Shell/                 ShellWindow (+ .Content/.Engine/.Cli/.Abilities),
+                             Win32Host (subclass hit-test/hotkey/tray),
+                             TrayIcon, UiCliRunner (--ui-smoke-test/--ui-snapshot*/
+                             --bench-ui), ShellValidation, OverlayShell,
+                             RollingLogView, ConsoleHomeView, ExpConsoleView,
+                             Advanced{Configuration,Diagnostics,Intelligence}View,
+                             Abilities/{AbilityListView, AbilityRowView,
+                             AbilityRowsPrecompute (old ClassBrowserPrecompute),
+                             AbilityViewPresets, ClassBrowserView, AbilityExplorer,
+                             AbilityInspector, CastAuditView, WhyNotFiring
+                             (+Panel), ScaledIconCache}
+      Controls/              ChamferButton, ToggleSwitch, StripView, SettingRow,
+                             Readouts, Surfaces, Feeds, Chrome, ControlTheme
+      Foundation/            ToggleModel (frozen 14-toggle model),
+                             ConsolePresets + ConsoleRole, UiScale (width tiers),
+                             DesignTokens (numeric tokens + StatusTone),
+                             ExpTheme, Layout, OwnedControls, SegmentedTabs,
+                             ThemedScrollHost
     Diagnostics/InstallDoctor.cs  S8: pure install checks — exe build vs repo
                              HEAD, configured vs emitted CellSize, app mask vs
                              Ext3 mirror, addon version; best-effort file reads
-    Ui/                      UI shell (classic v3): DesignTokens (system
-                             variable-font chain — Geist/UiFonts removed),
-                             Layout (measured VertStack/WrapFlow/GridPanel/
-                             BentoSplit + UiMeasure), UiPrimitives (GlassCard,
-                             KvRow, pills/tiles/chips, UiClickable),
-                             ClassBrowserView (S6: selector + mode filter +
-                             knobs + virtualized rows), AbilityExplorer /
-                             AbilityInspector (VirtualAbilityList + legacy
-                             Explorer, kept as test seams),
-                             ConsoleHome (S7: owner-drawn read-only status
-                             console + rolling logs + top bar),
-                             ConsolePresets (S7: five named bundles over the
-                             same 14 toggles + ConsoleRole inference),
-                             Pages (StackPage hosts for the popup tabs),
-                             SettingsPages (Configuration/Diagnostics +
-                             v3.3.0 SoloBandEditor Minor/Major/Immunity rows;
-                             v3.3.0 Mode/Target preset rows),
-                             UiShellValidation (honest structural smoke)
-    UiControls.cs            restored classic primitives: RoundedCard (hero),
-                             GradientCanvas, LinkLamp, StripView,
-                             ClassBadge, WheelSafeNumeric
-    MainForm.cs              borderless classic 660-wide fixed main window
-                             (no AutoScroll on the timer path, no frame ring):
-                             hero + Rotation/Automation toggles + button rows,
-                             Advanced…/Abilities… scrim popups (one overlay at
-                             a time, console home hidden behind); remembered
-                             size only when [Window] Layout=classic3
     Intelligence/CombatContext.cs  tri-state context from the frame; HpSource
                              {Plain, Curve, Unknown} + HpPct/HpPctUpper with
                              precedence plain > curve > unknown
@@ -1047,20 +1084,23 @@ MaxDps-Companion/
       SchedulerBench.cs      --bench-scheduler deterministic measurement;
                              v3.3.0 p95 frame-cost regression baseline
       BridgeHealth.cs        v3.3.0 stale-addon / protocol-skew advisor
-                             (OWED: not yet consumed by RotationEngine/MainForm)
+                             (4.0.0: consumed by the ShellWindow.Engine notices
+                             and InstallDoctor; RepairHint/CalibrateHint also
+                             drive the Exp console warnings)
     Decision/                legacy decision layer (v1.4.0, opt-in)
     Telemetry/               local rotation telemetry + replay (opt-in)
       CastAudit.cs           v3.3.0 suggested-vs-cast audit over recorded
                              events (pure; read-only report)
-    Ui/CastAuditView.cs      v3.3.0 read-only audit grid (OWED: not mounted)
-    Ui/SemanticBanner.cs     v3.3.0 status-tone banner control (OWED: not mounted)
+    (v4.0.0: the cast-audit grid lives at Ui/Shell/Abilities/CastAuditView.cs,
+     mounted on Advanced → Diagnostics; the status-tone banner is
+     Ui/Controls/Feeds.cs BannerView.)
     ThisAssembly.Gen.cs      build stamp (git HEAD + date; v3.5.2: shown on the
                              install doctor card, not the title bar)
-  tests/MaxDpsCompanion.Tests/ xunit suite (613 tests)
-    ClassicUiTests.cs        classic shell: scroll survives refreshes, no Layout
-                             events on value-only refreshes, default/min sizes,
-                             7 button labels, real mouse-message clicks, launcher
-                             seam, toggle persistence, Esc closes popups
+  tests/MaxDpsCompanion.Tests/ xunit suite (946 tests; UI fates in docs/TESTING.md §1a)
+    ClassicUiTests.cs        4.0.0: window consts, Solo toggle -> settings
+                             (ToggleModel), width-tier fonts/rows + popup toggle
+                             geometry (UiScale); the WinForms control-message
+                             tests are deleted — docs/TESTING.md §1a
     PixelProtocolExt2Tests.cs 40-cell Ext2 decode: valid curve/band, nR+nG out
                              of range, bit2=0 with junk in 35-39, bit3=0,
                              cell-39 checksum failure drops only SelfHeal2,
@@ -1086,9 +1126,10 @@ MaxDps-Companion/
     ProviderPropertyTests.cs   catalog-wide properties: OFF never Use, utility
                              never Use, unknown-context fallbacks, no evidence
                              leaks, manual/ON scopes
-    UiShellTests.cs          popup navigation, explorer filter/search, coverage
-                             report, hardened smoke-no-findings, long-value
-                             render, wrapping-label re-measure
+    UiShellTests.cs          4.0.0 model-level: explorer filter/search over
+                             AbilityRowsPrecompute, coverage/intelligence
+                             report via AbilityIntelligence.Audit (the live
+                             tree walk moved to --ui-smoke-test)
     AbilityRegistryTests.cs  registry counts, derivation rules, patch guard,
                              zero-violation audit (25 tests)
     RacialTogglesTests.cs    v3.x scope=Racial rows: scope carried, multi-id,
@@ -1421,15 +1462,14 @@ MaxDps-Companion/
   the `ToggleSwitch` brass palette and `ConsolePalette.Brass` is aliased to
   `DesignTokens.Accent` (one accent). Dead `RuleSection`, `StatusDot`,
   `SingleToggleRow` and `ShowClassSkills` removed.
-- **Cross-stream wiring owed (v3.3.0 Stream 4).** The three streams ship
-  complete units but four connections are intentionally deferred (their target
-  files are outside this merge pass): `Scheduler/BridgeHealth` consumed by
-  `RotationEngine`/`MainForm`; `Ui/CastAuditView` + `Ui/SettingsPages`
-  SoloBandEditor + `Ui/SemanticBanner` hosted in `MainForm`;
-  `SpellIconCache.Invalidate()` called from catalog regeneration;
-  `AppSettings.PollIntervalMs` code default set to 33 (`settings.ini` already
-  ships it). Documented in `HANDOVER.md` "Stream 4"; do not treat any of these
-  as shipped behaviour until wired.
+- **Cross-stream wiring (v3.3.0 Stream 4) — closed in 4.0.0 except one.**
+  `Scheduler/BridgeHealth` is consumed by `ShellWindow.Engine` (version-skew /
+  mismatch notices) and `InstallDoctor`; the cast-audit grid is mounted on
+  Advanced → Diagnostics (`Ui/Shell/Abilities/CastAuditView.cs`); the
+  status-tone banner host is `Ui/Controls/Feeds.cs` BannerView; and
+  `AppSettings.PollIntervalMs` defaults to 33. Still owed:
+  `SpellIconCache.Invalidate()` from catalog regeneration (the UI-side
+  `AbilityRowsPrecompute.Invalidate()` + `ScaledIconCache` eviction exist).
 - **Legacy contract.** `[Intelligence] Enabled=0` = pre-intelligence
   behaviour (scheduler still paces, no knowledge filtering, companion-only
   slots off), except the hard execution-safety cast/channel gate which is

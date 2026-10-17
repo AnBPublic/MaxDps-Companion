@@ -75,7 +75,7 @@
 
 local addonName, MDBX = ...;
 
-MDBX.VERSION = "3.7.9-exp";
+MDBX.VERSION = "4.0.3-exp";
 
 -- Chat print, defined FIRST: AutoCalibrate (below) and the Update watchdog
 -- both call it, and Lua resolves locals lexically -- a later `local
@@ -101,7 +101,7 @@ end
 -- 5. Cell 35 is the HP-curve colour, cells 36-38 are the SelfHeal2 slot and
 -- cell 39 is the Ext2 checksum. The v5 checksums (cells 10 and 34) keep
 -- covering only their original ranges.
-local CELL_COUNT = 43;
+local CELL_COUNT = 51;
 local PROTOCOL_VERSION = 5;
 
 local STATUS_FLAG_IN_COMBAT = 1;
@@ -137,6 +137,22 @@ local EXT3_COMMIT_CELL = 42;
 local CAST_EXT3_PRESENT = 4;    -- cell 28 B bit2
 local EXT3_MASK_BITS = 0x3FFF;
 local EXT3_BLOCKED_APP = 2;     -- blocked nibble bit1
+-- Ext3 cell 41 R bit2 = TYPING VETO (chat edit box focused). Bits 0-1 stay the
+-- top mask bits (12-13); the Ext3 checksum sums the WHOLE cell 41 R nibble, so
+-- the typing bit is already committed by cell 42 G.
+local EXT3_TYPING_BIT = 4;
+
+-- Ext4 (v4.0.x) additive block: hotbar press map (cells 43-50), presence =
+-- cell 28 B bit3. Cell 43 header (R=gen, G=seq, B flags bit0 LAST bit1 EMPTY);
+-- cells 44-46 entry A, 47-49 entry B (3 cells each); cell 50 commit
+-- (R=0, G=sum(cells 43-49) mod 16, B=heartbeat). The version nibble stays 5.
+local EXT4_HEADER_CELL = 43;
+local EXT4_ENTRY_A_CELL = 44;
+local EXT4_ENTRY_B_CELL = 47;
+local EXT4_COMMIT_CELL = 50;
+local CAST_EXT4_PRESENT = 8;    -- cell 28 B bit3
+local EXT4_FLAG_LAST = 1;
+local EXT4_FLAG_EMPTY = 2;
 
 local CLASS_SPEC_VALID = 1;
 local BUFF_VALID = 2;
@@ -513,8 +529,9 @@ local function WriteCast (SelfHeal2Range)
   local Band = 15;   -- remaining-time band is not safely observable; reserved
   -- Ext2: cell 28 B bits0-1 carry the SelfHeal2 range tri-state (0 unknown /
   -- 1 in / 2 out). Ext3 (v3.5): bit2 = EXT3 PRESENT (the app mask block is
-  -- meaningful, cells 40-42 are live). Bits3 reserved.
-  local Range = bit.bor(bit.band(SelfHeal2Range or 0, 3), CAST_EXT3_PRESENT);
+  -- meaningful, cells 40-42 are live). Ext4 (v4.0.x): bit3 = EXT4 PRESENT
+  -- (the hotbar map block, cells 43-50, is live). Bits 4-7 reserved.
+  local Range = bit.bor(bit.bor(bit.band(SelfHeal2Range or 0, 3), CAST_EXT3_PRESENT), CAST_EXT4_PRESENT);
   Paint(CAST_CELL, State, Band, Range);
   return State, Band, Range;
 end
@@ -659,12 +676,13 @@ end
 
 -- Ext3 cells 40-42 (v3.5): 14-bit app toggle mask + epoch + blocked nibble.
 --   cell 40: R = mask bits 0-3, G = bits 4-7, B = bits 8-11
---   cell 41: R = mask bits 12-13, G = epoch (0-15), B = blocked nibble
+--   cell 41: R = mask bits 12-13 (bits 0-1) | typing veto (bit2), G = epoch
+--            (0-15), B = blocked nibble
 --   cell 42: R = 0 (reserved), G = checksum(cells 40-41) mod 16, B = commit
 -- The block is always painted (presence bit 2 of cell 28 B) so the panel and
 -- the companion can read the addon's effective mask even when the app is not
 -- controlling it (epoch 0). No core/Ext2 checksum covers cells 40-42.
-local function WriteExt3 (Mask, Epoch, Blocked)
+local function WriteExt3 (Mask, Epoch, Blocked, Typing)
   if type(Mask) ~= "number" or Mask < 0 or Mask > EXT3_MASK_BITS then Mask = EXT3_MASK_BITS; end
   if type(Epoch) ~= "number" or Epoch < 0 or Epoch > 15 then Epoch = 0; end
   if type(Blocked) ~= "number" or Blocked < 0 or Blocked > 15 then Blocked = 0; end
@@ -672,12 +690,93 @@ local function WriteExt3 (Mask, Epoch, Blocked)
   local M0 = bit.band(Mask, 0xF);
   local M1 = bit.band(bit.rshift(Mask, 4), 0xF);
   local M2 = bit.band(bit.rshift(Mask, 8), 0xF);
+  -- Cell 41 R = top mask bits (0-1) | typing bit2. The checksum sums the whole
+  -- painted nibble, so the typing bit is committed by cell 42 G automatically.
   local MHi = bit.band(bit.rshift(Mask, 12), 0x3);
+  if Typing then MHi = bit.bor(MHi, EXT3_TYPING_BIT); end
   Paint(EXT3_MASK_CELL, M0, M1, M2);
   Paint(EXT3_FLAGS_CELL, MHi, Epoch, Blocked);
   local Sum = M0 + M1 + M2 + MHi + Epoch + Blocked;
   Paint(EXT3_COMMIT_CELL, 0, Sum % 16, Heartbeat);
   return Sum % 16;
+end
+
+--- ======= Ext4 HOTBAR MAP (v4.0.x) =======
+-- Cells 43-50 carry the keybound hotbar map streamed by HotbarWatch: header
+-- (gen/seq/LAST/EMPTY) + up to two 3-cell entries + a commit cell. The wire
+-- layout is frozen (docs/PROTOCOL.md §Ext4); the companion assembles gen-scoped
+-- seq cycles and holds each frame >= 2 paint ticks.
+
+-- Current frame from MDBX.HotbarWatch. A missing/failed provider paints an
+-- EMPTY (seq 0, LAST+EMPTY) frame so the block is never torn.
+local function Ext4Frame ()
+  if MDBX.HotbarWatch and type(MDBX.HotbarWatch.Frame) == "function" then
+    local Ok, Frame = pcall(MDBX.HotbarWatch.Frame);
+    if Ok and type(Frame) == "table" then return Frame; end
+  end
+  return nil;
+end
+
+-- One entry = 3 cells. Returns the 6-nibble checksum sum (0 for the pad
+-- entry, so an all-zero pad keeps the commit deterministic).
+local function WriteExt4Entry (Base, Entry)
+  if not Entry or type(Entry.Id) ~= "number" or Entry.Id <= 0 then
+    Paint(Base, 0, 0, 0);
+    Paint(Base + 1, 0, 0, 0);
+    Paint(Base + 2, 0, 0, 0);
+    return 0;
+  end
+  local VK = bit.band(Entry.VK or 0, 0xFF);
+  local Flags = bit.bor(bit.band(Entry.Mods or 0, 0x07), 8);   -- Valid=8
+  local VR = bit.band(bit.rshift(VK, 4), 0xF);
+  local VG = bit.band(VK, 0xF);
+  Paint(Base, VR, VG, Flags);
+  local Id = Entry.Id;
+  local R2 = bit.band(bit.rshift(Id, 20), 0x3);   -- id bits 21-20
+  if Entry.IsItem then R2 = bit.bor(R2, 8); end   -- idTop bit3
+  if Entry.Ready then R2 = bit.bor(R2, 4); end    -- idTop bit2
+  local G2 = bit.band(bit.rshift(Id, 16), 0xF);   -- id bits 19-16
+  local B2 = bit.band(bit.rshift(Id, 12), 0xF);   -- id bits 15-12
+  Paint(Base + 1, R2, G2, B2);
+  local R3 = bit.band(bit.rshift(Id, 8), 0xF);    -- id bits 11-8
+  local G3 = bit.band(bit.rshift(Id, 4), 0xF);    -- id bits 7-4
+  local B3 = bit.band(Id, 0xF);                   -- id bits 3-0
+  Paint(Base + 2, R3, G3, B3);
+  return VR + VG + Flags + R2 + G2 + B2 + R3 + G3 + B3;
+end
+
+-- Paint the whole Ext4 block every tick. Paint caching suppresses repaints
+-- while seq is held; the commit cell is written after the header + entries so
+-- its checksum always matches the painted nibbles.
+local function WriteExt4 ()
+  local Frame = Ext4Frame();
+  local Gen, Seq, Flags = 0, 0, 0;
+  local E1, E2 = nil, nil;
+  if Frame then
+    Gen = bit.band(Frame.gen or 0, 0xF);
+    Seq = bit.band(Frame.seq or 0, 0xF);
+    if Frame.last then Flags = bit.bor(Flags, EXT4_FLAG_LAST); end
+    if Frame.empty then Flags = bit.bor(Flags, EXT4_FLAG_EMPTY); end
+    E1 = Frame.e1;
+    E2 = Frame.e2;
+  else
+    Flags = bit.bor(EXT4_FLAG_LAST, EXT4_FLAG_EMPTY);
+  end
+  Paint(EXT4_HEADER_CELL, Gen, Seq, Flags);
+  local Sum = Gen + Seq + Flags;
+  Sum = Sum + WriteExt4Entry(EXT4_ENTRY_A_CELL, E1);
+  Sum = Sum + WriteExt4Entry(EXT4_ENTRY_B_CELL, E2);
+  Paint(EXT4_COMMIT_CELL, 0, Sum % 16, Heartbeat);
+end
+
+-- Typing veto bit (cell 41 R bit2). Read once per tick; a failed read reports
+-- "not typing" (fail-closed), matching HotbarWatch.TypingActive.
+local function TypingActive ()
+  if MDBX.HotbarWatch and type(MDBX.HotbarWatch.TypingActive) == "function" then
+    local Ok, Active = pcall(MDBX.HotbarWatch.TypingActive);
+    if Ok and Active == true then return true; end
+  end
+  return false;
 end
 
 -- A complete, valid v5 frame with no suggestions and no context. Used while
@@ -693,7 +792,7 @@ local function WriteEmptyFrame (State)
   end
   local Vh, Vl, Vf = 0, 0, 0;
   Paint(VITALS_CELL, Vh, Vl, Vf);
-  local Ch, Cg, Cf = CAST_STATE_UNKNOWN, 15, CAST_EXT3_PRESENT;
+  local Ch, Cg, Cf = CAST_STATE_UNKNOWN, 15, bit.bor(CAST_EXT3_PRESENT, CAST_EXT4_PRESENT);
   Paint(CAST_CELL, Ch, Cg, Cf);
   local Th, Tg, Tf = 0, 15, 2;   -- cast state unknown
   Paint(TARGET_CELL, Th, Tg, Tf);
@@ -718,7 +817,8 @@ local function WriteEmptyFrame (State)
     if MDBX.Toggles.AppEpoch then EEpoch = MDBX.Toggles.AppEpoch(); end
     if MDBX.Toggles.AppBlocked then EBlocked = MDBX.Toggles.AppBlocked(); end
   end
-  WriteExt3(EMask, EEpoch, EBlocked);
+  WriteExt3(EMask, EEpoch, EBlocked, TypingActive());
+  WriteExt4();
   local Sr, Sg, Sb = WriteStatus(State, 0);
   WriteVersion((Sr + Sg + Sb) % 16);
   -- v5 extension checksum covers cells 11-33 exactly (Ext2 cells excluded).
@@ -977,7 +1077,16 @@ local function Update (self, Delta)
     -- never even invokes MaxDps (no wasted work, no side effects). A denied
     -- slot paints an all-zero/FLAG_VALID-clear cell (= EMPTY).
     local function ReadSlot (Slot, Fn, IsInterrupt, SkipGate)
-      if not Allowed(Slot) then return 0, 0, 0, nil; end
+      if not Allowed(Slot) then
+        -- A denied slot must PAINT EMPTY (0,0,0). It used to return zeros
+        -- without repainting, which left the previous candidate's pixels on
+        -- screen while the core checksum was computed from the zeros — every
+        -- frame then failed the companion's core checksum ("No pixel block"
+        -- while the strip was visibly rendering; live report 2026-10-11).
+        -- Paint() caches, so this is free on repeated denies.
+        Paint(Slot, 0, 0, 0);
+        return 0, 0, 0, nil;
+      end
       return WriteSlot(Slot, SafeRead(Fn), IsInterrupt, SkipGate);
     end
     R[1], G[1], B[1], Id[1] = ReadSlot(1, MDBX.GetMainSpellID, false, true);
@@ -1144,7 +1253,8 @@ local function Update (self, Delta)
     if MDBX.Toggles.AppEpoch then PubEpoch = MDBX.Toggles.AppEpoch(); end
     if MDBX.Toggles.AppBlocked then PubBlocked = MDBX.Toggles.AppBlocked(); end
   end
-  WriteExt3(PubMask, PubEpoch, PubBlocked);
+  WriteExt3(PubMask, PubEpoch, PubBlocked, TypingActive());
+  WriteExt4();
 
   -- v1.3.4 MELEE-STATE FIX: a live suggestion ALWAYS wins the state (Active).
   -- Target/interact states exist ONLY so the companion can ask for a target
@@ -1210,6 +1320,16 @@ local function HandleCommand (Input)
   -- Diagnostics live in Reader.lua (needs MaxDps internals there).
   if Command == "diag" and MDBX.Diag then
     MDBX.Diag();
+    return;
+  end
+
+  if Command == "hotbar" then
+    if MDBX.HotbarWatch and MDBX.HotbarWatch.Diag then
+      local OkHot, Text = pcall(MDBX.HotbarWatch.Diag);
+      Print(OkHot and Text or "hotbar diag failed (contained)");
+    else
+      Print("hotbar diag unavailable");
+    end
     return;
   end
 
@@ -1418,7 +1538,7 @@ local function HandleCommand (Input)
     end
     local RC = MDBX._RotCounts or {};
     local RotText = ("3:%d,6:%d,7:%d,8:%d"):format(RC[3] or 0, RC[6] or 0, RC[7] or 0, RC[8] or 0);
-    Print(("v%s protocol=%d ext2=1 ext3=1 hpcurve=%s sh2=%s enabled=%s calibrate=%s offset=%d,%d cell=%dpx bound=%d spell=%s next=%s ready=%s urg=%s extras=%s toggles=%s app=%s/%s/%d dwell=%d rot=%s")
+    Print(("v%s protocol=%d ext2=1 ext3=1 ext4=1 hpcurve=%s sh2=%s enabled=%s calibrate=%s offset=%d,%d cell=%dpx bound=%d spell=%s next=%s ready=%s urg=%s extras=%s toggles=%s app=%s/%s/%d dwell=%d rot=%s")
       :format(MDBX.VERSION, PROTOCOL_VERSION, DB.HpCurve and "on" or "off", Sh2Text,
         tostring(DB.Enabled), tostring(DB.Calibrate),
         DB.OffsetX, DB.OffsetY, DB.CellSize, MDBX.BindingCount(), MainText, NextFn, Ready, UrgencyText, ExtrasText,
@@ -1485,7 +1605,7 @@ local function HandleCommand (Input)
   else
     Print("commands: |cFFFFFF00on|r / |cFFFFFF00off|r / |cFFFFFF00toggle|r / "
       .. "|cFFFFFF00offset <x> <y>|r / |cFFFFFF00cellsize <px>|r / |cFFFFFF00calibrate on|off|r / "
-      .. "|cFFFFFF00hpcurve on|off|r / |cFFFFFF00heal|r / "
+      .. "|cFFFFFF00hpcurve on|off|r / |cFFFFFF00heal|r / |cFFFFFF00hotbar|r / "
       .. "|cFFFFFF00status|r / |cFFFFFF00diag|r / |cFFFFFF00autocal|r / |cFFFFFF00reset|r / |cFFFFFF00version|r / "
       .. "|cFFFFFF00toggles|r / |cFFFFFF00overlay on|off|r / |cFFFFFF00<key> on|off|r / "
       .. "|cFFFFFF00all on|off|r / |cFFFFFF00why heal|r / "

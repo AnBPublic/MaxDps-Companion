@@ -275,4 +275,22 @@ internal sealed class ToggleSync
 
     /// <summary>True when the effective value comes from the bridge echo.</summary>
     public bool EffectiveFromMirror => MirrorValid && MirrorMask.HasValue;
+
+    /// <summary>
+    /// v4.0.3 hotfix guard: the Ext3 mirror carries the bridge's EFFECTIVE
+    /// toggle mask, so when the addon blanks a slot the companion believes is
+    /// enabled it can say so instead of holding silently. The live "core
+    /// rotation never fires" report was an in-game Main toggle flipped OFF
+    /// (`MaxDpsBridgeExpDB.Toggles.Main = false` via the overlay pill / `/mdbx
+    /// main off` / a bound toggle key): `SlotAllowed` blanked slot 1 every tick
+    /// and an empty slot is wire-indistinguishable from "MaxDps has no
+    /// suggestion". Returns a status note when the companion has Main enabled
+    /// but a VALID mirror says the addon has it OFF; null otherwise (no
+    /// mirror, or the companion's own setting already explains the silence).
+    /// </summary>
+    public static string? AddonOffWarning(bool mirrorValid, int mirrorMask, bool mainSlotEnabled)
+    {
+        if (!mirrorValid || !mainSlotEnabled) return null;
+        return IsSet(mirrorMask, BitMain) ? null : "addon Main toggle is OFF (/mdbx main on)";
+    }
 }

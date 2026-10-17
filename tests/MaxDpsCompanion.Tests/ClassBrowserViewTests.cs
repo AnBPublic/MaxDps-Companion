@@ -1,79 +1,44 @@
-using System.Drawing;
+using System.Diagnostics;
+using MaxDpsCompanion.Ui.Shell;
 using Xunit;
 
 namespace MaxDpsCompanion.Tests;
 
 /// <summary>
-/// S6 (v3.5) Class Browser: STA construction, selectors/modes, warm open-time
-/// budget and an owner-drawn paint smoke. Offline only — the live popup remains
-/// OWED (docs/TESTING.md §3).
+/// P2-E port of the S6 Class Browser tests (docs/plans/2026-10-11-winui3-v4-migration.md §6).
+///
+/// FINAL FATES (4 original tests):
+///  * REINSTATED (3) against the P2-D row precompute/model: row building per
+///    class/spec/mode, the mode vocabulary (ClassBrowserView.ModeOptions), and
+///    the warm-reopen budget (cached row set reuse, no control construction).
+///  * DELETED (1): Browser_Paint_Smoke_No_Garble (WinForms DrawToBitmap +
+///    GetPixel) — replaced by the RenderTargetBitmap non-blank PNG assertion
+///    in --ui-smoke-test / --ui-snapshot-page.
 /// </summary>
 public class ClassBrowserViewTests
 {
-    private static (T? Result, Exception? Error) RunOnSta<T>(Func<T> action)
-    {
-        T? result = default;
-        Exception? error = null;
-        var thread = new Thread(() =>
-        {
-            try { result = action(); }
-            catch (Exception ex) { error = ex; }
-        });
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.IsBackground = true;
-        thread.Start();
-        Assert.True(thread.Join(TimeSpan.FromSeconds(60)), "STA UI thread timed out");
-        return (result, error);
-    }
-
-    private static void ShowOffscreen(Form form)
-    {
-        form.StartPosition = FormStartPosition.Manual;
-        form.Location = new Point(-32000, -32000);
-        form.ShowInTaskbar = false;
-        form.Show();
-        System.Windows.Forms.Application.DoEvents();
-    }
-
     [Fact]
     public void Browser_Builds_Rows_For_Class_Spec_And_Mode()
     {
-        var (result, error) = RunOnSta(() =>
-        {
-            var settings = new AppSettings();
-            using var form = new MainForm(settings);
-            form.CreateControl();
-            var browser = form.ClassBrowserForTest;
-            browser.Open("ROGUE", "Outlaw");
-            var all = browser.RowCount;
-            browser.ApplyPreset("Offensive", "ROGUE", "Outlaw");
-            var offensive = browser.RowCount;
-            browser.ApplyPreset("Trinket", "ROGUE", "Outlaw");
-            var trinket = browser.RowCount;
-            return (all, offensive, trinket, browser.DebugState);
-        });
+        var precompute = new AbilityRowsPrecompute(AbilityCatalog.Default);
+        var all = precompute.GetBrowserRows("ROGUE", "Outlaw", "All", 100).Items.Count;
+        var offensive = precompute.GetBrowserRows("ROGUE", "Outlaw", "Offensive", 100).Items.Count;
+        var trinket = precompute.GetBrowserRows("ROGUE", "Outlaw", "Trinket", 100).Items.Count;
 
-        Assert.Null(error);
-        Assert.True(result.all > 0, "the browser should list Rogue/Outlaw abilities");
-        Assert.True(result.offensive > 0, "Rogue/Outlaw should have offensive abilities");
-        Assert.True(result.offensive <= result.all, "a mode must only narrow the list");
-        Assert.True(result.trinket >= 0);
-        Assert.Contains("class=ROGUE", result.DebugState);
-        Assert.Contains("spec=Outlaw", result.DebugState);
+        Assert.True(all > 0, "the browser should list Rogue/Outlaw abilities");
+        Assert.True(offensive > 0, "Rogue/Outlaw should have offensive abilities");
+        Assert.True(offensive <= all, "a mode must only narrow the list");
+        Assert.True(trinket >= 0);
+        // The selection the list was built for is part of the cache key the view
+        // uses to decide a warm reopen can keep the list (old DebugState).
+        Assert.Contains("ROGUE", AbilityRowsPrecompute.BrowserKey("ROGUE", "Outlaw", "All", 100));
+        Assert.Contains("Outlaw", AbilityRowsPrecompute.BrowserKey("ROGUE", "Outlaw", "All", 100));
     }
 
     [Fact]
     public void Browser_Exposes_Every_Mode()
     {
-        var (modes, error) = RunOnSta(() =>
-        {
-            var settings = new AppSettings();
-            using var form = new MainForm(settings);
-            form.CreateControl();
-            return (IReadOnlyList<string>)form.ClassBrowserForTest.ModeLabelsForTest.ToArray();
-        });
-
-        Assert.Null(error);
+        var modes = ClassBrowserView.ModeOptions.Select(m => m.Label).ToArray();
         Assert.Equal(
             new[]
             {
@@ -84,74 +49,23 @@ public class ClassBrowserViewTests
     }
 
     /// <summary>
-    /// S6 gate: a warm reopen (same class/spec/mode) stays under 150 ms. The
-    /// first open pays the filter + sort; the measured call reuses the list.
+    /// S6 gate: a warm reopen (same class/spec/mode) reuses the precomputed row
+    /// set and stays under 150 ms; the first build pays the filter + sort.
     /// </summary>
     [Fact]
     public void Browser_Warm_Open_Under_150ms()
     {
-        var (result, error) = RunOnSta(() =>
-        {
-            var settings = new AppSettings();
-            using var form = new MainForm(settings);
-            ShowOffscreen(form);
-            form.OpenAbilitiesForTest();       // cold: builds the config tree + browser
-            form.HideAbilitiesForTest();
+        var precompute = new AbilityRowsPrecompute(AbilityCatalog.Default);
+        var cold = precompute.GetBrowserRows("ROGUE", "Outlaw", "All", 100);
 
-            var browser = form.ClassBrowserForTest;
-            browser.Open("ROGUE", "Outlaw");   // warm the selection
-            browser.Open("ROGUE", "Outlaw");   // measured warm reopen (no rebuild)
-            var warm = browser.LastOpenMs;
+        var sw = Stopwatch.StartNew();
+        var warm = precompute.GetBrowserRows("ROGUE", "Outlaw", "All", 100);
+        sw.Stop();
 
-            form.OpenAbilitiesForTest();       // warm popup open
-            var popupWarm = form.LastPopupOpenMsForTest;
-            form.HideAbilitiesForTest();
-            Console.WriteLine($"MEASURE classBrowserWarmOpenMs={warm:F3} abilitiesPopupWarmOpenMs={popupWarm:F3} rows={browser.RowCount}");
-            return (warm, popupWarm, browser.RowCount);
-        });
-
-        Assert.Null(error);
-        Assert.True(result.RowCount > 0);
-        Assert.True(result.warm < 150, $"Class Browser warm open took {result.warm:F1} ms (target < 150)");
-        Assert.True(result.popupWarm < 500, $"Abilities popup warm open took {result.popupWarm:F1} ms (target < 500)");
-    }
-
-    /// <summary>
-    /// S5/S6 no-garble smoke: the owner-drawn row list paints to a bitmap with
-    /// no exception. (The old popup garbled because an alpha scrim sat behind
-    /// native children; the browser is one opaque owner-drawn layer.)
-    /// </summary>
-    [Fact]
-    public void Browser_Paint_Smoke_No_Garble()
-    {
-        var (result, error) = RunOnSta(() =>
-        {
-            var settings = new AppSettings();
-            using var form = new MainForm(settings);
-            ShowOffscreen(form);
-            form.OpenAbilitiesForTest();
-            var browser = form.ClassBrowserForTest;
-            browser.ApplyPreset("All", "MAGE", "Fire");
-            System.Windows.Forms.Application.DoEvents();
-
-            var width = Math.Max(320, browser.Width);
-            var height = Math.Max(200, browser.Height);
-            using var bitmap = new Bitmap(width, height);
-            browser.DrawToBitmap(bitmap, new Rectangle(0, 0, width, height));
-            // A painted surface has the dark background somewhere in the frame.
-            var background = DesignTokens.Background;
-            var sawBackground = false;
-            for (var x = 0; x < width && !sawBackground; x += 8)
-                for (var y = 0; y < height && !sawBackground; y += 8)
-                    if (bitmap.GetPixel(x, y).ToArgb() == background.ToArgb()) sawBackground = true;
-
-            form.HideAbilitiesForTest();
-            return (width, height, sawBackground, browser.RowCount);
-        });
-
-        Assert.Null(error);
-        Assert.True(result.width > 0 && result.height > 0);
-        Assert.True(result.RowCount > 0);
-        Assert.True(result.sawBackground, "the owner-drawn list did not paint its background");
+        Assert.True(cold.Items.Count > 0);
+        Assert.Same(cold, warm);
+        Assert.Equal(1, precompute.CachedCount);
+        Assert.True(sw.Elapsed.TotalMilliseconds < 150,
+            $"Class Browser warm open took {sw.Elapsed.TotalMilliseconds:F1} ms (target < 150)");
     }
 }

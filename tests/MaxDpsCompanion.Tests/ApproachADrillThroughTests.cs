@@ -1,30 +1,25 @@
+using MaxDpsCompanion.Ui.Shell;
 using Xunit;
 
 namespace MaxDpsCompanion.Tests;
 
 /// <summary>
-/// v3.4.0 Approach A §4-§6: the shared preset vocabulary behind the clickable
-/// hero bubbles and the pre-filtered Abilities/Class skills views. Offline
-/// only — the live popup remains OWED (docs/TESTING.md §3).
+/// P2-E port of the v3.4.0 Approach A drill-through tests
+/// (docs/plans/2026-10-11-winui3-v4-migration.md §6).
+///
+/// FINAL FATES (4 original tests):
+///  * REINSTATED (3): Preset_Vocabulary_Normalizes_And_Matches and
+///    ConditionLine_Uses_Catalog_Fields are pure AbilityViewPresets logic;
+///    Explorer_Preset_Type_Filter_And_EmptyState_Names_Class now asserts the
+///    Explorer row filter through AbilityRowsPrecompute (the UI empty-state
+///    string "No Trinket skills for Mage/Fire" is built in AbilityListView and
+///    is reviewed via --ui-snapshot-page=abilities).
+///  * DELETED (1): ClassSkills_Preset_Filters_And_Names_Toggle — the Class
+///    skills screen was already unreachable and is dropped with ClassSkillsView
+///    (migration plan §0); no WinUI surface exists to test.
 /// </summary>
 public class ApproachADrillThroughTests
 {
-    private static (T? Result, Exception? Error) RunOnSta<T>(Func<T> action)
-    {
-        T? result = default;
-        Exception? error = null;
-        var thread = new Thread(() =>
-        {
-            try { result = action(); }
-            catch (Exception ex) { error = ex; }
-        });
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.IsBackground = true;
-        thread.Start();
-        Assert.True(thread.Join(TimeSpan.FromSeconds(60)), "STA UI thread timed out");
-        return (result, error);
-    }
-
     [Fact]
     public void Preset_Vocabulary_Normalizes_And_Matches()
     {
@@ -69,62 +64,16 @@ public class ApproachADrillThroughTests
     [Fact]
     public void Explorer_Preset_Type_Filter_And_EmptyState_Names_Class()
     {
-        var (result, error) = RunOnSta(() =>
-        {
-            var settings = new AppSettings();
-            using var form = new MainForm(settings);
-            form.CreateControl();
-            var explorer = form.ExplorerForTest;
-            explorer.ApplyPreset("Offensive");
-            var offensive = explorer.FilteredCount;
-            explorer.ApplyPreset("Trinket", "MAGE", "Fire");
-            var trinket = explorer.FilteredCount;
-            var empty = explorer.EmptyStateForTest;
-            return (offensive, trinket, empty);
-        });
+        var precompute = new AbilityRowsPrecompute(AbilityCatalog.Default);
+        var offensive = precompute.GetExplorerRows("", "All", ["Offensive"], null, null).Items.Count;
+        var trinket = precompute.GetExplorerRows("", "All", ["Trinket"], "MAGE", "Fire").Items;
+        var emptyLabel = AbilityViewPresets.CategoryDisplay("Trinket");
+        var classLabel = AbilityViewPresets.ClassDisplay("MAGE");
 
-        Assert.Null(error);
-        Assert.True(result.offensive > 0, "the catalog should contain offensive abilities");
-        Assert.Equal(0, result.trinket);
-        Assert.Contains("Trinket", result.empty);
-        Assert.Contains("Mage/Fire", result.empty);
-    }
-
-    [Fact]
-    public void ClassSkills_Preset_Filters_And_Names_Toggle()
-    {
-        var (result, error) = RunOnSta(() =>
-        {
-            var settings = new AppSettings();
-            using var form = new MainForm(settings);
-            form.CreateControl();
-            var view = form.ClassSkillsForTest!;
-            view.Open("ROGUE", "Outlaw", null);
-            var allRows = RowCount(form.ClassSkillsDebugState);
-            view.Open("ROGUE", "Outlaw", "Offensive");
-            var offensiveRows = RowCount(form.ClassSkillsDebugState);
-            view.Open("ROGUE", "Outlaw", "Trinket");
-            var trinketRows = RowCount(form.ClassSkillsDebugState);
-            var emptyText = view.EmptyTextForTest;
-            return (allRows, offensiveRows, trinketRows, emptyText);
-        });
-
-        Assert.Null(error);
-        Assert.True(result.allRows > 0, "the full class list should have rows");
-        Assert.True(result.offensiveRows > 0, "Rogue/Outlaw should have offensive abilities");
-        Assert.True(result.offensiveRows < result.allRows, "the preset must narrow the list");
-        Assert.Equal(0, result.trinketRows);
-        Assert.Contains("No Trinket skills for Rogue/Outlaw", result.emptyText);
-    }
-
-    private static int RowCount(string debugState)
-    {
-        const string token = "rows=";
-        var start = debugState.IndexOf(token, StringComparison.Ordinal);
-        if (start < 0) return -1;
-        start += token.Length;
-        var end = start;
-        while (end < debugState.Length && char.IsDigit(debugState[end])) end++;
-        return int.Parse(debugState[start..end], System.Globalization.CultureInfo.InvariantCulture);
+        Assert.True(offensive > 0, "the catalog should contain offensive abilities");
+        Assert.Empty(trinket);
+        // The empty-state names come from the same vocabulary the view uses.
+        Assert.Equal("Trinket", emptyLabel);
+        Assert.Equal("Mage", classLabel);
     }
 }

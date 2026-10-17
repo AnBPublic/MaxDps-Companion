@@ -86,7 +86,7 @@ hosts every v2.8.1 control/readout:
 | Configuration · Combat slots (8 toggles) | Configuration tab |
 | Configuration · Safety (Solo, combat-only) | Configuration tab |
 | Configuration · Targeting (auto-target/interact, keys) | Configuration tab |
-| Configuration · Input (pause hotkey, background keys) | Configuration tab |
+| Configuration · Input (pause hotkey, background keys, hotbar keypress queue) | Configuration tab |
 | Configuration · Bridge (process name) | Configuration tab |
 | Configuration · Advanced (Abilities…, Open Folder) | Configuration tab |
 | Diagnostics · Protocol/bridge (6 readouts) | Diagnostics tab |

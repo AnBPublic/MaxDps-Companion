@@ -1,23 +1,26 @@
-# Pixel protocol v5 + Ext2/Ext3 (additive; 35/40/43-cell) — MaxDpsBridge ↔ MaxDpsCompanion
+# Pixel protocol v5 + Ext2/Ext3/Ext4 (additive; 35/40/43/51-cell) — MaxDpsBridge ↔ MaxDpsCompanion
 
 Normative spec. Bridge encodes, companion decodes. The frame is the **35-cell
-v5 core** plus the **additive Ext2 block** (cells 35-39) and the **additive
-Ext3 block** (cells 40-42), so a bridge that ships Ext3 renders a **43-cell**
-strip, left to right, each `CellSize` physical pixels square.
+v5 core** plus the **additive Ext2 block** (cells 35-39), the **additive
+Ext3 block** (cells 40-42) and the **additive Ext4 block** (cells 43-50), so a
+bridge that ships Ext4 renders a **51-cell** strip, left to right, each
+`CellSize` physical pixels square.
 The app samples the centre pixel (5-tap median at ≥2 px cells).
 
 > **Compatibility contract (Sep-2026 outage lesson):** the companion MUST
-> decode the previous protocol versions too. It decodes **v5/Ext3 (43 cells),
-> v5/Ext2 (40 cells), v5/v6 (35 cells, v6 accepted forward-compatible), v4
-> (9 cells) and v1 (8 cells)**; the in-game addon encodes the widest layout it
-> ships (Ext2 = 40 cells; Ext3 = 43). The addon goes stale whenever the user
+> decode the previous protocol versions too. It decodes **v5/Ext4 (51 cells),
+> v5/Ext3 (43 cells), v5/Ext2 (40 cells), v5/v6 (35 cells, v6 accepted
+> forward-compatible), v4 (9 cells) and v1 (8 cells)**; the in-game addon
+> encodes the widest layout it ships (Ext2 = 40 cells; Ext3 = 43; Ext4 = 51).
+> The addon goes stale whenever the user
 > runs a new exe without `install-addon.ps1` + `/reload`. Rule for every
 > protocol bump: **companion decodes N and the older supported widths; addon
 > encodes N**, and the app warns (never hard-fails) on skew so recalibrate is
-> the repair path. The defensive-urgency block, Ext2 and Ext3 are all
+> the repair path. The defensive-urgency block, Ext2, Ext3 and Ext4 are all
 > **additive**: a pre-2.3 encoder leaves the three urgency nibbles at `0` =
 > UNKNOWN, a pre-3.0 encoder leaves cell 33 B bit2 clear (cells 35-39 ignored),
-> and a pre-Ext3 encoder leaves cell 28 B bit2 clear (cells 40-42 ignored). The
+> a pre-Ext3 encoder leaves cell 28 B bit2 clear (cells 40-42 ignored) and a
+> pre-Ext4 encoder leaves cell 28 B bit3 clear (cells 43-50 ignored). The
 > wire version nibble stays `5` in all directions — an updated addon still
 > decodes with an older companion exe (it ignores the reserved nibbles, whose
 > checksums it already covered), and a stale addon still drives the current
@@ -60,7 +63,7 @@ profile says otherwise.
 | 23-24 | 6 nibbles | | | Mobility spell id |
 | 25-26 | 6 nibbles | | | SelfHeal spell id |
 | 27 | hp% hi | hp% lo | hp flags | player health |
-| 28 | cast state | remaining band | Ext2: SelfHeal2 range bits0-1; Ext3: presence bit2; bits3 reserved | player cast/channel (+ alternate range + Ext3 presence) |
+| 28 | cast state | remaining band | Ext2: SelfHeal2 range bits0-1; Ext3: presence bit2; Ext4: presence bit3 | player cast/channel (+ alternate range + Ext3/Ext4 presence) |
 | 29 | target flags | target hp band | target cast flags | target state |
 | 30 | slot1\|slot2 | slot3\|slot4 | slot5\|slot6 | per-slot range tri-state (2 bits each) |
 | 31 | slot7\|slot8 | defensive urgency (HP curve) | gap-fill source | per-slot range tri-state + additive urgency |
@@ -465,7 +468,7 @@ treats as "no extension" and ignores cells 40-42. The block is a **14-bit mask
 | :--- | :--- | :--- |
 | 28 | B | bit2 EXT3 PRESENT (`0` = block absent, cells 40-42 ignored); bits0-1 are the Ext2 SelfHeal2 range tri-state (decoders mask with `& 0x3`) |
 | 40 | R/G/B | mask bits 0-11: `R = bits 0-3`, `G = bits 4-7`, `B = bits 8-11` |
-| 41 | R/G/B | `R = mask bits 12-13` (bits 0-1; bits 2-3 reserved), `G = epoch` (0-15), `B = blocked nibble` (0-15) |
+| 41 | R/G/B | `R = mask bits 12-13` (bits 0-1; bit2 = typing veto, v4.0.3; bit3 reserved), `G = epoch` (0-15), `B = blocked nibble` (0-15) |
 | 42 | R/G/B | Ext3 checksum: `R = 0` (reserved), `G = sum(R,G,B nibbles of cells 40-41) mod 16`, `B = commit (= heartbeat)` |
 
 **Decode rules (companion):**
@@ -486,3 +489,84 @@ treats as "no extension" and ignores cells 40-42. The block is a **14-bit mask
   covering exactly cells 1-9, 11-33 and 36-38; none of them change.
 - The Ext3 block is additive over the **frozen** v5 contract: no cell, nibble
   lane, version nibble or checksum defined above is renumbered or moved.
+
+## Ext4 block (v4.0.3, additive)
+
+Ext4 extends the strip to **51 cells**; cells 0-42 are the unchanged v5 core +
+Ext2 + Ext3 layout (including the cells 10/34/39/42 checksums) and the version
+nibble stays `5`. A pre-Ext4 encoder leaves cell 28 B bit3 clear, which the
+decoder treats as "no extension" and ignores cells 43-50. The block is a
+**hotbar-map frame stream**: a header, up to two entry pairs, and a commit cell,
+delivered as a self-describing frame sequence (a cycle = seq `0..N` with `N`
+marked LAST).
+
+| Cell | Channel | Ext4 (v4.0.3) meaning |
+| :--- | :--- | :--- |
+| 28 | B | bit3 EXT4 PRESENT (`0` = block absent, cells 43-50 ignored); bit2 Ext3 presence; bits0-1 Ext2 SelfHeal2 range (decoders mask with `& 0x3`) |
+| 41 | R | bit2 TYPING VETO (chat/edit-box focus); read only when the Ext3 block is valid, bits0-1 stay the mask bits 12-13, bit3 reserved |
+| 43 | R/G/B | header: `R = gen` (0-15), `G = seq` (0-15), `B = flags` (bit0 LAST, bit1 EMPTY, bits2-3 reserved) |
+| 44-46 | 3 cells | entry A (below) |
+| 47-49 | 3 cells | entry B (below) |
+| 50 | R/G/B | commit: `R = 0` (reserved), `G = sum(R,G,B nibbles of cells 43-49) mod 16`, `B = commit (= heartbeat)` |
+
+**Entry (3 cells):**
+
+- Cell 1 = `(vk hi, vk lo, flags)` using the slot keystroke layout: Shift=1,
+  Ctrl=2, Alt=4, Valid=8. **Valid=0 = pad entry** (no binding in that slot pair).
+- Cell 2 = `(idTop, id19-16, id15-12)`: `idTop` bit3 = `isItem`, bit2 = `ready`,
+  bits1-0 = id bits 21-20.
+- Cell 3 = `(id11-8, id7-4, id3-0)`.
+- Id is 22 bits:
+  `id = ((idTop & 3) << 20) | (c2.G << 16) | (c2.B << 12) | (c3.R << 8) | (c3.G << 4) | c3.B`.
+  The encoder skips and logs any id ≥ 2^22 (4,194,304).
+- The `EMPTY` flag marks a seq-0 LAST frame that carries no entries.
+
+**Decode rules (companion):**
+
+- The block is read only from a **51-cell capture**: `ext4Present = cell 28 B
+  bit3 && cells.Length >= 51`. A 43-cell Ext3 (or narrower) addon decodes
+  exactly as before; cells 43-50 are never read.
+- A cell-50 checksum failure **or a torn commit** (heartbeat mismatch) drops
+  **only that Ext4 frame** (`BridgeFrame.Ext4 = null`); the frame, the v5 core,
+  Ext2 and Ext3 are kept — the same "drop only this block" rule as
+  cell-39/Ext2 and cell-42/Ext3.
+- Pad entries (cell flags bit3 clear) are not surfaced; `Ext4Frame.Entries`
+  holds 0-2 live entries. A stroke may map to several entries.
+- `BridgeFrame.TypingActive` = `Ext3 valid && cell 41 R bit2`. An invalid or
+  absent Ext3 block reads `false` (typing not detected → no veto).
+- The cell-50 `R` channel is reserved and **ignored** (not asserted `0`), like
+  cells 34/39/42 R. The core checksums (cells 10/34), the Ext2 checksum (39)
+  and the Ext3 checksum (42) keep covering exactly cells 1-9, 11-33, 36-38 and
+  40-41; none of them change. Cell 41 R bit2 lives inside the Ext3 checksum's
+  scope (the sum covers the whole nibble), so an encoder that sets the typing
+  bit must recompute cell 42 — the Ext3 mask still reads it as `mHi & 3`.
+- The Ext4 block is additive over the **frozen** v5/Ext2/Ext3 contract: no
+  cell, nibble lane, version nibble or checksum defined above is renumbered or
+  moved.
+
+**Assembly (Ext4Assembler, companion):**
+
+- A cycle is `seq 0..N` (N = LAST); it starts only at `seq 0`, and seqs are
+  contiguous within one generation. Repeated reads of one gen+seq are
+  idempotent (a frame is held ≥2 paint ticks).
+- A seq gap, a generation change or a torn frame discards the partial cycle and
+  waits for the next `seq 0`.
+- LAST swaps the map **atomically**: the previous map keeps serving until the
+  new cycle closes.
+- The map is dropped (Stale) after **5 s** with no completed cycle, or
+  immediately (OldAddon) when a frame arrives without the Ext4 presence bit.
+- `HotbarMap.Status` ∈ `Unavailable` / `OldAddon` / `Stale` / `Ok`;
+  `HotbarMap.Lookup(stroke)` returns every entry bound to that stroke.
+
+**Compatibility matrix:**
+
+| In-game addon | Strip width | Presence bit | v4.0.3 companion | Pre-Ext4 companion |
+| :--- | :--- | :--- | :--- | :--- |
+| v1 | 8 | — | v1 decode (legacy window) | v1 decode |
+| v4 | 9 | — | v4 decode | v4 decode |
+| v5 core | 35 | — | v5 core | v5 core |
+| v5 + Ext2 | 40 | cell 33 B bit2 | v5 core + Ext2 | v5 core (Ext2 ignored) |
+| v5 + Ext3 | 43 | cell 28 B bit2 | v5 core + Ext2 + Ext3 (+ typing) | v5 core + Ext2 (Ext3 ignored) |
+| v5 + Ext4 | 51 | cell 28 B bit3 | v5 core + Ext2 + Ext3 + Ext4 | v5 core + Ext2 + Ext3 (cells 43-50 ignored) |
+| stale addon + current companion | ≤43 | bit3 = 0 | Ext4 absent; `HotbarMap.Status = OldAddon` | n/a |
+| current addon + stale companion | 51 | bit3 = 1 | — | decodes the 43-cell prefix |

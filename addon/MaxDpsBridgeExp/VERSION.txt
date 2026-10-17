@@ -1,3 +1,28 @@
+4.0.3-exp
+date: 2026-10-11 "Bulwark"
+git: v4.0.3-exp (published 2026-10-17)
+interface: 120100 (Retail Midnight 12.1)
+protocol: ADDITIVE Ext4 block (cells 43-50, presence = cell 28 B bit3; the
+          strip grows to 51 cells; the version nibble stays 5 and the v5 core +
+          Ext2 + Ext3 layouts stay byte-identical).
+v4.0.3-exp: Companion 4.0.3 "Bulwark". New HotbarWatch.lua streams the player's
+          keybound action-bar map (spells / items / macros, bar order, ready
+          flag, 32-entry cap) as a gen/seq frame cycle; Bridge.lua paints the
+          Ext4 block plus the cell 41 R bit2 typing veto. The companion watches
+          exactly those strokes (GetAsyncKeyState; no hooks, no injection) and
+          queues a recognised press into the current GCD window. Stable
+          MaxDpsBridge + dist stay frozen at 3.7.7.
+
+4.0.0 - 4.0.2
+date: 2026-10-11 "Lumen"
+git: n/a (companion-only release line)
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED - v5 core 35 cells + Ext2 40 + Ext3 43 (43-cell strip).
+v4.0.0-4.0.2-exp: Companion 4.0.0-4.0.2 "Lumen" (WinUI 3 client). No Lua,
+          Catalog or wire change; the Exp bridge identity stays 3.7.9-exp
+          across all three companion builds. 4.0.3 then moves the pair to
+          4.0.3-exp with the additive Ext4 block (51 cells).
+
 3.7.9-exp
 date: 2026-10-10 "Unyielding"
 git: <commit placeholder - fill at release>

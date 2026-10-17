@@ -135,6 +135,14 @@ internal sealed class AppSettings
     public bool InteractEnabled { get; set; } = false;
     public string InteractKey { get; set; } = "F";
 
+    // [UserQueue] — v4.0.3 hotbar press queue (protocol Ext4). The companion
+    // watches the player's own keybound action-bar strokes and queues a press
+    // into the current GCD window instead of letting the rotation overwrite
+    // it. Background=1 also delivers while the game window is NOT focused
+    // (typing in other apps can then trigger bound keys — off by default).
+    public bool UserQueueEnabled { get; set; } = true;
+    public bool UserQueueBackground { get; set; } = false;
+
     // [Scheduler] — deterministic action scheduler (v1.6.0). ON by default:
     // owns send order + pacing (link-loss gate on a frozen heartbeat,
     // interrupt/defensive urgency, GCD + minimum key interval, stale/repeat
@@ -436,6 +444,8 @@ internal sealed class AppSettings
             case ("targeting", "targetkey"): TargetKey = string.IsNullOrWhiteSpace(value) ? TargetKey : value.Trim(); break;
             case ("interact", "interactenabled"): InteractEnabled = ParseBool(value, InteractEnabled); break;
             case ("interact", "interactkey"): InteractKey = string.IsNullOrWhiteSpace(value) ? InteractKey : value.Trim(); break;
+            case ("userqueue", "enabled"): UserQueueEnabled = ParseBool(value, UserQueueEnabled); break;
+            case ("userqueue", "background"): UserQueueBackground = ParseBool(value, UserQueueBackground); break;
             case ("scheduler", "enabled"): SchedulerEnabled = ParseBool(value, SchedulerEnabled); break;
             case ("scheduler", "heartbeattimeoutms"): SchedulerHeartbeatTimeoutMs = Math.Clamp(ParseInt(value, SchedulerHeartbeatTimeoutMs), 100, 5000); break;
             case ("scheduler", "repeatsuppressms"): SchedulerRepeatSuppressMs = Math.Clamp(ParseInt(value, SchedulerRepeatSuppressMs), 100, 5000); break;
@@ -536,6 +546,13 @@ internal sealed class AppSettings
             .AppendLine("[Interact]")
             .AppendLine($"InteractEnabled={(InteractEnabled ? 1 : 0)}")
             .AppendLine($"InteractKey={InteractKey}")
+            .AppendLine()
+            .AppendLine("; v4.0.3: recognise your own keybound action-bar presses (Ext4 map) and")
+            .AppendLine("; queue them into the current GCD window. Background=1 also delivers")
+            .AppendLine("; while the game window is not focused.")
+            .AppendLine("[UserQueue]")
+            .AppendLine($"Enabled={(UserQueueEnabled ? 1 : 0)}")
+            .AppendLine($"Background={(UserQueueBackground ? 1 : 0)}")
             .AppendLine()
             .AppendLine("; Deterministic action scheduler (default on). 0 = legacy MaxDps")
             .AppendLine("; priority loop; [Intelligence] may then reorder it.")

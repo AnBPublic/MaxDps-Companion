@@ -81,12 +81,15 @@ bit = {
     end
     return r
   end,
-  bor = function(a, b)
-    local r, p = 0, 1
-    while a > 0 or b > 0 do
-      local abit, bbit = a % 2, b % 2
-      if abit == 1 or bbit == 1 then r = r + p end
-      a = math.floor(a / 2); b = math.floor(b / 2); p = p * 2
+  bor = function(...)
+    local Args = { ... }
+    local r = 0
+    for a = 1, #Args do
+      local x, p = Args[a], 1
+      while x > 0 do
+        if x % 2 == 1 then r = r + p end
+        x = math.floor(x / 2); p = p * 2
+      end
     end
     return r
   end,
@@ -2100,6 +2103,246 @@ local function RunMainFallbackTests ()
   MDB.BeginTick()
 end
 RunMainFallbackTests()
+
+-- =====================================================================
+-- Ext4 (v4.0.x) hotbar press map: HotbarWatch + Bridge cells 43-50.
+-- Loads the Exp Bars/Toggles/HotbarWatch/Bridge modules into MDBX and boots
+-- the Exp strip so the encode is pinned end-to-end (harness style). Scoped in
+-- a function so its locals do not push the main chunk over Lua's 200-local
+-- limit.
+-- =====================================================================
+local function RunExt4Tests ()
+  -- ---- load + boot the Exp encoder ----
+  local NFramesBefore = #AllFrames
+  assert(loadfile("addon/MaxDpsBridgeExp/Bars.lua"))("MaxDpsBridgeExp", MDBX)
+  assert(loadfile("addon/MaxDpsBridgeExp/Toggles.lua"))("MaxDpsBridgeExp", MDBX)
+  assert(loadfile("addon/MaxDpsBridgeExp/HotbarWatch.lua"))("MaxDpsBridgeExp", MDBX)
+  assert(loadfile("addon/MaxDpsBridgeExp/Bridge.lua"))("MaxDpsBridgeExp", MDBX)
+  assert(type(MDBX.HotbarWatch) == "table", "HotbarWatch module missing")
+
+  local LoaderExp
+  for i = NFramesBefore + 1, #AllFrames do
+    local f = AllFrames[i]
+    if f._events and f._events["ADDON_LOADED"] and f._scripts and f._scripts.OnEvent then
+      LoaderExp = f
+    end
+  end
+  assert(LoaderExp, "Exp loader frame missing")
+  local TexBase = TextureCount        -- Exp cells get ids TexBase+1 .. TexBase+51
+  LoaderExp._scripts.OnEvent(LoaderExp, "ADDON_LOADED", "MaxDpsBridgeExp")
+  local StripExp = _G.MaxDpsBridgeExp_Block
+  assert(StripExp, "Exp strip frame missing")
+  local UpdateExp = StripExp._scripts.OnUpdate
+  assert(type(UpdateExp) == "function", "Exp OnUpdate not wired")
+  check("E4 Exp strip is 51 cells wide", type(StripExp._size) == "table"
+    and StripExp._size[1] == 8 * 51 and StripExp._size[2] == 8)
+  check("E4 Exp strip created 51 textures", TextureCount == TexBase + 51)
+
+  local function XNib (i)
+    local c = Textures[TexBase + 1 + i]
+    if not c then return 0, 0, 0 end
+    return math.floor(c[1] * 15 + 0.5), math.floor(c[2] * 15 + 0.5), math.floor(c[3] * 15 + 0.5)
+  end
+
+  -- ---- stub the action-bar APIs the walk reads ----
+  local Actions, Binds = {}, {}
+  GetActionInfo = function (slot)
+    local a = Actions[slot]
+    if not a then return nil end
+    return a[1], a[2]
+  end
+  GetBindingKey = function (cmd) return Binds[cmd] end
+  GetMacroSpell = function () return nil end
+  GetMacroItem = function () return nil end
+  IsUsableItem = nil
+  GetItemCooldown = nil
+  ChatEdit_GetActiveWindow = nil
+  GetCurrentKeyBoardFocus = nil
+
+  local HW = MDBX.HotbarWatch
+
+  -- ---- (1) EMPTY map -> one EMPTY frame + presence bit ----
+  Actions, Binds = {}, {}
+  HW.Rebuild()
+  local G1 = HW.Gen()
+  local OkE = pcall(UpdateExp, StripExp, 0.06)
+  check("E4 EMPTY update: no throw", OkE)
+  local h43r, h43g, h43b = XNib(43)
+  check("E4 EMPTY header gen / seq 0 / LAST+EMPTY",
+    h43r == G1 and h43g == 0 and h43b == 3)
+  local e44r, e44g, e44b = XNib(44)
+  local e49r = XNib(49)
+  check("E4 EMPTY entries are pad zeros",
+    e44r == 0 and e44g == 0 and e44b == 0 and e49r == 0)
+  local c28r, c28g, c28b = XNib(28)
+  check("E4 cell 28 B bit3 Ext4 present", bit.band(c28b, 8) == 8)
+  check("E4 cell 28 B bit2 Ext3 still present", bit.band(c28b, 4) == 4)
+  local hb = select(2, XNib(9))
+  local cs50r, cs50g, cs50b = XNib(50)
+  check("E4 EMPTY commit = sum(cells 43-49) / heartbeat",
+    cs50r == 0 and cs50g == ((G1 + 0 + 3) % 16) and cs50b == hb)
+
+  -- ---- (2) one bound spell: entry packing + ready bit ----
+  Actions = { [1] = { "spell", 185358 } }
+  Binds = { ["ACTIONBUTTON1"] = "1" }
+  HW.Rebuild()
+  local G2 = HW.Gen()
+  pcall(UpdateExp, StripExp, 0.06)
+  local a1r, a1g, a1b = XNib(44)
+  check("E4 entry A stroke (vk 0x31, valid flag)", a1r == 3 and a1g == 1 and a1b == 8)
+  local a2r, a2g, a2b = XNib(45)
+  check("E4 entry A id hi nibbles + ready bit", a2r == 4 and a2g == 2 and a2b == 13)
+  local a3r, a3g, a3b = XNib(46)
+  check("E4 entry A id lo nibbles", a3r == 4 and a3g == 0 and a3b == 14)
+  local h2r, h2g, h2b = XNib(43)
+  check("E4 one-entry header gen / seq 0 / LAST", h2r == G2 and h2g == 0 and h2b == 1)
+  check("E4 entry B pad with one entry", XNib(47) == 0)
+  local _, cs2g = XNib(50)
+  check("E4 one-entry commit sum",
+    cs2g == ((G2 + 0 + 1 + (3 + 1 + 8) + (4 + 2 + 13) + (4 + 0 + 14)) % 16))
+
+  -- ---- (2b) modifiers pack into the stroke flags ----
+  Binds = { ["ACTIONBUTTON1"] = "SHIFT-1" }
+  HW.Rebuild()
+  pcall(UpdateExp, StripExp, 0.06)
+  local _, _, mf = XNib(44)
+  check("E4 modifier packs into stroke flags (shift 1 | valid 8)", mf == 9)
+
+  -- ---- (3) movement skip / macro->spell / item ----
+  Actions = {
+    [1] = { "spell", 185358 },
+    [2] = { "spell", 100 },        -- bound to W (movement) -> skipped
+    [3] = { "macro", 55 },
+    [4] = { "item", 5512 },
+  }
+  Binds = {
+    ["ACTIONBUTTON1"] = "1", ["ACTIONBUTTON2"] = "W",
+    ["ACTIONBUTTON3"] = "3", ["ACTIONBUTTON4"] = "4",
+  }
+  GetMacroSpell = function (id) if id == 55 then return "x", nil, 871 end return nil end
+  IsUsableItem = function () return true end
+  GetItemCooldown = function () return 0, 0, true end
+  HW.Rebuild()
+  local E3 = HW.Entries()
+  check("E4 movement-bound slot skipped (3 entries)", HW.Count() == 3)
+  check("E4 macro resolves to its spell id", E3[2] and E3[2].Id == 871 and E3[2].IsItem == false)
+  check("E4 item entry is flagged IsItem", E3[3] and E3[3].Id == 5512 and E3[3].IsItem == true)
+  check("E4 movement slot is not watched", Binds["ACTIONBUTTON2"] == "W" and E3[2].Slot == 3)
+
+  pcall(UpdateExp, StripExp, 0.06)       -- seq 0: e1 = 185358, e2 = 871
+  local b1r, b1g, b1b = XNib(47)
+  local b2r, b2g, b2b = XNib(48)
+  local b3r, b3g, b3b = XNib(49)
+  check("E4 entry B stroke (vk 0x33 / valid)", b1r == 3 and b1g == 3 and b1b == 8)
+  check("E4 entry B id nibbles (871) + ready",
+    b2r == 4 and b2g == 0 and b2b == 0 and b3r == 3 and b3g == 6 and b3b == 7)
+
+  pcall(UpdateExp, StripExp, 0.06)       -- held tick 2 (still seq 0)
+  pcall(UpdateExp, StripExp, 0.06)       -- advance to seq 1
+  local _, h3g, h3b = XNib(43)
+  check("E4 seq advances after 2 held paint ticks", h3g == 1 and h3b == 1)
+  local i1r, i1g, i1b = XNib(44)
+  local i2r, i2g, i2b = XNib(45)
+  local i3r, i3g, i3b = XNib(46)
+  check("E4 item entry stroke (vk 0x34 / valid)", i1r == 3 and i1g == 4 and i1b == 8)
+  check("E4 item IsItem + ready bits", i2r == 12 and i2g == 0 and i2b == 1)
+  check("E4 item id nibbles (5512)", i3r == 5 and i3g == 8 and i3b == 8)
+
+  -- ---- (4) id >= 2^22 skipped + logged once ----
+  Actions = { [1] = { "spell", 2 ^ 22 } }
+  Binds = { ["ACTIONBUTTON1"] = "1" }
+  ClearChat()
+  HW.Rebuild()
+  check("E4 id >= 2^22 skipped", HW.Count() == 0)
+  local CapLine = ChatLog[#ChatLog] or ""
+  check("E4 id cap logs once", CapLine:find("2^22", 1, true) ~= nil)
+  ClearChat()
+  HW.Rebuild()
+  check("E4 id cap never logs twice", #ChatLog == 0)
+
+  -- ---- (5) 32-entry cap + overflow logged once ----
+  Actions = {}
+  for slot = 1, 40 do Actions[slot] = { "spell", 100000 + slot } end
+  GetBindingKey = function () return "F1" end   -- every command bound -> watchable
+  ClearChat()
+  HW.Rebuild()
+  check("E4 map capped at 32 entries (bar order wins)", HW.Count() == 32)
+  local OvrLine = ChatLog[#ChatLog] or ""
+  check("E4 overflow logged once", OvrLine:find("overflow", 1, true) ~= nil)
+
+  -- ---- (6) typing veto bit (cell 41 R bit2) ----
+  Actions = { [1] = { "spell", 185358 } }
+  GetBindingKey = function (cmd) if cmd == "ACTIONBUTTON1" then return "1" end return nil end
+  HW.Rebuild()
+  ChatEdit_GetActiveWindow = function () return { IsShown = function () return true end } end
+  pcall(UpdateExp, StripExp, 0.06)
+  local t41r = XNib(41)
+  check("E4 typing bit set while chat focused", bit.band(t41r, 4) == 4)
+  local m40r, m40g, m40b = XNib(40)
+  local m41r, m41g, m41b = XNib(41)
+  local _, e3g = XNib(42)
+  check("E4 Ext3 checksum commits the typing bit",
+    ((m40r + m40g + m40b + m41r + m41g + m41b) % 16) == e3g)
+  ChatEdit_GetActiveWindow = nil
+  GetCurrentKeyBoardFocus = function () return { IsShown = function () return true end } end
+  pcall(UpdateExp, StripExp, 0.06)
+  check("E4 typing bit via GetCurrentKeyBoardFocus", bit.band(XNib(41), 4) == 4)
+  GetCurrentKeyBoardFocus = nil
+  pcall(UpdateExp, StripExp, 0.06)
+  check("E4 typing bit clear with no focus", bit.band(XNib(41), 4) == 0)
+
+  -- ---- (7) /mdbx hotbar diagnostic ----
+  ClearChat()
+  MDBX.HandleCommand("hotbar")
+  local HotLine = ChatLog[#ChatLog] or ""
+  check("E4 /mdbx hotbar prints header + entry",
+    HotLine:find("gen=", 1, true) ~= nil
+    and HotLine:find("slot=1", 1, true) ~= nil
+    and HotLine:find("binding=1", 1, true) ~= nil
+    and HotLine:find("ready=", 1, true) ~= nil)
+
+  -- ---- (8) 2026-10-11 hotfix: a DENIED slot repaints EMPTY ----
+  -- Regression: ReadSlot returned zeros for a denied slot WITHOUT repainting,
+  -- leaving the previous candidate's pixels while the core checksum used the
+  -- zeros -> every frame failed the companion's core checksum ("No pixel
+  -- block" while the strip visibly rendered; live report 2026-10-11).
+  Actions = { [1] = { "spell", 185358 } }
+  GetActionInfo = function (slot) local a = Actions[slot]; if not a then return nil end; return a[1], a[2] end
+  GetBindingKey = function (cmd) if cmd == "ACTIONBUTTON1" then return "1" end return nil end
+  MaxDps.SpellsGlowing = { [185358] = 1 }
+  MaxDps.Spell = nil
+  MDBX.Toggles.Set("OOC", true)   -- neutralise the OOC master gate for this pin
+  MDBX.Toggles.Set("Main", true)
+  HW.Rebuild()
+  -- Earlier sections cached a binding MISS while the bars were stubbed empty;
+  -- wipe it like a bar-change event would, then re-resolve against the stubs.
+  if MDBX.InvalidateBindings then MDBX.InvalidateBindings() end
+  local OkA = pcall(UpdateExp, StripExp, 0.06)
+  local a1r, a1g, a1b = XNib(1)
+  check("E4x allowed Main paints a valid cell 1", OkA and bit.band(a1b, 8) == 8)
+
+  MDBX.Toggles.Set("Main", false)
+  local OkD = pcall(UpdateExp, StripExp, 0.06)
+  local d1r, d1g, d1b = XNib(1)
+  check("E4x denied Main repaints EMPTY (0,0,0)", OkD and d1r == 0 and d1g == 0 and d1b == 0)
+
+  local PaintedSum = 0
+  for i = 1, 9 do
+    local r, g, b = XNib(i)
+    PaintedSum = PaintedSum + r + g + b
+  end
+  local _, CoreChecksum = XNib(10)
+  check("E4x core checksum matches the PAINTED cells after a deny", CoreChecksum == (PaintedSum % 16))
+  MDBX.Toggles.Set("Main", true)
+
+  -- restore the action-bar stubs
+  GetActionInfo = function () return nil end
+  GetBindingKey = function () return nil end
+  GetMacroSpell = function () return nil end
+  IsUsableItem = nil
+  GetItemCooldown = nil
+end
+RunExt4Tests()
 
 print(string.format("RESULT: %d passed, %d failed", PASS, FAIL))
 if FAIL > 0 then os.exit(1) end

@@ -3,29 +3,21 @@ using Xunit;
 namespace MaxDpsCompanion.Tests;
 
 /// <summary>
-/// S7 Console-home tests. They pin the named preset bundles, the inferred
-/// role badge, the rolling/update logs, and that MainForm applies a preset by
-/// moving the SAME hero toggles the user can move by hand. Honesty: no copy
-/// anywhere may claim the companion is hidden or undetectable.
+/// P2-E port of the S7 Console-home tests (docs/plans/2026-10-11-winui3-v4-migration.md §6).
+///
+/// FINAL FATES (4 original tests):
+///  * REINSTATED (3): Presets_Are_Five_Named_Bundles and
+///    Console_Role_Is_Inferred_From_Spec assert the frozen pure models
+///    (ConsolePresets/ConsoleRole); MainForm_Console_Home_Defaults_On_And_
+///    Preset_Moves_Toggles became Console_Preset_Bundles_Move_The_Same_
+///    Toggle_Model (bundle data -> ToggleModel -> settings; the shell applies
+///    exactly this path in ShellWindow.ApplyPreset).
+///  * DELETED (1): ConsoleHome_Spec_Role_And_Logs_Update (ConsoleHome control
+///    internals: chips/update-log/LastChange) — ConsoleRole is pinned by the
+///    test above, the log copy is UI-only and reviewed via --ui-snapshot-page.
 /// </summary>
 public class ConsoleHomeTests
 {
-    private static (T? Result, Exception? Error) RunOnSta<T>(Func<T> action)
-    {
-        T? result = default;
-        Exception? error = null;
-        var thread = new Thread(() =>
-        {
-            try { result = action(); }
-            catch (Exception ex) { error = ex; }
-        });
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.IsBackground = true;
-        thread.Start();
-        Assert.True(thread.Join(TimeSpan.FromSeconds(60)), "STA UI thread timed out");
-        return (result, error);
-    }
-
     [Fact]
     public void Presets_Are_Five_Named_Bundles()
     {
@@ -47,59 +39,29 @@ public class ConsoleHomeTests
         Assert.Equal("AUTO", ConsoleRole.ForSpec(null, null).Role);
     }
 
+    /// <summary>
+    /// Old MainForm_Console_Home_Defaults_On_And_Preset_Moves_Toggles: the Raid
+    /// preset leaves Solo off, the Solo preset turns it on, and the bundle is
+    /// applied to the SAME 14-switch model the user can flip by hand.
+    /// </summary>
     [Fact]
-    public void ConsoleHome_Spec_Role_And_Logs_Update()
+    public void Console_Preset_Bundles_Move_The_Same_Toggle_Model()
     {
-        var (result, error) = RunOnSta(() =>
-        {
-            var home = new ConsoleHome();
-            home.SetSpec("Mage", "Frost");
-            var dsp = (home.RoleForTest, home.SpecTitleForTest, home.UpdateLog.Lines.Count);
-            home.SetSpec("Warrior", "Protection");
-            var tank = home.RoleForTest;
-            home.SetActivePreset(ConsolePreset.Solo);
-            var active = home.PresetChips.Where(c => c.Active).Select(c => c.Preset).ToArray();
-            var lastChange = home.LastChangeForTest;
-            return (dsp, tank, active, lastChange);
-        });
+        var raid = ConsolePresets.Get(ConsolePreset.Raid);
+        var solo = ConsolePresets.Get(ConsolePreset.Solo);
+        Assert.False(raid.Solo, "Raid preset leaves Solo off");
+        Assert.True(solo.Solo, "Solo preset turns Solo on");
 
-        Assert.Null(error);
-        Assert.Equal("DPS", result.dsp.Item1);
-        Assert.Contains("Frost", result.dsp.Item2);
-        Assert.True(result.dsp.Item3 > 0);
-        Assert.Equal("TANK", result.tank);
-        Assert.Equal(new[] { ConsolePreset.Solo }, result.active);
-        Assert.Contains("Spec detected", result.lastChange);
-    }
+        // ShellWindow.ApplyPreset: bundle fields -> ToggleModel -> settings.
+        var settings = new AppSettings();
+        var model = ToggleModel.FromSettings(settings);
+        model.Solo = solo.Solo;
+        model.TimeToKill = solo.TimeToKill;
+        model.CrowdControl = solo.CrowdControl;
+        model.ApplyToSettings(settings);
 
-    [Fact]
-    public void MainForm_Console_Home_Defaults_On_And_Preset_Moves_Toggles()
-    {
-        var (result, error) = RunOnSta(() =>
-        {
-            var settings = new AppSettings();
-            using var form = new MainForm(settings);
-            form.StartPosition = FormStartPosition.Manual;
-            form.Location = new Point(-32000, -32000);
-            form.ShowInTaskbar = false;
-            form.Show();
-            System.Windows.Forms.Application.DoEvents();
-            var defaultVisible = form.ConsoleVisibleForTest;
-            form.ApplyPresetForTest(ConsolePreset.Raid);
-            var raidSolo = form.SoloToggleForTest.Checked;
-            form.ApplyPresetForTest(ConsolePreset.Solo);
-            var soloSolo = form.SoloToggleForTest.Checked;
-            var log = form.ConsoleForTest.LastChangeForTest;
-            form.ToggleConsoleForTest();
-            var toggled = form.ConsoleVisibleForTest;
-            return (defaultVisible, raidSolo, soloSolo, log, toggled);
-        });
-
-        Assert.Null(error);
-        Assert.True(result.defaultVisible, "the console home is the default view");
-        Assert.False(result.raidSolo, "Raid preset leaves Solo off");
-        Assert.True(result.soloSolo, "Solo preset turns Solo on");
-        Assert.Contains("Preset", result.log);
-        Assert.False(result.toggled, "the Console nav item hides the console");
+        Assert.True(settings.SoloEnabled);
+        Assert.True(settings.TimeToKillEnabled);
+        Assert.False(settings.CrowdControlEnabled);
     }
 }

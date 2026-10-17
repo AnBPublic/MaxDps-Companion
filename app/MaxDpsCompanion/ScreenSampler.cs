@@ -51,14 +51,15 @@ internal sealed class ScreenSampler : IDisposable
     private readonly byte[] _tapB = new byte[TapsPerCell];
 
     /// <summary>
-    /// v5-family capture widths, widest first: Ext3 (43), then the Ext2 (40)
-    /// and v5 core (35) fallbacks. The whole family shares the core layout, so
-    /// a narrower stale addon decodes from the widest capture with its extra
-    /// cells read as background — the ladder is the documented order in which
-    /// the widths are attempted, not three BitBlts.
+    /// v5-family capture widths, widest first: Ext4 (51), Ext3 (43), then the
+    /// Ext2 (40) and v5 core (35) fallbacks. The whole family shares the core
+    /// layout, so a narrower stale addon decodes from the widest capture with
+    /// its extra cells read as background — the ladder is the documented order
+    /// in which the widths are attempted, not four BitBlts.
     /// </summary>
     public static readonly int[] CaptureWidths =
     {
+        PixelProtocol.CellCountExt4,
         PixelProtocol.CellCountExt3,
         PixelProtocol.CellCountExt2,
         PixelProtocol.CellCount,
@@ -99,8 +100,8 @@ internal sealed class ScreenSampler : IDisposable
     /// </summary>
     public static Color[] SampleRegion(Func<int, int, Color> read, int blockX, int blockY, int cellSize)
     {
-        var colors = new Color[PixelProtocol.CellCountExt3];
-        for (var i = 0; i < PixelProtocol.CellCountExt3; i++)
+        var colors = new Color[PixelProtocol.CellCountExt4];
+        for (var i = 0; i < PixelProtocol.CellCountExt4; i++)
             colors[i] = SampleCell((x, y) => read(blockX + x, blockY + y), i, cellSize);
         return colors;
     }
@@ -130,12 +131,12 @@ internal sealed class ScreenSampler : IDisposable
         SampleCells(origin, cellSize, PixelProtocol.CellCountV1, (x, y) => ReadPixel(x, y));
 
     private Color[] SampleCells(Point origin, int cellSize, Func<int, int, Color> read) =>
-        // Ext3 (v3.5): capture the full 43-cell frame in one BitBlt so the
-        // additive mask/epoch/blocked cells are readable. A 40-cell Ext2 or
-        // 35-cell core addon leaves the extra cells as background and still
-        // decodes — Ext3 is gated on cell 28 B bit2 and Ext2 on cell 33 B
-        // bit2, so the presence bits decide which extension reads.
-        SampleCells(origin, cellSize, PixelProtocol.CellCountExt3, read);
+        // Ext4 (v4.0.3): capture the full 51-cell frame in one BitBlt so the
+        // additive hotbar-map cells are readable. A 43-cell Ext3, 40-cell Ext2
+        // or 35-cell core addon leaves the extra cells as background and still
+        // decodes — Ext4 is gated on cell 28 B bit3, Ext3 on bit2 and Ext2 on
+        // cell 33 B bit2, so the presence bits decide which extension reads.
+        SampleCells(origin, cellSize, PixelProtocol.CellCountExt4, read);
 
     private Color[] SampleCells(Point origin, int cellSize, int cellCount, Func<int, int, Color> read)
     {

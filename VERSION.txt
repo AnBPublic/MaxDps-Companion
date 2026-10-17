@@ -1,3 +1,36 @@
+4.0.3
+Date: 2026-10-11 - "Bulwark"
+Companion 4.0.3 "Bulwark" / bridge 4.0.3-exp. ADDITIVE protocol change: new
+Ext4 block (cells 43-50, presence = cell 28 B bit3, 51-cell strip; the v5 core,
+Ext2 and Ext3 layouts stay byte-identical and the version nibble stays 5). New
+feature - hotbar press queue: HotbarWatch.lua streams the player's keybound
+action-bar map (spells / items / macros, bar order, ready flag, 32-entry cap,
+gen/seq frame cycle, chat-focus typing veto on cell 41 R bit2) and the companion
+watches exactly those physical strokes (GetAsyncKeyState only - no hooks, no
+injection, no memory reads) and queues a recognised press into the current GCD
+window: a GCD-riding press is delivered as the observed GCD falls (fixing the
+silent early-press drop by the client's ~400 ms queue), an off-GCD press
+immediately, and a press the focused game already received is never re-sent (no
+double trinket/charge). UI binds, movement keys and unbound keys are
+structurally excluded. [UserQueue] Enabled=1 / Background=0 plus an Advanced
+Configuration toggle; /mdbx hotbar prints the live map. Stable MaxDpsBridge +
+dist stay frozen at 3.7.7.
+
+4.0.0 - 4.0.2
+Date: 2026-10-11 - "Lumen"
+Companion 4.0.2 "Lumen" / bridge 3.7.9-exp (unchanged). UI-shell migration:
+the WinForms client (MainForm.cs, Ui/*, UiControls.cs) is replaced by a WinUI 3
+(Windows App SDK 1.8) shell, unpackaged and framework-dependent
+(WindowsPackageType=None + EnableMsixTooling=true), one MaxDpsCompanion.exe +
+MaxDpsCompanion.pri. Wire protocol and engine are UNCHANGED (v5 core + Ext2 +
+Ext3; docs/PROTOCOL.md untouched). 4.0.0 is the initial shell swap; 4.0.1 and
+4.0.2 add visual polish (double-bezel cards, full-pill 42 DIP buttons, Exp
+status card, staggered fade-up entrances, success-green Start) and fix the
+classic-layout ghosting (opaque, stretched root grid). tools/publish-exp.ps1
+publishes to dist-exp without touching settings.ini or the Rust binaries and
+derives VERSION.txt from the built exe. Stable MaxDpsBridge + dist/ stay
+frozen (legacy). Full detail and verification: HANDOVER.md 4.0.2 section.
+
 3.7.9
 Date: 2026-10-10 - "Unyielding"
 Companion 3.7.9 "Unyielding" / bridge 3.7.9 (exp 3.7.9-exp). Behavior change:

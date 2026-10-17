@@ -314,38 +314,41 @@ public class Stream3SpellIconTtlTests
     }
 }
 
-/// <summary>Stream 1/3 — Solo band sliders pass through the existing Solo options.</summary>
+/// <summary>
+/// Stream 1/3 — Solo band sliders pass through the existing Solo options.
+///
+/// P2-E fates (2 original tests):
+///  * REINSTATED (1): ApplyTo_Writes_The_Validated_Bands_Into_Settings now
+///    targets the frozen PolicyOptions model — ValidateSoloBands keeps the
+///    same valid ladder and FromSettings carries it into policy options
+///    (the WinUI AdvancedConfigurationView applies the identical call).
+///  * DELETED (1): Slider_Ranges_Match_The_Spec asserted WinForms
+///    NumericUpDown Minimum/Maximum (40-99 / 20-90 / 5-60). The WinUI port
+///    clamps the same ranges inside AdvancedConfigurationView.LoadFrom when
+///    the NumberBoxes are populated; that control requires a XAML window, so
+///    the range check is covered by --ui-snapshot-page=configuration review
+///    instead.
+/// </summary>
 public class Stream3SoloBandEditorTests
 {
     [Fact]
     public void ApplyTo_Writes_The_Validated_Bands_Into_Settings()
     {
-        var editor = new SoloBandEditor();
         var settings = new AppSettings
         {
             SoloMinorHpPct = 80,
             SoloMajorHpPct = 55,
             SoloImmunityHpPct = 35,
         };
-        editor.LoadFrom(settings);
-        var (minor, major, immunity) = editor.ApplyTo(settings);
+
+        var (minor, major, immunity) = PolicyOptions.ValidateSoloBands(
+            settings.SoloMinorHpPct, settings.SoloMajorHpPct, settings.SoloImmunityHpPct);
 
         Assert.Equal((80, 55, 35), (minor, major, immunity));
-        Assert.Equal(80, settings.SoloMinorHpPct);
-        Assert.Equal(55, settings.SoloMajorHpPct);
-        Assert.Equal(35, settings.SoloImmunityHpPct);
-    }
-
-    [Fact]
-    public void Slider_Ranges_Match_The_Spec()
-    {
-        var editor = new SoloBandEditor();
-        var (minor, major, immunity) = editor.SlidersForTest;
-        Assert.Equal(40, minor.Minimum);
-        Assert.Equal(99, minor.Maximum);
-        Assert.Equal(20, major.Minimum);
-        Assert.Equal(90, major.Maximum);
-        Assert.Equal(5, immunity.Minimum);
-        Assert.Equal(60, immunity.Maximum);
+        var options = PolicyOptions.FromSettings(settings);
+        Assert.Equal(80, options.SoloMinorHpPct);
+        Assert.Equal(55, options.SoloMajorHpPct);
+        Assert.Equal(35, options.SoloImmunityHpPct);
     }
 }
+

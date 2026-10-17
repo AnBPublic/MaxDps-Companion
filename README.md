@@ -1,7 +1,8 @@
 > [!IMPORTANT]
-> **LEGACY:** The C# WinForms client (`app/MaxDpsCompanion/`), the legacy
-> distribution (`dist/`) and the stable bridge (`addon/MaxDpsBridge/`) are
-> **frozen**. They receive no updates except critical security fixes.
+> **LEGACY:** The frozen 3.7.9 WinForms client (shipped in `dist/`, built by
+> `build.ps1`) and the stable bridge (`addon/MaxDpsBridge/`) are **frozen**.
+> They receive no updates except critical security fixes. The current C# client
+> (`app/MaxDpsCompanion/`) is the WinUI 3 4.0.3 "Bulwark" shell.
 > The future is the Rust companion in **`companion-rs/`**, targeting
 > `MaxDpsBridgeExp` + `dist-exp`. See [`LEGACY.md`](LEGACY.md) and
 > [`docs/plans/2026-10-10-rust-companion.md`](docs/plans/2026-10-10-rust-companion.md).
@@ -38,7 +39,7 @@
 > [`app/MaxDpsCompanion.Mac/README.md`](app/MaxDpsCompanion.Mac/README.md);
 > live retail checks are OWED (`docs/TESTING.md` §4).
 
-# MaxDPS Companion (Retail Midnight 12.1, v3.7.9 "Unyielding")
+# MaxDPS Companion (Retail Midnight 12.1, v4.0.3 "Bulwark")
 
 Pixel bridge driver for [kaminaris MaxDps](https://www.curseforge.com/wow/addons/maxdps)
 (vendor pin: MaxDps v11.3.49). No memory read, no injection, no OCR, no LLM.
@@ -49,10 +50,34 @@ Two pieces:
 
  | Piece | What it does |
  | :--- | :--- |
- | `MaxDpsBridge` (addon, `addon/MaxDpsBridge/`) | Queries the MaxDps rotation engine each frame and encodes suggestions, ability ids and combat context into a 40-cell strip of flat-coloured pixels (35-cell v5 core + additive Ext2 block). |
- | `MaxDpsCompanion.exe` (desktop app, `app/MaxDpsCompanion/`) | Samples those pixels, decodes the frame, evaluates every situational suggestion (USE / HOLD / SKIP / UNAVAILABLE / UNKNOWN) against an embedded ability intelligence registry + explicit candidate providers, schedules one action at a time, and replays the player's own keybinds into the attached game window. |
+ | `MaxDpsBridgeExp` (addon, `addon/MaxDpsBridgeExp/`) | Queries the MaxDps rotation engine each frame and encodes suggestions, ability ids, combat context and the keybound hotbar map into a 51-cell strip of flat-coloured pixels (35-cell v5 core + additive Ext2/Ext3/Ext4 blocks). |
+ | `MaxDpsCompanion.exe` (desktop app, `app/MaxDpsCompanion/`) | WinUI 3 shell that samples those pixels, decodes the frame, evaluates every situational suggestion (USE / HOLD / SKIP / UNAVAILABLE / UNKNOWN) against an embedded ability intelligence registry + explicit candidate providers, queues recognised hotbar presses, schedules one action at a time, and replays the player's own keybinds into the attached game window. |
 
-## v3.7.9 "Unyielding" — MaxDps recommendations are used; offensive TTK conservation removed (no wire change)
+The stable `MaxDpsBridge` addon (`addon/MaxDpsBridge/`, 40-cell strip) and the
+old WinForms client (`dist/`) are **legacy/frozen**; all current work targets
+`MaxDpsBridgeExp` + `dist-exp`.
+
+## v4.0.3 "Bulwark" - hotbar press queue (additive Ext4 wire)
+
+A companion + addon feature with an **additive** protocol extension: the strip
+grows to **51 cells** (v5 core + Ext2 + Ext3 stay byte-identical; new Ext4
+block, cells 43-50, presence = cell 28 B bit3; the version nibble stays 5, so
+pre-Ext4 builds keep working). New `HotbarWatch.lua` streams the player's
+**keybound action-bar map** (spells / items / macros, bar order, ready flag,
+32-entry cap, gen/seq frame cycle, plus a chat-focus typing veto), and the
+companion watches exactly those physical strokes with `GetAsyncKeyState` - no
+hooks, no injection, no memory reads. Pressing one of your bar keys mid-GCD now
+**queues the stroke into the current GCD window**: a GCD-riding ability is
+delivered the moment the GCD falls (today an early press is silently dropped by
+the client's ~400 ms queue), an off-GCD ability is delivered immediately, and a
+press the focused game already received is never re-sent (no double
+trinket/charge use). UI binds, movement keys and unbound keys are structurally
+excluded; a cooling-down key never stalls the rotation. `/mdbx hotbar` prints
+the live map; `[UserQueue] Enabled=1` (default) and the Advanced Configuration
+"Follow my hotbar keypresses" toggle; `Background=0` keeps delivery to the
+focused game. Stable `MaxDpsBridge` + `dist\` stay frozen at 3.7.7.
+
+## v3.7.9 "Unyielding" - MaxDps recommendations are used; offensive TTK conservation removed (no wire change)
 
 A behaviour change in the **companion** with **no protocol change**: `PROTOCOL`
 stays at 5 and every cell is byte-identical. The hard TTK conservation gates on
@@ -632,16 +657,26 @@ ring, nothing on disk until you export, no network, no Blizzard values.
 
 ```powershell
 .\tools\install-addon-exp.ps1   # CURRENT: copy MaxDpsBridgeExp into Interface\AddOns (never touches MaxDps*)
-.\build.ps1                     # publish MaxDpsCompanion.exe (legacy dist\ target)
-#     Exp client = the dist-exp\ exe published with InGameConfigMode=1
+.\tools\publish-exp.ps1         # CURRENT: WinUI 3 4.0.3 "Bulwark" -> dist-exp\MaxDpsCompanion.exe
+                                #   (unpackaged, framework-dependent; keeps settings.ini + the Rust
+                                #    mdc-*.exe untouched; asserts MaxDpsCompanion.exe +
+                                #    MaxDpsCompanion.pri; writes VERSION.txt = 4.0.3 Bulwark)
+.\build.ps1                     # LEGACY: publishes the frozen 3.7.9 WinForms client to dist\
 ```
+
+Prerequisite for the dist-exp client: the **Windows App SDK 1.8 runtime**
+(framework-dependent, same model as the .NET 8 Desktop Runtime). A clean machine
+with only that runtime is still an OWED live check. `tools/publish-exp.ps1` must
+keep `EnableMsixTooling=true` + `WindowsPackageType=None` paired, or the
+published output lacks the XAML resource index (`MaxDpsCompanion.pri`) and the
+app fails `0xC000027B`.
 
 Then in game: `/reload`, `/mdbx status`, Start in the app. Client must be
 windowed/borderless and visible. Tests: `docs/TESTING.md`.
 
-`MaxDpsBridge` + `dist\` + `install-addon.ps1` are **LEGACY/deprecated** (frozen);
-all releases, fixes and deploys target the Exp client unless legacy is explicitly
-requested.
+`MaxDpsBridge` + `dist\` + `install-addon.ps1` + `build.ps1` are
+**LEGACY/deprecated** (the frozen 3.7.9 WinForms client); all releases, fixes
+and deploys target the Exp client unless legacy is explicitly requested.
 
 Version locations: addon `MaxDpsBridge.toc` + `addon/MaxDpsBridge/VERSION.txt`,
 app title bar (`ThisAssembly.Gen.cs` stamp), repo `VERSION.txt`.

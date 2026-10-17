@@ -10,6 +10,9 @@
     <Script file="Bars.lua"/>
     <Script file="MainFallback.lua"/>
     <Script file="Reader.lua"/>
+    <!-- Ext4 hotbar map provider: after Reader (readiness/binding helpers),
+         before Bridge (Bridge paints the cells from MDBX.HotbarWatch.Frame). -->
+    <Script file="HotbarWatch.lua"/>
     <Script file="Bridge.lua"/>
     <Script file="Exp/Core.lua"/>
     <Script file="Exp/Profiles.lua"/>

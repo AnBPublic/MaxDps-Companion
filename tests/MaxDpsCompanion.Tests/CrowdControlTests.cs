@@ -570,17 +570,23 @@ public class CrowdControlTests
         }
     }
 
+    // P2-E: the old CrowdControlToggle seam test asserted the WinForms
+    // UserControl in Ui/SettingsPages.cs. The toggle now lives on the frozen
+    // ToggleModel (same AppSettings key + CrowdControlGate publish), so the
+    // round-trip is pinned here against the model instead of a control.
     [Fact]
-    public void CrowdControlToggle_RoundTrips_The_Existing_Setting()
+    public void CrowdControlToggle_Model_RoundTrips_The_Existing_Setting()
     {
-        var toggle = new CrowdControlToggle();
         var settings = new AppSettings { CrowdControlEnabled = true };
-        toggle.LoadFrom(settings);
-        Assert.True(toggle.ToggleForTest.Checked);
+        var model = ToggleModel.FromSettings(settings);
+        Assert.True(model.CrowdControl);
+        Assert.True(CrowdControlGate.Enabled);
 
-        toggle.ToggleForTest.Checked = false;
-        Assert.False(toggle.ApplyTo(settings));
+        model.CrowdControl = false;
+        model.ApplyToSettings(settings);
+
         Assert.False(settings.CrowdControlEnabled);
+        Assert.False(CrowdControlGate.Enabled);
     }
 }
 

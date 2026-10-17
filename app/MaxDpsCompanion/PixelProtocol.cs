@@ -128,6 +128,19 @@ internal sealed class BridgeFrame
     /// <summary>Ext3 (v3.5): decoded cells 40-42; null when absent or the cell-42 checksum/commit failed.</summary>
     public Ext3Block? Ext3 { get; init; }
 
+    /// <summary>
+    /// The user is typing in chat/an edit box (v4.0.3 cell 41 R bit2). True only
+    /// when the Ext3 block is valid AND bit2 is set; an invalid/absent Ext3 block
+    /// reads as false (typing not detected), never as a veto.
+    /// </summary>
+    public bool TypingActive { get; init; }
+
+    /// <summary>Ext4 (v4.0.3): cell 28 B bit3 says a 51-cell Ext4 block is present.</summary>
+    public bool Ext4Present { get; init; }
+
+    /// <summary>Ext4 (v4.0.3): decoded cells 43-50; null when absent or the cell-50 checksum/commit failed.</summary>
+    public Ext4Frame? Ext4 { get; init; }
+
     public string? ClassName { get; init; }
     public string? SpecName { get; init; }
 
@@ -168,10 +181,10 @@ internal static class PixelProtocol
     ///  v6 = 6 — accepted for forward compatibility if an encoder ever bumps
     ///       the version nibble explicitly; same 35-cell layout.
     ///
-    /// The companion decodes the v5/v6 layout at 35 (core), 40 (Ext2) or 43
-    /// (Ext3) cells, v4 (9 cells) and v1 (8 cells); the addon encodes the
-    /// widest layout it ships. Same-length misreads are rejected by the
-    /// version nibble. A rescue fallback to the legacy windows is applied by
+    /// The companion decodes the v5/v6 layout at 35 (core), 40 (Ext2), 43
+    /// (Ext3) or 51 (Ext4) cells, v4 (9 cells) and v1 (8 cells); the addon
+    /// encodes the widest layout it ships. Same-length misreads are rejected by
+    /// the version nibble. A rescue fallback to the legacy windows is applied by
     /// the engine, so an old in-game addon still drives the current companion.
     /// </summary>
     public const int CellCountV1 = 8;
@@ -195,6 +208,15 @@ internal static class PixelProtocol
     /// core addon still decodes with cells 40-42 ignored.
     /// </summary>
     public const int CellCountExt3 = 43;
+
+    /// <summary>
+    /// Ext4 (v4.0.3): the frame becomes 51 cells wide. Cells 0-42 are the
+    /// unchanged v5 core + Ext2 + Ext3 layout; 43-50 are the additive hotbar
+    /// map stream (header + two entry pairs + commit). Gated on cell 28 B
+    /// bit3, so a 43-cell Ext3 (or narrower) addon still decodes with cells
+    /// 43-50 ignored.
+    /// </summary>
+    public const int CellCountExt4 = 51;
     public const int SupportedVersionV1 = 1;
     public const int SupportedVersionV4 = 4;
     public const int SupportedVersion = 5;
@@ -245,11 +267,41 @@ internal static class PixelProtocol
     public const int Ext3MaskBitCount = 14;
 
     /// <summary>
+    /// Cell 41 R bit2 (v4.0.3): the addon reports chat/edit-box focus. Read only
+    /// when the Ext3 block is valid; the Ext3 mask keeps it out of the mask with
+    /// <c>&amp; 3</c> and the cell-42 checksum still sums the whole nibble.
+    /// </summary>
+    public const int Ext3FlagTyping = 4;
+
+    /// <summary>Ext4 cell indices (only present in a 51-cell capture).</summary>
+    public const int Ext4HeaderCellIndex = 43;
+    public const int Ext4EntryACellIndex = 44;
+    public const int Ext4EntryBCellIndex = 47;
+    public const int Ext4CommitCellIndex = 50;
+
+    /// <summary>Entry pairs per Ext4 frame (cell 44-46 = A, 47-49 = B).</summary>
+    public const int Ext4EntryCount = 2;
+
+    /// <summary>Cells per Ext4 entry.</summary>
+    public const int Ext4EntryCells = 3;
+
+    /// <summary>Ext4 id width (bits 21-0); the encoder skips ids &gt;= 2^22.</summary>
+    public const int Ext4IdBitCount = 22;
+
+    /// <summary>
     /// Cell 28 B bit2: the Ext3 block is present. Bits 0-1 stay the SelfHeal2
     /// range tri-state; every reader masks cell 28 B with <c>&amp; 3</c> so this
     /// bit can never bleed into the range value.
     /// </summary>
     public const int CastFlagExt3Present = 4;
+
+    /// <summary>
+    /// Cell 28 B bit3 (v4.0.3): the Ext4 hotbar-map block is present. Bits 0-1
+    /// stay the SelfHeal2 range tri-state (masked <c>&amp; 3</c>) and bit2 stays
+    /// Ext3; the Ext3/torn-less cell-28 write is covered by the cell-34
+    /// extension checksum, so an old companion ignores it.
+    /// </summary>
+    public const int CastFlagExt4Present = 8;
 
     /// <summary>Cell 33 B bits (v5 class/spec + v2.7 buff probe + Ext2).</summary>
     public const int ClassFlagClassSpecValid = 1;
@@ -258,12 +310,12 @@ internal static class PixelProtocol
     public const int ClassFlagHpCurveActive = 8;
 
     /// <summary>
-    /// True for any capture width the v5 decoder understands: 43 (Ext3), 40
-    /// (Ext2) or 35 (v5 core). Decode reads the widest block the capture can
-    /// hold and falls back to Ext2/core semantics when the presence bit is
-    /// clear, so a stale addon still decodes.
+    /// True for any capture width the v5 decoder understands: 51 (Ext4), 43
+    /// (Ext3), 40 (Ext2) or 35 (v5 core). Decode reads the widest block the
+    /// capture can hold and falls back to Ext2/core semantics when the presence
+    /// bits are clear, so a stale addon still decodes.
     /// </summary>
-    public static bool IsV5Length(int length) => length is CellCount or CellCountExt2 or CellCountExt3;
+    public static bool IsV5Length(int length) => length is CellCount or CellCountExt2 or CellCountExt3 or CellCountExt4;
 
     /// <summary>v5 sentinel nibble for "value unknown / not applicable".</summary>
     public const int UnknownNibble = 15;
@@ -642,6 +694,7 @@ internal static class PixelProtocol
         // cells 34 R and 39 R, the decoder never asserts it is zero.
         var ext3Present = (castFlagsRaw & CastFlagExt3Present) != 0 && cells.Length >= CellCountExt3;
         Ext3Block? ext3 = null;
+        var typingActive = false;
         if (ext3Present)
         {
             var (m0, m1, m2) = N(Ext3MaskCellIndex);
@@ -654,6 +707,60 @@ internal static class PixelProtocol
                     m0 | (m1 << 4) | (m2 << 8) | ((mHi & 3) << 12),
                     epoch,
                     blocked);
+                // v4.0.3: cell 41 R bit2 is the typing veto. Only a valid Ext3
+                // block can carry it; the mask above keeps it out of the mask.
+                typingActive = (mHi & Ext3FlagTyping) != 0;
+            }
+        }
+
+        // Ext4 block (v4.0.3): cells 43-50. Gated on cell 28 B bit3 AND a 51-cell
+        // capture, so a 43-cell Ext3 (or narrower) addon decodes exactly as
+        // before with cells 43-50 ignored. Cell 50 covers cells 43-49; a
+        // checksum failure or a torn commit (heartbeat mismatch) drops ONLY this
+        // frame (Ext4 = null), never the core, Ext2 or Ext3. Pad entries (cell
+        // flags bit3 clear) are skipped, so Entries holds 0-2 live entries.
+        var ext4Present = (castFlagsRaw & CastFlagExt4Present) != 0 && cells.Length >= CellCountExt4;
+        Ext4Frame? ext4 = null;
+        if (ext4Present)
+        {
+            var (gen, seq, hdrFlags) = N(Ext4HeaderCellIndex);
+            var ext4Sum = 0;
+            for (var i = Ext4HeaderCellIndex; i < Ext4CommitCellIndex; i++)
+            {
+                var (r, g, b) = N(i);
+                ext4Sum += r + g + b;
+            }
+            var (_, ext4Checksum, ext4Commit) = N(Ext4CommitCellIndex);
+            if (ext4Commit == heartbeat && (ext4Sum & 0xF) == ext4Checksum)
+            {
+                var entries = new List<Ext4Entry>(Ext4EntryCount);
+                for (var e = 0; e < Ext4EntryCount; e++)
+                {
+                    var cell = Ext4EntryACellIndex + e * Ext4EntryCells;
+                    var (vkHi, vkLo, keyFlags) = N(cell);
+                    if ((keyFlags & FlagValid) == 0) continue;   // pad
+                    var (idTop, id19_16, id15_12) = N(cell + 1);
+                    var (id11_8, id7_4, id3_0) = N(cell + 2);
+                    var id = ((idTop & 3) << 20) | (id19_16 << 16) | (id15_12 << 12)
+                        | (id11_8 << 8) | (id7_4 << 4) | id3_0;
+                    entries.Add(new Ext4Entry(
+                        new KeyStroke(
+                            (byte)((vkHi << 4) | vkLo),
+                            (keyFlags & FlagShift) != 0,
+                            (keyFlags & FlagCtrl) != 0,
+                            (keyFlags & FlagAlt) != 0),
+                        id,
+                        (idTop & 8) != 0,
+                        (idTop & 4) != 0));
+                }
+                ext4 = new Ext4Frame
+                {
+                    Gen = gen,
+                    Seq = seq,
+                    Last = (hdrFlags & 1) != 0,
+                    Empty = (hdrFlags & 2) != 0,
+                    Entries = entries,
+                };
             }
         }
 
@@ -688,6 +795,9 @@ internal static class PixelProtocol
             SelfHeal2 = selfHeal2,
             Ext3Present = ext3Present,
             Ext3 = ext3,
+            TypingActive = typingActive,
+            Ext4Present = ext4Present,
+            Ext4 = ext4,
         };
     }
 

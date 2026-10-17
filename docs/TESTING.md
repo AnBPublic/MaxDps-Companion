@@ -10,7 +10,9 @@ cd tests\MaxDpsCompanion.Tests
 dotnet test -c Release
 ```
 
-571 tests, all fake-clock (no wall time, no I/O except temp files). Groups:
+946 tests, all fake-clock (no wall time, no I/O except temp files). (The P2-E
+note below lists the WinUI port's reinstated/deleted UI cases; that pass moved
+the net suite count from 905 to 946.) Groups:
 
 | File | Covers |
 | :--- | :--- |
@@ -32,8 +34,7 @@ dotnet test -c Release
 | `DefensiveIntelligenceTests` | additive v5 protocol decode (urgency/source/stagger + reserved-nibble and extension-checksum coverage), the urgency policy matrix (White hard hold, Yellow/Orange/Red tiers, the MaxDps-recommendation one-stage discount, curated Ignore Pain Orange, stagger override + HP fallback), emergency override, user policy (OFF absolute, Vanish default-OFF and emergency-only ON), scheduler integration (Red selects, White holds and main continues, Orange gap-fill major held but minor fires, OFF reported as a skip) and failed-press recovery |
 | `DefensiveReplayTests` | canonical defensive recording recomputes every verdict with 0 mismatches (in-memory + the checked-in `fixtures/defensive-warrior-urgency.jsonl`), a failed defensive press is rejected, and a policy record with no `du` is treated as legacy pre-v2.3 (verdicts skipped, 0 mismatches, report says so) |
 | `ClassSpellBookTests` | token name decoding (incl. connector/alias cases), the junk/passive filter, merge provenance and priority (curated/vendor win over class-spells), live-client verification (official name/icon, a removed id not merged), `DefensiveGapFill` exclusion of the modeled layer, shared-vs-per-spec tree, all-class coverage, and a Main-spell opt-out through `AbilityPolicy` OFF |
-| `ClassSkillsViewTests` | STA window construction of the Class skills screen: the dropdown preselects the class/spec, rows are generated for every class, icons optional |
-| `UiShellTests` | v2.7 shell construction (STA): navigation + rail active state, explorer filter/search, coverage report rendering, smoke validation returns no findings |
+| `UiShellTests` | model-level (XAML-free): explorer filter/search over `AbilityRowsPrecompute`, coverage/intelligence report via `AbilityIntelligence.Audit` (live tree walk moved to `--ui-smoke-test`) |
 | `SpellIconCacheTests` | download-once + disk-cache pipeline (exactly two requests), the official-slug path (a single request), offline degradation to the placeholder, hostile icon-slug rejection, invalid ids ignored |
 | `DecisionEngineTests`, `CandidateTrackerTests` | legacy decision layer + identity-aware tracker (stroke OR spell-id change); the enabled order inserts the companion slots without reordering the MaxDps slots |
 | `AppSettingsTests` | `[Intelligence]`/`[Solo]` defaults, parsing, clamping, round-trip |
@@ -43,6 +44,32 @@ The class-spell verification and official-slug icon tests are part of this
 suite (`dotnet test`) and stay offline: they read the embedded
 `spell-verification.json` and use a stubbed `HttpMessageHandler`, so the live
 wago.tools fetch is never exercised by the test run.
+
+### 1a. P2-E WinUI port: fates of the 69 compile-excluded UI tests
+
+(v4.0.2 Lumen; plan `docs/plans/2026-10-11-winui3-v4-migration.md` §6. Every
+formerly excluded method has an explicit fate; net suite count 905 -> 946.)
+
+| File | Reinstated | Deleted (WinForms-only) |
+| :--- | :--- | :--- |
+| `ClassicUiTests` | 4: window consts, Solo toggle -> settings (ToggleModel), width tier fonts/rows + popup toggle geometry (UiScale) | 10: scroll internals, button control lists, launcher test-delegate, 50x layout events, popup re-parenting, row measure/resize internals, scrim paint/timing, bubble click |
+| `UiShellTests` | 2: explorer filter/search (AbilityRowsPrecompute), intelligence report (AbilityIntelligence.Audit) | 5: structural smoke (now `--ui-smoke-test`), popup/Esc click plumbing, tile-click drill, toggle mouse click, label wrap measure |
+| `ClassBrowserViewTests` | 3: per class/spec/mode rows, mode vocabulary (ClassBrowserView.ModeOptions), warm-reopen <=150 ms cache | 1: DrawToBitmap paint smoke (now the RenderTargetBitmap non-blank PNG in `--ui-smoke-test`) |
+| `ConsoleHomeTests` | 3: five preset bundles, role inference, preset -> ToggleModel -> settings | 1: ConsoleHome chips/update-log internals |
+| `ApproachADrillThroughTests` | 3: preset vocabulary, condition line, explorer preset filter | 1: Class skills screen (dropped with ClassSkillsView, plan §0) |
+| `ExpModeTests` | 5 (6 cases): the InGameConfigMode settings/ini/`--exp`/save contract | 8: Exp layout control counts/coords/enabled/text internals (live replacement: `--ui-smoke-test --exp` asserts zero toggles; `--ui-snapshot-page=main --exp` reviews layout) |
+| `ReleaseIdentityTests` | 3: 4.0.3 / v4.0.3 Bulwark / real runtime title | - |
+| `S8PerfDiagnosticsTests` | 15: precompute cache/keys (AbilityRowsPrecompute), ScaledIcon null guards, WhyNotFiring explainer (Ui.Shell port), InstallDoctor | 1: ScaledIcon Bitmap width/reuse (WinUI BitmapImage decodes async on the UI thread; live via `--ui-snapshot-page=abilities`) |
+| `CrowdControlTests` (guard) | 1: CrowdControl ToggleModel round-trip + gate publish | - |
+| `Stream3Tests` (guard) | 1: solo bands validate + FromSettings (PolicyOptions) | 1: slider Minimum/Maximum ranges (now NumberBox clamps in AdvancedConfigurationView.LoadFrom; reviewed via snapshot) |
+
+The `WINUI_P0` define and every `<Compile Remove>` for these files are gone
+(the app csproj has no Compile Remove/Include scaffold left: the legacy
+WinForms files — `MainForm.cs`, `UiControls.cs`, `ClassSkillsView.cs`, every
+old `Ui/*.cs` — were deleted from disk in P3, and the broken unused
+`WheelSafeNumeric` control was deleted with them). Live UI coverage moved to
+`tools/ui_smoke.ps1` (`--ui-smoke-test`); the `--bench-ui` startup-target miss
+is recorded in the benchmarks section below.
 
 ## 2. Lua addon harness — `tests/secret_harness.lua`
 
@@ -492,6 +519,35 @@ Exp bridge **3.7.9** addon loaded, Intelligence ON:
 This supersedes the offensive parts of §3e/§3f/§3g, which remain as the
 v3.2–v3.8 history of the removed conservation.
 
+### 3l. Hotbar press queue (4.0.3; live 12.1 retail, OWED)
+
+Install: `pwsh tools/publish-exp.ps1` + `pwsh tools/install-addon-exp.ps1`,
+then `/reload`. `/mdbx hotbar` prints gen/seq/entries and marks the keybound
+bar entries ready=yes (incl. macros and items); `/mdbx status` shows the new
+`ext4=1` field.
+
+| # | Check | Expected |
+| :--- | :--- | :--- |
+| 1 | Press a GCD-riding ability key *early* inside a GCD (focused game) | The cast fires at the end of THAT GCD (no lost press); `Now` shows `<name> (you)`; telemetry note `queued` -> `delivered` |
+| 2 | Press the same key late (inside the client ~400 ms queue window) | No double cast (the cooldown rejects the duplicate) |
+| 3 | Press an off-GCD key (trinket / item) mid-GCD | Fires immediately; the rotation is not deferred; focused native press is not re-sent |
+| 4 | Spam a cooling-down ability key | Recognised/delivered, but the rotation never stalls (no persistent `your ... queued` hold) |
+| 5 | Press a UI key (B/C/M) or a movement key (WASD/Space/arrows) | Never queued |
+| 6 | Type `f` in game chat while in combat | Not delivered (typing veto; `/mdbx hotbar` shows typing=yes) |
+| 7 | Rebind an ability mid-session | `/mdbx hotbar` reflects it within ~1 s; the old key stops queueing |
+| 8 | Play with a pre-4.0.3 addon | No crash; status shows `user queue: addon too old...`; everything else unchanged |
+| 9 | `[UserQueue] Background=1`, game unfocused, press a bound key | Delivered in the next window (opt-in only) |
+| 10 | Record + export + replay a session containing user presses | 0 mismatches (user sends never feed policy memory) |
+| 11 | ElvUI / Bartender / DiabolicUI bars | Binding resolution works (at least the command-mapped bars) |
+| 12 | 51-cell strip does not clip a screen edge | If it clips, re-anchor (`/mdbx offset 0 0`) or move it; decode stays green |
+| 13 | Keep the rotation going for 30 s after a mid-fight press (hotfix regression check) | Core rotation (Main) continues the whole time; the pressed key fires once; no `only interrupt/trinket` pattern |
+| 14 | `/mdbx main off`, then watch the companion status | Status says `addon Main toggle is OFF (/mdbx main on)`; `/mdbx main on` restores the rotation |
+| 15 | Flip a slot toggle OFF *after* it has been firing (hotfix regression check) | Strip keeps decoding — the companion never reports "No pixel block" and the rotation continues with that slot blanked |
+
+Static != automated test != live in-game E2E: none of the above is claimed
+before a retail run.
+
+
 ## 4. macOS client (live retail, OWED)
 
 Everything in this section needs a real client on a Mac. Static/offline
@@ -544,6 +600,7 @@ not found" for a stub).
 ## 5. Benchmarks / diagnostics (no game)
 
 
+
 ```powershell
 MaxDpsCompanion.exe --bench-scheduler            # scripted 27000-tick plan + plan hash
                                                  # (current: sends=1620, CastHold=450, ChannelHold=450, sha256=b71a999d5e46570e)
@@ -569,14 +626,23 @@ MaxDpsCompanion.exe --ability-audit=<path>         # registry audit report (Viol
 MaxDpsCompanion.exe --ability-coverage=<path>      # v2.7 machine-readable coverage manifest (default ABILITY_COVERAGE.json)
 MaxDpsCompanion.exe --ability-info=<spellId>       # inspect one ability (writes ability-info.txt + stdout)
 MaxDpsCompanion.exe --ability-search=<text>        # registry filter (also --ability-class= / --ability-spec=)
-MaxDpsCompanion.exe --ui-smoke-test              # hardened structural checks (text-fit / card content / wrapped labels / zero-size / overlap / tab); exit 1 on findings
-MaxDpsCompanion.exe --ui-snapshot-page=home --ui-snapshot=home.png --ui-snapshot-width=1280
-                                                 # page snapshots: home|abilities|intelligence|configuration|diagnostics
-                                                 # review set: dist/ui-snapshots (5 pages x 6 widths, regenerable)
+MaxDpsCompanion.exe --ui-smoke-test              # P2-E hosted window: ShellValidation visual-tree walk + RenderTargetBitmap
+                                                 # PNG (ui-smoke.png, non-blank colour grid) + ui-smoke.txt/layout; exit 3 on findings
+MaxDpsCompanion.exe --ui-smoke-test --exp        # same in the in-game-config shell (asserts ZERO ToggleSwitch mounted)
+MaxDpsCompanion.exe --ui-snapshot-page=main --ui-snapshot=main.png --ui-snapshot-width=1280
+                                                 # pages: main|configuration|diagnostics|intelligence|abilities
+                                                 # writes ui-snapshot.txt + the PNG; exit 3 + ui-error.txt on blank/unknown
+MaxDpsCompanion.exe --ui-snapshot=<png>          # whole shell as shown (1280x900 default; width/height mods apply)
+MaxDpsCompanion.exe --ui-snapshot-advanced=<png> # Advanced overlay (Configuration tab)
+MaxDpsCompanion.exe --bench-ui                   # startup/refresh/snapshot timings -> bench-ui.txt (exit 1 on target miss)
+                                                 # 4.0.0 KNOWN MISS: startup 774.9 ms > 500 ms target;
+                                                 # refresh mean 19.8 us / p95 29.6 us and snapshot 26.3 ms pass
+                                                 # targets: mean < 300 us, p95 < 1000 us, construct+show < 500 ms
+pwsh tools/ui_smoke.ps1                          # runs the bin exe --ui-smoke-test; checks exit 0 + ui-smoke.png
 MaxDpsCompanion.exe --dump-class-skills=<path>   # merged class/spec skill tree
                                                  # CLASS<TAB>SPEC<TAB>section<TAB>provenance<TAB>name<TAB>id
-MaxDpsCompanion.exe --ui-snapshot-class-skills=<png> [--ui-snapshot-class=CLASS --ui-snapshot-spec=SPEC]
-                                                 # render the Class skills screen (default ROGUE/Outlaw; no game)
+                                                 # DROPPED in 4.0.0 (print "unavailable in this build", exit 3):
+                                                 # --ui-snapshot-class-skills=, --ui-snapshot-scroll=
 ```
 
 ## Knowledge verification (network)

@@ -1,15 +1,32 @@
+using System.Drawing;
+using MaxDpsCompanion.Ui.Shell;
 using Xunit;
 
 namespace MaxDpsCompanion.Tests;
 
 /// <summary>
-/// S8 perf + diagnostics: the off-thread Class Browser precompute cache, the
+/// S8 perf + diagnostics: the off-thread ability-row precompute cache, the
 /// scaled-icon cache, the why-not-firing explainer and the install doctor.
-/// Pure logic only — no engine, no wire, no scheduler.
+/// Pure logic only — no engine, no wire, no scheduler, no XAML.
+/// P2-E port (docs/plans/2026-10-11-winui3-v4-migration.md §6).
+///
+/// FINAL FATES (16 original tests):
+///  * REINSTATED (15): the 4 ClassBrowserPrecompute tests now target the P2-D
+///    AbilityRowsPrecompute (same warm/cache/invalidate/Key contract), the 4
+///    WhyNotFiring explainer tests target the ported Ui.Shell type, the 6
+///    InstallDoctor tests are unchanged, and ScaledIcon_Missing_Source_Or_Id_
+///    Is_Null still holds for the WinUI cache (null-source/null-id early
+///    returns never construct a BitmapImage).
+///  * DELETED (1): ScaledIcon_Get_Scales_And_Reuses asserted GDI+ Bitmap
+///    width/height and instance reuse. The WinUI cache returns a
+///    Microsoft.UI.Xaml.Media.Imaging.BitmapImage whose pixels decode
+///    asynchronously on the UI thread, so the assertion cannot run in xunit
+///    (no XAML/STA-in-xunit tests per the migration plan). The same-property
+///    image reuse/eviction is exercised live by --ui-snapshot-page=abilities.
 /// </summary>
 public class S8PerfDiagnosticsTests
 {
-    // ---- ClassBrowserPrecompute ----
+    // ---- AbilityRowsPrecompute (old ClassBrowserPrecompute) ----
 
     private static (string Class, string Spec) FirstSpec()
     {
@@ -21,13 +38,12 @@ public class S8PerfDiagnosticsTests
     public void Precompute_Build_Twice_Returns_Same_Cached_Instance()
     {
         var (cls, spec) = FirstSpec();
-        var pre = new ClassBrowserPrecompute(AbilityCatalog.Default, ClassSpellBook.Default);
+        var pre = new AbilityRowsPrecompute(AbilityCatalog.Default);
 
-        var first = pre.Build(AbilityCatalog.Default, ClassSpellBook.Default, cls, spec);
-        var second = pre.Build(AbilityCatalog.Default, ClassSpellBook.Default, cls, spec);
+        var first = pre.GetBrowserRows(cls, spec, "All", 100);
+        var second = pre.GetBrowserRows(cls, spec, "All", 100);
 
         Assert.Same(first, second);
-        Assert.True(pre.IsCached(cls, spec));
         Assert.Equal(1, pre.CachedCount);
     }
 
@@ -35,55 +51,38 @@ public class S8PerfDiagnosticsTests
     public void Precompute_Invalidate_Drops_The_Cache()
     {
         var (cls, spec) = FirstSpec();
-        var pre = new ClassBrowserPrecompute(AbilityCatalog.Default, ClassSpellBook.Default);
-        pre.Build(AbilityCatalog.Default, ClassSpellBook.Default, cls, spec);
+        var pre = new AbilityRowsPrecompute(AbilityCatalog.Default);
+        pre.GetBrowserRows(cls, spec, "All", 100);
 
         pre.Invalidate();
 
-        Assert.False(pre.IsCached(cls, spec));
         Assert.Equal(0, pre.CachedCount);
+        var rebuilt = pre.GetBrowserRows(cls, spec, "All", 100);
+        Assert.True(rebuilt.Items.Count > 0);
+        Assert.Equal(1, pre.CachedCount);
     }
 
     [Fact]
     public void Precompute_Warm_Populates_The_Cache_Off_Thread()
     {
         var (cls, spec) = FirstSpec();
-        var pre = new ClassBrowserPrecompute(AbilityCatalog.Default, ClassSpellBook.Default);
-        Assert.False(pre.IsCached(cls, spec));
+        var pre = new AbilityRowsPrecompute(AbilityCatalog.Default);
+        Assert.Equal(0, pre.CachedCount);
 
-        pre.Warm(cls, spec);
+        pre.WarmBrowser(cls, spec, "All", 100);
 
-        Assert.True(SpinWait.SpinUntil(() => pre.IsCached(cls, spec), 5000));
+        Assert.True(SpinWait.SpinUntil(() => pre.CachedCount > 0, 5000));
     }
 
     [Fact]
     public void Precompute_Key_Handles_Nulls()
     {
-        Assert.Equal("-|-", ClassBrowserPrecompute.Key(null, null));
-        Assert.Equal("WARRIOR|Fury", ClassBrowserPrecompute.Key("WARRIOR", "Fury"));
+        Assert.Equal("b|-|-|All|100", AbilityRowsPrecompute.BrowserKey(null, null, "All", 100));
+        Assert.Equal("b|WARRIOR|Fury|All|100", AbilityRowsPrecompute.BrowserKey("WARRIOR", "Fury", "All", 100));
+        Assert.Equal("e|q|All||-|-", AbilityRowsPrecompute.ExplorerKey("q", "All", [], null, null));
     }
 
     // ---- ScaledIconCache ----
-
-    [Fact]
-    public void ScaledIcon_Get_Scales_And_Reuses()
-    {
-        using var source = new Bitmap(16, 16);
-        var cache = new ScaledIconCache(_ => source);
-
-        var first = cache.Get(42, 8);
-        Assert.NotNull(first);
-        var firstImage = first!;
-        Assert.Equal(8, firstImage.Width);
-        Assert.Equal(8, firstImage.Height);
-
-        Assert.Same(firstImage, cache.Get(42, 8));
-
-        cache.Invalidate(42);
-        var rebuilt = cache.Get(42, 8);
-        Assert.NotNull(rebuilt);
-        Assert.NotSame(firstImage, rebuilt);
-    }
 
     [Fact]
     public void ScaledIcon_Missing_Source_Or_Id_Is_Null()

@@ -286,4 +286,25 @@ public class ToggleSyncTests
             if (File.Exists(path)) File.Delete(path);
         }
     }
+
+    [Fact]
+    public void AddonOffWarning_Says_Main_Off_From_A_Valid_Mirror()
+    {
+        var allOn = ToggleSync.MaskField;
+        var mainOff = allOn & ~(1 << ToggleSync.BitMain);
+
+        // No mirror: never nag (fail open), the engine already holds quietly.
+        Assert.Null(ToggleSync.AddonOffWarning(mirrorValid: false, mainOff, mainSlotEnabled: true));
+
+        // Mirror valid and Main on: nothing to say.
+        Assert.Null(ToggleSync.AddonOffWarning(mirrorValid: true, allOn, mainSlotEnabled: true));
+
+        // Companion-side Main disabled: its own setting already explains the
+        // silence, so the addon note must not mask that.
+        Assert.Null(ToggleSync.AddonOffWarning(mirrorValid: true, mainOff, mainSlotEnabled: false));
+
+        // The live regression: companion wants Main, the addon has it OFF.
+        Assert.Equal("addon Main toggle is OFF (/mdbx main on)",
+            ToggleSync.AddonOffWarning(mirrorValid: true, mainOff, mainSlotEnabled: true));
+    }
 }

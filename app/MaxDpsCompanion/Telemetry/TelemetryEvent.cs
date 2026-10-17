@@ -659,10 +659,11 @@ internal sealed record TelemetryEvent
         return new string(chars);
     }
 
-    public static TelemetryEvent Sent(long tMs, string what, Slot? slot, KeyStroke stroke, long intervalMs, int spellId = 0) => new()
+    public static TelemetryEvent Sent(long tMs, string what, Slot? slot, KeyStroke stroke, long intervalMs, int spellId = 0, string? note = null) => new()
     {
         Kind = TelemetryKind.Send,
         TMs = tMs,
+        Note = note,
         Send = new TelemetrySend
         {
             What = what,

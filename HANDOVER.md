@@ -1,5 +1,224 @@
 # Handover — MaxDps-Companion
 
+
+## 2026-10-11 RELEASE 4.0.3 "BULWARK" (hotbar press queue; ADDITIVE Ext4 wire)
+
+STATUS: new companion + addon feature with an **additive** protocol extension.
+The strip grows to **51 cells**: the v5 core (35), Ext2 (40) and Ext3 (43)
+layouts stay byte-identical and the version nibble stays 5; the new **Ext4
+block** (cells 43-50, presence = cell 28 B bit3) streams the player's keybound
+action-bar map (spells / items / macros, ready flag, gen/seq frame cycle,
+32-entry cap) plus a typing veto (cell 41 R bit2, inside the Ext3 checksum
+scope). The companion watches exactly those physical strokes with
+`GetAsyncKeyState` (no hooks, no injection, no memory reads) and queues a
+recognised press into the current GCD window: a GCD-riding press is delivered
+as the observed GCD falls (fixing the silent early-press drop by the client's
+~400 ms queue), an off-GCD press immediately, and a press the focused game
+already received is never re-sent (no double trinket/charge). UI binds,
+movement keys and unbound keys are structurally excluded; a cooling-down key
+never defers the rotation. Spec: `docs/plans/2026-10-11-hotbar-press-queue.md`.
+
+CHANGED: `addon/MaxDpsBridgeExp/{HotbarWatch.lua (NEW), Exp.xml, Bridge.lua}`
+(51-cell strip, Ext4 encode, typing bit; MDBX.VERSION 4.0.3-exp);
+`app/MaxDpsCompanion/{PixelProtocol.cs (Ext4 decode + TypingActive),
+HotbarMapAssembler.cs (NEW), KeyStateProbe.cs (NEW), UserPressQueue.cs (NEW),
+RotationEngine.cs (<=10 ms scan slices, pending-first delivery, deferral of
+GCD-riding plan actions), ScreenSampler.cs, BlockLocator.cs, ColorLearner.cs,
+Ui/Controls/StripView.cs (51 cells), AppSettings.cs + tracked `settings.ini`
+(`[UserQueue] Enabled=1 / Background=0`), Telemetry/{TelemetryEvent.cs,
+ReplayRunner.cs} (kind "user"; user sends never feed policy memory),
+Ui/Shell/AdvancedConfigurationView.cs (toggle)}`; tests
+`PixelProtocolExt4Tests` (14) + `UserPressQueueTests` (11) +
+`tests/secret_harness.lua` (+35 E4 pins); docs `PROTOCOL.md` (Ext4 section +
+compat matrix), `ARCHITECTURE.md`, `TESTING.md` §3l, `README.md`, `docs/UI.md`.
+Identity: **4.0.3 "Bulwark"** (csproj, Native fallback, ReleaseIdentityTests,
+Exp TOC/VERSION, `MDBX.VERSION`). Stable `addon/MaxDpsBridge` + `dist\` stay
+frozen at 3.7.7.
+
+VERIFY (this machine, 2026-10-11): `dotnet build app/MaxDpsCompanion/MaxDpsCompanion.csproj
+-c Release` **0 warnings / 0 errors**; `dotnet test -c Release` **974 passed /
+0 failed**; `lua tests/secret_harness.lua` **321 passed / 0 failed**;
+`luac -p` **15** Exp files clean; `pwsh tools/ability_audit.ps1` clean
+(Violations 0 / Warnings 0 / Missing 0 / Stale 0; exit 2 is the documented
+pre-existing stable-Catalog drift, stable stays frozen); `--ui-smoke-test`
+**PASS** (classic, 212 grid colours; published exe title
+`MaxDPS Companion v4.0.3 Bulwark`). Publish: `pwsh tools/publish-exp.ps1` ->
+`dist-exp` exe **FileVersion 4.0.3.0**, `VERSION.txt` = `4.0.3 Bulwark`,
+`settings.ini` untouched (hash match); `pwsh tools/install-addon-exp.ps1`
+installed **4.0.3-exp** (stable MaxDpsBridge left untouched). Static !=
+automated test != live in-game.
+
+PUBLISHED (2026-10-17): the 4.0.3 worktree was rebased onto
+`origin/v3.5-class-browser` (the 2026-10-16 macOS client + portable
+`MaxDpsCompanion.Core` commits) and pushed for both pieces - companion
+(`app/MaxDpsCompanion/`, WinUI 3 4.0.3) and addon
+(`addon/MaxDpsBridgeExp/`, 4.0.3-exp). The macOS client and its Core copy
+remain on 3.7.9 and do not decode Ext4 yet; Windows 4.0.3 is the current
+companion line. Re-verified on the merged tree: `dotnet build` **0 warnings /
+0 errors**; `dotnet test -c Release` **974 passed / 0 failed**; `lua
+tests/secret_harness.lua` **321 passed / 0 failed**; `luac -p` **25** Lua
+files clean; `pwsh tools/ability_audit.ps1` **Violations 0 / Warnings 0 /
+Missing 0 / Stale 0** (exit 2 is the documented pre-existing stable-Catalog
+drift); `--ui-smoke-test` **PASS** (title `MaxDPS Companion v4.0.3 Bulwark`).
+`VERSION.txt` now carries the missing **4.0.0-4.0.2 "Lumen"** WinUI 3 history
+in both the companion and Exp-addon changelogs. Release tag: `v4.0.3-exp`.
+
+HOTFIX (2026-10-11, live report): the first 4.0.3 build suppressed the plan's
+GCD-riding sends (`SuppressGcdRiding`) while a pending press lingered, so only
+the BypassGcd set (interrupt / trinket / consumable / off-GCD defensives and
+offensives) fired and the core rotation (Main) stopped — the user's live
+report. Patched: **the queue NEVER suppresses the plan**; it only wins the
+send-site race (pending-first ordering, `TrySendUserPress` before the
+rotation/target paths), `MaxPending` is **1** (the newest press replaces the
+previous), and the scan edge no longer ORs GetAsyncKeyState's shared low bit
+(`KeyStateProbe.IsFreshPress`, pinned by `Fresh_Press_Edge_Requires_A_New_Down`).
+The rotation behaves exactly like 4.0.2; a queued key is pressed first when it
+is due, then the rotation continues. Re-verified after the patch: build 0/0,
+`dotnet test` **973 passed / 0 failed**, republished `dist-exp` 4.0.3.0.
+
+ROOT CAUSE #2 (same live report, found from the saved variables after the
+first hotfix): the user's in-game bridge database had
+`MaxDpsBridgeExpDB.Toggles.Main = false` — an explicit overlay-wins OFF set
+from the in-game overlay pill / `/mdbx main off` / a bound toggle key (nothing
+in 4.0.3 writes toggles). `Toggles.SlotAllowed(1)` then blanked the Main slot
+every tick, and a blanked slot is wire-indistinguishable from "MaxDps has no
+suggestion", so the core rotation never fired while every other slot (all ON)
+did. User fix: `/mdbx main on` (or the Main pill in the overlay / the
+Bridge panel). Guarded in code: `ToggleSync.AddonOffWarning` (pinned by
+`AddonOffWarning_Says_Main_Off_From_A_Valid_Mirror`) surfaces
+"addon Main toggle is OFF (/mdbx main on)" in the engine status whenever a
+VALID Ext3 mirror clears the Main bit while the companion has slot 1 enabled.
+Re-verified: build 0/0, `dotnet test` **974 passed / 0 failed**, republished
+`dist-exp` 4.0.3.0. Note: `addon/MaxDpsBridge` (stable) and
+`MaxDpsBridgeExp` must NOT both be enabled — with both loaded Exp stays inert;
+use Exp only.
+
+ROOT CAUSE #3 (same live report; found by capturing the live strip pixels):
+a LATENT `addon/MaxDpsBridgeExp/Bridge.lua` bug — `ReadSlot` returned zeros
+for a DENIED slot WITHOUT repainting its cell, so the previous candidate's
+pixels stayed on screen while the core checksum (and the state/`AnySlot`
+logic) used the zeros. The core checksum could then never match and the
+companion rejected EVERY frame — "No pixel block - client must be windowed or
+borderless" while the strip was visibly rendering. Evidence from a screen
+capture of the live strip: painted cells 1-9 summed to 58 (10 mod 16) while
+cell 10 G carried 8 — exactly the checksum over the ZEROED arrays
+(status-only 24 mod 16 = 8). FIX: `ReadSlot` now paints (0,0,0) on a deny
+(`Paint` caches, so repeated denies are free). Pinned by the harness E4x
+checks ("denied Main repaints EMPTY", "core checksum matches the PAINTED
+cells after a deny") — both FAIL with the paint call removed and pass with
+it. Trigger class: any slot that was painted and later denied (a slot toggle
+flipped off, the out-of-combat master, Solo blanking). A deny from a
+never-painted cell stays consistent (black == zero) — which is why the
+earlier Main-toggle flip produced the "only non-core skills fire" report,
+while a deny from a PAINTED cell corrupts the whole frame. Installed:
+`pwsh tools/install-addon-exp.ps1` → `4.0.3-exp` (fixed); `/reload` required.
+The stable `addon/MaxDpsBridge` (frozen) still carries the same latent bug.
+
+REVIEW: the Sonnet `reviewer` gate could not run - the subagent fails with a
+harness/model error ("This model does not support assistant message prefill")
+on two attempts. Replaced by a structured self-review against the spec: belt
+checks added to the delivery path (movement/mouse strokes dropped, never
+sent), the unreachable mouse branch removed (v1 is keyboard-only by design),
+and a replay smoke test added for the user-send memory contract. Residual
+review risk is recorded as the §3l live checklist.
+
+OWED (live retail 12.1): `docs/TESTING.md` §3l (early GCD press lands in that
+window; no double cast; off-GCD immediate; cooling-down spam never stalls;
+UI/movement keys never queued; chat typing never delivered; rebind picked up
+within ~1 s; old-addon skew message; `Background=1` delivery; replay 0
+mismatches; bar-addon binding resolution; 51-cell strip visibility). The
+companion-rs port does not know Ext4 yet (it decodes the v5 core unchanged) -
+parity work stays a follow-up.
+
+## 2026-10-11 RELEASE 4.0.2 "LUMEN" (WinUI 3 UI-shell migration; wire + engine unchanged)
+
+STATUS: **UI-shell swap only** — the WinForms client is replaced by WinUI 3
+(Windows App SDK 1.8), unpackaged and framework-dependent (one
+`MaxDpsCompanion.exe`, ~43 files; `WindowsPackageType=None` +
+`EnableMsixTooling=true` must stay paired or `MaxDpsCompanion.pri` is missing
+and the app dies `0xC000027B`). The wire protocol is **UNCHANGED** (v5 core +
+Ext2/Ext3; `docs/PROTOCOL.md` untouched), the engine (RotationEngine,
+Scheduler, Knowledge, Decision, Telemetry, PixelProtocol, KeySender,
+ScreenSampler, ToggleSync, AppSettings) keeps its behaviour, the Exp addon is
+untouched, and `companion-rs/` is unaffected.
+
+- **4.0.0 → 4.0.2 (2026-10-11, same section): visual polish + classic-layout ghosting fix.**
+  csproj `<Version>` 4.0.2 → title `MaxDPS Companion v4.0.2 Lumen`
+  (`ReleaseIdentityTests` updated); double-bezel cards (outer radius 20 /
+  inner 15, white/4 wash, white/6 hairline ring, vertical top-edge
+  highlight), full-pill 42 DIP buttons with nested glyph chips, Exp status
+  card restyle (STATUS eyebrow, 8 px dot with running pulse, chevron chip
+  details disclosure, hairline section dividers, mono white/40 log stamps,
+  150 ms newest-line fade) and staggered 0/80/160 ms fade-up entrances on
+  the shared `KeySpline(0.32, 0.72, 0, 1)` curve. Structure, control IDs,
+  behaviors and UIA names unchanged; `tools/publish-exp.ps1` now derives
+  `VERSION.txt` from the built exe FileVersion + csproj `<Codename>`.
+  Also fixed in this pass: `ConsoleHomeView` set `Background` on a
+  `UserControl` (a WinUI no-op — the template never paints it), so the
+  classic layout ghosted semi-transparent over the hero card; the root grid
+  is now opaque + stretched (`Ui/Shell/ConsoleHomeView.cs:97-99`), verified
+  in `dist-exp\ui-home-snapshot.png`. 4.0.2 (same section) is a
+  visual/text-only pass: the primary Start button is now the success green in
+  both layouts (`ControlTheme.Success` / `ExpTheme.Ok`; brass toggles untouched)
+  and the Exp transport row 2 is swapped to `[Open Game] [Calibrate]` with the
+  label retitled to title case (behaviour/UIA wiring unchanged).
+
+CHANGED (P3/P4, plan `docs/plans/2026-10-11-winui3-v4-migration.md`): deleted
+the legacy WinForms shell from disk — `MainForm.cs`, `UiControls.cs`,
+`ClassSkillsView.cs` and every old `Ui/*.cs` (22 files incl.
+`Ui/DesignTokens.cs`, `Ui/ConsolePresets.cs`, `Ui/ExpTheme.cs`); re-homed the
+still-needed pieces to `Ui/Foundation/` (trimmed numeric-token `DesignTokens`,
+`ExpTheme`, `ConsolePresets`, `ToggleModel`) and dropped the P0 compile
+Remove/Include scaffold from the csproj (default SDK globbing now lifts the
+whole `Ui/` tree). Deleted the broken unused `Ui/Controls/WheelSafeNumeric.cs`
+(C#-only `NumberBox` subclass crashed at measure, 0x800F1000); numeric fields
+are plain `NumberBox` (`AdvancedViews.Number`). `EngineShellContract.cs` does
+not exist; the `WinFormsCompat.SystemInformation` shim **stays** — it is the
+frozen `BlockLocator` metrics source (no engine edit permitted). New
+`tools/publish-exp.ps1` (spec §1.2): publishes to `dist-exp`, never deletes
+`settings.ini` or the Rust `mdc-*.exe` (hash-checked), writes `VERSION.txt` =
+`4.0.2 Lumen` (derived from the built exe's FileVersion + csproj
+`<Codename>`), asserts `MaxDpsCompanion.exe` + `MaxDpsCompanion.pri`. Docs
+updated same pass: `README.md` build/install, `ARCHITECTURE.md` UI/file map,
+`docs/TESTING.md` §1a/benchmarks, this section. `dist\` +
+`addon/MaxDpsBridge/` (stable) stay frozen at 3.7.9; legacy `build.ps1`
+untouched.
+
+VERIFY (this machine, 2026-10-11, final after the 4.0.2 visual/text tweak):
+`dotnet build app/MaxDpsCompanion/MaxDpsCompanion.csproj -c Release` **0
+warnings / 0 errors**; `dotnet test -c Release` **946 passed / 0 failed /
+946**. Addon/engine unchanged in 4.0.2 (carried from 4.0.1):
+`lua tests/secret_harness.lua` **283 passed / 0 failed**; `luac -p
+addon/MaxDpsBridge/*.lua` clean (exit 0); `pwsh tools/ability_audit.ps1` clean
+(Violations 0 / Warnings 0 / Missing 0 / Stale 0) with the documented
+pre-existing Catalog drift (**exit 2**, `addon/` untouched). Published:
+`pwsh tools/publish-exp.ps1` → `dist-exp` exe **FileVersion 4.0.2.0**,
+`MaxDpsCompanion.pri` present, `settings.ini` hash unchanged
+(`InGameConfigMode=1`, `AD290B99…`), `VERSION.txt` = `4.0.2 Lumen`,
+`mdc-app.exe`/`mdc-cli.exe` hash unchanged. Live smoke: started the dist-exp
+exe → alive, hwnd ≠ 0, title `MaxDPS Companion v4.0.2 Lumen`, UIA sees the
+Exp transport (Start/Pause/Stop/Open Game/Calibrate) + status pill and **0
+toggle elements**; `--ui-smoke-test` → PASS exit 0 (exp mode, 672×682
+snapshot, 134 distinct colours; classic smoke PASS too — a settings copy with
+`InGameConfigMode=0`, 180 distinct colours, the deployed `settings.ini` left
+untouched). Snapshots regenerated (1244×864): pixel evidence in the Exp
+snapshot — Start fill is exactly `ExpTheme.Ok` `#4CC38A` over x 23-505,
+y 133-185; row 2 has the wider pill on the left (x 24-638, 52 %) = **Open
+Game** and the narrower on the right (x 653-1220, 48 %) = **Calibrate**, and
+the layout dump names read `⤢ Open Game` / `◉ Calibrate`. `--bench-ui`
+(last measured on 4.0.1): refresh mean 19.8 µs / p95 29.6 µs, snapshot
+best 26.3 ms, startup 774.9 ms → **FAIL on the <500 ms startup target (known
+miss, tracked)**. Static ≠ automated test ≠ live in-game.
+
+NEXT / OWED: (1) retail live checks unchanged from 3.7.9 (sampling/decoding,
+key sending, pause hotkey) **plus** the WinUI-specific ones: tray icon states +
+minimize-to-tray, per-monitor DPI across mixed-DPI monitors, a clean machine
+with only the WinAppSDK 1.8 runtime, and a visual-parity review against the
+3.7.9 snapshots; (2) `--bench-ui` startup target miss (~775 ms vs <500 ms;
+likely first-frame/theme + tray warmup — optimise or re-baseline); (3)
+companion-rs parity work continues independently
+(`docs/plans/2026-10-10-rust-companion.md`).
+
 ## 2026-10-16 macOS CLIENT REBUILD (3.7.9 + ScreenCaptureKit capture + send fixes)
 
 STATUS: the macOS client (`app/MaxDpsCompanion.Mac` + `app/MaxDpsCompanion.Core`)

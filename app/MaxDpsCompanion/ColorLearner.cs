@@ -21,12 +21,13 @@ internal static class ColorLearner
     public const int MinSeparation = 48;
 
     /// <summary>
-    /// v5-family capture widths, widest first: Ext3 (43), then the Ext2 (40)
-    /// and v5 core (35) fallbacks. The calibrate sampler captures the widest
-    /// frame; a narrower stale addon is classified on its own width.
+    /// v5-family capture widths, widest first: Ext4 (51), Ext3 (43), then the
+    /// Ext2 (40) and v5 core (35) fallbacks. The calibrate sampler captures the
+    /// widest frame; a narrower stale addon is classified on its own width.
     /// </summary>
     internal static readonly int[] V5CaptureWidths =
     {
+        PixelProtocol.CellCountExt4,
         PixelProtocol.CellCountExt3,
         PixelProtocol.CellCountExt2,
         PixelProtocol.CellCount,
@@ -342,10 +343,11 @@ internal static class ColorLearner
 
     public static int Classify(Color[] cells, ColorProfile? profile = null)
     {
-        // v5 family, widest first: Ext3 (43), then the Ext2 (40) and v5 core
-        // (35) fallbacks. All three share the core layout (slots 1-8, status
-        // 9), so the extra Ext2/Ext3 cells are ignored and a narrower stale
-        // addon classifies on its own width through the same window.
+        // v5 family, widest first: Ext4 (51), Ext3 (43), then the Ext2 (40) and
+        // v5 core (35) fallbacks. All four share the core layout (slots 1-8,
+        // status 9), so the extra Ext4/Ext3/Ext2 cells are ignored and a
+        // narrower stale addon classifies on its own width through the same
+        // window.
         if (IsV5Width(cells.Length))
             return ClassifyCells(cells, firstSlot: 1, lastSlot: 8,
                 cells[PixelProtocol.StatusCellIndex], profile);
