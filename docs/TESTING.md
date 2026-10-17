@@ -541,8 +541,29 @@ bar entries ready=yes (incl. macros and items); `/mdbx status` shows the new
 | 11 | ElvUI / Bartender / DiabolicUI bars | Binding resolution works (at least the command-mapped bars) |
 | 12 | 51-cell strip does not clip a screen edge | If it clips, re-anchor (`/mdbx offset 0 0`) or move it; decode stays green |
 | 13 | Keep the rotation going for 30 s after a mid-fight press (hotfix regression check) | Core rotation (Main) continues the whole time; the pressed key fires once; no `only interrupt/trinket` pattern |
-| 14 | `/mdbx main off`, then watch the companion status | Status says `addon Main toggle is OFF (/mdbx main on)`; `/mdbx main on` restores the rotation |
+| 14 | `/mdbx main off`, then watch the companion status | Status says `holding (addon Main off - rotation suspended)`; `/mdbx main on` restores the rotation |
 | 15 | Flip a slot toggle OFF *after* it has been firing (hotfix regression check) | Strip keeps decoding — the companion never reports "No pixel block" and the rotation continues with that slot blanked |
+
+Static != automated test != live in-game E2E: none of the above is claimed
+before a retail run.
+
+### 3m. Main master switch + compact overlay (4.0.4; live 12.1 retail, OWED)
+
+Install the 4.0.4 companion + 4.0.4-exp addon, then `/reload`.
+
+| # | Check | Expected |
+| :--- | :--- | :--- |
+| 1 | Turn Main OFF while the rotation is firing | Every slot stops; status says `holding (addon Main off - rotation suspended)`; no ability is sent |
+| 2 | Inspect the other pills while Main is OFF | Offensive / Defensive / Utility / Heal etc. keep their physical ON/OFF state (not rewritten) |
+| 3 | Turn Main back ON | The rotation resumes with exactly the previous per-slot policy; no `/reload` needed |
+| 4 | Main OFF, then press a bound hotbar key mid-GCD | No companion delivery/queue; the native focused-game press still behaves normally |
+| 5 | Main OFF, AutoTgt/AutoInteract ON, no target | No Tab/MB5 send; status stays on the master-off line |
+| 6 | Main ON, the other toggles still work | A per-slot OFF still blanks only that slot; Solo/OOC/TTK semantics unchanged |
+| 7 | `/mdbx main off` / `/mdbx main on` | Same master behaviour as the overlay pill |
+| 8 | Overlay geometry | No `profile:` line; frame is 300x165, 13 pills in the 4-column grid; status dot still bottom-right |
+| 9 | Profile workflows | `/mdbx profile Global / Spec / Talent` and the Config Profiles tab still work (the overlay no longer shows the profile text) |
+| 10 | Version skew | 4.0.3 companion + 4.0.4 addon: every slot blanks, but the old companion may still auto-target/interact (no master gate). 4.0.4 companion + 4.0.3 addon: the Ext3 mirror still closes the companion master gate |
+| 11 | Flip Main OFF, then ON, repeatedly during a fight | No stuck blank, no duplicate send, no stale queued press from before the OFF |
 
 Static != automated test != live in-game E2E: none of the above is claimed
 before a retail run.

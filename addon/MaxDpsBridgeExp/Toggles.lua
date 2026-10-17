@@ -41,8 +41,14 @@
 -- a player at-or-below 35% is an emergency and the Solo gate must not blank
 -- Defensive(3)/SelfHeal(8) even while ungrouped.
 --
+-- v4.0.4: Main is the MASTER switch. `Main OFF` blanks all eight slots with
+-- reason "main off (master switch)" and leaves every other stored toggle
+-- untouched. The companion applies the same master gate from the Ext3 mirror,
+-- so auto-target / auto-interact / queued user presses stop as well.
+--
 -- Reason strings: every denial records MDBX._LastBlank[slot] so `/mdb why`
--- and the status line can explain the blank ("main off", "solo not grouped").
+-- and the status line can explain the blank ("main off (master switch)",
+-- "solo not grouped").
 
 local addonName, MDBX = ...;
 
@@ -325,6 +331,16 @@ local function SlotAllowed (Slot, Ctx)
     -- Fresh tick: clear this slot's allow diagnostic so a stale note from a
     -- previous tick never survives a later deny.
     if MDBX._LastAllow then MDBX._LastAllow[Slot] = nil; end
+
+    -- 0) v4.0.4 MASTER GATE: Main OFF suspends EVERY slot, not just the core
+    --    rotation. The other stored toggles are never rewritten - the overlay
+    --    keeps their physical ON/OFF state, and turning Main back ON restores
+    --    exactly the previous per-slot policy. The companion has the same
+    --    master gate on the Ext3 mirror, so auto-target/interact/user presses
+    --    stop too (no companion executions at all while Main is off).
+    if Get("Main") == false then
+      return Deny(Slot, "main off (master switch)");
+    end
 
     -- 1) The slot's own EFFECTIVE toggle. Overlay-wins: an explicit in-game
     --    OFF denies here (and is no longer bypassed while the app epoch is

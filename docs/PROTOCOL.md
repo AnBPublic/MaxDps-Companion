@@ -217,6 +217,20 @@ that does not know about toggles decodes the frame exactly as before.
   change)** may add a target-class encoding (cell 29 R bits 2–3); it is not
   required for the v3.6 guard and does not alter this OFF semantics.
 
+#### v4.0.4 Main master switch (Exp addon; no wire change)
+
+The Exp addon promotes **Main** from "core rotation slot" to the master switch
+for the whole rotation. While `Toggles.Get("Main") == false`,
+`Toggles.SlotAllowed` blanks all eight slots with reason
+`main off (master switch)` and leaves every other stored toggle physically
+untouched; Main ON restores the previous per-slot policy. The companion applies
+the same gate from the Ext3 mirror (`bit 0`) and returns before every send path
+— rotation, auto-target, auto-interact and queued user presses — with
+`holding (addon Main off - rotation suspended)`. A missing/stale mirror fails
+open for old addons. No cell, checksum, layout or version-nibble change: the
+Ext3 mask already carries the bit, and the wire stays 51 cells on the Exp
+addon (43 on the stable bridge).
+
 `/mdb toggles`, `/mdb <key> on|off`, `/mdb all on|off`, `/mdb overlay on|off`
 and `/mdb why heal` are command-surface only; `/mdb status` gains a trailing
 `toggles=N/13 ON; OFF: ...` field.

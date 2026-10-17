@@ -6,8 +6,9 @@
 -- insecure Button that flips one in-game toggle via MDBX.Toggles. The
 -- overlay is deliberately off the pixel path and can never drive gameplay.
 --
--- Layout: Header (drag handle + lock + title) -> PillGrid (14 pills, 4
--- columns) -> Footer (active profile + status dot).
+-- Layout: Header (drag handle + lock + title) -> PillGrid (13 pills, 4
+-- columns) -> compact Footer (status dot only; v4.0.4 removed the profile
+-- line so the overlay is shorter). Profiles stay in the /mdbx Config window.
 --
 -- Redraw policy: a dirty flag plus a 0.2 s C_Timer ticker that exists ONLY
 -- while the overlay is shown; OnHide cancels it. Structural rebuilds that
@@ -214,7 +215,7 @@ local function ApplyFont (FontString, Which)
   return false;
 end
 
-local Frame, Header, Grid, Footer, FooterProfile, FooterDot, Ticker;
+local Frame, Header, Grid, Footer, FooterDot, Ticker;
 local Pills = {};
 local Dirty = true;
 local CombatQueue = nil;
@@ -448,14 +449,12 @@ local function BuildPills ()
 end
 
 local function BuildFooter ()
+  -- v4.0.4: profile text is gone from the overlay (profiles stay in the
+  -- /mdbx Config window). The footer keeps only the companion-live dot; the
+  -- frame height shrinks by 45 px because the profile row used the space.
   Footer = CreateFrame("Frame", nil, Frame);
-  Footer:SetPoint("BOTTOMLEFT", Frame, "BOTTOMLEFT", 8, 5);
   Footer:SetPoint("BOTTOMRIGHT", Frame, "BOTTOMRIGHT", -8, 5);
-  Footer:SetHeight(18);
-
-  FooterProfile = Footer:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall");
-  FooterProfile:SetPoint("LEFT", 0, 0);
-  ApplyFont(FooterProfile, "body");
+  Footer:SetSize(8, 8);
 
   FooterDot = Footer:CreateTexture(nil, "ARTWORK");
   FooterDot:SetSize(8, 8);
@@ -509,7 +508,7 @@ function O.Ensure ()
   local Ok, NewFrame = pcall(CreateFrame, "Frame", FRAME_NAME, UIParent, Mixin);
   if not Ok or not NewFrame then return nil; end;
   Frame = NewFrame;
-  Frame:SetSize(300, 210);
+  Frame:SetSize(300, 165);
   Frame:SetMovable(true);
   Frame:SetClampedToScreen(true);
   Frame:SetFrameStrata("MEDIUM");
@@ -599,18 +598,6 @@ function O.Refresh ()
     if MDBX.Toggles and MDBX.Toggles.Get then On = (MDBX.Toggles.Get(Pill.Key) ~= false); end;
     Pill.On = On;
     PaintPill(Pill, Pill.Hovered == true);
-  end;
-  if FooterProfile then
-    local Mode = nil;
-    if MDBX.Profiles and MDBX.Profiles.ActiveMode then pcall(function () Mode = MDBX.Profiles.ActiveMode(); end); end
-    if type(Mode) == "string" and Mode ~= "" then
-      FooterProfile:SetText("profile: " .. Mode);
-      FooterProfile:SetTextColor(0.93, 0.93, 0.88, 1);
-    else
-      -- Slice 4 empty state: never leave the footer blank.
-      FooterProfile:SetText("profile: (none)");
-      FooterProfile:SetTextColor(0.55, 0.56, 0.60, 1);
-    end
   end;
   if FooterDot and MDBX.Toggles and MDBX.Toggles.AppEpoch then
     local Epoch = 0;

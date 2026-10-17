@@ -1,3 +1,18 @@
+4.0.4-exp
+date: 2026-10-17 "Aegis"
+git: v4.0.4-exp (published 2026-10-17)
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED - v5 core 35 + Ext2 40 + Ext3 43 + Ext4 51 (51-cell strip).
+v4.0.4-exp: Companion 4.0.4 "Aegis". Main is now the MASTER switch: while the
+          in-game Main pill is OFF, Toggles.SlotAllowed blanks all eight slots
+          with reason "main off (master switch)" and leaves every other stored
+          toggle physically untouched; Main ON restores the previous per-slot
+          policy. The companion applies the same gate from the Ext3 mirror, so
+          auto-target / auto-interact and queued user presses stop as well.
+          Overlay: the profile footer is removed (profiles stay in the /mdbx
+          Config window) and the frame shrinks 300x210 -> 300x165. No cell,
+          layout or checksum change.
+
 4.0.3-exp
 date: 2026-10-11 "Bulwark"
 git: v4.0.3-exp (published 2026-10-17)

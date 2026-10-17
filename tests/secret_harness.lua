@@ -2321,7 +2321,25 @@ local function RunExt4Tests ()
   local a1r, a1g, a1b = XNib(1)
   check("E4x allowed Main paints a valid cell 1", OkA and bit.band(a1b, 8) == 8)
 
+  MDBX.Toggles.Set("Offensive", true)
+  MDBX.Toggles.Set("Defensive", true)
+  MDBX.Toggles.Set("SelfHeal", true)
   MDBX.Toggles.Set("Main", false)
+  -- v4.0.4: Main is the MASTER switch. All 8 slots are denied by the master
+  -- gate (not by their own pill), and the other stored toggles are untouched.
+  local MasterAll, MasterReason = true, 0
+  for Slot = 1, 8 do
+    if MDBX.Toggles.SlotAllowed(Slot, { InCombat = true, HpPct = 80, Grouped = true }) ~= false then
+      MasterAll = false
+    end
+    if MDBX._LastBlank[Slot] == "main off (master switch)" then MasterReason = MasterReason + 1 end
+  end
+  local MasterSnap = MDBX.Toggles.Snapshot()
+  check("E4x Main OFF denies all 8 slots with the master reason", MasterAll and MasterReason == 8)
+  check("E4x Main OFF leaves every other toggle physically ON",
+    MasterSnap.Main == false and MasterSnap.Offensive == true
+    and MasterSnap.Defensive == true and MasterSnap.SelfHeal == true
+    and MasterSnap.Trinket == true)
   local OkD = pcall(UpdateExp, StripExp, 0.06)
   local d1r, d1g, d1b = XNib(1)
   check("E4x denied Main repaints EMPTY (0,0,0)", OkD and d1r == 0 and d1g == 0 and d1b == 0)
@@ -2334,6 +2352,9 @@ local function RunExt4Tests ()
   local _, CoreChecksum = XNib(10)
   check("E4x core checksum matches the PAINTED cells after a deny", CoreChecksum == (PaintedSum % 16))
   MDBX.Toggles.Set("Main", true)
+  check("E4x Main ON restores slot 1 without rewriting other toggles",
+    MDBX.Toggles.SlotAllowed(1, { InCombat = true, HpPct = 80, Grouped = true }) == true
+    and MDBX.Toggles.Get("Offensive") == true and MDBX.Toggles.Get("Defensive") == true)
 
   -- restore the action-bar stubs
   GetActionInfo = function () return nil end

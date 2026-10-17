@@ -27,8 +27,8 @@
     <AssemblyTitle>MaxDPS Companion</AssemblyTitle>
     <Product>MaxDPS Companion</Product>
     <RootNamespace>MaxDpsCompanion</RootNamespace>
-    <Version>4.0.3</Version>
-    <Codename>Bulwark</Codename>
+    <Version>4.0.4</Version>
+    <Codename>Aegis</Codename>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
