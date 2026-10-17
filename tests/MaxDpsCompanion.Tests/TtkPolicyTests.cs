@@ -1,0 +1,472 @@
+using Xunit;
+
+namespace MaxDpsCompanion.Tests;
+
+/// <summary>
+/// A2/A4: the TTK gate thresholds, tier defaults and the schema parse. The
+/// estimator tests own the measurement; these tests pin the decision constants
+/// and the per-rule behaviour.
+/// </summary>
+public class TtkPolicyTests
+{
+    private static AbilityCatalog Catalog => AbilityCatalog.Default;
+
+    /// <summary>A minimal offensive definition; ctor args are the record's required order.</summary>
+    private static AbilityDefinition Offensive(
+        OffensiveUsage usage = OffensiveUsage.MajorBurst,
+        double? minTtkSec = null,
+        int cooldownMs = 120_000,
+        int durationMs = 0,
+        int? executeBelowPct = null,
+        bool executeFavored = false,
+        bool killSecure = false) =>
+        new(
+            SpellId: 900001,
+            Name: "Test Burst",
+            Category: AbilityCategory.Offensive,
+            Purpose: AbilityPurpose.MajorOffensive,
+            Tier: DefensiveTier.None,
+            Gcd: GcdKind.OnGcd,
+            Range: RangeKind.Melee,
+            Cast: CastKind.Instant,
+            CooldownMs: cooldownMs,
+            DurationMs: durationMs,
+            HealPctMaxHp: 0,
+            RequiresEnemyCast: false,
+            TargetRange: RangeRequirement.Any,
+            RequiresTarget: true,
+            UseBelowHpPct: null,
+            HoldAboveHpPct: null,
+            HoldWhenBuffActive: false,
+            NeverAutomatic: false,
+            ConflictGroup: null,
+            Priority: 0,
+            Unknown: UnknownPolicy.Use,
+            Classes: [],
+            Specs: [],
+            Note: null,
+            Source: null)
+        {
+            OffensiveUsage = usage,
+            MinTtkSec = minTtkSec,
+            ExecuteBelowPct = executeBelowPct,
+            ExecuteFavored = executeFavored,
+            KillSecure = killSecure,
+        };
+
+    private static CombatContext Combat(
+        bool ttkValid,
+        double ttkSec,
+        bool targetHpValid = false,
+        int targetHpPct = 0,
+        bool provisional = false,
+        double targetHpFrac = 0,
+        double ageSec = 0,
+        bool latch = false,
+        bool histBinding = false,
+        double histSec = 0) =>
+        new()
+        {
+            TtkValid = ttkValid,
+            TtkSec = ttkSec,
+            TargetHpValid = targetHpValid,
+            TargetHpPct = targetHpPct,
+            TtkProvisional = provisional,
+            TargetHpFrac = targetHpFrac,
+            TargetAgeSec = ageSec,
+            FastPackLatch = latch,
+            TtkHistBinding = histBinding,
+            TtkHistSec = histSec,
+        };
+
+    // ----- A2: schema parse -----
+
+    [Fact]
+    public void ParseTtk_Present_Reads_All_Four_Fields()
+    {
+        var o = new AbilityCatalog.AbilityOverride
+        {
+            MinTtkSec = 15.5,
+            ExecuteBelowPct = 20,
+            ExecuteFavored = true,
+            KillSecure = true,
+        };
+        var parsed = AbilityCatalog.ParseTtkCuration(o);
+        Assert.Equal(15.5, parsed.MinTtkSec);
+        Assert.Equal(20, parsed.ExecuteBelowPct);
+        Assert.True(parsed.ExecuteFavored);
+        Assert.True(parsed.KillSecure);
+    }
+
+    [Fact]
+    public void ParseTtk_Absent_Yields_Defaults()
+    {
+        var none = AbilityCatalog.ParseTtkCuration(null);
+        Assert.Null(none.MinTtkSec);
+        Assert.Null(none.ExecuteBelowPct);
+        Assert.False(none.ExecuteFavored);
+        Assert.False(none.KillSecure);
+
+        var empty = AbilityCatalog.ParseTtkCuration(new AbilityCatalog.AbilityOverride());
+        Assert.Null(empty.MinTtkSec);
+        Assert.Null(empty.ExecuteBelowPct);
+        Assert.False(empty.ExecuteFavored);
+        Assert.False(empty.KillSecure);
+    }
+
+    [Theory]
+    [InlineData((int)OffensiveUsage.MajorBurst, 15.0)]
+    [InlineData((int)OffensiveUsage.Transformation, 20.0)]
+    [InlineData((int)OffensiveUsage.Summon, 20.0)]
+    [InlineData((int)OffensiveUsage.WindowDriven, 10.0)]
+    [InlineData((int)OffensiveUsage.ShortCooldown, 5.0)]
+    [InlineData((int)OffensiveUsage.ProcDriven, 5.0)]
+    [InlineData((int)OffensiveUsage.AoeOnly, 0.0)]
+    [InlineData((int)OffensiveUsage.SingleTargetOnly, 5.0)]
+    [InlineData((int)OffensiveUsage.ResourceDriven, 5.0)]
+    [InlineData((int)OffensiveUsage.Execute, 3.0)]
+    [InlineData((int)OffensiveUsage.DefensiveOffensiveHybrid, 0.0)]
+    [InlineData((int)OffensiveUsage.Unknown, 10.0)]
+    public void Default_MinTtk_By_Usage(int usage, double expected)
+    {
+        Assert.Equal(expected, TtkPolicy.DefaultMinTtkSec((OffensiveUsage)usage));
+    }
+
+    [Fact]
+    public void Curated_MinTtk_Wins_Over_Default()
+    {
+        var ability = Offensive(OffensiveUsage.MajorBurst, minTtkSec: 25);
+        Assert.Equal(25, TtkPolicy.MinTtkSec(ability));
+    }
+
+    [Fact]
+    public void Loaded_Offensive_Without_Curation_Uses_Default_And_Execute_Off()
+    {
+        // Avatar 107574 is a curated MajorBurst with no TTK fields yet (T-B owns curation).
+        var avatar = Catalog.TryGet(107574);
+        if (avatar is null) return; // catalog drift: covered by its own tests
+        if (avatar.MinTtkSec is null)
+            Assert.Equal(TtkPolicy.DefaultMinTtkSec(avatar.OffensiveUsage), TtkPolicy.MinTtkSec(avatar));
+        Assert.False(avatar.ExecuteFavored);
+    }
+
+    // ----- A4: gate constants -----
+
+    [Fact]
+    public void AoeOnly_And_Hybrid_Have_Zero_MinTtk()
+    {
+        Assert.Equal(0.0, TtkPolicy.DefaultMinTtkSec(OffensiveUsage.AoeOnly));
+        Assert.Equal(0.0, TtkPolicy.DefaultMinTtkSec(OffensiveUsage.DefensiveOffensiveHybrid));
+    }
+
+    [Fact]
+    public void Two_Uses_Requires_Two_Cooldowns_Plus_Duration()
+    {
+        var ability = Offensive(OffensiveUsage.MajorBurst, cooldownMs: 120_000, durationMs: 10_000);
+        // 2*120 + 10 = 250 s.
+        Assert.True(TtkPolicy.TwoUsesAvailable(ability, Combat(ttkValid: true, ttkSec: 260)));
+        Assert.False(TtkPolicy.TwoUsesAvailable(ability, Combat(ttkValid: true, ttkSec: 240)));
+        // Absent cooldown => rule skipped.
+        var noCd = Offensive(OffensiveUsage.MajorBurst, cooldownMs: 0);
+        Assert.False(TtkPolicy.TwoUsesAvailable(noCd, Combat(ttkValid: true, ttkSec: 300)));
+    }
+
+    [Fact]
+    public void Execute_Range_Requires_Favored_And_Valid_Target_Hp()
+    {
+        var ability = Offensive(executeBelowPct: 20, executeFavored: true);
+        Assert.True(TtkPolicy.ExecuteRange(ability, Combat(ttkValid: false, ttkSec: 10, targetHpValid: true, targetHpPct: 15)));
+        Assert.False(TtkPolicy.ExecuteRange(ability, Combat(ttkValid: true, ttkSec: 10, targetHpValid: true, targetHpPct: 25)));
+        Assert.False(TtkPolicy.ExecuteRange(ability, Combat(ttkValid: true, ttkSec: 10, targetHpValid: false, targetHpPct: 10)));
+        var inert = Offensive(executeBelowPct: 20, executeFavored: false);
+        Assert.False(TtkPolicy.ExecuteRange(inert, Combat(ttkValid: true, ttkSec: 10, targetHpValid: true, targetHpPct: 10)));
+    }
+
+    [Fact]
+    public void Dying_Target_Holds_Only_Solo_NonEmergency_And_Short()
+    {
+        Assert.True(TtkPolicy.DyingTargetHolds(Combat(ttkValid: true, ttkSec: 4), soloEnabled: true, emergency: false));
+        Assert.False(TtkPolicy.DyingTargetHolds(Combat(ttkValid: true, ttkSec: 4), soloEnabled: true, emergency: true));
+        Assert.False(TtkPolicy.DyingTargetHolds(Combat(ttkValid: true, ttkSec: 4), soloEnabled: false, emergency: false));
+        Assert.False(TtkPolicy.DyingTargetHolds(Combat(ttkValid: true, ttkSec: 9), soloEnabled: true, emergency: false));
+        Assert.False(TtkPolicy.DyingTargetHolds(Combat(ttkValid: false, ttkSec: 4), soloEnabled: true, emergency: false));
+    }
+
+    // ----- A4: provider-level rule scenarios -----
+
+    private static AbilityDefinition WithGroup(AbilityDefinition ability, string group) => ability with { ConflictGroup = group };
+
+    private static ProviderInput PInput(
+        AbilityDefinition ability,
+        CombatContext ctx,
+        PolicyMemory? memory = null,
+        bool solo = false,
+        TriState range = TriState.Yes,
+        bool inCombat = true,
+        bool hasTarget = true) =>
+        new()
+        {
+            Input = new PolicyInput
+            {
+                Slot = ability.Category == AbilityCategory.Defensive ? Slot.Defensive : Slot.Offensive,
+                SpellId = ability.SpellId,
+                Context = ctx,
+                Options = new PolicyOptions { SoloEnabled = solo },
+                Memory = memory ?? new PolicyMemory(),
+                NowMs = 1000,
+                InCombat = inCombat,
+                HasTarget = hasTarget,
+            },
+            Ability = ability,
+            Catalog = Catalog,
+            Range = range,
+        };
+
+    [Fact]
+    public void Offensive_MaxDps_Major_On_Short_Ttk_Is_Used()
+    {
+        var ability = WithGroup(Offensive(OffensiveUsage.MajorBurst), "Burst");
+        var shortTtk = Combat(ttkValid: true, ttkSec: 5);
+        var fired = CandidateProviders.Offensive.Evaluate(PInput(ability, shortTtk));
+        Assert.Equal(PolicyVerdict.Use, fired.Verdict);
+
+        // Unknown TTK is also a Use (the conservation guard is gone).
+        var unknown = CandidateProviders.Offensive.Evaluate(PInput(ability, Combat(ttkValid: false, ttkSec: 5)));
+        Assert.Equal(PolicyVerdict.Use, unknown.Verdict);
+    }
+
+    [Fact]
+    public void Offensive_Two_Uses_Bypasses_Active_Pair()
+    {
+        var ability = WithGroup(Offensive(OffensiveUsage.MajorBurst, cooldownMs: 120_000, durationMs: 10_000), "Burst");
+        var memory = new PolicyMemory();
+        memory.NoteUse(WithGroup(Offensive(OffensiveUsage.MajorBurst), "Burst"), 500); // pair active
+
+        // 240 s is short of 2*120+10; pairing holds.
+        var held = CandidateProviders.Offensive.Evaluate(PInput(ability, Combat(ttkValid: true, ttkSec: 240), memory));
+        Assert.Equal(PolicyVerdict.Hold, held.Verdict);
+
+        // 260 s fits a second full use: the pairing hold is bypassed and it fires.
+        var fired = CandidateProviders.Offensive.Evaluate(PInput(ability, Combat(ttkValid: true, ttkSec: 260), memory));
+        Assert.Equal(PolicyVerdict.Use, fired.Verdict);
+    }
+
+    [Fact]
+    public void Offensive_Execute_Bypasses_Active_Pair()
+    {
+        var ability = WithGroup(
+            Offensive(OffensiveUsage.MajorBurst, cooldownMs: 120_000, executeBelowPct: 20, executeFavored: true),
+            "Burst");
+        var memory = new PolicyMemory();
+        memory.NoteUse(WithGroup(Offensive(OffensiveUsage.MajorBurst), "Burst"), 500);
+
+        var fired = CandidateProviders.Offensive.Evaluate(
+            PInput(ability, Combat(ttkValid: false, ttkSec: 300, targetHpValid: true, targetHpPct: 15), memory));
+        Assert.Equal(PolicyVerdict.Use, fired.Verdict);
+
+        var notFavored = WithGroup(
+            Offensive(OffensiveUsage.MajorBurst, cooldownMs: 120_000, executeBelowPct: 20, executeFavored: false),
+            "Burst");
+        var held = CandidateProviders.Offensive.Evaluate(
+            PInput(notFavored, Combat(ttkValid: false, ttkSec: 300, targetHpValid: true, targetHpPct: 15), memory));
+        Assert.Equal(PolicyVerdict.Hold, held.Verdict);
+    }
+
+    private static AbilityDefinition Defensive(DefensiveTier tier = DefensiveTier.Major, int? useBelowHp = null) =>
+        new(
+            SpellId: 900002,
+            Name: "Test Wall",
+            Category: AbilityCategory.Defensive,
+            Purpose: tier == DefensiveTier.Immunity ? AbilityPurpose.Immunity
+                : tier == DefensiveTier.Minor ? AbilityPurpose.DefensiveMinor
+                : AbilityPurpose.DefensiveMajor,
+            Tier: tier,
+            Gcd: GcdKind.OnGcd,
+            Range: RangeKind.SelfOnly,
+            Cast: CastKind.Instant,
+            CooldownMs: 120_000,
+            DurationMs: 8000,
+            HealPctMaxHp: 0,
+            RequiresEnemyCast: false,
+            TargetRange: RangeRequirement.Any,
+            RequiresTarget: false,
+            UseBelowHpPct: useBelowHp,
+            HoldAboveHpPct: null,
+            HoldWhenBuffActive: false,
+            NeverAutomatic: false,
+            ConflictGroup: "Def.Major",
+            Priority: 0,
+            Unknown: UnknownPolicy.Use,
+            Classes: [],
+            Specs: [],
+            Note: null,
+            Source: null);
+
+    private static CombatContext DefCombat(
+        bool ttkValid,
+        double ttkSec,
+        bool hpValid = false,
+        int hp = 0,
+        DefensiveUrgency urgency = DefensiveUrgency.Red,
+        bool latch = false) =>
+        new()
+        {
+            TtkValid = ttkValid,
+            TtkSec = ttkSec,
+            HpValid = hpValid,
+            HpPct = hp,
+            HpPctUpper = hp,
+            DefensiveUrgency = urgency,
+            FastPackLatch = latch,
+        };
+
+    [Fact]
+    public void Solo_Defensive_Holds_When_Target_Dies_Imminently()
+    {
+        var ability = Defensive();
+        var held = CandidateProviders.Defensive.Evaluate(
+            PInput(ability, DefCombat(ttkValid: true, ttkSec: 4), solo: true));
+        Assert.Equal(PolicyVerdict.Hold, held.Verdict);
+        Assert.Contains("saving", held.Reason);
+    }
+
+    [Fact]
+    public void Solo_Defensive_Emergency_Overrides_The_Ttk_Hold()
+    {
+        var ability = Defensive();
+        var decision = CandidateProviders.Defensive.Evaluate(
+            PInput(ability, DefCombat(ttkValid: true, ttkSec: 4, hpValid: true, hp: 20), solo: true));
+        Assert.Equal(PolicyVerdict.Use, decision.Verdict);
+        Assert.True(decision.Emergency);
+    }
+
+    [Fact]
+    public void NonSolo_Defensive_Ignores_The_Ttk_Hold()
+    {
+        var ability = Defensive();
+        var decision = CandidateProviders.Defensive.Evaluate(
+            PInput(ability, DefCombat(ttkValid: true, ttkSec: 4), solo: false));
+        Assert.Equal(PolicyVerdict.Use, decision.Verdict);
+    }
+
+    [Fact]
+    public void Unknown_Ttk_Defensive_Is_Unaffected()
+    {
+        var ability = Defensive();
+        var decision = CandidateProviders.Defensive.Evaluate(
+            PInput(ability, DefCombat(ttkValid: false, ttkSec: 4), solo: true));
+        Assert.Equal(PolicyVerdict.Use, decision.Verdict);
+    }
+
+    // ----- v3.6 per-tier / scope defensive table + carve-outs -----
+
+    [Fact]
+    public void Solo_Defensive_Tier_Table_Uses_Per_Tier_Windows()
+    {
+        // Minor: held below 6 s.
+        Assert.True(TtkPolicy.DyingTargetHolds(Defensive(DefensiveTier.Minor), DefCombat(true, 5), true, false));
+        Assert.False(TtkPolicy.DyingTargetHolds(Defensive(DefensiveTier.Minor), DefCombat(true, 7), true, false));
+        // Major: held below 10 s.
+        Assert.True(TtkPolicy.DyingTargetHolds(Defensive(DefensiveTier.Major), DefCombat(true, 9), true, false));
+        Assert.False(TtkPolicy.DyingTargetHolds(Defensive(DefensiveTier.Major), DefCombat(true, 11), true, false));
+        // Immunity: held below 15 s.
+        Assert.True(TtkPolicy.DyingTargetHolds(Defensive(DefensiveTier.Immunity), DefCombat(true, 14), true, false));
+        Assert.False(TtkPolicy.DyingTargetHolds(Defensive(DefensiveTier.Immunity), DefCombat(true, 16), true, false));
+    }
+
+    [Fact]
+    public void Group_Defensive_Gates_Minor_Only_And_Needs_The_Latch()
+    {
+        var minor = Defensive(DefensiveTier.Minor);
+        // Valid, nearly dead, latched, urgency below Orange -> hold.
+        Assert.True(TtkPolicy.DyingTargetHolds(minor,
+            DefCombat(true, 3, urgency: DefensiveUrgency.Yellow, latch: true), false, false));
+        // No latch -> never held.
+        Assert.False(TtkPolicy.DyingTargetHolds(minor,
+            DefCombat(true, 3, urgency: DefensiveUrgency.Yellow, latch: false), false, false));
+        // Orange or worse -> never held (the tank may be dying to other mobs).
+        Assert.False(TtkPolicy.DyingTargetHolds(minor,
+            DefCombat(true, 3, urgency: DefensiveUrgency.Orange, latch: true), false, false));
+        // No valid rate -> never held.
+        Assert.False(TtkPolicy.DyingTargetHolds(minor,
+            DefCombat(false, 3, urgency: DefensiveUrgency.Yellow, latch: true), false, false));
+        // Majors and immunities are never group-gated.
+        Assert.False(TtkPolicy.DyingTargetHolds(Defensive(DefensiveTier.Major),
+            DefCombat(true, 1, urgency: DefensiveUrgency.Yellow, latch: true), false, false));
+        Assert.False(TtkPolicy.DyingTargetHolds(Defensive(DefensiveTier.Immunity),
+            DefCombat(true, 1, urgency: DefensiveUrgency.Yellow, latch: true), false, false));
+    }
+
+    [Fact]
+    public void Solo_Ladder_Band_Carve_Out_Never_Conserves_Needed_Mitigation()
+    {
+        // Major inside its HP band (<=50%) is needed now.
+        Assert.False(TtkPolicy.DyingTargetHolds(Defensive(DefensiveTier.Major),
+            DefCombat(true, 8, hpValid: true, hp: 40), true, false));
+        // Immunity inside its band (<=30%).
+        Assert.False(TtkPolicy.DyingTargetHolds(Defensive(DefensiveTier.Immunity),
+            DefCombat(true, 12, hpValid: true, hp: 20), true, false));
+        // Above the band the hold still applies.
+        Assert.True(TtkPolicy.DyingTargetHolds(Defensive(DefensiveTier.Major),
+            DefCombat(true, 8, hpValid: true, hp: 80), true, false));
+    }
+
+    // ----- v3.8 warmup hold + buff-aware need -----
+    // Removed in 3.7.9: the warmup hold and the buff-aware adaptive need no
+    // longer exist (MaxDps authority). The provider-level replacement pins live
+    // in OffensiveMaxDpsAuthorityTests.
+
+    // ----- [TimeToKill] Fallback end-to-end wiring (spec §4) -----
+
+    [Fact]
+    public void Fallback_Threads_From_Settings_Through_PolicyOptions()
+    {
+        var settings = new AppSettings { TimeToKillFallback = TtkFallback.ConserveMajors };
+        Assert.Equal(TtkFallback.ConserveMajors, PolicyOptions.FromSettings(settings).TimeToKillFallback);
+        // Default stays the documented fail-open.
+        Assert.Equal(TtkFallback.FailOpen, PolicyOptions.Standard.TimeToKillFallback);
+        Assert.Equal(TtkFallback.FailOpen, new AppSettings().TimeToKillFallback);
+    }
+
+    /// <summary>Unknown-TTK, no latch, in-range offensive context (band 0, AgeSec 9).</summary>
+    private static CombatContext UnknownTtkContext()
+    {
+        var range = new TriState[PixelProtocol.SlotCount];
+        range[(int)Slot.Offensive] = TriState.Yes;
+        return new CombatContext
+        {
+            TtkValid = false,
+            TtkSec = 300,
+            TargetAgeSec = 9,
+            FastPackLatch = false,
+            SlotRange = range,
+        };
+    }
+
+    /// <summary>Avatar (107574) is a real Warrior Fury MajorBurst row in the pinned catalog.</summary>
+    private static PolicyDecision EvaluateAvatarThroughEvaluator(TtkFallback fallback) =>
+        PolicyEvaluator.Evaluate(new PolicyInput
+        {
+            Slot = Slot.Offensive,
+            SpellId = 107574,
+            Context = UnknownTtkContext(),
+            Options = new PolicyOptions { TimeToKillFallback = fallback },
+            Memory = new PolicyMemory(),
+            NowMs = 1000,
+            InCombat = true,
+            HasTarget = true,
+        }, Catalog);
+
+    [Fact]
+    public void ConserveMajors_No_Longer_Holds_An_Unknown_Ttk_Major()
+    {
+        // v3.7.9: the [TimeToKill] Fallback is retained for telemetry/replay
+        // schema but no longer changes an Offensive verdict, so both settings
+        // let a MaxDps major through.
+        var failOpen = EvaluateAvatarThroughEvaluator(TtkFallback.FailOpen);
+        Assert.Equal(PolicyVerdict.Use, failOpen.Verdict);
+
+        var conserve = EvaluateAvatarThroughEvaluator(TtkFallback.ConserveMajors);
+        Assert.Equal(PolicyVerdict.Use, conserve.Verdict);
+    }
+}

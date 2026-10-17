@@ -1,0 +1,63 @@
+MaxDps Companion rotation replay
+file       : tests/MaxDpsCompanion.Tests/fixtures/solo-cooldown-reset-warrior.jsonl
+format     : 1
+events     : 9 (tick 5, send 3, link 0, session 1, bad 0)
+span       : 0.000s .. 4.000s (4.000s)
+decisions  : 0 recorded
+verdicts   : 8 policy verdicts recomputed, 0 mismatch(es)
+catalog    : recorded v3, current v3
+decode errs: 0
+mismatches : 0
+
+t=0.000s  session  app=3.0.0 proto=5 capacity=10000 start
+t=1.000s  send  spell SelfHeal H  interval=0ms
+t=1.000s  tick #0  Active  hb=1  target=yes  gcd=no  link=yes  note="sending"
+  slots   : Main=E  Off=-  Def=-  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=H
+  cand    : Main       E      enabled actionable  age=0.000s unchanged=0.000s pressed=no
+  cand    : SelfHeal   H      enabled actionable  age=0.000s unchanged=0.000s pressed=no
+  decision: SelfHeal -> SelfSustain (75%)
+  policy  : SelfSustain -> SelfHeal  held=0 skipped=0 suppressed=0
+  verdict : Main       spell=12294    Use  MaxDps main candidate; actionable  [MaxDpsRotation]  why: registry: delegated to MaxDps gate
+  verdict : SelfHeal   spell=202168   Use  solo: HP 50% below sustain 65%; self-sustain  [SelfSustain]  why: solo self-sustain window 65%
+  rejected: Main (lower rank #2)
+  timing  : last send spell SelfHeal H 0ms ago
+t=1.300s  send  spell SelfHeal H  interval=0ms
+t=1.300s  tick #0  Active  hb=3  target=yes  gcd=no  link=yes  note="sending"
+  slots   : Main=E  Off=-  Def=-  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=H
+  cand    : Main       E      enabled actionable  age=0.000s unchanged=0.000s pressed=no
+  cand    : SelfHeal   H      enabled actionable  age=0.000s unchanged=0.000s pressed=no
+  decision: SelfHeal -> SelfSustain (75%)
+  policy  : SelfSustain -> SelfHeal  held=0 skipped=0 suppressed=0
+  verdict : Main       spell=12294    Use  MaxDps main candidate; actionable  [MaxDpsRotation]  why: registry: delegated to MaxDps gate
+  verdict : SelfHeal   spell=202168   Use  solo: HP 50% below sustain 65%; self-sustain  [SelfSustain]  why: solo self-sustain window 65%
+  rejected: Main (lower rank #2)
+  timing  : last send spell SelfHeal H 0ms ago
+t=1.350s  tick #0  Active  hb=4  target=yes  gcd=yes  link=yes  note="waiting for GCD"
+  slots   : Main=E  Off=-  Def=-  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=H
+  cand    : Main       E      enabled actionable  age=0.050s unchanged=0.050s pressed=no
+  cand    : SelfHeal   H      enabled actionable  age=0.050s unchanged=0.050s pressed=no
+  decision: SelfHeal -> GcdHold (20%)
+  policy  : GcdHold  held=0 skipped=0 suppressed=0
+  verdict : Main       spell=12294    Use  MaxDps main candidate; actionable  [MaxDpsRotation]  why: registry: delegated to MaxDps gate
+  verdict : SelfHeal   spell=202168   Use  solo: HP 55% below sustain 65%; self-sustain  [SelfSustain]  why: solo self-sustain window 65%
+  rejected: Main (lower rank #2)
+  held    : GCD active - send path skips non-interrupt
+  timing  : last send spell SelfHeal H 50ms ago
+t=4.000s  send  spell SelfHeal H  interval=0ms
+t=4.000s  tick #0  Active  hb=5  target=yes  gcd=no  link=yes  note="sending"
+  slots   : Main=E  Off=-  Def=-  Cons=-  Trin=-  Int=-  Mobility=-  SelfHeal=H
+  cand    : Main       E      enabled actionable  age=2.700s unchanged=2.700s pressed=no
+  cand    : SelfHeal   H      enabled actionable  age=2.700s unchanged=2.700s pressed=no
+  decision: SelfHeal -> SelfSustain (75%)
+  policy  : SelfSustain -> SelfHeal  held=0 skipped=0 suppressed=0
+  verdict : Main       spell=12294    Use  MaxDps main candidate; actionable  [MaxDpsRotation]  why: registry: delegated to MaxDps gate
+  verdict : SelfHeal   spell=202168   Use  solo: HP 50% below sustain 65%; self-sustain  [SelfSustain]  why: solo self-sustain window 65%
+  rejected: Main (lower rank #2)
+  timing  : last send spell SelfHeal H 0ms ago
+
+summary
+  reasons : -
+  policy  : SelfSustain 3, GcdHold 1
+  sends   : spell 3
+  faults  : -
+  notes   : sending 3, waiting for GCD 1, waiting for self-heal cooldown 1

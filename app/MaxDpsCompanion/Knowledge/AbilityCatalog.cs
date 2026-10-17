@@ -27,8 +27,12 @@ internal sealed class AbilityCatalog
     public const string CuratedResourceName = "MaxDpsCompanion.Knowledge.abilities.json";
     public const string ClassSpellsResourceName = "MaxDpsCompanion.Knowledge.class-spells.json";
 
-    /// <summary>Protocol/generator revision — bumped when the index scheme changes.</summary>
-    public const int CatalogVersion = 3;
+    /// <summary>
+    /// Protocol/generator revision — bumped when the index scheme changes.
+    /// v4 adds the v3.3.0 Solo ladder lists (defensiveMajor + immunity) to the
+    /// generated Catalog.lua; wire cell layout is unchanged.
+    /// </summary>
+    public const int CatalogVersion = 4;
 
     /// <summary>
     /// The live game patch this registry is built for (registry §38/§62). A
@@ -244,10 +248,19 @@ internal sealed class AbilityCatalog
                 if (specExtras is null) continue;
                 var mobility = (specExtras.Mobility ?? []).Where(id => id > 0).Distinct().ToArray();
                 var selfHeal = (specExtras.SelfHeal ?? []).Where(id => id > 0).Distinct().ToArray();
+                var offensive = (specExtras.Offensive ?? []).Where(id => id > 0).Distinct().ToArray();
                 if (mobility.Length > 0) extras[(className, specName, AbilityCategory.Mobility)] = mobility;
                 if (selfHeal.Length > 0) extras[(className, specName, AbilityCategory.SelfHeal)] = selfHeal;
+                if (offensive.Length > 0) extras[(className, specName, AbilityCategory.Offensive)] = offensive;
                 foreach (var id in mobility) overrides.TryAdd(id, new AbilityOverride { Id = id, Category = "Mobility" });
                 foreach (var id in selfHeal) overrides.TryAdd(id, new AbilityOverride { Id = id, Category = "SelfHeal" });
+                // NOTE: offensive list ids are deliberately NOT given a synthetic
+                // override. The curated offensive list only references ids that
+                // are already catalogued (vendor Offensive rows or a curated
+                // entry), and flipping a vendor row's provenance to Curated here
+                // would turn a delegated MaxDpsBacked offensive into a
+                // companion-backed one the audit (rightly) demands usage data
+                // for. The list membership alone is the gap-fill source.
             }
         }
 
@@ -424,6 +437,184 @@ internal sealed class AbilityCatalog
             return a.SpellId.CompareTo(b.SpellId);
         });
         return candidates.Select(a => a.SpellId).ToArray();
+    }
+
+    /// <summary>
+    /// Short-cooldown defensive gap-fill for the bridge's Orange tier (v3.0.0):
+    /// the same derivation as <see cref="DefensiveGapFill"/> but restricted to
+    /// Minor/None-tier mitigation — the "short CDs" the user turned on that
+    /// never fired because the old gap-fill only offered candidates at Red.
+    /// Majors/immunities are deliberately excluded: they still require Red.
+    /// Deterministic (Tier, then curated Priority, then ascending id).
+    /// </summary>
+    public int[] DefensiveGapFillMinor(string? className, string? specName)
+    {
+        if (className is null || specName is null) return [];
+        var candidates = new List<AbilityDefinition>();
+        foreach (var ability in _byId.Values)
+        {
+            if (!ability.IsDefensive || ability.NeverAutomatic) continue;
+            if (ability.Provenance == AbilityProvenance.ClassSpell) continue;
+            if (ability.Tier is DefensiveTier.Major or DefensiveTier.Immunity) continue;
+            if (ability.Purpose == AbilityPurpose.Immunity) continue;
+            if (!MembersContain(ability.Classes, className) || !MembersContain(ability.Specs, specName)) continue;
+            candidates.Add(ability);
+        }
+        candidates.Sort((a, b) =>
+        {
+            var priority = b.Priority.CompareTo(a.Priority);
+            if (priority != 0) return priority;
+            return a.SpellId.CompareTo(b.SpellId);
+        });
+        return candidates.Select(a => a.SpellId).ToArray();
+    }
+
+    /// <summary>
+    /// Major-only defensive gap-fill for the Solo escalation ladder (v3.3.0):
+    /// the same derivation as <see cref="DefensiveGapFill"/> restricted to
+    /// Major-tier mitigation. The bridge offers these only in Solo at/below
+    /// the major HP band; group Red-tier behavior keeps using
+    /// <see cref="DefensiveGapFill"/>. Deterministic (Priority, then id).
+    /// </summary>
+    public int[] DefensiveGapFillMajor(string? className, string? specName)
+    {
+        if (className is null || specName is null) return [];
+        var candidates = new List<AbilityDefinition>();
+        foreach (var ability in _byId.Values)
+        {
+            if (!ability.IsSurvival || ability.NeverAutomatic) continue;
+            if (ability.Provenance == AbilityProvenance.ClassSpell) continue;
+            if (ability.Tier != DefensiveTier.Major) continue;
+            if (ability.Purpose == AbilityPurpose.Immunity) continue;
+            if (!MembersContain(ability.Classes, className) || !MembersContain(ability.Specs, specName)) continue;
+            candidates.Add(ability);
+        }
+        candidates.Sort((a, b) =>
+        {
+            var priority = b.Priority.CompareTo(a.Priority);
+            if (priority != 0) return priority;
+            return a.SpellId.CompareTo(b.SpellId);
+        });
+        return candidates.Select(a => a.SpellId).ToArray();
+    }
+
+    /// <summary>
+    /// Immunity gap-fill for the bottom Solo escalation band (v3.3.0): full
+    /// immunities the bridge may offer ONLY in Solo at/below the immunity HP
+    /// band, when MaxDps names no defensive. Never offered in groups; the
+    /// companion policy additionally requires no active immunity and honors
+    /// the per-ability ON/OFF switch. Deterministic (Priority, then id).
+    /// </summary>
+    public int[] ImmunityGapFill(string? className, string? specName)
+    {
+        if (className is null || specName is null) return [];
+        var candidates = new List<AbilityDefinition>();
+        foreach (var ability in _byId.Values)
+        {
+            if (ability.NeverAutomatic) continue;
+            if (ability.Provenance == AbilityProvenance.ClassSpell) continue;
+            if (ability.Tier != DefensiveTier.Immunity && ability.Purpose != AbilityPurpose.Immunity) continue;
+            if (!MembersContain(ability.Classes, className) || !MembersContain(ability.Specs, specName)) continue;
+            candidates.Add(ability);
+        }
+        candidates.Sort((a, b) =>
+        {
+            var priority = b.Priority.CompareTo(a.Priority);
+            if (priority != 0) return priority;
+            return a.SpellId.CompareTo(b.SpellId);
+        });
+        return candidates.Select(a => a.SpellId).ToArray();
+    }
+
+    /// <summary>
+    /// preference order (shared burst first, spec-specific second). Unlike the
+    /// defensive list this is HAND-CURATED in <c>abilities.json</c> because the
+    /// vendor's offensive bucket mixes true burst windows with rotational /
+    /// resource fillers the companion must never fire blind. The bridge offers
+    /// the first ready+bound entry only when MaxDps names no bound offensive,
+    /// and the companion detects the gap-fill by id membership (there is no
+    /// spare wire source bit — PixelProtocol decode is frozen).
+    /// </summary>
+    public int[] OffensiveGapFill(string? className, string? specName) =>
+        Extras(className, specName, AbilityCategory.Offensive);
+
+    /// <summary>True when the spell is one of the curated offensive gap-fill entries for the class+spec.</summary>
+    public bool IsOffensiveGapFill(string? className, string? specName, int spellId)
+    {
+        if (spellId <= 0) return false;
+        foreach (var id in OffensiveGapFill(className, specName))
+            if (id == spellId) return true;
+        // Racial-scope offensives are emitted into EVERY spec's bridge
+        // `offensive` list (the bridge's known-spell filter picks the one the
+        // player's race actually knows), so the companion must recognise them
+        // here even though OffensiveGapFill's class-bound arrays stay unchanged.
+        if (TryGet(spellId) is { } racial
+            && string.Equals(racial.Scope, RacialScope, StringComparison.OrdinalIgnoreCase)
+            && racial.Category == AbilityCategory.Offensive)
+            return true;
+        return false;
+    }
+
+    /// <summary>The <see cref="AbilityDefinition.Scope"/> value for race-carried rows.</summary>
+    public const string RacialScope = "Racial";
+
+    /// <summary>
+    /// Catalogued racial ids for one category, in curated <see cref="AbilityDefinition.Priority"/>
+    /// order then ascending id. The generator appends these to every class/spec
+    /// bridge list; the in-game known-spell filter selects the entry matching the
+    /// player's race (a non-matching race never has a resolvable keybind).
+    /// Deliberately separate from the class-bound gap-fill arrays so those stay
+    /// byte-identical. Read-only.
+    /// </summary>
+    public int[] RacialIds(AbilityCategory category)
+    {
+        var rows = new List<AbilityDefinition>();
+        foreach (var ability in _byId.Values)
+            if (string.Equals(ability.Scope, RacialScope, StringComparison.OrdinalIgnoreCase)
+                && ability.Category == category)
+                rows.Add(ability);
+        rows.Sort((a, b) =>
+        {
+            var priority = b.Priority.CompareTo(a.Priority);
+            return priority != 0 ? priority : a.SpellId.CompareTo(b.SpellId);
+        });
+        return rows.Select(a => a.SpellId).ToArray();
+    }
+
+    /// <summary>
+    /// v3.4.0 CC appendix read path: the curated crowd-control entry for a
+    /// class+spec+spell id, or null when the spell is not a curated CC row.
+    /// Verified ids only (see <see cref="CrowdControlCatalog"/>). Read-only —
+    /// it does not alter any existing catalog behaviour.
+    /// </summary>
+    public CrowdControlEntry? CrowdControlFor(string? className, string? specName, int spellId) =>
+        CrowdControlCatalog.Find(className, specName, spellId);
+
+    /// <summary>All curated crowd-control entries for a class+spec (verified ids only).</summary>
+    public IReadOnlyList<CrowdControlEntry> CrowdControlFor(string? className, string? specName) =>
+        CrowdControlCatalog.For(className, specName);
+
+    /// <summary>
+    /// v3.4.0 CC candidate read path (Option A): the AUTO-ELIGIBLE curated
+    /// crowd-control ids for a class+spec, in curated preference order, that
+    /// the generator emits as the bridge's per-spec <c>cc</c> extras list. The
+    /// bridge offers the first ready+bound entry in the reused Interrupt slot
+    /// ONLY when MaxDps names no usable interrupt; the companion's
+    /// <see cref="CrowdControlGate"/> remains the authority on firing it.
+    /// v3.5 raises the MaxDps-owned warrior stuns (Storm Bolt 107570, Shockwave
+    /// 46968) to AutoEligible=true so they ride this list; the provider's
+    /// casting-only gate holds any Stun/Silence row unless the target is
+    /// observably casting, so MaxDps authority over blind stuns is preserved.
+    /// Verified ids only (see <see cref="CrowdControlCatalog"/>). Read-only — it
+    /// does not alter any existing catalog behaviour.
+    /// </summary>
+    public int[] CrowdControlGapFill(string? className, string? specName)
+    {
+        if (className is null || specName is null) return [];
+        var ids = new List<int>();
+        foreach (var entry in CrowdControlCatalog.For(className, specName))
+            if (entry.AutoEligible) ids.Add(entry.SpellId);
+        return ids.ToArray();
     }
 
     private static int TierRank(DefensiveTier tier) => tier switch
@@ -667,6 +858,19 @@ internal sealed class AbilityCatalog
         if (!IsSurvivalPurpose(purpose)) tier = DefensiveTier.None;
         var neverAutomatic = o.NeverAutomatic ?? def.NeverAutomatic;
         if (purpose == AbilityPurpose.GapCloser) neverAutomatic = false;
+
+        // v3.x racial safety: a race-scoped row whose id rests only on
+        // Low-confidence research (and was never confirmed in a live retail
+        // pass) is flagged never-automatic. The activatable-vs-aura id split
+        // and race keybind resolution are exactly what offline research gets
+        // wrong; curating sourceConfidence Medium+ asserts the id was checked,
+        // and the row then automates under its normal gates. LiveVerified stays
+        // false for every racial until a retail run records it.
+        if (string.Equals(o.Scope, RacialScope, StringComparison.OrdinalIgnoreCase)
+            && o.LiveVerified != true
+            && IsLowConfidence(o.SourceConfidence))
+            neverAutomatic = true;
+
         var minimumUrgency = MinimumUrgencyFor(purpose, tier);
 
         def = def with
@@ -705,6 +909,7 @@ internal sealed class AbilityCatalog
             Unknown = o.UnknownPolicy is null ? def.Unknown : ParseEnum(o.UnknownPolicy, def.Unknown),
             Note = o.Note ?? def.Note,
             Source = o.Source ?? def.Source,
+            ResetHint = o.ResetHint ?? def.ResetHint,
             Provenance = AbilityProvenance.Curated,
         };
 
@@ -729,6 +934,7 @@ internal sealed class AbilityCatalog
             status = IntelligenceStatus.ManualByDesign;
         var ownership = DeriveOwnership(def, o, status, automation);
         var sourceType = DeriveSourceType(def, rows, o);
+        var ttk = ParseTtkCuration(o);
         return def with
         {
             Kind = o?.Kind is { Length: > 0 } k ? ParseEnum(k, AbilityKind.ActiveCombatAbility) : AbilityKind.ActiveCombatAbility,
@@ -749,14 +955,20 @@ internal sealed class AbilityCatalog
             MobilityKind = o?.MobilityKind is { Length: > 0 } mk
                 ? ParseEnum(mk, MobilityKind.Unknown)
                 : DeriveMobilityKind(def.Purpose),
+            EmergencyEscape = o?.EmergencyEscape ?? def.EmergencyEscape,
             Requires = DeriveRequirements(def, o),
             TalentNote = o?.Talent,
             HeroTalentNote = o?.HeroTalent,
             PatchVerified = o?.PatchVerified ?? verifiedDate,
             Relations = ParseRelations(o?.Relations),
+            Scope = string.IsNullOrWhiteSpace(o?.Scope) ? def.Scope : o!.Scope,
             CapabilityTags = o?.Capabilities ?? [],
             EnemyCountMin = o?.EnemyCountMin,
             HoldForBurst = o?.HoldForBurst ?? false,
+            MinTtkSec = ttk.MinTtkSec,
+            ExecuteBelowPct = ttk.ExecuteBelowPct,
+            ExecuteFavored = ttk.ExecuteFavored,
+            KillSecure = ttk.KillSecure,
             // v2.7 coverage registry (§4-§7): ownership + completeness are
             // independent axes; every MaxDps-owned entry carries a derived or
             // curated delegation reason; every manual entry carries a manual
@@ -778,6 +990,17 @@ internal sealed class AbilityCatalog
             LiveVerified = o?.LiveVerified ?? false,
         };
     }
+
+    /// <summary>The optional v3.2.0/v3.6 TTK curation fields, parsed from one override.</summary>
+    internal readonly record struct TtkCuration(double? MinTtkSec, int? ExecuteBelowPct, bool ExecuteFavored, bool KillSecure);
+
+    /// <summary>
+    /// Parses the optional TTK curation fields. Split out from the materializer
+    /// so the present/absent/default behaviour is directly testable without a
+    /// curated-file edit (abilities.json is owned by workstream T-B).
+    /// </summary>
+    internal static TtkCuration ParseTtkCuration(AbilityOverride? o) =>
+        new(o?.MinTtkSec, o?.ExecuteBelowPct, o?.ExecuteFavored ?? false, o?.KillSecure ?? false);
 
     /// <summary>
     /// Who owns the when-to-use decision (v2.7 §4). Deterministic:
@@ -1158,6 +1381,11 @@ internal sealed class AbilityCatalog
     private static T ParseEnum<T>(string value, T fallback) where T : struct, Enum =>
         Enum.TryParse<T>(value, ignoreCase: true, out var parsed) ? parsed : fallback;
 
+    private static bool IsLowConfidence(string? value) =>
+        value is { Length: > 0 }
+        && Enum.TryParse<SourceConfidence>(value, ignoreCase: true, out var parsed)
+        && parsed == SourceConfidence.Low;
+
     // ---- JSON DTOs --------------------------------------------------------
 
     private sealed class VendorFile
@@ -1210,6 +1438,9 @@ internal sealed class AbilityCatalog
     {
         public List<int>? Mobility { get; set; }
         public List<int>? SelfHeal { get; set; }
+
+        /// <summary>Curated major offensive gap-fill candidates (shared burst first, spec-specific second).</summary>
+        public List<int>? Offensive { get; set; }
     }
 
     internal sealed class AbilityOverride
@@ -1240,6 +1471,9 @@ internal sealed class AbilityCatalog
         public string? Note { get; set; }
         public string? Source { get; set; }
 
+        /// <summary>Optional curated "resets on kill"-style hint; informational only.</summary>
+        public string? ResetHint { get; set; }
+
         // v2.6 ability intelligence registry fields (all optional).
         public string? Kind { get; set; }
         public string? Status { get; set; }
@@ -1248,9 +1482,13 @@ internal sealed class AbilityCatalog
         public string? InterruptKind { get; set; }
         public string? OffensiveUsage { get; set; }
         public string? MobilityKind { get; set; }
+        public bool? EmergencyEscape { get; set; }
         public string[]? Requires { get; set; }
         public string[]? Classes { get; set; }
         public string[]? Specs { get; set; }
+
+        /// <summary>Origin scope ("Racial") for race-carried catalog rows; null = class-bound.</summary>
+        public string? Scope { get; set; }
         public string? Talent { get; set; }
         public string? HeroTalent { get; set; }
         public string? PatchVerified { get; set; }
@@ -1258,6 +1496,14 @@ internal sealed class AbilityCatalog
         public string[]? Capabilities { get; set; }
         public int? EnemyCountMin { get; set; }
         public bool? HoldForBurst { get; set; }
+
+        // v3.2.0 TTK fields (optional; absent = tier default / execute off).
+        public double? MinTtkSec { get; set; }
+        public int? ExecuteBelowPct { get; set; }
+        public bool? ExecuteFavored { get; set; }
+
+        // v3.6 TTK kill-secure flag (optional; absent = false).
+        public bool? KillSecure { get; set; }
 
         // v2.7 coverage registry fields (all optional; derivations are documented
         // in AbilityCatalog.DeriveOwnership / DeriveCompleteness / ...).

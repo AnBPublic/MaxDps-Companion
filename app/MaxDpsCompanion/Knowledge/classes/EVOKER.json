@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "class": "EVOKER",
+  "note": "S3a verified taxonomy overlay (schema 1). Routes gap-closers/CC/defensives/self-sustain only; never Main. Defensive tiers: minor = Yellow+, major = Red, immunity = last resort. CC stuns/silences are gated to casting/fleeing non-boss targets; sleeps/disorients stay manual. Never-automatic abilities stay Never whatever this file says. Every Auto/Suggest id is verified against spell-verification.json.",
+  "entries": [
+    { "spellId": 358267, "role": "Mobility", "route": "Mobility", "emergencyEscape": true, "offGcd": true, "mode": "Auto", "minUrgency": 0, "notes": "Hover: reposition/escape; breaks roots and kites out of danger." },
+    { "spellId": 370665, "role": "Utility", "route": "Mobility", "emergencyEscape": false, "offGcd": true, "mode": "Never", "minUrgency": 0, "notes": "Rescue: friendly grip; never-automatic list." },
+    { "spellId": 351338, "role": "Utility", "route": "Interrupt", "emergencyEscape": false, "offGcd": true, "mode": "Auto", "minUrgency": 0, "notes": "Quell: interrupt/kick only on a live enemy cast; MaxDps's interrupt claim wins the slot first." },
+    { "spellId": 360806, "role": "CC", "route": "Interrupt", "emergencyEscape": false, "offGcd": false, "mode": "Suggest", "minUrgency": 0, "notes": "Sleep Walk: sleep; manual." },
+    { "spellId": 372048, "role": "CC", "route": "Interrupt", "emergencyEscape": false, "offGcd": false, "mode": "Suggest", "minUrgency": 0, "notes": "Oppressing Roar: AoE disorient; manual." },
+    { "spellId": 363916, "role": "Major", "route": "Defensive", "emergencyEscape": false, "offGcd": true, "mode": "Auto", "minUrgency": 4, "notes": "Obsidian Scales: major defensive; Red." },
+    { "spellId": 374348, "role": "Major", "route": "Defensive", "emergencyEscape": false, "offGcd": true, "mode": "Auto", "minUrgency": 4, "notes": "Renewing Blaze: major defensive/heal; Red." },
+    { "spellId": 363534, "role": "Major", "route": "Defensive", "emergencyEscape": false, "offGcd": true, "mode": "Auto", "minUrgency": 4, "notes": "Rewind: rewinds damage taken; last-resort/solo at/below 30% HP." },
+    { "spellId": 375406, "role": "Minor", "route": "Defensive", "emergencyEscape": false, "offGcd": false, "mode": "Auto", "minUrgency": 2, "notes": "Obsidian Bulwark: minor mitigation; Yellow+." },
+    { "spellId": 374227, "role": "Minor", "route": "Defensive", "emergencyEscape": false, "offGcd": true, "mode": "Auto", "minUrgency": 2, "notes": "Zephyr: minor group speed/mitigation; Yellow+." },
+    { "spellId": 357170, "role": "Minor", "route": "Defensive", "emergencyEscape": false, "offGcd": true, "mode": "Never", "minUrgency": 4, "notes": "Time Dilation: external ally defensive; manual (no observable ally state)." },
+    { "spellId": 360995, "role": "Minor", "route": "Defensive", "emergencyEscape": false, "offGcd": false, "mode": "Auto", "minUrgency": 2, "notes": "Verdant Embrace: solo HP-ladder heal at/below 65% HP." },
+    { "spellId": 361469, "role": "Utility", "route": "Defensive", "emergencyEscape": false, "offGcd": false, "mode": "Suggest", "minUrgency": 2, "notes": "Living Flame: on-GCD self-heal; solo at/below 65% HP." },
+    { "spellId": 370960, "role": "Utility", "route": "Defensive", "emergencyEscape": false, "offGcd": false, "mode": "Never", "minUrgency": 4, "notes": "Emerald Communion: channeled group heal; never automatic (curated manual default)." },
+    { "spellId": 371257, "role": "Utility", "route": "Defensive", "emergencyEscape": false, "offGcd": true, "mode": "Auto", "minUrgency": 2, "notes": "Renewing Breath: solo HP-ladder heal at/below 65% HP." },
+    { "spellId": 376179, "role": "Minor", "route": "Defensive", "emergencyEscape": false, "offGcd": false, "mode": "Auto", "minUrgency": 2, "notes": "Lifeforce Mender: solo HP-ladder heal at/below 65% HP." }
+  ]
+}

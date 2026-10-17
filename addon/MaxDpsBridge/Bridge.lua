@@ -3,8 +3,9 @@
 -- a screen corner. MaxDpsCompanion.exe samples those pixels and replays the
 -- encoded keystrokes.
 --
--- Protocol v5 + Ext2 -- 40 cells, left to right, each CellSize physical
--- pixels square (cells 0-34 are the original v5 strip, 35-39 the Ext2 block).
+-- Protocol v5 + Ext2/Ext3 -- 43 cells, left to right, each CellSize physical
+-- pixels square (cells 0-34 the v5 core, 35-39 the Ext2 block, 40-42 the Ext3
+-- app toggle mask block; the version nibble stays 5 throughout).
 -- Every channel carries one nibble, encoded as nibble * 17 (0, 17, ... 255),
 -- which leaves enough headroom to survive gamma and scaling.
 --
@@ -47,6 +48,9 @@
 --   cell 36       SelfHeal2    R=vk hi G=vk lo B=flags
 --   cells 37-38   SelfHeal2 id 6 nibbles
 --   cell 39       Ext2 checksum R=0 G=checksum(cells 36-38) B=commit
+--   cell 28 B bit2 Ext3 PRESENT (app mask block live)
+--   cells 40-41   Ext3 app mask (14 bits) + epoch + blocked nibble
+--   cell 42       Ext3 checksum R=0 G=checksum(cells 40-41) B=commit
 --
 -- The defensive urgency mirrors MaxDps's own glow curves at their control
 -- points (vendor Buttons.lua:1056-1110); see Reader.lua.
@@ -71,7 +75,7 @@
 
 local addonName, MDB = ...;
 
-MDB.VERSION = "3.0.0";
+MDB.VERSION = "3.7.7";
 
 -- Chat print, defined FIRST: AutoCalibrate (below) and the Update watchdog
 -- both call it, and Lua resolves locals lexically -- a later `local
@@ -97,7 +101,7 @@ end
 -- 5. Cell 35 is the HP-curve colour, cells 36-38 are the SelfHeal2 slot and
 -- cell 39 is the Ext2 checksum. The v5 checksums (cells 10 and 34) keep
 -- covering only their original ranges.
-local CELL_COUNT = 40;
+local CELL_COUNT = 43;
 local PROTOCOL_VERSION = 5;
 
 local STATUS_FLAG_IN_COMBAT = 1;
@@ -124,6 +128,15 @@ local HP_CURVE_CELL = 35;
 local SELFHEAL2_CELL = 36;
 local SELFHEAL2_ID_CELL = 37;   -- cells 37-38
 local EXT2_CELL = 39;
+
+-- Ext3 (v3.5) additive block: 14-bit app toggle mask + epoch + blocked nibble
+-- (cells 40-42), presence = cell 28 B bit2. The version nibble stays 5.
+local EXT3_MASK_CELL = 40;
+local EXT3_FLAGS_CELL = 41;
+local EXT3_COMMIT_CELL = 42;
+local CAST_EXT3_PRESENT = 4;    -- cell 28 B bit2
+local EXT3_MASK_BITS = 0x3FFF;
+local EXT3_BLOCKED_APP = 2;     -- blocked nibble bit1
 
 local CLASS_SPEC_VALID = 1;
 local BUFF_VALID = 2;
@@ -155,6 +168,10 @@ local CAST_STATE_UNKNOWN = 15;
 
 local Defaults = {
   Enabled = true,
+  -- Fail-closed pause memory. Set with `/mdb off`, cleared only by `/mdb on`:
+  -- while true the strip stays a Paused frame and the auto-revive nudge is
+  -- suppressed, so nothing can silently resume the rotation after a pause.
+  UserPaused = false,
   OffsetX = 0,
   OffsetY = 0,
   -- Aethys-proven 8px cells: ±1px misalignment tolerance by construction.
@@ -165,7 +182,46 @@ local Defaults = {
   -- Ext2 HP-curve cell 35: on by default. Off paints black and clears
   -- cell 33 B bit3, so the companion falls back to its plain vitals path.
   HpCurve = true,
+  -- v3.5 rotating slots (3/6/7/8): each candidate is offered for this many
+  -- rendered ticks (the frame heartbeat) before the weighted sequence
+  -- [top, next, top, next2] advances to the following one.
+  RotationDwell = 3,
+  -- v3.5 app mask (Ext3). Epoch 0 = no companion defaults; a non-zero epoch
+  -- means the desktop app's 14-bit mask fills in for unset in-game toggles.
+  -- OVERLAY-WINS: an explicit in-game value always beats this mask.
+  AppMask = 0x3FFF,
+  AppEpoch = 0,
+  AppBlocked = 0,
+  -- 3.3.0 in-game 13-toggle policy (Toggles.lua). OVERLAY-WINS (2026-09-30):
+  -- an explicit in-game value is authoritative; the live app mask only fills
+  -- in for unset keys. OOC is deliberately NOT seeded: out-of-combat is
+  -- fail-closed (missing OOC = hold) until the player sets it or the live
+  -- companion pushes an OOC bit ON. Every other unset key reads ON.
+  Toggles = {
+    Main = true, Offensive = true, Defensive = true, Consumable = true,
+    Trinket = true, Interrupt = true, Mobility = true, SelfHeal = true,
+    Solo = true, AutoTarget = true, AutoInteract = true, TTK = true,
+  },
+  -- 3.3.0 overlay/panel geometry (Panel.lua consumes this). Missing keys read
+  -- as the defaults; Bridge.lua persists the state, Panel.lua owns the frame.
+  Ui = { Overlay = false, Point = "CENTER", X = 0, Y = 0, Scale = 1.0, Minimap = false },
 };
+
+-- Per-key merge: never replace a whole sub-table, so a DB persisted by an
+-- older bridge keeps the toggles it already has and only gains the keys this
+-- build knows about (that is what makes old SavedVariables forward-valid).
+-- Tables in Defaults are copied recursively, never aliased: mutating
+-- DB.Toggles must not mutate Defaults.Toggles.
+local function MergeDefaults (DB, Def)
+  for Key, Value in pairs(Def) do
+    if type(Value) == "table" then
+      if type(DB[Key]) ~= "table" then DB[Key] = {}; end
+      MergeDefaults(DB[Key], Value);
+    elseif DB[Key] == nil then
+      DB[Key] = Value;
+    end
+  end
+end
 
 local Root, Cells;
 local Heartbeat = 0;
@@ -174,6 +230,33 @@ local CalStep = 0;
 local CalTick = 0;
 local HpCurveBase = false;     -- cell 35 base (white) painted for vertex colour
 local EnsureEngineElapsed = 0; -- B7: 1/s EnsureEngine throttle for a cold login
+
+-- Explicit user pause (`/mdb off`). Sticky until `/mdb on` (or a same-session
+-- `Enabled=true` from another writer is overridden by fail-closed hold below).
+-- Distinct from transient `Enabled` so an auto-revive can never resume play.
+local UserPaused = false;
+
+function MDB.IsUserPaused () return UserPaused == true; end
+
+-- Single writer for the sticky flag: `/mdb on|off` and the Options checkbox
+-- both route through here so no UI path can bypass the fail-closed hold.
+function MDB.SetUserPaused (Flag)
+  UserPaused = (Flag == true);
+  if type(MaxDpsBridgeDB) == "table" then MaxDpsBridgeDB.UserPaused = UserPaused; end
+  return UserPaused;
+end
+
+-- Single writer for the Enabled/UserPaused PAIR. `/mdb on|off|toggle` and the
+-- Options checkbox route here so the two can never diverge: a bare
+-- `DB.Enabled = false` would be re-seeded as a sticky pause on the next login,
+-- and a bare `DB.Enabled = true` would not clear an existing pause. Keeping the
+-- write here is what makes Options.lua + Panel.lua pause-safe (review finding 5).
+function MDB.SetEnabled (Flag)
+  local On = (Flag ~= false);
+  if type(MaxDpsBridgeDB) == "table" then MaxDpsBridgeDB.Enabled = On; end
+  MDB.SetUserPaused(not On);
+  return On;
+end
 
 --- ======= PIXEL PLUMBING =======
 
@@ -185,6 +268,18 @@ end
 -- unchanged. Heartbeat ticks every update so the status/checksum cells almost
 -- always repaint; slot cells repaint only on change.
 local LastPaint = {};
+
+-- PERF (Stream 2, 3.4.0): cached slot-intent scan. Update computes the
+-- expensive candidate scan (scrubbed flag scans, per-candidate readiness and
+-- keybind resolution) only when Reader.FrameKey changes; otherwise it reuses
+-- these nibbles. Sensors (vitals/cast/target/range/aura/class-spec/urgency/
+-- HP-curve) are still written every tick. Invalidated by Layout (LastPaint is
+-- cleared there) and by the Paused/disabled frame so the strip always repaints.
+local SlotCache = {
+  Valid = false, Key = nil,
+  R = {}, G = {}, B = {}, Id = {},
+  DefCatalog = false, Heal2 = nil, SH2 = nil,
+};
 local function Paint (Index, R, G, B)
   local Key = R * 256 + G * 16 + B;
   if LastPaint[Index] == Key then return false; end
@@ -209,6 +304,7 @@ local function Layout ()
   local Stale = _G.MaxDpsBridge_Border;
   if Stale then Stale:Hide(); end
   LastPaint = {};
+  SlotCache.Valid = false;   -- the repainted strip must be re-derived too
   HpCurveBase = false;
   SetNibbles(0, 15, 0, 15);
   LastPaint[0] = 15 * 256 + 0 * 16 + 15;
@@ -310,8 +406,11 @@ local function IdNibbleSum (SpellID)
   return Sum;
 end
 
--- Target state is read-only: UnitExists/UnitIsDead/UnitCanAttack and
--- CheckInteractDistance never taint and never act on the world.
+-- Target state is read-only: UnitExists/UnitIsDead/UnitCanAttack never taint
+-- and never act on the world. CheckInteractDistance is #nocombat-restricted in
+-- 12.x (it has raised ADDON_ACTION_BLOCKED), so it is NOT called here: Reader
+-- owns the single event-gated, breaker-protected call site and Bridge only
+-- consumes MDB.ProbeTargetMelee (nil = UNKNOWN while gated/blocked).
 local function TargetState ()
   if type(UnitExists) ~= "function" then return nil; end
   if not UnitExists("target") then return STATE_NEED_TARGET; end
@@ -321,10 +420,11 @@ local function TargetState ()
   if type(UnitCanAttack) == "function" and not UnitCanAttack("player", "target") then
     return STATE_NEED_TARGET;
   end
-  if type(CheckInteractDistance) == "function" then
-    local Ok, Near = pcall(CheckInteractDistance, "target", 3);
-    if Ok and Near then return STATE_NEED_INTERACT; end
+  local Near = nil;
+  if type(MDB.ProbeTargetMelee) == "function" then
+    Near = MDB.ProbeTargetMelee();
   end
+  if Near == 1 then return STATE_NEED_INTERACT; end
   return nil;
 end
 
@@ -398,18 +498,24 @@ local function WriteCast (SelfHeal2Range)
   if MDB.GetCastState then State = MDB.GetCastState(); end
   local Band = 15;   -- remaining-time band is not safely observable; reserved
   -- Ext2: cell 28 B bits0-1 carry the SelfHeal2 range tri-state (0 unknown /
-  -- 1 in / 2 out); was reserved 0. Bits2-3 remain reserved.
-  local Range = bit.band(SelfHeal2Range or 0, 3);
+  -- 1 in / 2 out). Ext3 (v3.5): bit2 = EXT3 PRESENT (the app mask block is
+  -- meaningful, cells 40-42 are live). Bits3 reserved.
+  local Range = bit.bor(bit.band(SelfHeal2Range or 0, 3), CAST_EXT3_PRESENT);
   Paint(CAST_CELL, State, Band, Range);
   return State, Band, Range;
 end
 
-local function WriteTarget ()
+-- ForceUnknownBand (3.3.0 TTK OFF): the wall-clock time-to-kill estimate is
+-- untrusted, so the target HP band is forced to 15 = UNKNOWN. MeleeFlag and
+-- CastFlags are kept untouched -- only the HP band goes blind (execute/band
+-- consumers on the companion side also go blind; documented collateral).
+local function WriteTarget (ForceUnknownBand)
   local MeleeFlag, HpBand, CastFlags = 0, 15, 0;
   if MDB.GetTargetContext then
     MeleeFlag, HpBand, CastFlags = MDB.GetTargetContext();
   end
   if type(CastFlags) ~= "number" then CastFlags = 0; end
+  if ForceUnknownBand then HpBand = 15; end
   Paint(TARGET_CELL, MeleeFlag or 0, HpBand or 15, CastFlags);
   return MeleeFlag or 0, HpBand or 15, CastFlags;
 end
@@ -527,25 +633,53 @@ end
 -- Ext2 cells 36-39: the SelfHeal2 slot. Cell 36 = vk hi|lo|flags, cells 37-38
 -- = the spell id, cell 39 = R0 / G = checksum(cells 36-38) mod 16 / B commit.
 -- A missing/blank candidate still paints a valid zero block so the companion
--- can distinguish "no second self-heal" from "old addon".
-local function WriteSelfHeal2 (SpellID)
-  local Hi, Lo, Flags, Id = WriteSlot(SELFHEAL2_CELL, SpellID);
-  local Sum = (Hi or 0) + (Lo or 0) + (Flags or 0) + IdNibbleSum(Id or 0);
-  WriteSpellIdAt(SELFHEAL2_ID_CELL, Id or 0);
+-- can distinguish "no second self-heal" from "old addon". The nibbles come
+-- from the cached scan on a clean tick, so this repaints without re-resolving
+-- readiness/binding; cell 39 (heartbeat + checksum) is rewritten every tick.
+local function WriteSelfHeal2Raw (Raw)
+  local Hi, Lo, Flags, Id = Raw.Hi or 0, Raw.Lo or 0, Raw.Flags or 0, Raw.Id or 0;
+  local Sum = Hi + Lo + Flags + IdNibbleSum(Id);
+  WriteSpellIdAt(SELFHEAL2_ID_CELL, Id);
   Paint(EXT2_CELL, 0, Sum % 16, Heartbeat);
+end
+
+-- Ext3 cells 40-42 (v3.5): 14-bit app toggle mask + epoch + blocked nibble.
+--   cell 40: R = mask bits 0-3, G = bits 4-7, B = bits 8-11
+--   cell 41: R = mask bits 12-13, G = epoch (0-15), B = blocked nibble
+--   cell 42: R = 0 (reserved), G = checksum(cells 40-41) mod 16, B = commit
+-- The block is always painted (presence bit 2 of cell 28 B) so the panel and
+-- the companion can read the addon's effective mask even when the app is not
+-- controlling it (epoch 0). No core/Ext2 checksum covers cells 40-42.
+local function WriteExt3 (Mask, Epoch, Blocked)
+  if type(Mask) ~= "number" or Mask < 0 or Mask > EXT3_MASK_BITS then Mask = EXT3_MASK_BITS; end
+  if type(Epoch) ~= "number" or Epoch < 0 or Epoch > 15 then Epoch = 0; end
+  if type(Blocked) ~= "number" or Blocked < 0 or Blocked > 15 then Blocked = 0; end
+  Mask, Epoch, Blocked = math.floor(Mask), math.floor(Epoch), math.floor(Blocked);
+  local M0 = bit.band(Mask, 0xF);
+  local M1 = bit.band(bit.rshift(Mask, 4), 0xF);
+  local M2 = bit.band(bit.rshift(Mask, 8), 0xF);
+  local MHi = bit.band(bit.rshift(Mask, 12), 0x3);
+  Paint(EXT3_MASK_CELL, M0, M1, M2);
+  Paint(EXT3_FLAGS_CELL, MHi, Epoch, Blocked);
+  local Sum = M0 + M1 + M2 + MHi + Epoch + Blocked;
+  Paint(EXT3_COMMIT_CELL, 0, Sum % 16, Heartbeat);
+  return Sum % 16;
 end
 
 -- A complete, valid v5 frame with no suggestions and no context. Used while
 -- the bridge is disabled so the companion decodes "Paused" instead of
 -- treating the stale cells as a torn frame.
 local function WriteEmptyFrame (State)
+  -- A disabled/Paused frame is not the cached scan; force a full rescan when
+  -- the bridge is re-enabled (the underlying suggestion may have moved on).
+  SlotCache.Valid = false;
   for i = 1, SLOT_COUNT do
     Paint(i, 0, 0, 0);
     WriteSpellId(i, 0);
   end
   local Vh, Vl, Vf = 0, 0, 0;
   Paint(VITALS_CELL, Vh, Vl, Vf);
-  local Ch, Cg, Cf = CAST_STATE_UNKNOWN, 15, 0;
+  local Ch, Cg, Cf = CAST_STATE_UNKNOWN, 15, CAST_EXT3_PRESENT;
   Paint(CAST_CELL, Ch, Cg, Cf);
   local Th, Tg, Tf = 0, 15, 2;   -- cast state unknown
   Paint(TARGET_CELL, Th, Tg, Tf);
@@ -563,11 +697,78 @@ local function WriteEmptyFrame (State)
   Paint(SELFHEAL2_CELL, 0, 0, 0);
   WriteSpellIdAt(SELFHEAL2_ID_CELL, 0);
   Paint(EXT2_CELL, 0, 0, Heartbeat);
+  -- Ext3: publish the effective mask (app or local) even on a Paused frame.
+  local EMask, EEpoch, EBlocked = EXT3_MASK_BITS, 0, 0;
+  if MDB.Toggles then
+    if MDB.Toggles.EffectiveMask then EMask = MDB.Toggles.EffectiveMask(); end
+    if MDB.Toggles.AppEpoch then EEpoch = MDB.Toggles.AppEpoch(); end
+    if MDB.Toggles.AppBlocked then EBlocked = MDB.Toggles.AppBlocked(); end
+  end
+  WriteExt3(EMask, EEpoch, EBlocked);
   local Sr, Sg, Sb = WriteStatus(State, 0);
   WriteVersion((Sr + Sg + Sb) % 16);
   -- v5 extension checksum covers cells 11-33 exactly (Ext2 cells excluded).
   local ExtSum = Ch + Cg + Cf + Th + Tg + Tf + Kh + Kg + Kf;
   Paint(EXT_CELL, 0, ExtSum % 16, Heartbeat);
+end
+
+--- ======= v3.5 ROTATION (slots 3/6/7/8) =======
+-- One candidate per slot is not enough when the first ready+bound entry is
+-- held by policy: it shadows every alternative (RC4). Each rotating slot owns
+-- an independent clock; every `RotationDwell` rendered ticks the weighted
+-- sequence [top, next, top, next2] advances (the top candidate is offered on
+-- two of the four steps). A defensive urgency of Orange or Red pins slot 3 on
+-- top for the whole dwell. The rotation only re-encodes when it advances
+-- (SlotCache is dropped), so an unchanged scan stays cached.
+local RotationState = {};
+local ROT_SEQ = { 1, 2, 1, 3 };
+local ROTATING = { [3] = true, [6] = true, [7] = true, [8] = true };
+MDB._RotCounts = MDB._RotCounts or {};
+
+local function RotationDwell ()
+  local D = MaxDpsBridgeDB and tonumber(MaxDpsBridgeDB.RotationDwell) or 3;
+  if D < 1 then D = 1 elseif D > 60 then D = 60; end
+  return math.floor(D);
+end
+
+-- Advance the clocks once per rendered tick. Returns true when a slot
+-- advanced, so the caller drops the cached slot scan. DefPin holds slot 3.
+local function RotationTick (DefPin)
+  local Advanced = false;
+  local Dwell = RotationDwell();
+  for Slot in pairs(ROTATING) do
+    local St = RotationState[Slot];
+    if not St then St = { Ticks = 0, Step = 1 }; RotationState[Slot] = St; end
+    if DefPin and Slot == 3 then
+      St.Ticks = 0;
+    else
+      St.Ticks = St.Ticks + 1;
+      if St.Ticks >= Dwell then
+        St.Ticks = 0;
+        St.Step = (St.Step % #ROT_SEQ) + 1;
+        Advanced = true;
+      end
+    end
+  end
+  return Advanced;
+end
+
+-- Weighted position into a pool of Count candidates, clamped so a short pool
+-- still rotates (Count 1 always returns top).
+local function RotationPos (Slot, Count, Pin)
+  if type(Count) ~= "number" or Count < 1 then return nil; end
+  if Pin then return 1; end
+  local St = RotationState[Slot];
+  if not St then St = { Ticks = 0, Step = 1 }; RotationState[Slot] = St; end
+  local Pos = ROT_SEQ[St.Step] or 1;
+  if Pos > Count then Pos = Count; end
+  return Pos;
+end
+
+-- Test/diagnostic reset: forget every slot clock (next tick offers top).
+function MDB.ResetRotation ()
+  RotationState = {};
+  MDB._RotCounts = {};
 end
 
 local function Update (self, Delta)
@@ -628,12 +829,62 @@ local function Update (self, Delta)
     return;
   end
 
-  if not MaxDpsBridgeDB.Enabled then
+  -- A user pause outranks a transient `Enabled` write: keep emitting the
+  -- Paused frame (state = 2) so the companion holds instead of firing.
+  if not MaxDpsBridgeDB.Enabled or UserPaused then
     WriteEmptyFrame(STATE_PAUSED);
     return;
   end
 
   MDB.EnsureHooks();
+
+  -- 3.3.0 in-game toggle context. Built ONCE per tick from plain, pcall-
+  -- contained game APIs; every field is boolean/number-or-nil so Toggles.lua
+  -- never sees a secret (nil/unknown makes its gates fail OPEN = allow).
+  local Ctx;
+  do
+    local InCombat = nil;
+    if type(UnitAffectingCombat) == "function" then
+      local OkC, V = pcall(UnitAffectingCombat, "player");
+      if OkC then InCombat = (V == true); end
+    end
+    local HpPct = nil;
+    if MDB.GetPlayerHpPct then
+      local OkH, V = pcall(MDB.GetPlayerHpPct);
+      if OkH and type(V) == "number" then HpPct = V; end
+    end
+    local Grouped = nil;
+    if type(IsInGroup) == "function" then
+      local OkG, V = pcall(IsInGroup);
+      if OkG then Grouped = (V == true); end
+    end
+    Ctx = { InCombat = InCombat, HpPct = HpPct, Grouped = Grouped };
+  end
+
+  local Toggles = MDB.Toggles;
+  -- Single slot gate. One call per slot: the per-slot key (slots 1-8), the
+  -- OOC master (InCombat == false blanks all), and Solo (blank defensive /
+  -- self-heal while known ungrouped, emergency HP excepted) all live in
+  -- Toggles.SlotAllowed. Denials are recorded in MDB._LastBlank.
+  local function Allowed (Slot)
+    if Toggles and Toggles.SlotAllowed then return Toggles.SlotAllowed(Slot, Ctx); end
+    return true;
+  end
+
+  -- v3.3.0 Solo ladder bands (ADDITIVE, in-game truth): armed ONLY while the
+  -- in-game Solo toggle is ON and the player is known ungrouped; Solo OFF or
+  -- grouped (or unknown group state) disarms every band so group behaviour is
+  -- byte-identical to pre-3.3.0. Bands mirror the companion defaults
+  -- (minor 75 / major 50 / immunity 30) and degrade fail-open (nil = disarm).
+  do
+    local SoloOn = Toggles and Toggles.Get and Toggles.Get("Solo");
+    local Ungrouped = type(Ctx.Grouped) == "boolean" and Ctx.Grouped == false;
+    if SoloOn and Ungrouped then
+      MDB.SoloLadderBands = { minor = 75, major = 50, immunity = 30 };
+    else
+      MDB.SoloLadderBands = nil;
+    end
+  end
 
   -- B7: a cold idle login can leave MaxDps.NextSpell nil with nothing
   -- scheduled, so the strip (and the companion) sits idle until first
@@ -641,6 +892,7 @@ local function Update (self, Delta)
   -- only while no spell has been fetched and at most once a second.
   local MaxDpsGlobal = _G.MaxDps;
   if (not MaxDpsGlobal or not MaxDpsGlobal.Spells or not next(MaxDpsGlobal.Spells))
+    and not UserPaused
     and MDB.EnsureEngine then
     EnsureEngineElapsed = EnsureEngineElapsed + Delta;
     if EnsureEngineElapsed >= 1 then
@@ -654,6 +906,16 @@ local function Update (self, Delta)
   -- PERF: reset the per-tick memo ONCE per update (the slot getters share
   -- one Flags scrub, one item map and one class/spec resolve per tick).
   if MDB.BeginTick then MDB.BeginTick(); end
+
+  -- v3.5 rotation clock + defensive pin. The pin reads the HP urgency before
+  -- the scan (the wire urgency later is identity-aware); a secret HP stays
+  -- UNKNOWN and never pins.
+  local DefPin = false;
+  if MDB.GetDefensiveUrgencyNibble then
+    local OkPin, Pin = pcall(MDB.GetDefensiveUrgencyNibble, nil);
+    DefPin = (OkPin and type(Pin) == "number" and Pin >= 3);
+  end
+  if RotationTick(DefPin) then SlotCache.Valid = false; end
 
   -- Containment: a getter that throws must never abort the frame (which
   -- would leave every slot stale) or spam the UI error handler. Degrade to
@@ -669,35 +931,146 @@ local function Update (self, Delta)
     return nil;
   end
 
+  -- PERF 3.4.0 DIRTY-FLAG. FrameKey captures every cheap input that can
+  -- change a slot candidate (suggestion, HP band affecting the defensive
+  -- gap-fill, combat/group-adjacent toggle state, readiness/binding/variant
+  -- resolver identities, per-spec curated lists). When it is unchanged the
+  -- scan below is skipped and the cached nibbles are reused; sensor cells are
+  -- still recomputed further down and cells 9/10/34/39 (heartbeat + status +
+  -- both checksums) are rewritten every tick. A nil key fails open to a full
+  -- scan, so a client without the helper still behaves exactly as before.
+  local Key = nil;
+  do
+    local OkK, K = pcall(MDB.FrameKey);
+    if OkK and type(K) == "string" then Key = K; end
+  end
+  local Clean = Key ~= nil and SlotCache.Valid and SlotCache.Key == Key;
+
   local R, G, B, Id = {}, {}, {}, {};
-  R[1], G[1], B[1], Id[1] = WriteSlot(1, SafeRead(MDB.GetMainSpellID), false, true);
-  R[2], G[2], B[2], Id[2] = WriteSlot(2, SafeRead(MDB.GetOffensiveSpellID));
-  -- Defensive: MaxDps's flagged+bound candidate, or the catalog gap-fill at
-  -- Red urgency. Both returns captured (the source bit goes to cell 31 B).
-  local DefId, DefCatalog = nil, false;
-  if MDB.GetDefensiveCandidate then
-    local OkDef, Candidate, IsCatalog = pcall(MDB.GetDefensiveCandidate);
-    if OkDef and type(Candidate) == "number" and Candidate ~= 0 then
-      DefId = Candidate;
-      DefCatalog = IsCatalog == true;
+  local DefCatalog = false;
+  local Heal2 = nil;
+  local SH2 = nil;   -- Ext2 cells 36-38 raw nibbles { Hi, Lo, Flags, Id }
+
+  if Clean then
+    for i = 1, SLOT_COUNT do
+      R[i], G[i], B[i], Id[i] = SlotCache.R[i], SlotCache.G[i], SlotCache.B[i], SlotCache.Id[i];
+    end
+    DefCatalog = SlotCache.DefCatalog;
+    Heal2 = SlotCache.Heal2;
+    SH2 = SlotCache.SH2;
+  else
+    -- 3.3.0 gate: check the toggle BEFORE the reader call, so an OFF slot
+    -- never even invokes MaxDps (no wasted work, no side effects). A denied
+    -- slot paints an all-zero/FLAG_VALID-clear cell (= EMPTY).
+    local function ReadSlot (Slot, Fn, IsInterrupt, SkipGate)
+      if not Allowed(Slot) then return 0, 0, 0, nil; end
+      return WriteSlot(Slot, SafeRead(Fn), IsInterrupt, SkipGate);
+    end
+    R[1], G[1], B[1], Id[1] = ReadSlot(1, MDB.GetMainSpellID, false, true);
+    -- Offensive: MaxDps flagged+bound first; when MaxDps names none the
+    -- curated gap-fill list supplies the first ready+bound entry (v3.0.0). No
+    -- source bit is encoded: the companion detects a gap-fill by id membership
+    -- in the shared generated offensive list (see docs/PROTOCOL.md).
+    R[2], G[2], B[2], Id[2] = ReadSlot(2, MDB.GetOffensiveSpellID);
+    -- Slots 3/6/7/8 rotate over their multi-candidate pool (v3.5). The pool
+    -- is ready+bound+known, never-automatic filtered, cap 4; the weighted
+    -- position comes from the per-slot clock advanced at the top of Update.
+    local DefId = nil;
+    if Allowed(3) then
+      local Pool = (MDB.RotationCandidates and MDB.RotationCandidates(3, 4)) or {};
+      MDB._RotCounts[3] = #Pool;
+      local Pos = RotationPos(3, #Pool, DefPin);
+      if Pos then DefId = Pool[Pos]; end
+      if DefId then
+        -- Source bit: clear only when the offered id is MaxDps's own flagged
+        -- candidate; any catalog entry is a gap-fill (cell 31 B bit0).
+        local FlaggedId = nil;
+        if MDB.GetDefensiveCandidate then
+          local OkFlag, Flagged, FlaggedCatalog = pcall(MDB.GetDefensiveCandidate);
+          if OkFlag and type(Flagged) == "number" and Flagged ~= 0 and FlaggedCatalog == false then
+            FlaggedId = Flagged;
+          end
+        end
+        DefCatalog = (FlaggedId == nil) or (DefId ~= FlaggedId);
+      end
+    end
+    R[3], G[3], B[3], Id[3] = WriteSlot(3, DefId);
+    R[4], G[4], B[4], Id[4] = ReadSlot(4, MDB.GetConsumableSpellID);
+    R[5], G[5], B[5], Id[5] = ReadSlot(5, MDB.GetTrinketSpellID);
+    -- Interrupt (slot 6): a live, ready MaxDps interrupt that the target
+    -- sensor confirms is a casting, interruptible cast pins the slot;
+    -- otherwise the slot rotates the curated CC pool. v3.5: the pin uses the
+    -- casting-only helper so a blind (non-casting) interrupt never pins, and
+    -- the CC pool is offered instead.
+    do
+      local IntId = nil;
+      if Allowed(6) then
+        IntId = SafeRead(MDB.GetInterruptSpellID);
+        local PinReady = false;
+        if IntId then
+          local PinFn = MDB.IsInterruptPinReady or MDB.IsInterruptReady;
+          local OkInt, Ready = pcall(PinFn, IntId);
+          PinReady = OkInt and Ready == true;
+        end
+        if PinReady then
+          MDB._RotCounts[6] = 1;
+        else
+          local Pool = (MDB.RotationCandidates and MDB.RotationCandidates(6, 4)) or {};
+          MDB._RotCounts[6] = #Pool;
+          local Pos = RotationPos(6, #Pool, false);
+          IntId = Pos and Pool[Pos] or nil;
+        end
+      end
+      R[6], G[6], B[6], Id[6] = WriteSlot(6, IntId);
+    end
+    -- Mobility rotation.
+    do
+      local MobId = nil;
+      if Allowed(7) then
+        local Pool = (MDB.RotationCandidates and MDB.RotationCandidates(7, 4)) or {};
+        MDB._RotCounts[7] = #Pool;
+        local Pos = RotationPos(7, #Pool, false);
+        MobId = Pos and Pool[Pos] or nil;
+      end
+      R[7], G[7], B[7], Id[7] = WriteSlot(7, MobId);
+    end
+    -- Ext2: slot 8 offers the rotated self-heal; the Ext2 block keeps the
+    -- NEXT DISTINCT candidate so the companion always sees two options. A
+    -- denied SelfHeal slot nils BOTH, so the block blanks too.
+    local Heal1 = nil;
+    if Allowed(8) then
+      local Pool = (MDB.RotationCandidates and MDB.RotationCandidates(8, 4)) or {};
+      MDB._RotCounts[8] = #Pool;
+      local Pos = RotationPos(8, #Pool, false);
+      if Pos then
+        Heal1 = Pool[Pos];
+        for Off = 1, #Pool do
+          local Next = Pool[((Pos - 1 + Off) % #Pool) + 1];
+          if Next ~= Heal1 then Heal2 = Next; break; end
+        end
+      end
+    end
+    R[8], G[8], B[8], Id[8] = WriteSlot(8, Heal1);
+    -- Resolve the second self-heal's stroke/identity once here; the clean
+    -- path reuses it and only repaints cells 36-39.
+    local S2Hi, S2Lo, S2Flags, S2Id = WriteSlot(SELFHEAL2_CELL, Heal2);
+    SH2 = { Hi = S2Hi or 0, Lo = S2Lo or 0, Flags = S2Flags or 0, Id = S2Id or 0 };
+
+    MDB._SlotScans = (MDB._SlotScans or 0) + 1;   -- diagnostics/bench only
+    if Key ~= nil then
+      SlotCache.Valid = true;
+      SlotCache.Key = Key;
+      for i = 1, SLOT_COUNT do
+        SlotCache.R[i], SlotCache.G[i], SlotCache.B[i], SlotCache.Id[i] = R[i], G[i], B[i], Id[i];
+      end
+      SlotCache.DefCatalog = DefCatalog;
+      SlotCache.Heal2 = Heal2;
+      SlotCache.SH2 = SH2;
+    else
+      -- Without a key a clean tick can never be proven; stay in full-scan mode.
+      SlotCache.Valid = false;
     end
   end
-  R[3], G[3], B[3], Id[3] = WriteSlot(3, DefId);
-  R[4], G[4], B[4], Id[4] = WriteSlot(4, SafeRead(MDB.GetConsumableSpellID));
-  R[5], G[5], B[5], Id[5] = WriteSlot(5, SafeRead(MDB.GetTrinketSpellID));
-  R[6], G[6], B[6], Id[6] = WriteSlot(6, SafeRead(MDB.GetInterruptSpellID), true);
-  R[7], G[7], B[7], Id[7] = WriteSlot(7, SafeRead(MDB.GetMobilitySpellID));
-  -- Ext2: the two SelfHeal candidates are computed once here (the second is
-  -- the next DISTINCT ready+bound entry); slot 8 encodes the first, the Ext2
-  -- block encodes the second.
-  local Heal1, Heal2 = nil, nil;
-  if MDB.ExtraCandidates then
-    local OkHeal, Candidates = pcall(MDB.ExtraCandidates, "selfHeal", 2);
-    if OkHeal and type(Candidates) == "table" then
-      Heal1, Heal2 = Candidates[1], Candidates[2];
-    end
-  end
-  R[8], G[8], B[8], Id[8] = WriteSlot(8, Heal1);
 
   for i = 1, SLOT_COUNT do
     WriteSpellId(i, Id[i] or 0);
@@ -708,7 +1081,10 @@ local function Update (self, Delta)
   -- the stagger stage on its own for the policy's per-ability source choice.
   -- Every getter is pcall-contained; anything unexpected stays 0 = UNKNOWN.
   local Urgency, StaggerUrgency = 0, 0;
-  if MDB.GetDefensiveUrgencyNibble then
+  if MDB.GetDefensiveUrgencyFallback then
+    local OkU, U = pcall(MDB.GetDefensiveUrgencyFallback, Id[3]);
+    if OkU and type(U) == "number" and U >= 0 and U <= 4 then Urgency = U; end
+  elseif MDB.GetDefensiveUrgencyNibble then
     local OkU, U = pcall(MDB.GetDefensiveUrgencyNibble, Id[3]);
     if OkU and type(U) == "number" and U >= 0 and U <= 4 then Urgency = U; end
   end
@@ -733,14 +1109,28 @@ local function Update (self, Delta)
     if OkR2 and type(R2) == "number" then SelfHeal2Range = bit.band(R2, 3); end
   end
   local Ch, Cg, Cf = WriteCast(SelfHeal2Range);
-  local Th, Tg, Tf = WriteTarget();
+  -- TTK OFF forces the target HP band to UNKNOWN (MeleeFlag/CastFlags kept).
+  local Th, Tg, Tf = WriteTarget(Toggles and Toggles.IsTTK and not Toggles.IsTTK());
   local R30, G30, B30, R31, G31, B31 = WriteRanges(Id, Urgency, DefCatalog);
   local Bh, Bg, Bb, BuffValid = WriteBuffs(Id, StaggerUrgency);
   -- Ext2 cell 35 + bits: paint the curve first so its activity bit is known.
   local HpCurveOn = WriteHpCurve();
   local Kh, Kg, Kf = WriteClassSpec(BuffValid, HpCurveOn);
-  -- Ext2 cells 36-39: the second distinct SelfHeal candidate.
-  WriteSelfHeal2(Heal2);
+  -- Ext2 cells 36-39: the second distinct SelfHeal candidate (cached scan on
+  -- a clean tick; cell 39's heartbeat+checksum is rewritten every tick).
+  WriteSelfHeal2Raw(SH2);
+
+  -- v3.5 Ext3: publish the EFFECTIVE 14-bit toggle mask + app epoch + blocked
+  -- nibble. OVERLAY-WINS: EffectiveMask() rebuilds the mask from the resolved
+  -- in-game state every frame, so an in-game flip (notably OOC off) reaches
+  -- the companion even while the app epoch is live. Presence bit in cell 28 B.
+  local PubMask, PubEpoch, PubBlocked = EXT3_MASK_BITS, 0, 0;
+  if MDB.Toggles then
+    if MDB.Toggles.EffectiveMask then PubMask = MDB.Toggles.EffectiveMask(); end
+    if MDB.Toggles.AppEpoch then PubEpoch = MDB.Toggles.AppEpoch(); end
+    if MDB.Toggles.AppBlocked then PubBlocked = MDB.Toggles.AppBlocked(); end
+  end
+  WriteExt3(PubMask, PubEpoch, PubBlocked);
 
   -- v1.3.4 MELEE-STATE FIX: a live suggestion ALWAYS wins the state (Active).
   -- Target/interact states exist ONLY so the companion can ask for a target
@@ -751,6 +1141,16 @@ local function Update (self, Delta)
     State = STATE_ACTIVE;
   else
     State = TargetState() or STATE_IDLE;
+    -- 3.3.0: AutoTarget / AutoInteract OFF suppress the corresponding ask
+    -- state to Idle. Status flags are NOT touched (they still report the
+    -- real target/combat facts); only the state nibble goes quiet.
+    if State == STATE_NEED_TARGET and Toggles and Toggles.IsAutoTarget
+      and not Toggles.IsAutoTarget() then
+      State = STATE_IDLE;
+    elseif State == STATE_NEED_INTERACT and Toggles and Toggles.IsAutoInteract
+      and not Toggles.IsAutoInteract() then
+      State = STATE_IDLE;
+    end
   end
 
   local SR, SG, SB = WriteStatus(State, StatusFlags(true));
@@ -768,6 +1168,26 @@ end
 
 --- ======= SLASH COMMANDS =======
 -- (Print is defined at the top so AutoCalibrate can use it.)
+
+-- Lower-case spelling -> canonical toggle key, built from Toggles.Keys() so
+-- the slash surface stays in lockstep with the policy table (no second list).
+local ToggleKeyLower = {};
+if MDB.Toggles and MDB.Toggles.Keys then
+  local SlashKeys = MDB.Toggles.Keys();
+  for i = 1, #SlashKeys do ToggleKeyLower[SlashKeys[i]:lower()] = SlashKeys[i]; end
+end
+
+local function TogglesLine ()
+  if not (MDB.Toggles and MDB.Toggles.Keys and MDB.Toggles.Get) then return "unavailable"; end
+  local Keys = MDB.Toggles.Keys();
+  local On, Off = 0, {};
+  for i = 1, #Keys do
+    if MDB.Toggles.Get(Keys[i]) then On = On + 1; else Off[#Off + 1] = Keys[i]; end
+  end
+  local Text = ("%d/%d ON"):format(On, #Keys);
+  if #Off > 0 then Text = Text .. "; OFF: " .. table.concat(Off, ", "); end
+  return Text;
+end
 
 local function HandleCommand (Input)
   local Command, Arg1, Arg2 = strsplit(" ", strlower(strtrim(Input or "")));
@@ -804,11 +1224,74 @@ local function HandleCommand (Input)
     return;
   end
 
+  if Command == "mask" then
+    -- v3.5 mask push: `/mdb mask <hhhh> <epoch>`. The desktop app is the only
+    -- writer; it pushes its permissive DEFAULTS (overlay-wins — the in-game
+    -- toggles override). The bridge refuses while in combat (never rewrite the
+    -- defaults mid-fight) or when the arguments fail the wire range check
+    -- ("bad checksum"). A refusal raises blocked bit1 in cell 41 B and leaves
+    -- the stored mask untouched, so the panel can show why.
+    local OkRef = true;
+    local Refuse = nil;
+    local InCombat = false;
+    if type(UnitAffectingCombat) == "function" then
+      local OkC, V = pcall(UnitAffectingCombat, "player");
+      OkRef = OkC;
+      if OkC then InCombat = (V == true); end
+    end
+    local MaskArg = tonumber(tostring(Arg1 or ""), 16);
+    local EpochArg = tonumber(Arg2);
+    if not OkRef then
+      Refuse = "combat state unreadable";
+    elseif InCombat then
+      Refuse = "in combat";
+    elseif type(MaskArg) ~= "number" or MaskArg < 0 or MaskArg > EXT3_MASK_BITS then
+      Refuse = "bad checksum (mask)";
+    elseif type(EpochArg) ~= "number" or EpochArg ~= math.floor(EpochArg)
+      or EpochArg < 0 or EpochArg > 15 then
+      Refuse = "bad checksum (epoch)";
+    end
+    if Refuse then
+      if MDB.Toggles and MDB.Toggles.SetAppBlocked then
+        MDB.Toggles.SetAppBlocked((MDB.Toggles.BLOCKED_APP or EXT3_BLOCKED_APP));
+      end
+      Print("mask refused (" .. Refuse .. "); stored mask unchanged");
+      return;
+    end
+    if MDB.Toggles and MDB.Toggles.SetAppMask then
+      MDB.Toggles.SetAppMask(MaskArg, EpochArg, 0);
+    end
+    Print(("app mask 0x%04X epoch %d applied (default; overlay-wins)")
+      :format(MaskArg, EpochArg));
+    return;
+  end
+
+  if Command == "dwell" then
+    if Arg1 == nil then
+      Print(("rotation dwell is %d ticks - use '/mdb dwell <1-60>'"):format(RotationDwell()));
+      return;
+    end
+    local N = tonumber(Arg1);
+    if type(N) ~= "number" then
+      Print("usage: /mdb dwell <1-60>");
+      return;
+    end
+    N = math.floor(N);
+    if N < 1 then N = 1 elseif N > 60 then N = 60; end
+    DB.RotationDwell = N;
+    Print(("rotation dwell set to %d ticks"):format(N));
+    return;
+  end
+
   if Command == "on" or Command == "off" or Command == "toggle" then
+    -- Single writer for the Enabled/UserPaused pair: `/mdb off` records an
+    -- explicit user pause (sticky, fail-closed) and `/mdb on` (or toggling
+    -- back on) is the only thing that clears it. The Options checkbox routes
+    -- through the same setter, so no UI path can diverge the two flags.
     if Command == "toggle" then
-      DB.Enabled = not DB.Enabled;
+      MDB.SetEnabled(not DB.Enabled);
     else
-      DB.Enabled = (Command == "on");
+      MDB.SetEnabled(Command == "on");
     end
     -- on/off doubles as the panic switch for the calibrate pattern.
     if DB.Calibrate and Command ~= "toggle" then
@@ -830,11 +1313,13 @@ local function HandleCommand (Input)
   elseif Command == "calibrate" then
     if Arg1 == "on" then
       DB.Calibrate = true;
-      -- Entering calibrate implies the bridge should run: a previous
-      -- cleanup that left Enabled=false (stale paused strip) would
-      -- otherwise render nothing and the learner sweeps a dead corner.
-      if not DB.Enabled then
-        DB.Enabled = true;
+      -- Entering calibrate is an explicit user action that MUST render the
+      -- sweep: a stale Enabled=false strip or a previous `/mdb off` pause
+      -- would otherwise leave the learner sweeping a dead corner. Route
+      -- through the single writer so Enabled and the sticky pause clear in
+      -- lockstep (never a bare `DB.Enabled = true`).
+      if not DB.Enabled or MDB.IsUserPaused() then
+        MDB.SetEnabled(true);
         Print("bridge enabled");
       end
       CalStep = 0;
@@ -848,7 +1333,13 @@ local function HandleCommand (Input)
       Print("calibrate is " .. (DB.Calibrate and "ON" or "OFF") .. " - use '/mdb calibrate on|off'");
     end
   elseif Command == "reset" then
-    for Key, Value in pairs(Defaults) do DB[Key] = Value; end
+    -- Deep restore, not `DB[Key] = Defaults[Key]`: that would alias the
+    -- nested Toggles/Ui tables and let later edits mutate Defaults.
+    for Key in pairs(DB) do DB[Key] = nil; end
+    MergeDefaults(DB, Defaults);
+    -- Keep the in-memory sticky flag in lockstep with the restored defaults
+    -- (Defaults.UserPaused = false), or a clock-change reset would stay paused.
+    UserPaused = false;
     CalStep = 0;
     CalTick = 0;
     Layout();
@@ -905,19 +1396,86 @@ local function HandleCommand (Input)
       if OkSh2 and type(Sh2) == "number" then Sh2Text = tostring(Sh2); end
     end
     if DB.HpCurve == nil then DB.HpCurve = true; end
-    Print(("v%s protocol=%d ext2=1 hpcurve=%s sh2=%s enabled=%s calibrate=%s offset=%d,%d cell=%dpx bound=%d spell=%s next=%s ready=%s urg=%s extras=%s")
+    local AppEpochText, AppMaskText, AppBlockedText = 0, EXT3_MASK_BITS, 0;
+    if MDB.Toggles then
+      if MDB.Toggles.AppEpoch then AppEpochText = MDB.Toggles.AppEpoch(); end
+      if MDB.Toggles.EffectiveMask then AppMaskText = MDB.Toggles.EffectiveMask(); end
+      if MDB.Toggles.AppBlocked then AppBlockedText = MDB.Toggles.AppBlocked(); end
+    end
+    local RC = MDB._RotCounts or {};
+    local RotText = ("3:%d,6:%d,7:%d,8:%d"):format(RC[3] or 0, RC[6] or 0, RC[7] or 0, RC[8] or 0);
+    Print(("v%s protocol=%d ext2=1 ext3=1 hpcurve=%s sh2=%s enabled=%s calibrate=%s offset=%d,%d cell=%dpx bound=%d spell=%s next=%s ready=%s urg=%s extras=%s toggles=%s app=%s/%s/%d dwell=%d rot=%s")
       :format(MDB.VERSION, PROTOCOL_VERSION, DB.HpCurve and "on" or "off", Sh2Text,
         tostring(DB.Enabled), tostring(DB.Calibrate),
-        DB.OffsetX, DB.OffsetY, DB.CellSize, MDB.BindingCount(), MainText, NextFn, Ready, UrgencyText, ExtrasText));
+        DB.OffsetX, DB.OffsetY, DB.CellSize, MDB.BindingCount(), MainText, NextFn, Ready, UrgencyText, ExtrasText,
+        TogglesLine(),
+        tostring(AppEpochText), ("0x%04X"):format(AppMaskText), AppBlockedText,
+        RotationDwell(), RotText));
   elseif Command == "version" then
     Print("MaxDpsBridge v" .. MDB.VERSION .. " (protocol v" .. PROTOCOL_VERSION .. ")");
   elseif Command == "autocal" then
     AutoCalibrate("manual /mdb autocal");
+  elseif Command == "toggles" then
+    Print("Toggles: " .. TogglesLine());
+    Print("use '/mdb <key> on|off' (main offensive defensive consumable trinket "
+      .. "interrupt mobility selfheal solo ooc autotarget autointeract ttk) or '/mdb all on|off'");
+  elseif Command == "overlay" then
+    DB.Ui = DB.Ui or {};
+    if Arg1 == "on" then
+      DB.Ui.Overlay = true;
+    elseif Arg1 == "off" then
+      DB.Ui.Overlay = false;
+    elseif Arg1 ~= nil then
+      Print("usage: /mdb overlay [on|off]");
+      return;
+    end
+    -- State is persisted here; Panel.lua's slash wrapper re-syncs the frame
+    -- immediately after this handler returns.
+    Print("overlay " .. (DB.Ui.Overlay and "|cFF00FF00on|r" or "|cFFFF0000off|r"));
+  elseif Command == "all" then
+    if not (MDB.Toggles and MDB.Toggles.Keys and MDB.Toggles.Set) then
+      Print("toggles unavailable");
+      return;
+    end
+    if Arg1 ~= "on" and Arg1 ~= "off" then
+      Print("usage: /mdb all on|off");
+      return;
+    end
+    local Keys = MDB.Toggles.Keys();
+    for i = 1, #Keys do MDB.Toggles.Set(Keys[i], Arg1 == "on"); end
+    Print("all toggles " .. (Arg1 == "on" and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r"));
+  elseif Command == "why" then
+    if Arg1 == "heal" then
+      local Last = MDB._LastBlank or {};
+      Print(("why heal: slot8=%s, slot3=%s (nil = allowed; set in Toggles.SlotAllowed)")
+        :format(tostring(Last[8] or "allowed"), tostring(Last[3] or "allowed")));
+    else
+      Print("usage: /mdb why heal");
+    end
+  elseif ToggleKeyLower[Command] and MDB.Toggles and MDB.Toggles.Set then
+    local Canon = ToggleKeyLower[Command];
+    -- OVERLAY-WINS (2026-09-30): the in-game value is always writable, even
+    -- while the app epoch is live. Set() persists it; the effective mask and
+    -- the Ext3 mirror republish from Get() on the next frame, and FrameKey
+    -- includes the stored toggles so the slot cells repaint immediately.
+    if Arg1 == "on" then
+      MDB.Toggles.Set(Canon, true);
+    elseif Arg1 == "off" then
+      MDB.Toggles.Set(Canon, false);
+    elseif Arg1 ~= nil then
+      Print("usage: /mdb " .. Command .. " [on|off]");
+      return;
+    end
+    Print(("%s is %s"):format(MDB.Toggles.Label(Canon),
+      MDB.Toggles.Get(Canon) and "|cFF00FF00on|r" or "|cFFFF0000off|r"));
   else
     Print("commands: |cFFFFFF00on|r / |cFFFFFF00off|r / |cFFFFFF00toggle|r / "
       .. "|cFFFFFF00offset <x> <y>|r / |cFFFFFF00cellsize <px>|r / |cFFFFFF00calibrate on|off|r / "
       .. "|cFFFFFF00hpcurve on|off|r / |cFFFFFF00heal|r / "
-      .. "|cFFFFFF00status|r / |cFFFFFF00diag|r / |cFFFFFF00autocal|r / |cFFFFFF00reset|r / |cFFFFFF00version|r");
+      .. "|cFFFFFF00status|r / |cFFFFFF00diag|r / |cFFFFFF00autocal|r / |cFFFFFF00reset|r / |cFFFFFF00version|r / "
+      .. "|cFFFFFF00toggles|r / |cFFFFFF00overlay on|off|r / |cFFFFFF00<key> on|off|r / "
+      .. "|cFFFFFF00all on|off|r / |cFFFFFF00why heal|r / "
+      .. "|cFFFFFF00mask <hhhh> <epoch>|r / |cFFFFFF00dwell <1-60>|r");
   end
 end
 
@@ -934,9 +1492,15 @@ do
       if Arg1 ~= addonName then return; end
 
       MaxDpsBridgeDB = MaxDpsBridgeDB or {};
-      for Key, Value in pairs(Defaults) do
-        if MaxDpsBridgeDB[Key] == nil then MaxDpsBridgeDB[Key] = Value; end
-      end
+      -- Per-key merge so an old SavedVariables file stays valid: existing
+      -- top-level values and existing toggles are preserved; only missing
+      -- keys are seeded from Defaults (nested tables are copied, not aliased).
+      MergeDefaults(MaxDpsBridgeDB, Defaults);
+
+      -- Legacy pause memory: a DB saved with Enabled=false (pre-UserPaused)
+      -- means the user paused, so seed the sticky flag from it.
+      UserPaused = (MaxDpsBridgeDB.UserPaused == true) or (MaxDpsBridgeDB.Enabled == false);
+      MaxDpsBridgeDB.UserPaused = UserPaused;
 
       CreateBlock();
       Root:SetScript("OnUpdate", Update);

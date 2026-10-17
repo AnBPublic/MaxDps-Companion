@@ -87,9 +87,29 @@ internal sealed class RotationEngine : IDisposable
     private readonly ActionScheduler _scheduler = new();
     private SchedulePlan _lastPlan = SchedulePlan.Hold(ScheduleReason.NoCandidate);
 
+    // v4.0.3 hotbar press queue (protocol Ext4): the probe reads only the
+    // watched strokes, the assembler rebuilds the key->ability map from the
+    // wire, and the queue is a pure, fake-clock-tested state machine.
+    private readonly KeyStateProbe _keyProbe = new();
+    private readonly UserPressQueue _userPressQueue = new();
+    private Ext4Assembler _ext4Assembler = new();
+    private HotbarMap _hotbarMap = HotbarMap.Unavailable;
+    private IReadOnlyList<Ext4Entry> _watchEntries = Array.Empty<Ext4Entry>();
+    private readonly Dictionary<byte, List<Ext4Entry>> _watchGroups = new();
+    private readonly Dictionary<byte, bool> _watchPrevDown = new();
+    private BridgeFrame? _lastFrame;
+
     // v2.0 ability knowledge + situational policy. The catalog is immutable;
     // options are rebuilt per tick from settings (cheap record).
     private readonly AbilityCatalog _catalog = AbilityCatalog.Default;
+
+    // v3.2.0 per-target time-to-kill estimator. One instance per engine; fed
+    // once per decoded frame (before the policy), exposed to the policy via
+    // CombatContext.WithTtk. [TimeToKill] Enabled=0 leaves it invalid so every
+    // TTK gate is skipped.
+    private readonly TtkEstimator _ttk;
+    private TtkEstimate _ttkEstimate = TtkEstimate.Invalid;
+    private long? _ttkFeedMs;
 
     // v1.5.0 local rotation telemetry (opt-in, default off; see Telemetry/).
     // Null = the zero-cost disabled path. MainForm attaches a recorder when
@@ -101,6 +121,15 @@ internal sealed class RotationEngine : IDisposable
     private DecisionResult? _telemetryDecision;
     private CombatContext? _lastCombatContext;
     private bool _planFreshThisTick;
+
+    // v3.5 S1 toggle SSOT: the last decoded Ext3 mirror and the last combat
+    // flag, exposed read-only to the UI thread's ToggleSync. Plain ints/bools
+    // so the writer (engine tick) and reader (UI timer) never tear.
+    private int _mirrorMask;
+    private int _mirrorEpoch;
+    private int _mirrorBlocked;
+    private volatile bool _mirrorValid;
+    private volatile bool _lastInCombat;
 
     // v2.7 UI snapshots (frozen names). Lock-guarded reference swaps; the
     // snapshot is an immutable record holding only plain strings.
@@ -135,7 +164,19 @@ internal sealed class RotationEngine : IDisposable
     private bool _targetBlocked;
     private bool _interactBlocked;
 
-    public RotationEngine(AppSettings settings) => _settings = settings;
+    public RotationEngine(AppSettings settings)
+    {
+        _settings = settings;
+        // v3.7: the estimator owns the adaptive kill-history window; the
+        // [TimeToKill] values are already clamped by AppSettings.
+        _ttk = new TtkEstimator(new TtkOptions(
+            History: settings.TimeToKillHistory,
+            Kills: settings.TimeToKillHistoryKills,
+            MinKills: settings.TimeToKillHistoryMinKills,
+            MaxAgeSec: settings.TimeToKillHistoryMaxAgeSec,
+            Quantile: settings.TimeToKillHistoryQuantile,
+            DurFactor: settings.TimeToKillHistoryDurFactor));
+    }
 
     /// <summary>Suspends input sending without tearing down the reader, for the pause hotkey.</summary>
     public volatile bool Paused;
@@ -157,6 +198,24 @@ internal sealed class RotationEngine : IDisposable
         return specName is not null;
     }
 
+    /// <summary>
+    /// v3.5 S1: the latest Ext3 toggle-mask mirror (null when the addon ships no
+    /// Ext3 block or the block failed its checksum) and the last decoded combat
+    /// flag. The UI thread's <see cref="ToggleSync"/> consumes this once per UI
+    /// tick; a reference read is safe and the values are plain (no tearing).
+    /// </summary>
+    public bool TryGetToggleMirror(out Ext3Block? ext3, out bool inCombat)
+    {
+        inCombat = _lastInCombat;
+        if (_mirrorValid)
+        {
+            ext3 = new Ext3Block(_mirrorMask, _mirrorEpoch, _mirrorBlocked);
+            return true;
+        }
+        ext3 = null;
+        return false;
+    }
+
     /// <summary>Optional local telemetry sink. Null disables capture entirely.</summary>
     public TelemetryRecorder? Telemetry
     {
@@ -166,6 +225,19 @@ internal sealed class RotationEngine : IDisposable
 
     /// <summary>Monotonic engine clock; used for telemetry session events.</summary>
     public long ElapsedMs => _clock.ElapsedMilliseconds;
+
+    /// <summary>
+    /// S8 diagnostics (read-only): age of the last decoded frame on the engine
+    /// clock, or -1 before the first frame decodes. The UI's why-not-firing
+    /// explainer uses this as the candidate-staleness witness.
+    /// </summary>
+    public int LastFrameAgeMs()
+    {
+        var last = _lastFrameMs;
+        if (last == long.MinValue) return -1;
+        var age = _clock.ElapsedMilliseconds - last;
+        return age < 0 ? 0 : (int)Math.Min(age, int.MaxValue);
+    }
 
     public event Action<EngineStatus>? StatusChanged;
 
@@ -190,6 +262,13 @@ internal sealed class RotationEngine : IDisposable
         _lastDecision = DecisionResult.Fallback();
         _scheduler.Reset();
         _legacyPolicyMemory.Reset();
+        _ext4Assembler = new Ext4Assembler();
+        _hotbarMap = HotbarMap.Unavailable;
+        _watchEntries = Array.Empty<Ext4Entry>();
+        _watchGroups.Clear();
+        _watchPrevDown.Clear();
+        _lastFrame = null;
+        _userPressQueue.Reset();
         _lastPlan = SchedulePlan.Hold(ScheduleReason.NoCandidate);
         _telemetryFrame = null;
         _telemetryFault = DecodeFault.None;
@@ -197,6 +276,9 @@ internal sealed class RotationEngine : IDisposable
         _telemetryDecision = null;
         _lastCombatContext = null;
         _planFreshThisTick = false;
+        _ttk.Reset();
+        _ttkEstimate = TtkEstimate.Invalid;
+        _ttkFeedMs = null;
         lock (_snapshotLock) { _lastAction = null; _currentPlanHead = null; }
         if (_telemetry is { } telemetry)
         {
@@ -305,17 +387,28 @@ internal sealed class RotationEngine : IDisposable
                     var dutyFloorMs = (int)Math.Ceiling(tickUs * 10 / 1000.0);
                     if (dutyFloorMs > wait && dutyFloorMs <= 250) wait = dutyFloorMs;
                 }
-                if (timer != IntPtr.Zero)
+                // v4.0.3: while a usable hotbar map is loaded, slice the wait
+                // into <=10 ms steps and run the physical-key scan between
+                // captures. The scan is a handful of GetAsyncKeyState reads —
+                // orders of magnitude cheaper than one screen capture.
+                var remaining = wait;
+                while (_running && remaining > 0)
                 {
-                    var due = -(long)wait * 10_000;   // relative, 100 ns units
-                    if (Native.SetWaitableTimer(timer, ref due, 0, IntPtr.Zero, IntPtr.Zero, false))
-                        Native.WaitForSingleObject(timer, (uint)wait + 2);
+                    var slice = UserQueueScanActive ? Math.Min(remaining, UserQueueScanMs) : remaining;
+                    if (timer != IntPtr.Zero)
+                    {
+                        var due = -(long)slice * 10_000;   // relative, 100 ns units
+                        if (Native.SetWaitableTimer(timer, ref due, 0, IntPtr.Zero, IntPtr.Zero, false))
+                            Native.WaitForSingleObject(timer, (uint)slice + 2);
+                        else
+                            Thread.Sleep(slice);
+                    }
                     else
-                        Thread.Sleep(wait);
-                }
-                else
-                {
-                    Thread.Sleep(wait);
+                    {
+                        Thread.Sleep(slice);
+                    }
+                    remaining -= slice;
+                    if (UserQueueScanActive) ScanUserKeys();
                 }
             }
         }
@@ -335,6 +428,7 @@ internal sealed class RotationEngine : IDisposable
         _telemetryDecision = null;
         _lastCombatContext = null;
         _planFreshThisTick = false;
+        _ttkFeedMs = null;
 
         if (!_window.Refresh(_settings.ProcessName))
         {
@@ -422,10 +516,54 @@ internal sealed class RotationEngine : IDisposable
         // capture recovery clock is reset.
         _lastFrameMs = _clock.ElapsedMilliseconds;
         _telemetryFrame = frame;
+        // v3.5 S1: publish the Ext3 mirror + combat flag for ToggleSync. Done
+        // before any gate return so a hold/combat frame still refreshes them.
+        _lastInCombat = frame.InCombat;
+        _mirrorValid = frame.Ext3Present && frame.Ext3 is not null;
+        if (frame.Ext3 is { } mirror)
+        {
+            _mirrorMask = mirror.Mask;
+            _mirrorEpoch = mirror.Epoch;
+            _mirrorBlocked = mirror.Blocked;
+        }
 
         // Decision layer observation: record the decoded candidates once per
         // real frame (stroke, first-seen, last-changed, pressed-since-change).
         _candidateTracker.Update(frame, _lastFrameMs);
+
+        // v4.0.3: feed the Ext4 hotbar-map assembler (a no-op on a 43-cell or
+        // narrower addon — the presence bit is clear and cells 43-50 are never
+        // read) and refresh the watched-stroke groups when a new map cycle
+        // landed. The scan only ever queries these VKs.
+        _ext4Assembler.Feed(frame, _lastFrameMs);
+        _hotbarMap = _ext4Assembler.Map;
+        var watchEntries = _hotbarMap.Status == HotbarMapStatus.Ok
+            ? _hotbarMap.Entries
+            : Array.Empty<Ext4Entry>();
+        if (!ReferenceEquals(watchEntries, _watchEntries))
+        {
+            _watchEntries = watchEntries;
+            RefreshWatchGroups();
+        }
+        _lastFrame = frame;
+
+        // v3.2.0: feed the per-target TTK estimator once per real frame, before
+        // any policy runs. The estimate is attached to the combat context later
+        // this tick (WithTtk) and recorded with the exact feed timestamp so a
+        // replay reconstructs it identically.
+        UpdateTtk(frame);
+
+        // 2026-10-01 UI-ONLY class/spec publish. The class badge and the
+        // console home must read the live class even when THIS frame can never
+        // reach a send path (out-of-combat hold, link hold, paused, ...). The
+        // v5 class/spec cells decode independently of the sensor block
+        // (PixelProtocol :660-661), so a frame whose sensors are degraded still
+        // carries its class. This only feeds TryGetLiveClass/TryGetLiveSpec:
+        // the send paths rebuild and assign _lastCombatContext from the same
+        // frame before any scheduler/policy work (:844, :989), so a UI-only
+        // publish can never influence a decision. Placed after UpdateTtk so the
+        // UI copy carries the fresh estimate, and BEFORE the link/OOC gates.
+        PublishUiContext(frame);
 
         // PERF (v1.3.9): summary/raw strings only when the UI wants them.
         var summary = WantDiagnostics ? Summarise(frame) : "-";
@@ -444,6 +582,32 @@ internal sealed class RotationEngine : IDisposable
                 _idle = true;
                 return;
             }
+        }
+
+        // 2026-09-30 FAIL-CLOSED OUT-OF-COMBAT GATE. Out of combat the
+        // companion holds unless the app's out-of-combat toggle is ON
+        // (CombatOnly=false) AND the in-game bridge echoed the Ext3 OOC toggle
+        // bit (mirror proves the addon accepted the permission). An Active
+        // frame must also carry a target; the NeedTarget / NeedInteract asks
+        // are exempt from the Active/target requirement (they ARE the
+        // auto-target / auto-interact states) and are gated per-toggle in
+        // MovementGuard. An in-combat frame always passes. Placed right after
+        // the link gate and before the paused / target / auto-target /
+        // auto-interact / send paths, so a disabled config gate or an
+        // old/unsynced (40-cell) addon can never fire out of combat.
+        // This is the SAME predicate the scheduler applies (CombatGate).
+        // ADDON-WINS: the overlay's mirror bits are authoritative for OOC as
+        // well as the AutoTarget / AutoInteract movement toggles; CombatOnly
+        // stays a companion-side kill-switch only.
+        var mirrorOoc = CombatGate.MirrorOutOfCombatSet(_mirrorValid, _mirrorMask);
+        var mirrorAutoTarget = CombatGate.MirrorAutoTargetSet(_mirrorValid, _mirrorMask);
+        var mirrorAutoInteract = CombatGate.MirrorAutoInteractSet(_mirrorValid, _mirrorMask);
+        if (!CombatGate.OutOfCombatPermitted(
+                frame.InCombat, _settings.CombatOnly, mirrorOoc, frame.State, frame.HasTarget))
+        {
+            Report("holding (out of combat)", true, frame.State, summary);
+            _idle = true;
+            return;
         }
 
         // Adaptive cadence: idle unless there is a target-bearing frame.
@@ -467,18 +631,6 @@ internal sealed class RotationEngine : IDisposable
             return;
         }
 
-        // v1.3.5/1.3.6 COMBAT GATE: "Out of combat" toggle OFF (CombatOnly)
-        // ⇒ HARD PAUSE until the game reports combat. Nothing fires — no
-        // rotation, no auto-target, no auto-interact. The toggle ON opts
-        // out of this gate (out-of-combat attack allowed, subject to the
-        // target gate below).
-        if (_settings.CombatOnly && !frame.InCombat)
-        {
-            Report("holding (out of combat)", true, frame.State, summary);
-            _idle = true;
-            return;
-        }
-
         // Process lock: notify but never send while the attached window is
         // gone or has been re-owned by another process since Refresh.
         if (!_window.IsValid)
@@ -492,6 +644,15 @@ internal sealed class RotationEngine : IDisposable
         // recycled between Refresh and now.
         Native.GetWindowThreadProcessId(gameHandle, out gamePid);
 
+        // v4.0.3: a recognised user press is the user's own intent and is
+        // polled before every automation ask (rotation / target / interact),
+        // so a due press wins the next send; it never blocks the plan.
+        if (TrySendUserPress(frame, gameHandle, gamePid, _clock.ElapsedMilliseconds))
+        {
+            Report("sending (your key)", true, frame.State, summary, _lastKeySent);
+            return;
+        }
+
         // v1.3.6 TARGET GATE (user: "attack out of combat is ok, it just
         // shouldn't spam into empty space — wait until I target
         // something"). With out-of-combat allowed, still require a valid
@@ -501,7 +662,7 @@ internal sealed class RotationEngine : IDisposable
         {
             if (MovementGuard.ShouldAutoTarget(
                     BridgeState.NeedTarget, _settings.AutoTargetEnabled, _settings.CombatOnly,
-                    _clock.ElapsedMilliseconds, _lastActiveMs))
+                    mirrorOoc, mirrorAutoTarget, _clock.ElapsedMilliseconds, _lastActiveMs))
             {
                 _targetBlocked = false;
                 if (TrySendTargetKey(gameHandle, gamePid)) Report("targeting", true, frame.State, summary, _lastKeySent);
@@ -545,7 +706,7 @@ internal sealed class RotationEngine : IDisposable
             AuditBindings(frame);
             if (MovementGuard.ShouldAutoTarget(
                     frame.State, _settings.AutoTargetEnabled, _settings.CombatOnly,
-                    _clock.ElapsedMilliseconds, _lastActiveMs))
+                    mirrorOoc, mirrorAutoTarget, _clock.ElapsedMilliseconds, _lastActiveMs))
             {
                 _targetBlocked = false;
                 if (TrySendTargetKey(gameHandle, gamePid)) Report("targeting", true, frame.State, summary, _lastKeySent);
@@ -570,7 +731,7 @@ internal sealed class RotationEngine : IDisposable
             }
             else if (MovementGuard.ShouldAutoInteract(
                     frame.State, _settings.InteractEnabled, _settings.CombatOnly,
-                    _clock.ElapsedMilliseconds, _lastActiveMs))
+                    mirrorOoc, mirrorAutoInteract, _clock.ElapsedMilliseconds, _lastActiveMs))
             {
                 _interactBlocked = false;
                 if (TrySendInteractKey(gameHandle, gamePid, frame)) Report("interacting", true, frame.State, summary, _lastKeySent);
@@ -616,7 +777,9 @@ internal sealed class RotationEngine : IDisposable
         var idleActive = !sent && _holdNote is null && !AnyEnabledSlot(frame);
         var gcdHold = !sent && _holdNote is null && !idleActive && frame.OnGcd;
         Report(sent ? "sending"
-                : (_holdNote ?? (gcdHold ? "waiting for GCD"
+                : (_holdNote ?? UserQueueHoldNote()
+                    ?? ToggleSync.AddonOffWarning(_mirrorValid, _mirrorMask, _settings.SlotEnabled[(int)Slot.Main])
+                    ?? (gcdHold ? "waiting for GCD"
                     : (idleActive ? "holding (no suggestion from MaxDps)" : "holding"))),
             true, frame.State, summary, "-");
     }
@@ -677,12 +840,55 @@ internal sealed class RotationEngine : IDisposable
         State = frame.State,
         NowMs = nowMs,
         StaleAfterMs = Math.Max(250, _settings.IntelligenceStaleAfterMs),
-        Candidates = _candidateTracker.Snapshot(_settings.SlotEnabled),
+        Candidates = _candidateTracker.Snapshot(_settings.SlotEnabled, nowMs, _candidateTracker.TtlMs),
     };
 
     /// <summary>Ability display name when the identity is known, else the stroke/slot.</summary>
     private string ActionNameOf(int spellId, KeyStroke stroke) =>
         spellId > 0 && _catalog.TryGet(spellId) is { } ability ? ability.Name : stroke.Describe();
+
+    /// <summary>
+    /// UI-only publish of the decoded class/spec for this tick (call site in
+    /// <see cref="Tick"/>). The class/spec cells decode independently of the
+    /// v5 sensor block, so when the sensors are degraded
+    /// (<see cref="BridgeFrame.ContextValid"/> false) a full
+    /// <see cref="CombatContext.FromFrame(BridgeFrame,bool)"/> yields
+    /// <see cref="CombatContext.Unknown"/> and drops the class; that case
+    /// publishes a minimal class/spec-only context (<c>ContextValid=false</c>).
+    /// Never read by the scheduler/policy/send paths — those assign their own
+    /// real context from the same frame before any decision.
+    /// </summary>
+    internal void PublishUiContext(BridgeFrame frame)
+    {
+        if (frame.ClassName is null) return;
+        var projected = CombatContext.FromFrame(frame, _settings.HpCurve)
+            .WithTtk(_ttkEstimate, _settings.TimeToKillHistoryDurFactor);
+        _lastCombatContext = projected.ContextValid
+            ? projected
+            : new CombatContext { Class = frame.ClassName, Spec = frame.SpecName };
+    }
+
+    /// <summary>
+    /// Feeds the per-target TTK estimator from the decoded frame (once per real
+    /// frame). The frame exposes only the rounded target HP percent, so the band
+    /// is reconstructed exactly (all 0..14 bands round-trip). With
+    /// [TimeToKill] Enabled=0 the estimator is left invalid, which skips every
+    /// TTK gate and records no feed timestamp (so replay does not feed either).
+    /// </summary>
+    private void UpdateTtk(BridgeFrame frame)
+    {
+        if (!_settings.TimeToKillEnabled)
+        {
+            _ttkEstimate = TtkEstimate.Invalid;
+            _ttkFeedMs = null;
+            return;
+        }
+        var band = TtkEstimator.BandFromPercent(frame.TargetHpPct);
+        // v3.6.0: pass the decoded combat flag — the low-first-sight provisional
+        // seed is only trusted in combat (spec §2/§3).
+        _ttkEstimate = _ttk.Update(_lastFrameMs, frame.HasTarget, band >= 0, band, frame.InCombat);
+        _ttkFeedMs = _lastFrameMs;
+    }
 
     private void SetPlanHead(ScheduledAction[] actions)
     {
@@ -701,6 +907,196 @@ internal sealed class RotationEngine : IDisposable
     {
         var snapshot = new LiveActionSnapshot(action, reason, provider, why);
         lock (_snapshotLock) _lastAction = snapshot;
+    }
+
+    /// <summary>v4.0.3: cadence of the between-tick physical-key scan.</summary>
+    private const int UserQueueScanMs = 10;
+
+    /// <summary>True while the scan has a usable hotbar map to watch.</summary>
+    private bool UserQueueScanActive =>
+        _settings.UserQueueEnabled && !Paused
+        && _hotbarMap.Status == HotbarMapStatus.Ok && _watchGroups.Count > 0;
+
+    /// <summary>Re-groups the Ext4 map entries by VK for the scan (runs on a map swap only).</summary>
+    private void RefreshWatchGroups()
+    {
+        _watchGroups.Clear();
+        foreach (var entry in _watchEntries)
+        {
+            if (!_watchGroups.TryGetValue(entry.Stroke.VirtualKey, out var list))
+                _watchGroups[entry.Stroke.VirtualKey] = list = new List<Ext4Entry>(1);
+            list.Add(entry);
+        }
+        if (_watchPrevDown.Count > _watchGroups.Count)
+        {
+            List<byte>? dead = null;
+            foreach (var vk in _watchPrevDown.Keys)
+                if (!_watchGroups.ContainsKey(vk)) (dead ??= []).Add(vk);
+            if (dead is not null)
+                foreach (var vk in dead) _watchPrevDown.Remove(vk);
+        }
+    }
+
+    /// <summary>Exact modifier match — mirrors how WoW fires a binding (Shift+F ≠ F).</summary>
+    private bool ModifiersMatch(KeyStroke stroke) =>
+        _keyProbe.IsDown(0x10) == stroke.Shift
+        && _keyProbe.IsDown(0x11) == stroke.Ctrl
+        && _keyProbe.IsDown(0x12) == stroke.Alt;
+
+    /// <summary>
+    /// Physical-key edge scan (runs in the loop's ≤10 ms slices). Only VKs
+    /// present in the decoded Ext4 map are queried; every candidate press is
+    /// filtered against the last decoded frame (typing veto, OOC gate, link
+    /// freshness) and the focus rules before it enters the queue.
+    /// </summary>
+    private void ScanUserKeys()
+    {
+        if (!_settings.UserQueueEnabled || Paused) return;
+        if (_hotbarMap.Status != HotbarMapStatus.Ok || _watchGroups.Count == 0) return;
+
+        // The raw key state is ALWAYS tracked while a map is loaded (so a key
+        // held across a gate transition can never read as a fresh edge later);
+        // only the queueing action is gated.
+        var frame = _lastFrame;
+        var focused = _window.IsForeground;
+        var canAct = frame is { Ext4Present: true }
+            && !frame.TypingActive   // typing veto: chat/edit box focused
+            && _clock.ElapsedMilliseconds - _lastFrameMs <= _settings.SchedulerHeartbeatTimeoutMs
+            && (focused || _settings.UserQueueBackground)
+            && CombatGate.OutOfCombatPermitted(frame.InCombat, _settings.CombatOnly,
+                CombatGate.MirrorOutOfCombatSet(_mirrorValid, _mirrorMask), frame.State, frame.HasTarget);
+
+        var now = _clock.ElapsedMilliseconds;
+        foreach (var (vk, entries) in _watchGroups)
+        {
+            var state = _keyProbe.Query(vk);
+            var down = (state & 0x8000) != 0;
+            var was = _watchPrevDown.GetValueOrDefault(vk);
+            _watchPrevDown[vk] = down;
+            // Edge: a fresh press only (down && !was). The low bit is NOT used
+            // — it is a shared latch, see KeyStateProbe.IsFreshPress.
+            if (!KeyStateProbe.IsFreshPress(state, was) || !canAct) continue;
+
+            Ext4Entry? match = null;
+            foreach (var entry in entries)
+            {
+                if (ModifiersMatch(entry.Stroke)) { match = entry; break; }
+            }
+            if (match is not { } pressed) continue;   // a modifier variant we do not watch
+
+            OnRecognizedPress(pressed, focused, frame!, now);
+            break;   // one physical press = one queued stroke
+        }
+    }
+
+    /// <summary>
+    /// Classifies a recognised press and queues it (or records it as native).
+    /// Focused game: the OS already delivered the press — a GCD-riding stroke
+    /// pressed mid-GCD is queued (the client's ~400 ms queue window would drop
+    /// an early press otherwise); an off-GCD press or a press while the GCD is
+    /// free casts natively, so the companion never re-sends it (no double
+    /// trinket/charge use). Background delivery (opt-in) queues everything.
+    /// </summary>
+    private void OnRecognizedPress(Ext4Entry entry, bool focused, BridgeFrame frame, long nowMs)
+    {
+        var ridesGcd = UserPressClassifier.RidesGcd(entry, _catalog);
+        var queueable = !focused || (frame.OnGcd && ridesGcd);
+        if (!queueable)
+        {
+            TelemetryUser(nowMs, entry.Stroke, entry.Id, "native");
+            return;
+        }
+        _userPressQueue.OnPress(new UserPress(
+            entry.Stroke, entry.Id, entry.IsItem, entry.Ready, ridesGcd, nowMs));
+        TelemetryUser(nowMs, entry.Stroke, entry.Id, "queued");
+    }
+
+    private void TelemetryUser(long nowMs, KeyStroke stroke, int spellId, string note)
+    {
+        if (_telemetry is not { } telemetry) return;
+        var interval = _lastAnyPress <= 0 ? 0 : nowMs - _lastAnyPress;
+        telemetry.Append(TelemetryEvent.Sent(nowMs, "user", null, stroke, interval, spellId, note));
+    }
+
+    /// <summary>
+    /// v4.0.3: delivers the queue head at its allowed moment through the SAME
+    /// keyboard path (PostMessage to the game window only) and OS gates as
+    /// every other press. Returns true when a stroke was sent.
+    /// </summary>
+    private bool TrySendUserPress(BridgeFrame frame, IntPtr gameHandle, uint gamePid, long now)
+    {
+        if (!_settings.UserQueueEnabled)
+        {
+            _userPressQueue.Reset();
+            return false;
+        }
+        if (!_userPressQueue.HasPending) return false;
+
+        var head = _userPressQueue.Head;
+        var keyDown = head is { } held && _keyProbe.IsDown(held.Stroke.VirtualKey);
+        var action = _userPressQueue.Poll(now, frame.OnGcd, keyDown);
+        switch (action.Kind)
+        {
+            case UserPressActionKind.Deliver:
+            {
+                // Belt (spec §4): the map already excludes movement keys and
+                // the mouse/wheel sentinels, but never trust the wire alone: a
+                // stroke this guard exists to protect is dropped, never sent.
+                if (MovementGuard.IsMovementStroke(action.Stroke) || KeySender.IsMouse(action.Stroke.VirtualKey))
+                {
+                    _userPressQueue.DropHead();
+                    _holdNote ??= $"your {action.Stroke.Describe()} is not queueable";
+                    TelemetryUser(now, action.Stroke, head?.SpellId ?? 0, "dropped:excluded-stroke");
+                    return false;
+                }
+                if (!_settings.AllowBackgroundKeys && !_window.IsForeground)
+                {
+                    _holdNote ??= "your key: game not focused";
+                    return false;
+                }
+                if (!KeySender.SendToWindow(gameHandle, gamePid, action.Stroke, _settings.KeyPressMs))
+                {
+                    _holdNote ??= "your key: game window lost";
+                    return false;
+                }
+
+                var id = head?.SpellId ?? 0;
+                var retry = _userPressQueue.HeadIsRetry;
+                var interval = _lastAnyPress <= 0 ? 0 : now - _lastAnyPress;
+                _lastAnyPress = now;
+                _userPressQueue.NoteSent(now);
+                _telemetry?.Append(TelemetryEvent.Sent(now, "user", null, action.Stroke, interval, id,
+                    retry ? "retry" : "delivered"));
+                _lastKeySent = $"User: {action.Stroke.Describe()}";
+                SetLastAction(
+                    id > 0 ? $"{ActionNameOf(id, action.Stroke)} (you)" : action.Stroke.Describe(),
+                    "your press", "User", []);
+                return true;
+            }
+
+            case UserPressActionKind.Drop:
+                _holdNote ??= $"your key dropped ({action.Reason})";
+                TelemetryUser(now, head?.Stroke ?? default, head?.SpellId ?? 0, $"dropped:{action.Reason}");
+                return false;
+
+            default:
+                _holdNote ??= UserQueueHoldNote();
+                return false;
+        }
+    }
+
+    /// <summary>v4.0.3 status text for the tick Report (null = nothing to say).</summary>
+    private string? UserQueueHoldNote()
+    {
+        if (!_settings.UserQueueEnabled) return null;
+        if (_userPressQueue.Head is { } head)
+            return $"your {ActionNameOf(head.SpellId, head.Stroke)} queued ({head.Stroke.Describe()})";
+        return _hotbarMap.Status switch
+        {
+            HotbarMapStatus.OldAddon => "user queue: addon too old for hotbar keys (install-addon-exp + /reload)",
+            HotbarMapStatus.Stale => "user queue: waiting for the hotbar map",
+            _ => null,
+        };
     }
 
     private bool TrySendOne(BridgeFrame frame, IntPtr gameHandle, uint gamePid)
@@ -724,12 +1120,12 @@ internal sealed class RotationEngine : IDisposable
         // Build the combat context once: the scheduler consumes it (hard
         // execution-safety gate even with intelligence off), the policy
         // consumes it, and the telemetry tick records it (explainability).
-        var combat = CombatContext.FromFrame(frame, _settings.HpCurve);
+        var combat = CombatContext.FromFrame(frame, _settings.HpCurve).WithTtk(_ttkEstimate, _settings.TimeToKillHistoryDurFactor);
         _lastCombatContext = combat;
         var plan = _scheduler.Advance(new ScheduleInput
         {
             Frame = frame,
-            Candidates = _candidateTracker.Snapshot(_settings.SlotEnabled),
+            Candidates = _candidateTracker.Snapshot(_settings.SlotEnabled, now, _candidateTracker.TtlMs),
             NowMs = now,
             MinKeyIntervalMs = _settings.MinKeyIntervalMs,
             StaleAfterMs = Math.Max(250, _settings.IntelligenceStaleAfterMs),
@@ -739,6 +1135,13 @@ internal sealed class RotationEngine : IDisposable
             Options = _settings.IntelligenceEnabled ? PolicyOptions.FromSettings(_settings) : null,
             Catalog = _catalog,
             CollectPolicyVerdicts = _telemetry is not null,
+            // 2026-09-30: the SAME fail-closed OOC predicate the engine gate
+            // uses, so the scheduler is complete for tests and a belt-and-
+            // braces backstop on the engine path.
+            OutOfCombatPermitted = CombatGate.OutOfCombatPermitted(
+                frame.InCombat, _settings.CombatOnly,
+                CombatGate.MirrorOutOfCombatSet(_mirrorValid, _mirrorMask),
+                frame.State, frame.HasTarget),
         });
         _lastPlan = plan;
         _planFreshThisTick = true;
@@ -762,7 +1165,7 @@ internal sealed class RotationEngine : IDisposable
             if (MovementGuard.IsMovementStroke(stroke))
             {
                 _holdNote = $"slot {SlotName(action.Slot)} is bound to {stroke.Describe()}";
-                _scheduler.NoteAttempt(now, action.Slot, stroke, AttemptOutcome.MovementBound);
+                _scheduler.NoteAttempt(now, action.Slot, stroke, AttemptOutcome.MovementBound, action.SpellId);
                 continue;
             }
 
@@ -771,7 +1174,7 @@ internal sealed class RotationEngine : IDisposable
             if (MovementGuard.IsPhysicallyDown(stroke.VirtualKey))
             {
                 held = stroke;
-                _scheduler.NoteAttempt(now, action.Slot, stroke, AttemptOutcome.PhysicalHold);
+                _scheduler.NoteAttempt(now, action.Slot, stroke, AttemptOutcome.PhysicalHold, action.SpellId);
                 continue;
             }
 
@@ -781,7 +1184,7 @@ internal sealed class RotationEngine : IDisposable
                 if (!_window.IsForeground || !_window.IsGameWindow(gameHandle))
                 {
                     _holdNote = $"slot {SlotName(action.Slot)} needs focus (mouse input)";
-                    _scheduler.NoteAttempt(now, action.Slot, stroke, AttemptOutcome.FocusRequired);
+                    _scheduler.NoteAttempt(now, action.Slot, stroke, AttemptOutcome.FocusRequired, action.SpellId);
                     continue;
                 }
                 KeySender.Send(stroke, _settings.KeyPressMs);
@@ -793,19 +1196,19 @@ internal sealed class RotationEngine : IDisposable
                 if (!_settings.AllowBackgroundKeys && !_window.IsForeground)
                 {
                     _holdNote = "game not focused";
-                    _scheduler.NoteAttempt(now, action.Slot, stroke, AttemptOutcome.FocusRequired);
+                    _scheduler.NoteAttempt(now, action.Slot, stroke, AttemptOutcome.FocusRequired, action.SpellId);
                     return false;
                 }
                 if (!KeySender.SendToWindow(gameHandle, gamePid, stroke, _settings.KeyPressMs))
                 {
                     _holdNote = "game window lost";
-                    _scheduler.NoteAttempt(now, action.Slot, stroke, AttemptOutcome.WindowLost);
+                    _scheduler.NoteAttempt(now, action.Slot, stroke, AttemptOutcome.WindowLost, action.SpellId);
                     return false;
                 }
             }
 
             _lastSlotPress[index] = now; // diagnostics only (see field note)
-            _candidateTracker.NotePressed(action.Slot, now);
+            _candidateTracker.NotePressed(action.Slot, now, action.SpellId);
             _scheduler.NoteSent(now, action.Slot, stroke, action.SpellId);
             var sendInterval = _lastAnyPress <= 0 ? 0 : now - _lastAnyPress; // v1.5.0 telemetry
             _lastAnyPress = now;
@@ -862,7 +1265,7 @@ internal sealed class RotationEngine : IDisposable
         // below runs even on the double-off legacy path (it is not knowledge
         // filtering). A v4/v1 frame yields an all-UNKNOWN context, so a stale
         // in-game addon keeps the byte-identical legacy behaviour.
-        var combat = CombatContext.FromFrame(frame, _settings.HpCurve);
+        var combat = CombatContext.FromFrame(frame, _settings.HpCurve).WithTtk(_ttkEstimate, _settings.TimeToKillHistoryDurFactor);
         _lastCombatContext = combat;
 
         // v1.3.3: scan the order EVERY tick (Main first by default). The
@@ -1236,7 +1639,8 @@ internal sealed class RotationEngine : IDisposable
                 candidates,
                 message,
                 visible,
-                policyRecord));
+                policyRecord,
+                _ttkFeedMs));
             telemetry.RecordLink(now, visible, message, _telemetryFault);
         }
         StatusChanged?.Invoke(new EngineStatus(message, visible, state, summary, _lastKeySent, raw, DecisionSummary()));

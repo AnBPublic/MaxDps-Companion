@@ -1,25 +1,30 @@
-# Pixel protocol v5 + Ext2 (40-cell, additive) — MaxDpsBridge ↔ MaxDpsCompanion
+# Pixel protocol v5 + Ext2/Ext3/Ext4 (additive; 35/40/43/51-cell) — MaxDpsBridge ↔ MaxDpsCompanion
 
 Normative spec. Bridge encodes, companion decodes. The frame is the **35-cell
-v5 core** plus the **additive Ext2 block** (cells 35-39), so a bridge 3.0.0
-strip is **40 cells**, left to right, each `CellSize` physical pixels square.
+v5 core** plus the **additive Ext2 block** (cells 35-39), the **additive
+Ext3 block** (cells 40-42) and the **additive Ext4 block** (cells 43-50), so a
+bridge that ships Ext4 renders a **51-cell** strip, left to right, each
+`CellSize` physical pixels square.
 The app samples the centre pixel (5-tap median at ≥2 px cells).
 
 > **Compatibility contract (Sep-2026 outage lesson):** the companion MUST
-> decode the previous protocol versions too. It decodes **v5 + Ext2 (40
-> cells), v5/v6 (35 cells, v6 accepted forward-compatible), v4 (9 cells) and
-> v1 (8 cells)**; the in-game addon encodes **v5 + Ext2** (bridge 3.0.0). The
-> addon goes stale whenever the user runs a new exe without
-> `install-addon.ps1` + `/reload`. Rule for every protocol bump: **companion
-> decodes N and the older supported widths; addon encodes N**, and the app
-> warns (never hard-fails) on skew so recalibrate is the repair path. Both the
-> defensive-urgency block and Ext2 are **additive**: a pre-2.3 encoder leaves
-> the three urgency nibbles at `0` = UNKNOWN, and a pre-3.0 encoder leaves
-> cell 33 B bit2 clear, so the decoder ignores cells 35-39. The wire version
-> nibble stays `5` in both directions — an updated addon still decodes with an
-> older companion exe (it ignores the reserved nibbles, whose extension
-> checksum it already covered), and a 35-cell stale addon still drives the v3
-> companion (Ext2 absent).
+> decode the previous protocol versions too. It decodes **v5/Ext4 (51 cells),
+> v5/Ext3 (43 cells), v5/Ext2 (40 cells), v5/v6 (35 cells, v6 accepted
+> forward-compatible), v4 (9 cells) and v1 (8 cells)**; the in-game addon
+> encodes the widest layout it ships (Ext2 = 40 cells; Ext3 = 43; Ext4 = 51).
+> The addon goes stale whenever the user
+> runs a new exe without `install-addon.ps1` + `/reload`. Rule for every
+> protocol bump: **companion decodes N and the older supported widths; addon
+> encodes N**, and the app warns (never hard-fails) on skew so recalibrate is
+> the repair path. The defensive-urgency block, Ext2, Ext3 and Ext4 are all
+> **additive**: a pre-2.3 encoder leaves the three urgency nibbles at `0` =
+> UNKNOWN, a pre-3.0 encoder leaves cell 33 B bit2 clear (cells 35-39 ignored),
+> a pre-Ext3 encoder leaves cell 28 B bit2 clear (cells 40-42 ignored) and a
+> pre-Ext4 encoder leaves cell 28 B bit3 clear (cells 43-50 ignored). The
+> wire version nibble stays `5` in all directions — an updated addon still
+> decodes with an older companion exe (it ignores the reserved nibbles, whose
+> checksums it already covered), and a stale addon still drives the current
+> companion.
 
 Slot naming: slots 1-6 mirror the in-game Spell Frame categories (offensive =
 `classCooldowns` offensive bucket, defensive = `GlowDefensiveHPMidnight`,
@@ -58,7 +63,7 @@ profile says otherwise.
 | 23-24 | 6 nibbles | | | Mobility spell id |
 | 25-26 | 6 nibbles | | | SelfHeal spell id |
 | 27 | hp% hi | hp% lo | hp flags | player health |
-| 28 | cast state | remaining band | Ext2: SelfHeal2 range bits0-1 (rest reserved) | player cast/channel (+ alternate range) |
+| 28 | cast state | remaining band | Ext2: SelfHeal2 range bits0-1; Ext3: presence bit2; Ext4: presence bit3 | player cast/channel (+ alternate range + Ext3/Ext4 presence) |
 | 29 | target flags | target hp band | target cast flags | target state |
 | 30 | slot1\|slot2 | slot3\|slot4 | slot5\|slot6 | per-slot range tri-state (2 bits each) |
 | 31 | slot7\|slot8 | defensive urgency (HP curve) | gap-fill source | per-slot range tri-state + additive urgency |
@@ -127,6 +132,20 @@ usable, enabled defensive is "recommended" while the colour is its urgency.
 | 3 | Orange | 30% < HP < 50% (red→yellow blend) | 50% ≤ stagger < 100% |
 | 4 | Red | HP ≤ 30% (red anchor) | stagger ≥ 100% |
 
+### Companion gap-fill sources (v3.0.0, no wire change, v3.3.0 Solo ladder additive)
+
+Two slots carry companion-generated gap-fill candidates. The **Defensive**
+slot has the cell 31 B bit0 source flag (Red majors / Orange short-CDs). The
+**Offensive** slot has **no source bit**: PixelProtocol decode is frozen
+(no new flag field) and every slot-flag nibble bit is already used, so the
+bridge just encodes the candidate into the normal slot and the companion
+derives the source by **id membership** in the same generated per-spec
+offensive list the bridge walked (`AbilityCatalog.IsOffensiveGapFill`). No
+wire format changed; cells/counts/version nibble are untouched. Because the
+offensive gap-fill is gated on combat/Solo, the tick's decoded class/spec is
+recorded in the telemetry policy block (`cls`/`spec`, additive/omitted on
+legacy records) so a replay re-derives the same source.
+
 Cell 31 G carries the urgency for the spell currently in the Defensive slot
 (so it follows the slot's identity). Cell 32 B always carries the raw
 stagger-curve stage, which lets the policy apply the per-ability
@@ -137,6 +156,87 @@ read is secret the vendor falls back to the HP curve
 (`if not color then color = UnitHealthPercent(...)`), and the bridge mirrors
 that fallback exactly. Out-of-range nibbles (5-15) decode as UNKNOWN, so a
 corrupt or reserved value can never read as White/Red.
+
+#### v3.3.0 Solo survival ladder (no wire change)
+
+The ladder is companion+bridge policy over the SAME cells: the bridge arms
+`MDB.SoloLadderBands = { minor = 75, major = 50, immunity = 30 }` only while
+the in-game Solo toggle is ON and the player is known ungrouped
+(`Bridge.lua` per-tick context; Solo OFF / grouped / unknown group disarms
+all bands). When armed and MaxDps names no defensive, the Defensive slot
+offers `defensiveMinor` at/below the minor band, `defensiveMajor` at/below
+the major band, and `immunity` at/below the immunity band
+(`Reader.lua GetDefensiveCandidate`; `Catalog.lua` carries the two new lists
+alongside the unchanged `defensive`/`defensiveMinor` lists). The companion
+policy gates the same bands Solo-only (`CandidateProviders` Solo escalation:
+in-band gap-fill bypasses the White-urgency hold; out-of-band holds;
+immunity additionally needs no active immunity; MaxDps-flagged candidates and
+all group verdicts keep the classic urgency path). Unchosen talents are
+ignored at both ends: the bridge only offers a ready+bound spell the player
+knows (`ExtraCandidates`), and catalog membership is a core+talent superset.
+No cell, count, or version nibble changed.
+
+#### v3.3.0 in-game 13 toggles (no wire change)
+
+Bridge 3.3.0 adds the companion hero's 13 toggles to the addon
+(`addon/MaxDpsBridge/Toggles.lua` + `Panel.lua`): 8 per-slot toggles (slots
+1-8) plus Solo / Out-of-combat / Auto-target / Auto-interact / TTK (the `ttk`
+key is labelled **"TTK guard"** from v3.6; see §201 for its OFF semantics). The
+addon only ever **restricts** what the companion already decided —
+`effective = companion AND addon`, an addon OFF always wins. The wire version
+nibble stays `5`: no cell, nibble lane or checksum changed, and a companion
+that does not know about toggles decodes the frame exactly as before.
+
+- **A user-blanked slot is indistinguishable from "no candidate".** An OFF
+  slot is written as an all-zero cell with the slot-valid flag (bit 3) clear —
+  exactly the encoding the bridge already emits when MaxDps names nothing. The
+  companion decodes both as empty and runs its ordinary no-candidate policy;
+  the wire carries no "user muted this" bit and there is no new semantics to
+  decode.
+- **Out-of-combat OFF** blanks slots 1-8 whenever the bridge reads
+  `UnitAffectingCombat("player") == false`. The check is a strict boolean:
+  nil/secret combat state is not a false and fails open (no blank).
+- **Solo OFF** blanks only the survival slots (Defensive 3, SelfHeal 8), only
+  while the player is known ungrouped, and only when HP is known above the
+  emergency floor (35). Unknown group or HP fails open.
+- **Auto-target / Auto-interact OFF** force cell 9 R to state `0` (idle)
+  instead of `3`/`4`. The status-flag nibble is untouched, so the real target
+  and combat facts are still reported.
+- **TTK guard OFF (v3.6 rename)** forces the target HP band (cell 29 G) to
+  `15` = UNKNOWN; the melee flag and cast/interrupt flags are unchanged. This is
+  **not** an inversion of the toggle (OFF is automation-off everywhere else,
+  and flipping it would make ON = fire everything): OFF explicitly means
+  *"cooldowns fire without dying-target protection; target HP band hidden from
+  the companion"*. Collateral, and the reason the toggle is easy to
+  misunderstand: band 15 blinds not only the v3.2.0/v3.6 TTK gates but also
+  the execute gate and every other target-band consumer (Burst presets), which
+  go blind exactly as they do for a genuinely hidden band. The companion's
+  `[TimeToKill] Fallback=FailOpen|ConserveMajors` setting (default `FailOpen`)
+  governs what an *unknown* TTK does when the feature is otherwise ON; it is
+  companion-side, not a wire field. **Phase 2 (separate L-route spec, not this
+  change)** may add a target-class encoding (cell 29 R bits 2–3); it is not
+  required for the v3.6 guard and does not alter this OFF semantics.
+
+`/mdb toggles`, `/mdb <key> on|off`, `/mdb all on|off`, `/mdb overlay on|off`
+and `/mdb why heal` are command-surface only; `/mdb status` gains a trailing
+`toggles=N/13 ON; OFF: ...` field.
+
+#### v3.x racial toggles (no wire change)
+
+Racial abilities are **ordinary catalog rows tagged `scope: "Racial"`**, not a
+new wire concept: there is no race field, no new cell and no version bump.
+Each row carries a normal Purpose, so the existing providers route it exactly
+like a class ability — Offensive (`MajorOffensive`/`MinorOffensive` → the
+Offensive toggle/slot), Defensive (`DefensiveMinor`/`Absorb` → the Defensive
+toggle/slot), SelfHeal (`purpose: SelfHeal` → the SelfHeal toggle) or Utility
+(CrowdControl → manual/Never). The generator appends the racial ids to **every**
+class/spec's `offensive` and `defensiveMinor` `MDB.Extras` lists, and the
+bridge's existing **known-spell filter** is the race selector: a character that
+is not that race has no resolvable keybind/spell for the id, so the walk simply
+skips it. No client race detection is performed and `UnitRace` is never read.
+CC/mobility racials (War Stomp, Quaking Palm, Wing Buffet, Haymaker, Bull Rush)
+stay `neverAutomatic`/Manual; passives and travel-only racials are not
+catalogued. Toggles remain slot-based and unchanged.
 
 ### Flags (slot cells 1-8)
 
@@ -291,6 +391,11 @@ arithmetic on them:
 | `/mdb cellsize <px>` | 1-64, default 8 (recommended 8) |
 | `/mdb calibrate on\|off` | 54-step pattern show/hide |
 | `/mdb heal` | per curated self-heal entry: known / ready / usable / key / why (explains the slot-8 + SelfHeal2 selection) |
+| `/mdb toggles` | list the 13 in-game toggles (`N/13 ON; OFF: ...`, bridge 3.3.0) |
+| `/mdb <key> [on\|off]` | main / offensive / defensive / consumable / trinket / interrupt / mobility / selfheal / solo / ooc / autotarget / autointeract / ttk |
+| `/mdb all on\|off` | set all 13 in-game toggles |
+| `/mdb overlay on\|off` | show/hide the compact in-game toggle overlay (`Ui.Overlay`) |
+| `/mdb why heal` | explain a blank slot 8 / 3 from `MDB._LastBlank` (gate reason) |
 | `/mdb hpcurve on\|off` | Ext2 HP-curve cell 35 on/off (SavedVariables, default on); off paints black and clears bit3 |
 | `/mdb diag` | scrubbed MaxDps internals snapshot |
 | `/mdb reset` | defaults + pattern cleared |
@@ -350,3 +455,118 @@ clear, which the v3 decoder treats as "no extension" and ignores cells 35-39.
   valid curve supplies fallback HP only when cell 27 is secret/unknown, and
   `HpPctUpper` is the band's top so the overheal guard never assumes the low
   end. If `[Intelligence] HpCurve=0`, the curve is ignored entirely.
+
+## Ext3 block (v3.5, additive)
+
+Ext3 extends the strip to **43 cells**; cells 0-39 are the unchanged v5 core +
+Ext2 layout (including the cells 10/34/39 checksums) and the version nibble
+stays `5`. A pre-Ext3 encoder leaves cell 28 B bit2 clear, which the decoder
+treats as "no extension" and ignores cells 40-42. The block is a **14-bit mask
++ epoch + blocked nibble**, closed by its own checksum/commit cell.
+
+| Cell | Channel | Ext3 (v3.5) meaning |
+| :--- | :--- | :--- |
+| 28 | B | bit2 EXT3 PRESENT (`0` = block absent, cells 40-42 ignored); bits0-1 are the Ext2 SelfHeal2 range tri-state (decoders mask with `& 0x3`) |
+| 40 | R/G/B | mask bits 0-11: `R = bits 0-3`, `G = bits 4-7`, `B = bits 8-11` |
+| 41 | R/G/B | `R = mask bits 12-13` (bits 0-1; bit2 = typing veto, v4.0.3; bit3 reserved), `G = epoch` (0-15), `B = blocked nibble` (0-15) |
+| 42 | R/G/B | Ext3 checksum: `R = 0` (reserved), `G = sum(R,G,B nibbles of cells 40-41) mod 16`, `B = commit (= heartbeat)` |
+
+**Decode rules (companion):**
+
+- The block is read only from a **43-cell capture**: `ext3Present = cell 28 B
+  bit2 && cells.Length >= 43`. A 40-cell Ext2 (or 35-cell core) addon decodes
+  exactly as before; cells 40-42 are never read.
+- `mask` is rebuilt as `m40.R | (m40.G << 4) | (m40.B << 8) | ((m41.R & 3) <<
+  12)` — the 14-bit field, MSB nibbles last. `epoch` is cell 41 G and
+  `blocked` is cell 41 B, both plain 0-15 values.
+- A cell-42 checksum failure (or a torn commit) drops **only the Ext3 block**;
+  the frame, the v5 core and Ext2 are kept — the same "drop only this block"
+  rule as cell-39/Ext2.
+- The cell-42 `R` channel is reserved and **ignored** (not asserted `0`), like
+  cell 34 R and cell 39 R. An encoder writes `0` there; the decoder must not
+  reject a frame because a reserved channel drifted.
+- The core checksums (cells 10 and 34) and the Ext2 checksum (cell 39) keep
+  covering exactly cells 1-9, 11-33 and 36-38; none of them change.
+- The Ext3 block is additive over the **frozen** v5 contract: no cell, nibble
+  lane, version nibble or checksum defined above is renumbered or moved.
+
+## Ext4 block (v4.0.3, additive)
+
+Ext4 extends the strip to **51 cells**; cells 0-42 are the unchanged v5 core +
+Ext2 + Ext3 layout (including the cells 10/34/39/42 checksums) and the version
+nibble stays `5`. A pre-Ext4 encoder leaves cell 28 B bit3 clear, which the
+decoder treats as "no extension" and ignores cells 43-50. The block is a
+**hotbar-map frame stream**: a header, up to two entry pairs, and a commit cell,
+delivered as a self-describing frame sequence (a cycle = seq `0..N` with `N`
+marked LAST).
+
+| Cell | Channel | Ext4 (v4.0.3) meaning |
+| :--- | :--- | :--- |
+| 28 | B | bit3 EXT4 PRESENT (`0` = block absent, cells 43-50 ignored); bit2 Ext3 presence; bits0-1 Ext2 SelfHeal2 range (decoders mask with `& 0x3`) |
+| 41 | R | bit2 TYPING VETO (chat/edit-box focus); read only when the Ext3 block is valid, bits0-1 stay the mask bits 12-13, bit3 reserved |
+| 43 | R/G/B | header: `R = gen` (0-15), `G = seq` (0-15), `B = flags` (bit0 LAST, bit1 EMPTY, bits2-3 reserved) |
+| 44-46 | 3 cells | entry A (below) |
+| 47-49 | 3 cells | entry B (below) |
+| 50 | R/G/B | commit: `R = 0` (reserved), `G = sum(R,G,B nibbles of cells 43-49) mod 16`, `B = commit (= heartbeat)` |
+
+**Entry (3 cells):**
+
+- Cell 1 = `(vk hi, vk lo, flags)` using the slot keystroke layout: Shift=1,
+  Ctrl=2, Alt=4, Valid=8. **Valid=0 = pad entry** (no binding in that slot pair).
+- Cell 2 = `(idTop, id19-16, id15-12)`: `idTop` bit3 = `isItem`, bit2 = `ready`,
+  bits1-0 = id bits 21-20.
+- Cell 3 = `(id11-8, id7-4, id3-0)`.
+- Id is 22 bits:
+  `id = ((idTop & 3) << 20) | (c2.G << 16) | (c2.B << 12) | (c3.R << 8) | (c3.G << 4) | c3.B`.
+  The encoder skips and logs any id ≥ 2^22 (4,194,304).
+- The `EMPTY` flag marks a seq-0 LAST frame that carries no entries.
+
+**Decode rules (companion):**
+
+- The block is read only from a **51-cell capture**: `ext4Present = cell 28 B
+  bit3 && cells.Length >= 51`. A 43-cell Ext3 (or narrower) addon decodes
+  exactly as before; cells 43-50 are never read.
+- A cell-50 checksum failure **or a torn commit** (heartbeat mismatch) drops
+  **only that Ext4 frame** (`BridgeFrame.Ext4 = null`); the frame, the v5 core,
+  Ext2 and Ext3 are kept — the same "drop only this block" rule as
+  cell-39/Ext2 and cell-42/Ext3.
+- Pad entries (cell flags bit3 clear) are not surfaced; `Ext4Frame.Entries`
+  holds 0-2 live entries. A stroke may map to several entries.
+- `BridgeFrame.TypingActive` = `Ext3 valid && cell 41 R bit2`. An invalid or
+  absent Ext3 block reads `false` (typing not detected → no veto).
+- The cell-50 `R` channel is reserved and **ignored** (not asserted `0`), like
+  cells 34/39/42 R. The core checksums (cells 10/34), the Ext2 checksum (39)
+  and the Ext3 checksum (42) keep covering exactly cells 1-9, 11-33, 36-38 and
+  40-41; none of them change. Cell 41 R bit2 lives inside the Ext3 checksum's
+  scope (the sum covers the whole nibble), so an encoder that sets the typing
+  bit must recompute cell 42 — the Ext3 mask still reads it as `mHi & 3`.
+- The Ext4 block is additive over the **frozen** v5/Ext2/Ext3 contract: no
+  cell, nibble lane, version nibble or checksum defined above is renumbered or
+  moved.
+
+**Assembly (Ext4Assembler, companion):**
+
+- A cycle is `seq 0..N` (N = LAST); it starts only at `seq 0`, and seqs are
+  contiguous within one generation. Repeated reads of one gen+seq are
+  idempotent (a frame is held ≥2 paint ticks).
+- A seq gap, a generation change or a torn frame discards the partial cycle and
+  waits for the next `seq 0`.
+- LAST swaps the map **atomically**: the previous map keeps serving until the
+  new cycle closes.
+- The map is dropped (Stale) after **5 s** with no completed cycle, or
+  immediately (OldAddon) when a frame arrives without the Ext4 presence bit.
+- `HotbarMap.Status` ∈ `Unavailable` / `OldAddon` / `Stale` / `Ok`;
+  `HotbarMap.Lookup(stroke)` returns every entry bound to that stroke.
+
+**Compatibility matrix:**
+
+| In-game addon | Strip width | Presence bit | v4.0.3 companion | Pre-Ext4 companion |
+| :--- | :--- | :--- | :--- | :--- |
+| v1 | 8 | — | v1 decode (legacy window) | v1 decode |
+| v4 | 9 | — | v4 decode | v4 decode |
+| v5 core | 35 | — | v5 core | v5 core |
+| v5 + Ext2 | 40 | cell 33 B bit2 | v5 core + Ext2 | v5 core (Ext2 ignored) |
+| v5 + Ext3 | 43 | cell 28 B bit2 | v5 core + Ext2 + Ext3 (+ typing) | v5 core + Ext2 (Ext3 ignored) |
+| v5 + Ext4 | 51 | cell 28 B bit3 | v5 core + Ext2 + Ext3 + Ext4 | v5 core + Ext2 + Ext3 (cells 43-50 ignored) |
+| stale addon + current companion | ≤43 | bit3 = 0 | Ext4 absent; `HotbarMap.Status = OldAddon` | n/a |
+| current addon + stale companion | 51 | bit3 = 1 | — | decodes the 43-cell prefix |

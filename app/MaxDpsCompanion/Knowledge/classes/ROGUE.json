@@ -1,0 +1,146 @@
+{
+  "schema": 1,
+  "class": "ROGUE",
+  "abilities": [
+    {
+      "spellId": 5277,
+      "role": "Major",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 4,
+      "notes": "Evasion: major dodge/avoidance defensive; Red."
+    },
+    {
+      "spellId": 31224,
+      "role": "Major",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 4,
+      "notes": "Cloak of Shadows: immunity-tier magic immunity; Red."
+    },
+    {
+      "spellId": 1966,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Feint: minor AoE damage reduction; Yellow+."
+    },
+    {
+      "spellId": 185311,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Crimson Vial: solo self-sustain ladder at/below 65% HP."
+    },
+    {
+      "spellId": 1856,
+      "role": "Major",
+      "route": "Defensive",
+      "emergencyEscape": true,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 4,
+      "notes": "Vanish: emergency escape; drops combat/untargetable, Red only."
+    },
+    {
+      "spellId": 36554,
+      "role": "Mobility",
+      "route": "Mobility",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 0,
+      "notes": "Shadowstep: gap-closer; only when the target is confirmed out of melee and in range, never toward hazards/raid bosses."
+    },
+    {
+      "spellId": 2983,
+      "role": "Mobility",
+      "route": "Mobility",
+      "emergencyEscape": true,
+      "offGcd": true,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Sprint: speed burst/escape; offered, not auto-fired (movement is not observable)."
+    },
+    {
+      "spellId": 1766,
+      "role": "Utility",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 0,
+      "notes": "Kick: melee interrupt; only on a live enemy cast."
+    },
+    {
+      "spellId": 408,
+      "role": "CC",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Auto",
+      "minUrgency": 0,
+      "notes": "Kidney Shot: single-target stun; casting/fleeing non-boss targets only."
+    },
+    {
+      "spellId": 1833,
+      "role": "CC",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Cheap Shot: stealth opener stun; manual (stealth/positioning not observable)."
+    },
+    {
+      "spellId": 1776,
+      "role": "CC",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Gouge: incapacitate; manual (breaks on damage)."
+    },
+    {
+      "spellId": 2094,
+      "role": "CC",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Blind: single-target disorient; manual in groups."
+    },
+    {
+      "spellId": 6770,
+      "role": "CC",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Never",
+      "minUrgency": 0,
+      "notes": "Sap: out-of-combat incapacitate, needs stealth; never-automatic list."
+    },
+    {
+      "spellId": 212182,
+      "role": "Major",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Never",
+      "minUrgency": 4,
+      "notes": "Smoke Bomb: needs verification (id absent from spell-verification.json; vendor Assassination/Outlaw/Subtlety Defensive row)."
+    }
+  ]
+}

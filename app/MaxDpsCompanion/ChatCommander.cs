@@ -31,6 +31,16 @@ internal static class ChatCommander
     }
 
     /// <summary>
+    /// Pushes the 14-bit toggle mask to the bridge as
+    /// <c>/mdb mask &lt;hhhh&gt; &lt;e&gt;</c> (v3.5 S1 toggle SSOT). Uses the
+    /// silent path so a focus race discards the draft instead of sending a
+    /// half-typed command. The caller owns the hard gates: the command must only
+    /// be sent out of combat and with a live game window.
+    /// </summary>
+    public static bool SendToggleMask(WowWindow game, int mask, int epoch, int settleMs = 800)
+        => SendChatCommandSilent(game, ToggleSync.FormatCommand(mask, epoch), settleMs);
+
+    /// <summary>
     /// Focuses <paramref name="game"/> (restoring it if minimised), pastes
     /// "/<paramref name="command"/>" into chat + Enter, waits
     /// <paramref name="settleMs"/>, then restores the previous foreground

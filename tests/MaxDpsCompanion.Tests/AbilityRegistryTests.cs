@@ -127,6 +127,10 @@ public class AbilityRegistryTests
                 // generate (no class-spell tail, no manual entry).
                 foreach (var id in Catalog.DefensiveGapFill(className, spec))
                     Assert.Equal(AutomationContext.Autonomous, Catalog.TryGet(id)!.Automation);
+                foreach (var id in Catalog.DefensiveGapFillMajor(className, spec))
+                    Assert.Equal(AutomationContext.Autonomous, Catalog.TryGet(id)!.Automation);
+                foreach (var id in Catalog.ImmunityGapFill(className, spec))
+                    Assert.Equal(AutomationContext.Autonomous, Catalog.TryGet(id)!.Automation);
             }
         }
     }
@@ -138,7 +142,7 @@ public class AbilityRegistryTests
     {
         Assert.Equal("12.1", Catalog.GamePatch);
         Assert.Equal(120100, Catalog.InterfaceVersion);
-        Assert.Equal(3, AbilityCatalog.CatalogVersion);
+        Assert.Equal(4, AbilityCatalog.CatalogVersion);
         Assert.Equal("12.1", AbilityCatalog.ExpectedGamePatch);
         Assert.Equal(120100, AbilityCatalog.ExpectedInterfaceVersion);
     }

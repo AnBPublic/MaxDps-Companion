@@ -1,4 +1,7 @@
 using System.Diagnostics;
+using MaxDpsCompanion.Ui.Shell;
+using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml;
 
 namespace MaxDpsCompanion;
 
@@ -8,7 +11,7 @@ internal static class Program
     private const int SchedulerBenchMinimumTicks = 900;
 
     // Environment.ProcessPath always resolves to the real .exe location,
-    // so settings.ini sits next to the exe (dist\) and not in a temp dir.
+    // so settings.ini sits next to the exe (dist-exp\) and not in a temp dir.
     internal static string AppDir { get; } =
         Path.GetDirectoryName(Environment.ProcessPath) is { Length: > 0 } dir
             ? dir
@@ -22,117 +25,39 @@ internal static class Program
         try { Native.SetProcessDpiAwarenessContext(Native.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2); }
         catch (EntryPointNotFoundException) { /* pre-1703 Windows; the manifest default applies */ }
 
-        ApplicationConfiguration.Initialize();
-
         var settingsPath = Path.Combine(AppDir, "settings.ini");
         var settings = AppSettings.Load(settingsPath);
+        ApplyExpFlag(settings, args);
 
         try
         {
-            // UI 2.0 page snapshot: --ui-snapshot-page=<home|abilities|...>
-            // --ui-snapshot=<path>, --ui-snapshot-width=<px>. Renders
-            // offscreen and asserts the PNG is non-blank (v2.7 §48).
-            var pageArg = args.FirstOrDefault(arg => arg.StartsWith("--ui-snapshot-page=", StringComparison.OrdinalIgnoreCase));
-            if (pageArg is not null)
+            // P2-E hosted-UI modes (docs/plans/2026-10-11-winui3-v4-migration.md
+            // §5): snapshot / smoke / bench run against the real SHOWN shell
+            // window via RenderTargetBitmap + BitmapEncoder. The dropped legacy
+            // screens (class-skills snapshot, advanced scroll snapshot) and any
+            // unknown --ui-* flag keep the "unavailable in this build" + exit 3
+            // contract.
+            var ui = UiCliRunner.Parse(args);
+            if (ui.Unavailable)
             {
-                var page = pageArg[(pageArg.IndexOf('=') + 1)..].Trim();
-                var outPath = ArgValue(args, "--ui-snapshot=", Path.Combine(AppDir, $"ui-snapshot-{page}.png"));
-                var width = int.TryParse(ArgValue(args, "--ui-snapshot-width=", "1280"), out var snappedWidth) ? snappedWidth : 1280;
-                var height = int.TryParse(ArgValue(args, "--ui-snapshot-height=", "900"), out var snappedHeight) ? snappedHeight : 900;
-                using var window = new MainForm(settings);
-                window.PrepareOffscreenSnapshot(width, height);
-                window.Show();
-                Application.DoEvents();
-                window.OpenPageForSnapshot(page);
-                window.PerformLayout();
-                window.Refresh();
-                Application.DoEvents();
-                using var bitmap = new Bitmap(window.ClientSize.Width, window.ClientSize.Height);
-                window.DrawToBitmap(bitmap, window.ClientRectangle);
-                File.WriteAllText(Path.Combine(AppDir, "ui-snapshot.txt"),
-                    $"{page}\t{window.ClientSize.Width}x{window.ClientSize.Height}\t{distinctColors(bitmap)}\t{outPath}");
-                if (distinctColors(bitmap) <= 1)
-                {
-                    File.WriteAllText(Path.Combine(AppDir, "ui-snapshot-ERROR.txt"), $"blank render: {outPath}");
-                    Environment.ExitCode = 2;
-                    return;
-                }
-                bitmap.Save(outPath);
+                Console.WriteLine("unavailable in this build");
+                Environment.ExitCode = 3;
                 return;
             }
-
-            var snapshotArg = args.FirstOrDefault(arg => arg.StartsWith("--ui-snapshot=", StringComparison.OrdinalIgnoreCase));
-            if (snapshotArg is not null)
+            if (ui.Request is { } uiRequest)
             {
-                using var window = new MainForm(settings);
-                window.PrepareOffscreenSnapshot(1280, 900);
-                window.Show();
-                Application.DoEvents();
-                window.PerformLayout();
-                window.Refresh();
-                using var bitmap = new Bitmap(window.ClientSize.Width, window.ClientSize.Height);
-                window.DrawToBitmap(bitmap, window.ClientRectangle);
-                bitmap.Save(snapshotArg[(snapshotArg.IndexOf('=') + 1)..]);
-                return;
-            }
-            // Renders the Advanced popup (overlay) for design review.
-            var advArg = args.FirstOrDefault(arg => arg.StartsWith("--ui-snapshot-advanced=", StringComparison.OrdinalIgnoreCase));
-            if (advArg is not null)
-            {
-                using var window = new MainForm(settings);
-                window.StartPosition = FormStartPosition.Manual;
-                window.Location = new Point(-32000, -32000);
-                window.ShowInTaskbar = false;
-                window.Show();
-                Application.DoEvents();
-                window.OpenAdvancedForSnapshot(ParseSnapshotScroll(args));
-                window.PerformLayout();
-                window.Refresh();
-                Application.DoEvents();
-                using var bitmap = new Bitmap(window.ClientSize.Width, window.ClientSize.Height);
-                window.DrawToBitmap(bitmap, window.ClientRectangle);
-                bitmap.Save(advArg[(advArg.IndexOf('=') + 1)..]);
-                return;
-            }
-            // Renders the Class skills screen for design review (no game needed).
-            var classSkillsArg = args.FirstOrDefault(arg => arg.StartsWith("--ui-snapshot-class-skills=", StringComparison.OrdinalIgnoreCase));
-            if (classSkillsArg is not null)
-            {
-                using var classWindow = new MainForm(settings);
-                classWindow.StartPosition = FormStartPosition.Manual;
-                classWindow.Location = new Point(-32000, -32000);
-                classWindow.ShowInTaskbar = false;
-                classWindow.Show();
-                Application.DoEvents();
-                classWindow.OpenClassSkillsForSnapshot(
-                    ArgValue(args, "--ui-snapshot-class=", "ROGUE"),
-                    ArgValue(args, "--ui-snapshot-spec=", "Outlaw"));
-                classWindow.PerformLayout();
-                classWindow.Refresh();
-                classWindow.Update();
-                Application.DoEvents();
-                var classPath = classSkillsArg[(classSkillsArg.IndexOf('=') + 1)..];
-                File.WriteAllText(classPath + ".state.txt",
-                    classWindow.ClassSkillsDebugState + Environment.NewLine + classWindow.ClientSize);
-                using var classBitmap = new Bitmap(classWindow.ClientSize.Width, classWindow.ClientSize.Height);
-                if (args.Contains("--ui-snapshot-from-screen", StringComparer.OrdinalIgnoreCase))
+                App.Settings = settings;
+                UiCliRunner.Request = uiRequest;
+                Application.Start(p =>
                 {
-                    // Real render: move the window on-screen for one frame and
-                    // copy the actual pixels (WM_PRINT can skip composed layers).
-                    classWindow.Location = new Point(40, 40);
-                    classWindow.Refresh();
-                    classWindow.Update();
-                    Application.DoEvents();
-                    Thread.Sleep(250);
-                    Application.DoEvents();
-                    using var graphics = Graphics.FromImage(classBitmap);
-                    graphics.CopyFromScreen(classWindow.Location, Point.Empty, classWindow.ClientSize);
-                }
-                else
-                {
-                    classWindow.DrawToBitmap(classBitmap, classWindow.ClientRectangle);
-                }
-                classBitmap.Save(classPath);
+                    // Same synchronization context the XAML-generated Main would set.
+                    var queue = DispatcherQueue.GetForCurrentThread();
+                    SynchronizationContext.SetSynchronizationContext(new DispatcherQueueSynchronizationContext(queue));
+                    _ = new App();
+                });
+                // The runner sets this before closing the window; Application.Start
+                // returns after the message loop drains.
+                Environment.ExitCode = UiCliRunner.ExitCode;
                 return;
             }
 
@@ -373,6 +298,7 @@ internal static class Program
                     ? genCatalogArg[(split + 1)..].Trim().Trim('"')
                     : Path.Combine(AppDir, "Catalog.lua");
                 File.WriteAllText(outPath, CatalogLuaGenerator.Generate(AbilityCatalog.Default));
+                DeleteOnDiskIconCache();
                 return;
             }
 
@@ -484,91 +410,30 @@ internal static class Program
                 return;
             }
 
-            // UI hot-path benchmark (A7): timings for the live status refresh
-            // (the 250 ms timer body) plus construct-to-shown startup. Writes
-            // bench-ui.txt. Targets: mean < 300 us, p95 < 1 ms, startup < 500 ms.
-            if (args.Contains("--bench-ui", StringComparer.OrdinalIgnoreCase))
+            // No headless mode matched: start the WinUI 3 application. The shell
+            // window (P1) reads this exact settings instance through App.Settings.
+            App.Settings = settings;
+            Application.Start(p =>
             {
-                const int iterations = 2000;
-                var startup = System.Diagnostics.Stopwatch.StartNew();
-                using var benchWindow = new MainForm(settings);
-                benchWindow.PrepareOffscreenSnapshot(660, 920);
-                benchWindow.Show();
-                Application.DoEvents();
-                startup.Stop();
-
-                for (var i = 0; i < 200; i++) benchWindow.RefreshStatusForTest();
-                var samples = new double[iterations];
-                for (var i = 0; i < iterations; i++)
-                {
-                    var tick = System.Diagnostics.Stopwatch.StartNew();
-                    benchWindow.RefreshStatusForTest();
-                    tick.Stop();
-                    samples[i] = tick.Elapsed.TotalMicroseconds;
-                }
-                Array.Sort(samples);
-                var mean = samples.Average();
-                var p95 = samples[(int)(iterations * 0.95)];
-                var max = samples[^1];
-                var startupMs = startup.Elapsed.TotalMilliseconds;
-                var pass = mean < 300 && p95 < 1000 && startupMs < 500;
-                var benchLines = new List<string>
-                {
-                    $"RefreshStatus: mean {mean:F2} us, p95 {p95:F2} us, max {max:F2} us (n={iterations})",
-                    $"startup (construct + show + first layout): {startupMs:F1} ms",
-                    $"targets: mean < 300 us, p95 < 1000 us, startup < 500 ms -> {(pass ? "PASS" : "FAIL")}",
-                };
-                File.WriteAllLines(Path.Combine(AppDir, "bench-ui.txt"), benchLines);
-                foreach (var line in benchLines) Console.WriteLine(line);
-                if (!pass) Environment.ExitCode = 1;
-                return;
-            }
-
-            if (args.Contains("--ui-smoke-test", StringComparer.OrdinalIgnoreCase))
-            {
-                using var window = new MainForm(settings);
-                window.CreateControl();
-                var findings = window.RunSmokeTest();
-                var report = findings.Count == 0
-                    ? "ui-smoke-test: PASS"
-                    : "ui-smoke-test: FAIL\n" + string.Join("\n", findings.Select(f => "FINDING " + f));
-                Console.WriteLine(report);
-                File.WriteAllText(Path.Combine(AppDir, "ui-smoke.txt"), report);
-                File.WriteAllText(Path.Combine(AppDir, "ui-smoke-layout.txt"), UiShellValidation.Dump(window));
-                File.WriteAllText(Path.Combine(AppDir, "ui-smoke-shell.txt"), UiShellValidation.Dump(window));
-                if (findings.Count > 0) Environment.ExitCode = 1;
-                return;
-            }
-            Application.Run(new MainForm(settings));
+                // Same synchronization context the XAML-generated Main would set.
+                var queue = DispatcherQueue.GetForCurrentThread();
+                SynchronizationContext.SetSynchronizationContext(new DispatcherQueueSynchronizationContext(queue));
+                _ = new App();
+            });
         }
         catch (Exception ex)
         {
             // Headless UI flags must never block on a modal dialog.
-            if (args.Any(a => a.StartsWith("--ui-", StringComparison.OrdinalIgnoreCase)))
+            if (args.Any(a => a.StartsWith("--ui-", StringComparison.OrdinalIgnoreCase))
+                || args.Contains("--bench-ui", StringComparer.OrdinalIgnoreCase))
             {
                 try { File.WriteAllText(Path.Combine(AppDir, "ui-error.txt"), ex.ToString()); } catch { /* best effort */ }
                 Environment.ExitCode = 3;
                 return;
             }
-            MessageBox.Show(ex.ToString(), "MaxDPS Companion crashed",
-                MessageBoxButtons.OK, MessageBoxIcon.Error);
+            Console.Error.WriteLine(ex);
             Debug.WriteLine(ex);
         }
-    }
-
-    /// <summary>
-    /// Distinct-colour count over a sparse grid: a blank (single-colour) render
-    /// returns 1. Used to assert snapshots are non-blank (v2.7 §48).
-    /// </summary>
-    private static int distinctColors(Bitmap bitmap)
-    {
-        var seen = new HashSet<int>();
-        var stepX = Math.Max(1, bitmap.Width / 48);
-        var stepY = Math.Max(1, bitmap.Height / 32);
-        for (var y = 0; y < bitmap.Height; y += stepY)
-            for (var x = 0; x < bitmap.Width; x += stepX)
-                seen.Add(bitmap.GetPixel(x, y).ToArgb());
-        return seen.Count;
     }
 
     /// <summary>
@@ -586,24 +451,43 @@ internal static class Program
         return PixelProtocol.Decode(PixelProtocol.TrimToV1(cells), profile);
     }
 
+    /// <summary>
+    /// Stream 3 `--gen-catalog` hook: a regenerated catalog can remap spell ids
+    /// to different icons, so drop the on-disk icon cache next to the exe. The
+    /// cache path is the one <see cref="SpellIconCache"/> owns
+    /// (<c>assets/icons</c> under <see cref="AppDir"/>); when it does not exist
+    /// there is nothing to invalidate and this is a no-op. The in-memory cache
+    /// belongs to the UI process, not this headless path, so deleting the files
+    /// IS the whole invalidation here. Best-effort only: a locked or missing
+    /// directory is ignored and never fails catalog generation.
+    /// </summary>
+    private static void DeleteOnDiskIconCache()
+    {
+        try
+        {
+            var cache = Path.Combine(AppDir, "assets", "icons");
+            if (Directory.Exists(cache)) Directory.Delete(cache, recursive: true);
+        }
+        catch { /* best-effort cache; catalog generation must still succeed */ }
+    }
+
+    /// <summary>
+    /// Experimental in-game-config (Exp) shell opt-in. <c>--exp</c> forces
+    /// <see cref="AppSettings.InGameConfigMode"/> on regardless of settings.ini,
+    /// so one published exe can run either shell without a second binary (spec
+    /// docs/plans/2026-10-03-ingame-config.md §1/§10; the dist-exp copy sets the
+    /// INI key instead). Parsed here so the flag and the INI share one load path.
+    /// </summary>
+    internal static void ApplyExpFlag(AppSettings settings, string[] args)
+    {
+        if (args.Any(arg => string.Equals(arg, "--exp", StringComparison.OrdinalIgnoreCase)))
+            settings.InGameConfigMode = true;
+    }
+
     /// <summary>`--name=value` argument lookup with a default.</summary>
     private static string ArgValue(string[] args, string prefix, string fallback)
     {
         var arg = args.FirstOrDefault(a => a.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
         return arg is null ? fallback : arg[(arg.IndexOf('=') + 1)..].Trim();
-    }
-
-    /// <summary>
-    /// Snapshot design-review scroll target: `--ui-snapshot-scroll=bottom`
-    /// selects the tail of the Advanced stack, a number selects an absolute
-    /// pixel offset, absent keeps the top (-1).
-    /// </summary>
-    private static int ParseSnapshotScroll(string[] args)
-    {
-        var arg = args.FirstOrDefault(a => a.StartsWith("--ui-snapshot-scroll=", StringComparison.OrdinalIgnoreCase));
-        if (arg is null) return -1;
-        var value = arg[(arg.IndexOf('=') + 1)..].Trim();
-        if (string.Equals(value, "bottom", StringComparison.OrdinalIgnoreCase)) return int.MaxValue;
-        return int.TryParse(value, out var y) && y >= 0 ? y : -1;
     }
 }

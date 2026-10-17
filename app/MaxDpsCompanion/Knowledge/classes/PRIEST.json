@@ -1,0 +1,186 @@
+{
+  "schema": 1,
+  "class": "PRIEST",
+  "abilities": [
+    {
+      "spellId": 17,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Power Word: Shield: on-GCD absorb; minor sustain, Yellow+."
+    },
+    {
+      "spellId": 586,
+      "role": "Utility",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Fade: threat fade; manual defensive utility (no threat value is observable)."
+    },
+    {
+      "spellId": 19236,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Desperate Prayer: solo self-sustain ladder at/below 65% HP."
+    },
+    {
+      "spellId": 373481,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Power Word: Life: solo self-sustain ladder at/below 65% HP."
+    },
+    {
+      "spellId": 47585,
+      "role": "Major",
+      "route": "Defensive",
+      "emergencyEscape": true,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 4,
+      "notes": "Dispersion: immunity-tier damage reduction/regen; stops acting, so Red only (Shadow)."
+    },
+    {
+      "spellId": 15286,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Vampiric Embrace: solo self-sustain group heal at/below 65% HP (Shadow)."
+    },
+    {
+      "spellId": 62618,
+      "role": "Major",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 4,
+      "notes": "Power Word: Barrier: major ground mitigation; Red (Discipline)."
+    },
+    {
+      "spellId": 2050,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Holy Word: Serenity: solo self-sustain ladder at/below 65% HP (Holy)."
+    },
+    {
+      "spellId": 34861,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Suggest",
+      "minUrgency": 2,
+      "notes": "Holy Word: Sanctify: on-GCD group heal; manual (ally state not observable)."
+    },
+    {
+      "spellId": 64901,
+      "role": "Utility",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Symbol of Hope: group mana restore; manual (ally state not observable)."
+    },
+    {
+      "spellId": 64843,
+      "role": "Utility",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Never",
+      "minUrgency": 4,
+      "notes": "Divine Hymn: long channeled group heal; never automatic (channel + group)."
+    },
+    {
+      "spellId": 15487,
+      "role": "Utility",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 0,
+      "notes": "Silence: Shadow kick/silence; only on a live enemy cast (Shadow)."
+    },
+    {
+      "spellId": 8122,
+      "role": "CC",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Psychic Scream: AoE fear; manual in groups (can scatter mobs)."
+    },
+    {
+      "spellId": 528,
+      "role": "Utility",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Never",
+      "minUrgency": 0,
+      "notes": "Dispel Magic: friendly/hostile magic dispel; never automatic (debuff identity unobservable)."
+    },
+    {
+      "spellId": 73325,
+      "role": "Utility",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Never",
+      "minUrgency": 0,
+      "notes": "Leap of Faith: friendly grip; never-automatic list (ally state/positioning unobservable)."
+    },
+    {
+      "spellId": 33206,
+      "role": "Major",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Never",
+      "minUrgency": 4,
+      "notes": "Pain Suppression: external ally defensive; never automatic (ally state not observable)."
+    },
+    {
+      "spellId": 47788,
+      "role": "Major",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Never",
+      "minUrgency": 4,
+      "notes": "Guardian Spirit: external ally defensive; never automatic (ally state not observable)."
+    },
+    {
+      "spellId": 121536,
+      "role": "Mobility",
+      "route": "Mobility",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Angelic Feather: friendly speed feather; manual movement utility."
+    }
+  ]
+}

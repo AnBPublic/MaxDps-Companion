@@ -73,6 +73,7 @@ public class DefensiveReplayTests
             var plan = sched.Advance(new ScheduleInput
             {
                 Frame = frame,
+                OutOfCombatPermitted = true,
                 Candidates = tracker.Snapshot(AllSlots),
                 NowMs = now,
                 MinKeyIntervalMs = 120,

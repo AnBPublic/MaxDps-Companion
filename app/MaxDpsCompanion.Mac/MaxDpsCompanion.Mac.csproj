@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>MaxDpsCompanion.Mac</RootNamespace>
+    <AssemblyName>MaxDpsCompanion.Mac</AssemblyName>
+    <RuntimeIdentifiers>osx-arm64;osx-x64</RuntimeIdentifiers>
+    <!-- Avalonia desktop UI; no WinForms/WPF/Windows-only refs. The CLI
+         paths stay headless; a no-arg launch opens the window. -->
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+  </PropertyGroup>
+
+  <!-- Avalonia desktop UI (the approved Mac shell): Start/Pause/Stop,
+       Launch Game, Open Folder, live status. Cached offline at 11.3.18.
+       The CLI paths (probe/locate/run flags) stay headless; a no-arg launch
+       opens the window. -->
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.18" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.18" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.18" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.18" />
+  </ItemGroup>
+
+  <!-- Core csproj is owned by another stream and may not exist yet.
+       Reference is intentional; restore/build of this project waits on Core. -->
+  <ItemGroup>
+    <ProjectReference Include="../MaxDpsCompanion.Core/MaxDpsCompanion.Core.csproj" />
+  </ItemGroup>
+
+  <!-- Mac bundle icon: AppIcon.icns generated from the repo's public
+       app/MaxDpsCompanion/assets/icon-256.png via sips + iconutil
+       (no external download, same art as the Windows tray/form icon). -->
+  <ItemGroup>
+    <None Include="assets\AppIcon.icns" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

@@ -64,6 +64,14 @@ internal sealed class TestV5Frame
         return this;
     }
 
+    /// <summary>v3.2.0: set only the target HP band (G nibble) of the target cell, preserving the rest.</summary>
+    public TestV5Frame TargetHp(int band)
+    {
+        var (r, _, b) = _nibbles[PixelProtocol.TargetCellIndex];
+        _nibbles[PixelProtocol.TargetCellIndex] = (r, band, b);
+        return this;
+    }
+
     public TestV5Frame Ranges(params (Slot Slot, TriState State)[] entries)
     {
         int Code(TriState state) => state switch

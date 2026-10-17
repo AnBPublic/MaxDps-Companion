@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "class": "DEATHKNIGHT",
+  "note": "S3a verified taxonomy overlay (schema 1). Routes gap-closers/CC/defensives/self-sustain only; never Main. Defensive tiers: minor = Yellow+, major = Red, immunity = last resort. CC stuns/silences are gated to casting/fleeing non-boss targets by the consumer. Never-automatic abilities stay Never whatever this file says. Every Auto/Suggest id is verified against spell-verification.json; an unverified id is loaded as Never with a 'needs verification' note.",
+  "entries": [
+    { "spellId": 49576, "role": "Mobility", "route": "Mobility", "emergencyEscape": false, "offGcd": false, "mode": "Auto", "minUrgency": 0, "notes": "Death Grip: gap-closer pull only when the target is confirmed out of melee and in range; never toward hazards/raid bosses." },
+    { "spellId": 444010, "role": "Mobility", "route": "Mobility", "emergencyEscape": false, "offGcd": false, "mode": "Auto", "minUrgency": 0, "notes": "Death Charge: Rider hero-talent gap-closer; out-of-melee + in-range only." },
+    { "spellId": 48265, "role": "Mobility", "route": "Mobility", "emergencyEscape": true, "offGcd": true, "mode": "Auto", "minUrgency": 0, "notes": "Death's Advance: escape/speed burst; breaks roots and kites out of danger." },
+    { "spellId": 212552, "role": "Mobility", "route": "Mobility", "emergencyEscape": true, "offGcd": true, "mode": "Suggest", "minUrgency": 0, "notes": "Wraith Walk: emergency escape; offered, not auto-fired." },
+    { "spellId": 47528, "role": "Utility", "route": "Interrupt", "emergencyEscape": false, "offGcd": true, "mode": "Auto", "minUrgency": 0, "notes": "Mind Freeze: interrupt/kick only on a live enemy cast; MaxDps's own interrupt claim always wins the slot first." },
+    { "spellId": 221562, "role": "CC", "route": "Interrupt", "emergencyEscape": false, "offGcd": false, "mode": "Auto", "minUrgency": 0, "notes": "Asphyxiate: single-target stun; casting/fleeing non-boss targets only." },
+    { "spellId": 207167, "role": "CC", "route": "Interrupt", "emergencyEscape": false, "offGcd": false, "mode": "Suggest", "minUrgency": 0, "notes": "Blinding Sleet: AoE disorient; manual (MaxDps-owned rotation stun)." },
+    { "spellId": 111673, "role": "CC", "route": "Interrupt", "emergencyEscape": false, "offGcd": false, "mode": "Never", "minUrgency": 0, "notes": "Control Undead: subjugate/mind-control; never-automatic list." },
+    { "spellId": 61999, "role": "Utility", "route": "Defensive", "emergencyEscape": false, "offGcd": true, "mode": "Never", "minUrgency": 0, "notes": "Raise Ally: battle rez; never-automatic list." },
+    { "spellId": 48792, "role": "Major", "route": "Defensive", "emergencyEscape": false, "offGcd": true, "mode": "Auto", "minUrgency": 4, "notes": "Icebound Fortitude: major defensive; Red urgency only." },
+    { "spellId": 48707, "role": "Major", "route": "Defensive", "emergencyEscape": false, "offGcd": true, "mode": "Auto", "minUrgency": 4, "notes": "Anti-Magic Shell: major magic mitigation; Red." },
+    { "spellId": 55233, "role": "Major", "route": "Defensive", "emergencyEscape": false, "offGcd": true, "mode": "Auto", "minUrgency": 4, "notes": "Vampiric Blood: major defensive/heal amplification; Red." },
+    { "spellId": 51052, "role": "Major", "route": "Defensive", "emergencyEscape": false, "offGcd": true, "mode": "Suggest", "minUrgency": 4, "notes": "Anti-Magic Zone: ground AoE group mitigation; manual." },
+    { "spellId": 205727, "role": "Minor", "route": "Defensive", "emergencyEscape": false, "offGcd": true, "mode": "Auto", "minUrgency": 2, "notes": "Anti-Magic Barrier: minor mitigation; Yellow+." },
+    { "spellId": 49039, "role": "Minor", "route": "Defensive", "emergencyEscape": false, "offGcd": true, "mode": "Auto", "minUrgency": 2, "notes": "Lichborne: minor defensive; Yellow+ (fear/incapacitate break)." },
+    { "spellId": 194679, "role": "Minor", "route": "Defensive", "emergencyEscape": false, "offGcd": true, "mode": "Auto", "minUrgency": 2, "notes": "Rune Tap: minor mitigation; Yellow+." },
+    { "spellId": 219809, "role": "Minor", "route": "Defensive", "emergencyEscape": false, "offGcd": false, "mode": "Auto", "minUrgency": 2, "notes": "Tombstone: minor absorb; Yellow+." },
+    { "spellId": 391571, "role": "Minor", "route": "Defensive", "emergencyEscape": false, "offGcd": true, "mode": "Auto", "minUrgency": 2, "notes": "Gloom Ward: minor absorb; Yellow+." },
+    { "spellId": 49998, "role": "Minor", "route": "Defensive", "emergencyEscape": false, "offGcd": false, "mode": "Auto", "minUrgency": 2, "notes": "Death Strike: solo HP-ladder heal at/below 65% HP; scales with recent damage taken." },
+    { "spellId": 48743, "role": "Utility", "route": "Defensive", "emergencyEscape": false, "offGcd": true, "mode": "Suggest", "minUrgency": 4, "notes": "Death Pact: emergency absorb/heal consuming an undead minion; below 30% solo." }
+  ]
+}

@@ -18,6 +18,17 @@ internal static class SchedulerBench
     private const int TickMs = 33;
     private const int PhaseTicks = 900;
 
+    /// <summary>
+    /// Recorded baseline for the p95 send interval (ms) at the default 27,000
+    /// ticks on the pinned script (2026-09-29, Stream 2). Deterministic: the
+    /// bench is pure, so any change here is a real behaviour/ordering change.
+    /// Stream 2 fails if p95 regresses by more than <see cref="BaselineTolerance"/>.
+    /// </summary>
+    internal const int BaselineP95Ms = 1782;
+
+    /// <summary>Allowed p95 regression before the bench reports FAIL.</summary>
+    internal const double BaselineTolerance = 0.10;
+
     private static readonly KeyStroke KeyE = new(0x45, false, false, false);
     private static readonly KeyStroke KeyR = new(0x52, false, false, false);
     private static readonly KeyStroke KeyF = new(0x46, false, false, false);
@@ -48,6 +59,10 @@ internal static class SchedulerBench
             var plan = scheduler.Advance(new ScheduleInput
             {
                 Frame = frame,
+                // Pure measurement harness: the OOC gate is not what the bench
+                // measures, and the pinned plan hash / p95 baseline predate the
+                // gate, so supply the permissive value (pre-gate behaviour).
+                OutOfCombatPermitted = true,
                 Candidates = tracker.Snapshot(AllEnabled),
                 NowMs = now,
                 MinKeyIntervalMs = 120,
@@ -82,6 +97,9 @@ internal static class SchedulerBench
 
         intervals.Sort();
         var seconds = ticks * (double)TickMs / 1000;
+        var p95 = Stat(intervals, 0.95);
+        var p95Ceiling = (long)Math.Ceiling(BaselineP95Ms * (1 + BaselineTolerance));
+        var baselineOk = p95 <= p95Ceiling;
         var hash = Convert.ToHexString(
             SHA256.HashData(Encoding.UTF8.GetBytes(hashInput.ToString())))[..16].ToLowerInvariant();
 
@@ -89,13 +107,14 @@ internal static class SchedulerBench
         [
             $"scenario: {PhaseTicks}-tick script (main spam, GCD, interrupt, defensive stale, cast/channel holds, link freeze, v1, target loss, idle) repeated",
             $"ticks={ticks} simulated={seconds:F1}s sends={sends} ({(seconds > 0 ? sends / seconds : 0):F2}/s)",
-            $"interval ms: min={Stat(intervals, 0)} median={Stat(intervals, 0.50)} p95={Stat(intervals, 0.95)} max={Stat(intervals, 1)}",
+            $"interval ms: min={Stat(intervals, 0)} median={Stat(intervals, 0.50)} p95={p95} max={Stat(intervals, 1)}",
             $"sends by slot: {BySlot(sendsBySlot)}",
             $"holds by reason: {Histogram(holds)}",
             $"selections: {Histogram(selections)}",
             $"suppressed candidates: {suppressed}",
             $"stale demotion ticks: {demotions}",
             $"plan sha256={hash}",
+            $"baseline: p95 {p95}ms vs recorded {BaselineP95Ms}ms, ceiling +{BaselineTolerance:P0} = {p95Ceiling}ms -> {(baselineOk ? "PASS" : "FAIL")}",
         ];
     }
 

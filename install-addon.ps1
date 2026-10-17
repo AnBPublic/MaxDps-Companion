@@ -1,5 +1,6 @@
 <#
 .SYNOPSIS
+    LEGACY stable bridge installer; the current client uses tools/install-addon-exp.ps1.
     Copies the MaxDpsBridge addon into a WoW Interface\AddOns folder.
 .EXAMPLE
     .\install-addon.ps1

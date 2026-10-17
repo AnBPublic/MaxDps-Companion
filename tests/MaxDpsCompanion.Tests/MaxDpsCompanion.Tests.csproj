@@ -1,14 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
-    <UseWindowsForms>true</UseWindowsForms>
+    <UseWindowsForms>false</UseWindowsForms>
     <LangVersion>latest</LangVersion>
     <AssemblyName>MaxDpsCompanion.Tests</AssemblyName>
     <RootNamespace>MaxDpsCompanion.Tests</RootNamespace>
@@ -23,6 +23,21 @@
   <ItemGroup>
     <ProjectReference Include="..\..\app\MaxDpsCompanion\MaxDpsCompanion.csproj" />
   </ItemGroup>
+
+  <!-- System.Drawing (Color/Bitmap) for the pure protocol tests now that the
+       app test project no longer references Windows Forms. -->
+  <ItemGroup>
+    <PackageReference Include="System.Drawing.Common" Version="8.0.31" />
+    <Using Include="System.Drawing" />
+  </ItemGroup>
+
+  <!-- P2-E: the UI-coupled files are back in the compile set. Their WinForms
+       control assertions were either rebuilt against the XAML-free models
+       (ToggleModel / UiScale / ConsolePresets / AbilityRowsPrecompute /
+       AbilityViewPresets / WhyNotFiring / PolicyOptions) or deleted with the
+       replacement documented in each file and in docs/TESTING.md
+       (docs/plans/2026-10-11-winui3-v4-migration.md §6). No XAML/STA-in-xunit
+       tests: live UI checks run in tools/ui_smoke.ps1 (the ui-smoke-test flag). -->
 
   <ItemGroup>
     <!-- fixtures/Catalog.lua is a real fixture generated from the embedded

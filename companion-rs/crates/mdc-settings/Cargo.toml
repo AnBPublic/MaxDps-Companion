@@ -1,0 +1,10 @@
+[package]
+name = "mdc-settings"
+description = "settings.ini compatibility for the Rust companion (preserves unknown keys/comments)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]

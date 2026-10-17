@@ -40,6 +40,7 @@ public class LegacyAddonCompatTests
         return scheduler.Advance(new ScheduleInput
         {
             Frame = frame,
+            OutOfCombatPermitted = true,
             Candidates = tracker.Snapshot(AllEnabled),
             NowMs = now,
             MinKeyIntervalMs = 120,

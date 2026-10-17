@@ -146,7 +146,11 @@ internal static class AbilityIntelligence
             findings.Add(new AuditFinding("spell-id", AuditSeverity.Violation, "spell id must be positive"));
         if (string.IsNullOrWhiteSpace(ability.Name))
             findings.Add(new AuditFinding("name", AuditSeverity.Violation, "name must not be empty"));
-        if (ability.Classes.Count == 0 && ability.Specs.Count == 0)
+        // Racial-scope rows are carried by EVERY class/spec (race is selected
+        // in-game by the known-spell filter), so absent class/spec membership is
+        // expected, not a coverage gap.
+        if (ability.Classes.Count == 0 && ability.Specs.Count == 0
+            && !string.Equals(ability.Scope, AbilityCatalog.RacialScope, StringComparison.OrdinalIgnoreCase))
             findings.Add(new AuditFinding("class-spec", AuditSeverity.Warning, "no class or spec membership"));
         if (ability.Status == IntelligenceStatus.Unknown)
             findings.Add(new AuditFinding("status", AuditSeverity.Violation, "intelligence status is Unknown (no silent generic default)"));
@@ -367,6 +371,13 @@ internal static class AbilityIntelligence
         if (ability.HasInterruptCapability) sb.AppendLine($"Interrupt     : {ability.InterruptKind}");
         if (ability.HasOffensiveCapability)
             sb.AppendLine($"Offensive     : {ability.OffensiveUsage}{(ability.EnemyCountMin is { } n ? $" (enemies >= {n})" : "")}{(ability.HoldForBurst ? " (hold for burst window)" : "")}");
+        if (ability.HasOffensiveCapability)
+        {
+            var minTtk = TtkPolicy.MinTtkSec(ability);
+            var ttkNote = ability.MinTtkSec is null ? " (usage default)" : " (curated)";
+            var execNote = ability.ExecuteFavored && ability.ExecuteBelowPct is { } exec ? $", execute <= {exec}%" : "";
+            sb.AppendLine($"TTK           : hold below {minTtk:0.#}s{ttkNote}{execNote} (curated; not enforced since 3.7.9)");
+        }
         if (ability.HasMobilityCapability) sb.AppendLine($"Mobility      : {ability.MobilityKind}");
         if (ability.TalentNote is { Length: > 0 } talent) sb.AppendLine($"Talent        : {talent}");
         if (ability.HeroTalentNote is { Length: > 0 } hero) sb.AppendLine($"Hero talent   : {hero}");

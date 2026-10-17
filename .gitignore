@@ -5,7 +5,24 @@ backups/
 *.pdb
 dist/*
 !dist/.gitkeep
+# dist-exp/ is the experimental (in-game-config) publish output, ignored
+# exactly like dist/ (tools/install-addon-exp.ps1 never touches dist/).
+dist-exp/*
+!dist-exp/.gitkeep
+# dist-mac/ is the macOS publish output (build-mac.sh), ignored exactly like
+# dist/ and dist-exp/ (never commit a built .app; the native dylib is built
+# from source, and per-machine settings live in
+# ~/Library/Application Support/MaxDpsCompanion/).
+dist-mac/*
+!dist-mac/.gitkeep
+# The macOS capture library is BUILT by build-mac.sh from
+# app/MaxDpsCompanion.Mac/native/MdcCapture.swift; never commit the binary.
+app/MaxDpsCompanion.Mac/native/*.dylib
+# custom/out: generated patched vendor tree (tools/Sync-CustomMaxDps.ps1)
+custom/out/
 .vs/
 *.user
 # settings.ini: tracked default at repo root. Per-machine copy in dist\ is
 # covered by dist/ above — never commit local edits.
+# TestResults: machine-specific .trx test output (never commit)
+tests/**/TestResults/*.trx

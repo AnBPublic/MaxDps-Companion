@@ -10,7 +10,9 @@ cd tests\MaxDpsCompanion.Tests
 dotnet test -c Release
 ```
 
-443 tests, all fake-clock (no wall time, no I/O except temp files). Groups:
+946 tests, all fake-clock (no wall time, no I/O except temp files). (The P2-E
+note below lists the WinUI port's reinstated/deleted UI cases; that pass moved
+the net suite count from 905 to 946.) Groups:
 
 | File | Covers |
 | :--- | :--- |
@@ -25,11 +27,14 @@ dotnet test -c Release
 | `ActionSchedulerPolicyTests` | policy filtering + ranking, emergency survival above main, mobility below main, companion-slot gating, trinket lockout, failed-press rejection, GCD confirmation, escalating retry backoff, suppression not blocking other ranks, channel/cast holds (policy on and off), pending-confirm demotion, stale-interrupt main continuation, range revalidation |
 | `SelfSustainEndToEndTests` | real v5 wire frame → decode → tracker → scheduler: Impending Victory generated, policy USE, `SelfSustain`/`EmergencySurvival` selection, GCD confirmation and return to main; healthy/cooldown/out-of-range/no-target/casting/GCD/conservation negatives; Solo OFF; Intelligence OFF; bounded failure recovery |
 | `SelfSustainReplayTests` | canonical Solo recording replayed with 0 verdict mismatches (in-memory + the checked-in `fixtures/solo-warrior-selfheal.jsonl` used by `--replay`) |
+| `SelfSustainCooldownTests` | r2 reset-aware sustain: a ready heal is never stale-demoted, a transient failed press is capped at 1.5 s with no escalation, the distinct `SelfHealCoolingDown` wait is reported, and an optional curated `resetHint` is parsed (informational only) |
+| `SoloCooldownResetReplayTests` | r2 canonical cooldown/reset recording recomputes every verdict with 0 mismatches (in-memory + the checked-in `fixtures/solo-cooldown-reset-warrior.jsonl`) |
+| `OffensiveGapFillTests` | r1 offensive gap-fill: curated per-spec lists, source derived by id membership, combat/Solo gate, registry enforcement, and the unchanged reason strings for MaxDps-sourced rows |
+| `OffensiveGapFillReplayTests` | r1 canonical offensive-gap-fill recording recomputes every verdict with 0 mismatches, with `cls`/`spec` rebuilt from telemetry (in-memory + the checked-in `fixtures/offensive-gapfill-warrior.jsonl`) |
 | `DefensiveIntelligenceTests` | additive v5 protocol decode (urgency/source/stagger + reserved-nibble and extension-checksum coverage), the urgency policy matrix (White hard hold, Yellow/Orange/Red tiers, the MaxDps-recommendation one-stage discount, curated Ignore Pain Orange, stagger override + HP fallback), emergency override, user policy (OFF absolute, Vanish default-OFF and emergency-only ON), scheduler integration (Red selects, White holds and main continues, Orange gap-fill major held but minor fires, OFF reported as a skip) and failed-press recovery |
 | `DefensiveReplayTests` | canonical defensive recording recomputes every verdict with 0 mismatches (in-memory + the checked-in `fixtures/defensive-warrior-urgency.jsonl`), a failed defensive press is rejected, and a policy record with no `du` is treated as legacy pre-v2.3 (verdicts skipped, 0 mismatches, report says so) |
 | `ClassSpellBookTests` | token name decoding (incl. connector/alias cases), the junk/passive filter, merge provenance and priority (curated/vendor win over class-spells), live-client verification (official name/icon, a removed id not merged), `DefensiveGapFill` exclusion of the modeled layer, shared-vs-per-spec tree, all-class coverage, and a Main-spell opt-out through `AbilityPolicy` OFF |
-| `ClassSkillsViewTests` | STA window construction of the Class skills screen: the dropdown preselects the class/spec, rows are generated for every class, icons optional |
-| `UiShellTests` | v2.7 shell construction (STA): navigation + rail active state, explorer filter/search, coverage report rendering, smoke validation returns no findings |
+| `UiShellTests` | model-level (XAML-free): explorer filter/search over `AbilityRowsPrecompute`, coverage/intelligence report via `AbilityIntelligence.Audit` (live tree walk moved to `--ui-smoke-test`) |
 | `SpellIconCacheTests` | download-once + disk-cache pipeline (exactly two requests), the official-slug path (a single request), offline degradation to the placeholder, hostile icon-slug rejection, invalid ids ignored |
 | `DecisionEngineTests`, `CandidateTrackerTests` | legacy decision layer + identity-aware tracker (stroke OR spell-id change); the enabled order inserts the companion slots without reordering the MaxDps slots |
 | `AppSettingsTests` | `[Intelligence]`/`[Solo]` defaults, parsing, clamping, round-trip |
@@ -40,13 +45,39 @@ suite (`dotnet test`) and stay offline: they read the embedded
 `spell-verification.json` and use a stubbed `HttpMessageHandler`, so the live
 wago.tools fetch is never exercised by the test run.
 
+### 1a. P2-E WinUI port: fates of the 69 compile-excluded UI tests
+
+(v4.0.2 Lumen; plan `docs/plans/2026-10-11-winui3-v4-migration.md` §6. Every
+formerly excluded method has an explicit fate; net suite count 905 -> 946.)
+
+| File | Reinstated | Deleted (WinForms-only) |
+| :--- | :--- | :--- |
+| `ClassicUiTests` | 4: window consts, Solo toggle -> settings (ToggleModel), width tier fonts/rows + popup toggle geometry (UiScale) | 10: scroll internals, button control lists, launcher test-delegate, 50x layout events, popup re-parenting, row measure/resize internals, scrim paint/timing, bubble click |
+| `UiShellTests` | 2: explorer filter/search (AbilityRowsPrecompute), intelligence report (AbilityIntelligence.Audit) | 5: structural smoke (now `--ui-smoke-test`), popup/Esc click plumbing, tile-click drill, toggle mouse click, label wrap measure |
+| `ClassBrowserViewTests` | 3: per class/spec/mode rows, mode vocabulary (ClassBrowserView.ModeOptions), warm-reopen <=150 ms cache | 1: DrawToBitmap paint smoke (now the RenderTargetBitmap non-blank PNG in `--ui-smoke-test`) |
+| `ConsoleHomeTests` | 3: five preset bundles, role inference, preset -> ToggleModel -> settings | 1: ConsoleHome chips/update-log internals |
+| `ApproachADrillThroughTests` | 3: preset vocabulary, condition line, explorer preset filter | 1: Class skills screen (dropped with ClassSkillsView, plan §0) |
+| `ExpModeTests` | 5 (6 cases): the InGameConfigMode settings/ini/`--exp`/save contract | 8: Exp layout control counts/coords/enabled/text internals (live replacement: `--ui-smoke-test --exp` asserts zero toggles; `--ui-snapshot-page=main --exp` reviews layout) |
+| `ReleaseIdentityTests` | 3: 4.0.3 / v4.0.3 Bulwark / real runtime title | - |
+| `S8PerfDiagnosticsTests` | 15: precompute cache/keys (AbilityRowsPrecompute), ScaledIcon null guards, WhyNotFiring explainer (Ui.Shell port), InstallDoctor | 1: ScaledIcon Bitmap width/reuse (WinUI BitmapImage decodes async on the UI thread; live via `--ui-snapshot-page=abilities`) |
+| `CrowdControlTests` (guard) | 1: CrowdControl ToggleModel round-trip + gate publish | - |
+| `Stream3Tests` (guard) | 1: solo bands validate + FromSettings (PolicyOptions) | 1: slider Minimum/Maximum ranges (now NumberBox clamps in AdvancedConfigurationView.LoadFrom; reviewed via snapshot) |
+
+The `WINUI_P0` define and every `<Compile Remove>` for these files are gone
+(the app csproj has no Compile Remove/Include scaffold left: the legacy
+WinForms files — `MainForm.cs`, `UiControls.cs`, `ClassSkillsView.cs`, every
+old `Ui/*.cs` — were deleted from disk in P3, and the broken unused
+`WheelSafeNumeric` control was deleted with them). Live UI coverage moved to
+`tools/ui_smoke.ps1` (`--ui-smoke-test`); the `--bench-ui` startup-target miss
+is recorded in the benchmarks section below.
+
 ## 2. Lua addon harness — `tests/secret_harness.lua`
 
 ```powershell
 lua tests/secret_harness.lua
 ```
 
-94 checks. Stubs the WoW API with Midnight secret semantics (values that
+153 checks. Stubs the WoW API with Midnight secret semantics (values that
 throw on compare/arithmetic), loads Catalog + Keymap + Reader + Bridge, fires
 `ADDON_LOADED`, and drives `Update` directly. Covers:
 
@@ -65,6 +96,13 @@ throw on compare/arithmetic), loads Catalog + Keymap + Reader + Bridge, fires
   the Purifying Brew stagger curve with its HP fallback, the Defensive
   MaxDps-first / Red-only gap-fill candidate + source bit, and every probe
   contained (a secret/nil stagger or HP reading encodes 0 = UNKNOWN);
+- offensive + defensiveMinor gap-fill (r1): a MaxDps-named offensive wins and
+  the curated `offensive` list is offered only when MaxDps names none (inside
+  `enableCooldowns`); the `defensiveMinor` list is offered at the Orange tier
+  while majors stay Red-only;
+- reset-aware self-heal readiness (r2): a keybind memo is invalidated on
+  cooldown/talent/spec events so a reset re-offers the same heal, and readiness
+  is re-read every tick (never cached);
 - getter-throw containment (`SafeRead`: frame survives, warns once);
 - self-sustain extras (v2.2): a ready-but-unbound self-heal stays empty, a
   bound one encodes (VK + spell id) and the slot-8 range probe is encoded;
@@ -74,6 +112,11 @@ throw on compare/arithmetic), loads Catalog + Keymap + Reader + Bridge, fires
   probe clears the bit again.
 
 ## 3. Live in-game E2E (retail) — OWED
+
+> DEPLOY: the **CURRENT** client is Exp — install with
+> `tools/install-addon-exp.ps1` and run the `dist-exp\` exe (`InGameConfigMode=1`,
+> `/mdbx`). Any `install-addon.ps1` step below is **LEGACY** (stable/frozen); use it
+> only when the step explicitly targets legacy.
 
 Static (parses/builds) ≠ automated test ≠ live validation. The following are
 **required** in a real client and cannot be automated offline:
@@ -227,9 +270,11 @@ LIVE WOW VERIFIED (owed - observe in a real client, Intelligence ON):
 Offline evidence is NEVER live proof. Mark every line below on the machine
 that ran retail: `LIVE VERIFIED` / `LIVE UNVERIFIED` / `LIVE FAILED`.
 OFFLINE VERIFIED (this session, do not re-claim live): build 0/0;
-`dotnet test` 440/440; `lua tests/secret_harness.lua` 94/94;
+`dotnet test` 571/571; `lua tests/secret_harness.lua` 153/153;
 `--ui-smoke-test` PASS (structural checks); `--bench-scheduler` sends=1620
-sha256=b71a999d5e46570e; replays 9/16/7 verdicts 0 mismatches;
+sha256=b71a999d5e46570e; 7 replays 0 mismatches (solo 9, defensive 16,
+offensive-interrupt 7, solo-hidden-hp 6, cooldown-reset 8, offensive-gapfill,
+ttk-warrior-burst 18);
 `tools/ability_audit.ps1` exit 0 (Violations 0 / Warnings 0 / Missing 0 /
 Stale 0; addon Catalog.lua matches).
 
@@ -286,7 +331,275 @@ Stale 0; addon Catalog.lua matches).
 22. Complete the §55 coverage report (`--ability-coverage`) after the run and
     record which class/spec lines were exercised.
 
-## Benchmarks / diagnostics (no game)
+### 3e. TTK v3.6 dying-trash guard acceptance (live 12.1 retail, OWED)
+
+**3.7.9: the offensive conservation verified here was removed — see §3k. This
+section is retained as v3.6 history (the T4/defensive parts still apply).**
+
+Offline evidence is the estimator/policy/curation tests plus the
+`ttk-trash-pack.jsonl` replay (6 mobs, each <5 s) and the unchanged legacy
+replays at 0 mismatches; that is never live proof. What a v3.6 client showed in
+a real client with Intelligence ON, TTK guard ON (or the documented OFF
+collateral):
+
+1. **M+ trash → boss (no-hold check) — superseded in 3.7.9, no longer
+   applies.** Mobs dying in <5 s used to hold the major burst (`"fast pack,
+   waiting for TTK"` after the second quick kill, or the provisional waste
+   hold); the latch then cleared on the long boss fight and it fired (telemetry:
+   no Major held vs the boss, estimate valid and TTK ≥30 s), and a kill-secure
+   major could fire late (age ≥20 s, target ≤35%, TTK 3–20 s). 3.7.9 removed all
+   offensive TTK holds, so a MaxDps-offered burst now fires regardless of the
+   pack — there is nothing to observe here.
+2. **Dungeon tank Minor check — T4 retained.** As a tank with a short-CD Minor
+   defensive, confirm group-scope gating is conservative: a group Minor may only
+   be held when the estimate is valid <4 s, urgency is below Orange and the
+   fast-pack latch is set; group Major/Immunity must **never** be gated, and
+   emergency HP always overrides. (Rationale: enemy count is unobservable; the
+   tank may be dying to other mobs.)
+3. **Toggle semantics.** Confirm the hero/`/mdb` label reads **"TTK guard"** and
+   the tooltip says *OFF = cooldowns fire without dying-target protection*. The
+   former band-15 collateral (blanking the execute gate/Burst consumers and the
+   `[TimeToKill] Fallback=ConserveMajors` unknown-TTK hold) is **superseded in
+   3.7.9 — no longer applies**; ConserveMajors no longer conserves offensives.
+4. **No false holds — superseded in 3.7.9, no longer applies.** The grace
+   hold/provisional path and the kill-secure exception were removed; there is no
+   offensive TTK hold left to false-trigger.
+5. Record + export + replay the run: 0 mismatches for decisions and policy
+   verdicts (`ttkp`/latch fields included).
+
+### 3f. TTK v3.7 adaptive real-data history (live 12.1 retail, OWED)
+
+**3.7.9: the `ttk-hist` offensive hold was removed — see §3k. The estimator
+history feeds remain (T4/telemetry).**
+
+Offline evidence is `TtkEstimatorHistoryTests` (kill filter, window
+cap/prune/idle-clear, nearest-rank quantile, below-MinKills fail-open identity,
+blend weights, history-only provisional). The former `TtkPolicyHistoryTests`
+decision-layer coverage (`NeedAdaptive`, `ttk-hist` hold/use, invalid-live
+restriction, carve-outs) was **removed in 3.7.9**; the retained test now covers
+the consumable/trinket Burst release, `[TimeToKill]` parse/clamp and replay
+hk/hs reproduction - never live proof. The pre-3.7.9 history line was: with
+Intelligence ON and `[TimeToKill] History=1`, clear a fast trash pack then pull
+a boss; the first ~8.5 s of the boss could be held on the trash-learned rate
+(reason `ttk-hist`) before the live rate won and the major fired. Telemetry
+still carries `hk`/`hr`/`hs`/`hprov` and the replay report must read
+`adaptive-history reconstruction 0 mismatch(es)`. `History=0` reproduces the
+pre-history behaviour exactly.
+
+### 3g. TTK v3.8 warmup + buff-aware gating (live 12.1 retail, OWED)
+
+**3.7.9: the warmup offensive hold was removed — see §3k.**
+
+The former `TtkPolicyTests` coverage (`BuffNeed` half-buff/cap-20/zero-fallback,
+`WarmupHoldHolds` young-unknown major hold, window close, valid/provisional/
+execute/AoE/minor/kill-secure carve-outs, binding-history release, provider Hold
+`"warming up TTK"` vs Use) and the regenerated `ttk-warrior-burst.jsonl`
+warmup-hold expectation were **removed in 3.7.9**. Never live proof. The
+pre-3.7.9 live line was: with Intelligence ON and `[TimeToKill]` defaults
+(WarmupSec=3), pull a target whose TTK is not yet measurable; a major was held
+`"warming up TTK"` for ~3 s after first sight, then the estimate/history took
+over and the major fired on a long fight. `WarmupSec=0` reproduced the legacy
+fail-open exactly; the setting was recorded as `ttkw` and the replay had to
+reproduce the hold.
+
+### 3h. Main = MaxDps core rotation, deny list removed (3.7.8; live 12.1 retail, OWED)
+
+Offline evidence is static only — `luac -p addon/MaxDpsBridgeExp/*.lua`, `lua
+tests/secret_harness.lua` (the former `MDBX.MajorCDDeny` pins are inverted for
+3.7.8) and the `MDBX.FlagOffensiveExtra` routing checks — never live proof.
+There is no automated in-game test. Observe in a real client with the Exp bridge
+**3.7.9** addon loaded (`/reload`, `/mdb status` shows `protocol=5`):
+
+1. **Formerly denied core-rotation recommendations ARE Main.** Play a Warrior
+   and a Fire Mage with the relevant ability available; while MaxDps glows it as
+   its core rotation, the MAIN slot must encode it (e.g. Avatar 107574,
+   Combustion 190319, Ravager 228920). There is no denylist, no exception.
+2. **Offensive routing unchanged vs 3.7.7.** The same ids must still fire
+   through the **Offensive** slot when ready and policy-Use
+   (`Reader.GetOffensiveCandidate` → `FirstFlagged("offensive")`, via
+   `MDBX.FlagOffensiveExtra`); Offensive / Defensive / Interrupt are untouched.
+3. **No dead Main.** A power-starved glow (`usable == false AND noPower ==
+   true`) must fall through to the next glow, or to the per-spec `MainFallback`
+   filler, never stranding the slot. Secret/nil/throw fail open. An off-GCD
+   major must not stall the rotation, and a hold is non-latching.
+4. Record + export + replay the run: 0 mismatches for decisions and policy
+   verdicts.
+
+Also OWED: the true 12.1 ids (fill `newSpellId`; the `MDBX.MajorCDDeny` table is
+**gone in Exp 3.7.8** — Main now trusts the MaxDps core rotation — while stable
+`addon/MaxDpsBridge/` keeps its frozen deny) and the `Sync-CustomMaxDps.ps1`
+publish + `_backup/` rollback end-to-end. Static ≠ automated test ≠ live
+in-game.
+
+### 3i. No-downtime MAIN / Fury fallback (live 12.1 retail, OWED)
+
+Offline evidence is `MainNoDowntimeTests` (Fury Rampage rage-blind fixture:
+`MainReprobeMs` = 150, re-probe ≥ `MinKeyInterval`, never silent beyond
+`MainReprobeMs + MinKeyInterval`; a changed Main picks the next tick; 20
+stationary no-op ticks keep every gap; no filler is invented when `ranked==0`)
+plus the Q1 block in `lua tests/secret_harness.lua` (glowing∩usable scan,
+denied/power-starved fall-through, per-spec filler, fail-open on secret/nil/
+throw) — never live proof. Observe in a real client with a Fury Warrior and the
+bridge 3.7.9 addon loaded:
+
+1. **Rampage only at Rage ≥ 80.** While Rampage (184367) is suggested but the
+   player is below 80 Rage, it must **not** be pressed; the MAIN slot carries
+   the castable filler Bloodthirst (23881) instead of blanking.
+2. **No GCD gaps / no silent Main.** The rotation keeps a legal MAIN key every
+   tick: the gap between attempts never exceeds ~0.15 s (`MainReprobeMs`) plus
+   one `MinKeyInterval`, and a no-op press never latches a hold.
+3. **Alternate pressed.** When MaxDps swaps the MAIN suggestion to a different
+   spell id, the new identity is pressed on the next tick (the superseded
+   pick's backoff is dropped).
+4. Record + export + replay the run: 0 mismatches for decisions and policy
+   verdicts.
+
+Unlisted specs have no filler (MAIN may legitimately stay empty and are OWED);
+the Fury ids are verified by name against the read-only `vendor/` tree (see
+`addon/MaxDpsBridge/MainFallback.lua`). Static ≠ automated test ≠ live in-game.
+
+### 3j. WHITE Main immediate execution (live 12.1 retail, OWED)
+
+Offline evidence is `MainImmediateTests` (stale Main ahead of fresh Offensive;
+Main no MinInterval wait after a different slot/spell; identical repeat held
+exactly `MinKeyIntervalMs`; Main failure sets no `_failedUntil`; SawGcd resets
+the cap; non-Main backoff unchanged; GCD/cast/range/melee/NoTarget still hold;
+fallback Main identical) — never live proof. Observe in a real client with the
+bridge 3.7.9 addon loaded, Intelligence ON, Main toggle ON:
+
+1. **Main first tick post-GCD.** With an enemy in range + sight and a WHITE
+   core suggestion live, the Main key is sent on the first tick after the GCD
+   falls — no companion-strategy delay and no recency-stale demotion.
+2. **No double-press.** Within one GCD the identical Main spell is sent at
+   most once (the pre-GCD-flip guard holds an identical repeat for
+   `MinKeyIntervalMs`); a different Main spell from MaxDps is pressed
+   immediately even right after a different-slot press.
+3. **Fallback immediate.** With every Main glow denied/power-starved, the
+   per-spec `MainFallback` filler (Fury Bloodthirst 23881; Arms Mortal Strike
+   12294 → Overpower 7384) fires immediately rather than waiting a ladder.
+4. **Offensive/Main interleave.** An off-GCD Offensive still fires while the
+   Main is GCD-held; a Companion Offensive does not delay a different Main
+   spell (C2); Main still never carries a major CD.
+5. **No-target / OOR / casting holds.** With no target, out of range, or while
+   hard-casting/channeling, no Main key is sent (game-forbidden holds only).
+6. **Refused-key cap.** Force a refused Main (immune/resource-starved): sends
+   stay capped at ≤3 per window and ≤1 / 150 ms, and Main re-arms immediately
+   after the cap with no long suppression ladder.
+7. A refused Main never silences the rest of the rotation: a fresh Offensive/
+   Defensive/interrupt on another stroke still fires.
+8. Record + export + replay the run: 0 mismatches for decisions and policy
+   verdicts. Static ≠ automated test ≠ live in-game.
+
+### 3k. Offensive TTK conservation removed (3.7.9; live 12.1 retail, OWED)
+
+Offline evidence is the candidate/provider + policy test updates and the
+regenerated TTK fixtures/replays for the no-conservation behaviour, plus the
+offline vendor-offensive audit (161 ids across all 13 classes; 0 carrying
+`neverAutomatic`/`ManualByDesign`/`UnsafeToAutomate`; 49/161 vendor-only rows
+resolve to `MaxDpsBacked`) — never live proof. Observe in a real client with the
+Exp bridge **3.7.9** addon loaded, Intelligence ON:
+
+1. **No TTK hold on a MaxDps offer.** Against a target whose TTK is ≤15 s (and
+   in trash), a MaxDps-recommended offensive — Avatar 107574, Ravager 228920,
+   Recklessness, Bladestorm (and peers) — must **press** when the bridge offers
+   it; there must be no `"target ~Xs to die; saving <name>"`,
+   `"warming up TTK"` or `"fast pack, waiting for TTK"` hold.
+2. **Burst preset still conserves.** With the user's **Burst** preset selected,
+   majors are still held until a boss TTK is measurable; selecting Normal/None
+   restores the no-conservation behaviour. The AoE preset still conserves
+   catalogued single-target-only cooldowns.
+3. **Gap-fill unchanged.** A companion gap-fill major still fires only when the
+   bridge offers it (MaxDps silent) and stays inside the gap-fill
+   out-of-combat hold; melee/range and the other game-truth/structural gates
+   still apply. Only 212084 Fel Devastation and 98008 Spirit Link Totem route
+   to the Defensive slot by `classOf` precedence (documented deviation).
+4. Record + export + replay the run: 0 mismatches for decisions and policy
+   verdicts. Static ≠ automated test ≠ live in-game.
+
+This supersedes the offensive parts of §3e/§3f/§3g, which remain as the
+v3.2–v3.8 history of the removed conservation.
+
+### 3l. Hotbar press queue (4.0.3; live 12.1 retail, OWED)
+
+Install: `pwsh tools/publish-exp.ps1` + `pwsh tools/install-addon-exp.ps1`,
+then `/reload`. `/mdbx hotbar` prints gen/seq/entries and marks the keybound
+bar entries ready=yes (incl. macros and items); `/mdbx status` shows the new
+`ext4=1` field.
+
+| # | Check | Expected |
+| :--- | :--- | :--- |
+| 1 | Press a GCD-riding ability key *early* inside a GCD (focused game) | The cast fires at the end of THAT GCD (no lost press); `Now` shows `<name> (you)`; telemetry note `queued` -> `delivered` |
+| 2 | Press the same key late (inside the client ~400 ms queue window) | No double cast (the cooldown rejects the duplicate) |
+| 3 | Press an off-GCD key (trinket / item) mid-GCD | Fires immediately; the rotation is not deferred; focused native press is not re-sent |
+| 4 | Spam a cooling-down ability key | Recognised/delivered, but the rotation never stalls (no persistent `your ... queued` hold) |
+| 5 | Press a UI key (B/C/M) or a movement key (WASD/Space/arrows) | Never queued |
+| 6 | Type `f` in game chat while in combat | Not delivered (typing veto; `/mdbx hotbar` shows typing=yes) |
+| 7 | Rebind an ability mid-session | `/mdbx hotbar` reflects it within ~1 s; the old key stops queueing |
+| 8 | Play with a pre-4.0.3 addon | No crash; status shows `user queue: addon too old...`; everything else unchanged |
+| 9 | `[UserQueue] Background=1`, game unfocused, press a bound key | Delivered in the next window (opt-in only) |
+| 10 | Record + export + replay a session containing user presses | 0 mismatches (user sends never feed policy memory) |
+| 11 | ElvUI / Bartender / DiabolicUI bars | Binding resolution works (at least the command-mapped bars) |
+| 12 | 51-cell strip does not clip a screen edge | If it clips, re-anchor (`/mdbx offset 0 0`) or move it; decode stays green |
+| 13 | Keep the rotation going for 30 s after a mid-fight press (hotfix regression check) | Core rotation (Main) continues the whole time; the pressed key fires once; no `only interrupt/trinket` pattern |
+| 14 | `/mdbx main off`, then watch the companion status | Status says `addon Main toggle is OFF (/mdbx main on)`; `/mdbx main on` restores the rotation |
+| 15 | Flip a slot toggle OFF *after* it has been firing (hotfix regression check) | Strip keeps decoding — the companion never reports "No pixel block" and the rotation continues with that slot blanked |
+
+Static != automated test != live in-game E2E: none of the above is claimed
+before a retail run.
+
+
+## 4. macOS client (live retail, OWED)
+
+Everything in this section needs a real client on a Mac. Static/offline
+results never close these items.
+
+Preconditions: `MaxDpsBridgeExp` (3.7.9-exp) installed and enabled, the stable
+`MaxDpsBridge` **disabled** (the Exp bridge is inert while the stable one is
+loaded), Screen Recording + Accessibility granted to the app bundle.
+
+```sh
+APP="/Applications/MaxDPS Companion.app/Contents/MacOS/MaxDpsCompanion.Mac"
+"$APP" --probe          # writes ~/Library/Application Support/MaxDpsCompanion/probe.txt
+```
+
+| # | Step | Expected |
+| :--- | :--- | :--- |
+| 4.1 | `--probe` with the game running | `capture-backend=ScreenCaptureKit ... granted`; `stream=started region=1024x128pt`; `locate=<x>,<y> cell=8`; `decode=proto=5 state=...` |
+| 4.2 | `--probe` again | `stream=after-locate regionPx` small (~352x16 for 8 px cells); frames/fps reported |
+| 4.3 | `--probe` on the other display (1080p monitor <-> MacBook panel, incl. a Retina-scale display) | locate succeeds at the same window-relative offsets; no recalibration needed |
+| 4.4 | Start in the UI, game focused, press a key the addon suggests | the status line's "Now:" matches the pressed ability; no stray input in other apps |
+| 4.5 | Start, then focus another app while a keyboard slot fires | stroke still lands in the game (per-process delivery), nothing leaks |
+| 4.6 | A mouse-slot ability (if bound) while the game is unfocused | hold with the "needs focus (mouse input)" reason (by design) |
+| 4.7 | Watch `repairs` over a session (`--probe` after playing) | ideally 0; non-zero means the display's ICC pipeline distorts the strip (report the count and the display profile) |
+| 4.8 | `/mdbx status` in game | `cell=8`, offsets match the app's located values; protocol 5 |
+| 4.9 | Change the strip (`/mdbx cellsize 12`, or move the offset), then Start | the ladder re-locates within ~5 s and the stream region shrinks to the new strip |
+| 4.10 | Move the game window / switch resolution while running | the supervisor rebuilds the stream within ~1 s; the strip keeps decoding |
+| 4.11 | `--bench-capture=10` while playing | steady-state region ~20-40 KB/frame; per-sample mean well under 0.5 ms; our CPU near 1 % of one core |
+| 4.12 | Quit the app after playing | no capture session left behind (`Activity Monitor`: no SCK helper burning CPU; app gone) |
+
+### 4.0 Offline app-level capture check (no game needed)
+
+A synthetic window exercises the real capture path without WoW. Build a stub
+whose executable is named `Wow` (any process whose name matches the app's
+window list: `World of Warcraft`, `World of Warcraft.app`, `Wow`) drawing a
+43-cell strip (cell size 8, magenta magic cell + `n*17` channel ramps) at its
+top-left corner, then:
+
+```sh
+"/Applications/MaxDPS Companion.app/Contents/MacOS/MaxDpsCompanion.Mac" --probe
+```
+
+Expected: `process=... bounds=...`; `diag frame:` shows the window origin and
+`region=0,0 ...pt`; `diag trace:` shows `run=8 step=8` and the sampled first
+cells matching the drawn pattern (magenta 255,70,255 at cell 0, then 17/33/51);
+`locate=null ... fault=Version` is CORRECT for a stub (it has no valid v5
+checksums). If the sampled cells are blank/shifted, the geometry or the blank
+frame handling regressed. `--bench-capture=3` must also run (it reports "strip
+not found" for a stub).
+
+## 5. Benchmarks / diagnostics (no game)
+
+
 
 ```powershell
 MaxDpsCompanion.exe --bench-scheduler            # scripted 27000-tick plan + plan hash
@@ -301,18 +614,35 @@ MaxDpsCompanion.exe --replay=<file.jsonl>        # deterministic decision replay
                                                  # --replay=tests\MaxDpsCompanion.Tests\fixtures\defensive-warrior-urgency.jsonl
                                                  # offensive-interrupt fixture (v2.6):
                                                  # --replay=tests\MaxDpsCompanion.Tests\fixtures\offensive-interrupt-warrior.jsonl
+                                                 # solo cooldown/reset fixture (r2):
+                                                 # --replay=tests\MaxDpsCompanion.Tests\fixtures\solo-cooldown-reset-warrior.jsonl
+                                                 # offensive gap-fill fixture (r1):
+                                                 # --replay=tests\MaxDpsCompanion.Tests\fixtures\offensive-gapfill-warrior.jsonl
+                                                 # TTK fixture (v3.2.0):
+                                                 # --replay=tests\MaxDpsCompanion.Tests\fixtures\ttk-warrior-burst.jsonl
+                                                 # TTK dying-trash fixture (v3.6):
+                                                 # --replay=tests\MaxDpsCompanion.Tests\fixtures\ttk-trash-pack.jsonl
 MaxDpsCompanion.exe --ability-audit=<path>         # registry audit report (Violations 0 / Warnings 0 / Missing 0 / Stale 0 enforced by tools/ability_audit.ps1, exit 3 when non-clean)
 MaxDpsCompanion.exe --ability-coverage=<path>      # v2.7 machine-readable coverage manifest (default ABILITY_COVERAGE.json)
 MaxDpsCompanion.exe --ability-info=<spellId>       # inspect one ability (writes ability-info.txt + stdout)
 MaxDpsCompanion.exe --ability-search=<text>        # registry filter (also --ability-class= / --ability-spec=)
-MaxDpsCompanion.exe --ui-smoke-test              # hardened structural checks (text-fit / card content / wrapped labels / zero-size / overlap / tab); exit 1 on findings
-MaxDpsCompanion.exe --ui-snapshot-page=home --ui-snapshot=home.png --ui-snapshot-width=1280
-                                                 # page snapshots: home|abilities|intelligence|configuration|diagnostics
-                                                 # review set: dist/ui-snapshots (5 pages x 6 widths, regenerable)
+MaxDpsCompanion.exe --ui-smoke-test              # P2-E hosted window: ShellValidation visual-tree walk + RenderTargetBitmap
+                                                 # PNG (ui-smoke.png, non-blank colour grid) + ui-smoke.txt/layout; exit 3 on findings
+MaxDpsCompanion.exe --ui-smoke-test --exp        # same in the in-game-config shell (asserts ZERO ToggleSwitch mounted)
+MaxDpsCompanion.exe --ui-snapshot-page=main --ui-snapshot=main.png --ui-snapshot-width=1280
+                                                 # pages: main|configuration|diagnostics|intelligence|abilities
+                                                 # writes ui-snapshot.txt + the PNG; exit 3 + ui-error.txt on blank/unknown
+MaxDpsCompanion.exe --ui-snapshot=<png>          # whole shell as shown (1280x900 default; width/height mods apply)
+MaxDpsCompanion.exe --ui-snapshot-advanced=<png> # Advanced overlay (Configuration tab)
+MaxDpsCompanion.exe --bench-ui                   # startup/refresh/snapshot timings -> bench-ui.txt (exit 1 on target miss)
+                                                 # 4.0.0 KNOWN MISS: startup 774.9 ms > 500 ms target;
+                                                 # refresh mean 19.8 us / p95 29.6 us and snapshot 26.3 ms pass
+                                                 # targets: mean < 300 us, p95 < 1000 us, construct+show < 500 ms
+pwsh tools/ui_smoke.ps1                          # runs the bin exe --ui-smoke-test; checks exit 0 + ui-smoke.png
 MaxDpsCompanion.exe --dump-class-skills=<path>   # merged class/spec skill tree
                                                  # CLASS<TAB>SPEC<TAB>section<TAB>provenance<TAB>name<TAB>id
-MaxDpsCompanion.exe --ui-snapshot-class-skills=<png> [--ui-snapshot-class=CLASS --ui-snapshot-spec=SPEC]
-                                                 # render the Class skills screen (default ROGUE/Outlaw; no game)
+                                                 # DROPPED in 4.0.0 (print "unavailable in this build", exit 3):
+                                                 # --ui-snapshot-class-skills=, --ui-snapshot-scroll=
 ```
 
 ## Knowledge verification (network)

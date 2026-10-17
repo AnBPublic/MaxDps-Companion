@@ -1,0 +1,30 @@
+# Toolchain pin for the Rust companion workspace (companion-rs/).
+#
+# Why GNU, not MSVC: this dev box has NO Visual Studio C++ build tools
+# (`vswhere -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64`
+# returns nothing and there is no `link.exe`), so the
+# `stable-x86_64-pc-windows-msvc` channel cannot link. The GNU host links via
+# MinGW-w64 instead.
+#
+# GNU host prerequisite (REQUIRED, not optional): the linker needs the
+# MinGW-w64 runtime/import libraries (e.g. `-lshlwapi`, `-lkernel32`, `-luser32`)
+# for the `eframe`/`winit`/`windows` dependency tree that `mdc-app` pulls in.
+# rustc's bundled self-contained linker ships `dlltool.exe`/`ld.exe` but NOT the
+# Windows import libs, so without a MinGW-w64 sysroot on PATH
+# `cargo build --workspace` fails with `ld: cannot find -lshlwapi`. This machine
+# uses WinLibs (POSIX/UCRT) from winget:
+#
+#   %LOCALAPPDATA%\Microsoft\WinGet\Packages\
+#     BrechtSanders.WinLibs.POSIX.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe\
+#       mingw64\bin        <- gcc.exe + dlltool.exe (on the user PATH)
+#
+# That `bin` directory is added to the user PATH; it also puts the adjacent
+# `mingw64\lib` sysroot where `x86_64-w64-mingw32-gcc` finds the import libs.
+# A CI/other box must install an equivalent mingw-w64 toolchain (and have its
+# `bin` on PATH) before building mdc-app.
+#
+# If VS Build Tools are later installed, switch this channel to
+# `stable-x86_64-pc-windows-msvc` and MSVC links natively (no MinGW sysroot).
+[toolchain]
+channel = "stable-x86_64-pc-windows-gnu"
+components = ["clippy"]

@@ -37,7 +37,18 @@ local function BuildControlsStdUi (Panel, StdUi)
 
   local Enabled = StdUi:Checkbox(Panel, "Enable bridge", 240, 24);
   Enabled:SetChecked(DB.Enabled and true or false);
-  Enabled.OnValueChanged = function (_, Flag) DB.Enabled = (Flag and true or false); end;
+  Enabled.OnValueChanged = function (_, Flag)
+    -- Single writer (MDB.SetEnabled): checking Enable is the Options equivalent
+    -- of `/mdb on` and clears an earlier `/mdb off`; unchecking is `/mdb off`.
+    -- Never write DB.Enabled directly, or a logout with Enabled=false would be
+    -- re-seeded as a sticky pause by Bridge.lua's legacy seed.
+    if MDB.SetEnabled then
+      MDB.SetEnabled(Flag);
+    else
+      DB.Enabled = (Flag and true or false);
+      if MDB.SetUserPaused then MDB.SetUserPaused(not DB.Enabled); end
+    end
+  end;
 
   local CellSize = StdUi:SliderWithBox(Panel, 160, 48, DB.CellSize, 1, 64);
   CellSize:SetPrecision(0);
@@ -47,12 +58,21 @@ local function BuildControlsStdUi (Panel, StdUi)
     if MDB.Layout then MDB.Layout(); end
   end
 
+  -- Thin entry: the 13 switches live in Panel.lua (plain frames, no StdUi).
+  local Toggles = CreateFrame("Button", nil, Panel, "UIPanelButtonTemplate");
+  Toggles:SetSize(140, 24);
+  Toggles:SetText("Toggles...");
+  Toggles:SetScript("OnClick", function ()
+    if MDB.OpenToggles then MDB.OpenToggles(); end
+  end);
+
   local Status = StdUi:Label(Panel, "", 12);
   Panel.StatusText = Status;
 
   Panel:AddRow():AddElement(Header);
   Panel:AddRow():AddElement(Enabled);
   Panel:AddRow():AddElement(CellSize);
+  Panel:AddRow():AddElement(Toggles);
   Panel:AddRow():AddElement(Status);
 
   Panel:SetScript("OnShow", function (self)
@@ -69,7 +89,14 @@ local function BuildControlsFallback (Panel)
   Enabled.Text:SetText("Enable bridge");
   Enabled:SetChecked(DB.Enabled and true or false);
   Enabled:SetScript("OnClick", function (self)
-    DB.Enabled = self:GetChecked() and true or false;
+    -- Single writer (MDB.SetEnabled): keep Enabled + sticky UserPaused in
+    -- lockstep; never write DB.Enabled directly (review finding 5).
+    if MDB.SetEnabled then
+      MDB.SetEnabled(self:GetChecked() and true or false);
+    else
+      DB.Enabled = self:GetChecked() and true or false;
+      if MDB.SetUserPaused then MDB.SetUserPaused(not DB.Enabled); end
+    end
   end);
 
   local CellSize = CreateFrame("Slider", nil, Panel, "OptionsSliderTemplate");
@@ -86,8 +113,17 @@ local function BuildControlsFallback (Panel)
   CellSize.High:SetText("64");
   CellSize.Text:SetText("Cell size (px)");
 
+  -- Thin entry: opens the plain-frame 13-toggle panel from Panel.lua.
+  local Toggles = CreateFrame("Button", nil, Panel, "UIPanelButtonTemplate");
+  Toggles:SetPoint("TOPLEFT", CellSize, "BOTTOMLEFT", 0, -28);
+  Toggles:SetSize(140, 24);
+  Toggles:SetText("Toggles...");
+  Toggles:SetScript("OnClick", function ()
+    if MDB.OpenToggles then MDB.OpenToggles(); end
+  end);
+
   local Status = Panel:CreateFontString(nil, "OVERLAY", "GameFontNormal");
-  Status:SetPoint("TOPLEFT", CellSize, "BOTTOMLEFT", 0, -32);
+  Status:SetPoint("TOPLEFT", Toggles, "BOTTOMLEFT", 0, -24);
   Status:SetJustifyH("LEFT");
   Panel.StatusText = Status;
 end

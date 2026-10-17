@@ -1,0 +1,15 @@
+<Project>
+  <!-- Shared version truth for new projects only (P0a scaffolding).
+       Existing app/MaxDpsCompanion/MaxDpsCompanion.csproj keeps its own
+       values for now and does NOT import this file, so the Windows
+       build is unaffected. New SDK-style projects opt in via:
+         <Import Project="../Version.props" />            (Core, one level down)
+         <Import Project="../../Version.props" />         (tests, two levels down) -->
+  <PropertyGroup>
+    <Version>3.7.9</Version>
+    <Codename>Unyielding</Codename>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="Codename" Value="$(Codename)" />
+  </ItemGroup>
+</Project>

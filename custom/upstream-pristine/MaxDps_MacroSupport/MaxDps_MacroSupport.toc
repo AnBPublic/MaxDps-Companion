@@ -1,0 +1,14 @@
+## Interface: 120007, 120100
+## Interface-Retail: 120007, 120100
+## Title: MaxDPS Macro Support
+## Notes: Adds hotbar-only macro/castsequence support for MaxDPS Rotation Helper with cached parsing, debounced hotbar rescans, manual bindings, options, and stale glow cleanup.
+## Author: Daxomault
+## Version: 1.18.1
+## OptionalDeps: MaxDps
+## SavedVariables: MaxDps_MacroSupportDB
+## X-License: MIT
+## X-Code-Assistance: Some code was written with assistance from ChatGPT.
+## X-Compatible-WoW-Retail: 12.0.7, 12.1.0
+## X-Compatible-Interface: 120007, 120100
+
+MaxDps_MacroSupport.lua

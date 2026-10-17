@@ -126,6 +126,34 @@ public class CandidateTrackerTests
         Assert.Contains(candidates, c => c.Slot == Slot.Trinket);
     }
 
+    [Theory]
+    [InlineData(0, 1000)]     // non-positive -> floor
+    [InlineData(50, 1000)]    // max(1000, 150) -> floor
+    [InlineData(400, 1200)]   // 3 * 400
+    [InlineData(2000, 2500)]  // 6000 -> ceiling
+    [InlineData(33, 1000)]    // the bridge's assumed rendered tick
+    public void Ttl_Clamps_To_The_Floor_And_Ceiling(int tickMs, long expected)
+    {
+        Assert.Equal(expected, CandidateTracker.TtlMsFor(tickMs));
+    }
+
+    [Fact]
+    public void Update_Measures_The_Frame_Interval_And_Derives_The_Ttl()
+    {
+        var tracker = new CandidateTracker();
+        tracker.Update(Frame((Slot.Main, StrokeR)), 1000);
+        Assert.Equal(0, tracker.MeasuredTickMs);          // no second frame yet
+        Assert.Equal(1000, tracker.TtlMs);                // floor fallback
+
+        tracker.Update(Frame((Slot.Main, StrokeR)), 1400); // measured 400 ms
+        Assert.Equal(400, tracker.MeasuredTickMs);
+        Assert.Equal(1200, tracker.TtlMs);
+
+        tracker.Reset();
+        Assert.Equal(0, tracker.MeasuredTickMs);
+        Assert.Equal(1000, tracker.TtlMs);
+    }
+
     [Fact]
     public void Reset_Clears_All_History()
     {

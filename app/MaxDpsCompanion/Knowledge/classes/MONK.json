@@ -1,0 +1,236 @@
+{
+  "schema": 1,
+  "class": "MONK",
+  "abilities": [
+    {
+      "spellId": 101545,
+      "role": "Mobility",
+      "route": "Mobility",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Flying Serpent Kick: forward dash; manual movement utility."
+    },
+    {
+      "spellId": 101643,
+      "role": "Mobility",
+      "route": "Mobility",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Transcendence: pre-placed spirit position; manual repositioning."
+    },
+    {
+      "spellId": 109132,
+      "role": "Mobility",
+      "route": "Mobility",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Roll: directional dash; manual movement utility."
+    },
+    {
+      "spellId": 115008,
+      "role": "Mobility",
+      "route": "Mobility",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Chi Torpedo: directional dash + speed; manual."
+    },
+    {
+      "spellId": 115078,
+      "role": "CC",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Paralysis: incapacitate; manual (breaks on damage, limit 1)."
+    },
+    {
+      "spellId": 115176,
+      "role": "Major",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Never",
+      "minUrgency": 4,
+      "notes": "Zen Meditation: needs verification (id absent from spell-verification.json)."
+    },
+    {
+      "spellId": 115203,
+      "role": "Major",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 4,
+      "notes": "Fortifying Brew (Brewmaster): major mitigation."
+    },
+    {
+      "spellId": 115310,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Suggest",
+      "minUrgency": 2,
+      "notes": "Revival: raid heal + dispel; manual group tool."
+    },
+    {
+      "spellId": 116670,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Vivify: solo self-sustain ladder."
+    },
+    {
+      "spellId": 116705,
+      "role": "Utility",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 0,
+      "notes": "Spear Hand Strike: shared melee kick."
+    },
+    {
+      "spellId": 116841,
+      "role": "Mobility",
+      "route": "Mobility",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Tiger's Lust: freedom + speed; manual."
+    },
+    {
+      "spellId": 116844,
+      "role": "CC",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Ring of Peace: area silence/denial; manual."
+    },
+    {
+      "spellId": 116849,
+      "role": "Utility",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Never",
+      "minUrgency": 4,
+      "notes": "Life Cocoon: ally external; never automatic (ally state not observable)."
+    },
+    {
+      "spellId": 119582,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Purifying Brew: clears stagger (stagger urgency curve), Brewmaster."
+    },
+    {
+      "spellId": 119996,
+      "role": "Mobility",
+      "route": "Mobility",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Transcendence: Transfer: teleport to the placed spirit; manual."
+    },
+    {
+      "spellId": 122278,
+      "role": "Major",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 4,
+      "notes": "Dampen Harm: major mitigation."
+    },
+    {
+      "spellId": 122470,
+      "role": "Major",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 4,
+      "notes": "Touch of Karma: major mitigation/redirect, Windwalker."
+    },
+    {
+      "spellId": 122783,
+      "role": "Major",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 4,
+      "notes": "Diffuse Magic: major magic mitigation/redirect."
+    },
+    {
+      "spellId": 124682,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Enveloping Mist: solo self-sustain ladder."
+    },
+    {
+      "spellId": 132578,
+      "role": "Major",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 4,
+      "notes": "Invoke Niuzao, the Black Ox: major mitigation, Brewmaster."
+    },
+    {
+      "spellId": 243435,
+      "role": "Major",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Never",
+      "minUrgency": 4,
+      "notes": "Fortifying Brew (Mistweaver/Windwalker): needs verification (id absent from spell-verification.json; Brewmaster id 115203 verified)."
+    },
+    {
+      "spellId": 322101,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Expel Harm: solo self-sustain ladder."
+    },
+    {
+      "spellId": 322507,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Celestial Brew: minor absorb, Brewmaster."
+    }
+  ]
+}

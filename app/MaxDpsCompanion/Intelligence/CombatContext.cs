@@ -74,6 +74,74 @@ internal sealed class CombatContext
     public bool TargetHpValid { get; init; }
     public int TargetHpPct { get; init; }
 
+    /// <summary>
+    /// v3.2.0 TTK passthrough: true when the engine's <see cref="TtkEstimator"/>
+    /// produced a trustworthy per-target time-to-kill this tick. False on every
+    /// legacy/replay frame and when [TimeToKill] Enabled=0 — all TTK gates are
+    /// then skipped (documented fail-open).
+    /// </summary>
+    public bool TtkValid { get; init; }
+
+    /// <summary>Estimated seconds remaining on the current target (clamped 0..300).</summary>
+    public double TtkSec { get; init; } = TtkEstimator.MaxTtkSec;
+
+    /// <summary>Last observed target-HP fraction (band midpoint); engine-owned, read-only here.</summary>
+    public double TargetHpFrac { get; init; }
+
+    /// <summary>
+    /// v3.6.0 dying-trash guard: true when the estimator has only an early
+    /// (provisional) rate for the current target while <see cref="TtkValid"/>
+    /// is still false. Retained for replay/telemetry schema; not enforced since
+    /// 3.7.9 (the offensive waste guard was removed).
+    /// </summary>
+    public bool TtkProvisional { get; init; }
+
+    /// <summary>Seconds since the first observation of the current target (0 with no target).</summary>
+    public double TargetAgeSec { get; init; }
+
+    /// <summary>
+    /// True while the fast-pack latch is set (two fast kills inside the latch
+    /// window). Survives target swaps. Retained for replay/telemetry schema;
+    /// not enforced since 3.7.9 (the offensive grace hold was removed). Still
+    /// read by the group Minor defensive dying-target gate.
+    /// </summary>
+    public bool FastPackLatch { get; init; }
+
+    /// <summary>True when a valid OR provisional estimate exists. Retained for replay/telemetry schema; the offensive waste guard that read it was removed in 3.7.9.</summary>
+    public bool EffectiveTtkKnown => TtkValid || TtkProvisional;
+
+    /// <summary>
+    /// v3.7 adaptive TTK: true when the rolling kill window holds at least
+    /// <c>[TimeToKill] HistoryMinKills</c> kills. Retained for replay/telemetry
+    /// schema; not enforced since 3.7.9 (the adaptive-history offensive hold
+    /// was removed). False on every legacy/replay frame and with History=0.
+    /// </summary>
+    public bool TtkHistBinding { get; init; }
+
+    /// <summary>v3.7: the window's pessimistic p-quantile burn-rate (frac/s); 0 when not binding. Retained for replay/telemetry schema; not enforced since 3.7.9.</summary>
+    public double TtkHistRate { get; init; }
+
+    /// <summary>
+    /// v3.7: the history-blended estimate in seconds (clamp 0..300); 0 when no
+    /// usable history value was produced this tick. Retained for replay/telemetry
+    /// schema; not enforced since 3.7.9.
+    /// </summary>
+    public double TtkHistSec { get; init; }
+
+    /// <summary>v3.7: the history value is history-only (no trusted live rate yet). Retained for replay/telemetry schema; not enforced since 3.7.9.</summary>
+    public bool TtkHistProvisional { get; init; }
+
+    /// <summary>v3.7: number of kills currently in the rolling window (0 when not binding). Retained for replay/telemetry schema; not enforced since 3.7.9.</summary>
+    public int TtkHistKills { get; init; }
+
+    /// <summary>
+    /// v3.7: the configured adaptive-need duration factor
+    /// (<c>[TimeToKill] HistoryDurFactor</c>, clamp 0..1). The engine threads the
+    /// setting in; a manually-built context falls back to the estimate's own
+    /// value so tests/replays stay deterministic.
+    /// </summary>
+    public double TtkHistDurFactor { get; init; }
+
     /// <summary>Per-slot in-range tri-state from the bridge's IsSpellInRange probe.</summary>
     public TriState[] SlotRange { get; init; } = new TriState[PixelProtocol.SlotCount];
 
@@ -112,6 +180,25 @@ internal sealed class CombatContext
 
     /// <summary>True when the Defensive slot's ability was recommended by MaxDps itself.</summary>
     public bool MaxDpsDefensiveRecommendation => !DefensiveCatalogSource;
+
+    /// <summary>
+    /// Additive (Stream 3, v3.3.0): true when the Offensive slot's candidate is
+    /// a companion-derived gap-fill (id membership in the per-spec generated
+    /// offensive list) rather than a MaxDps wire suggestion. The wire carries no
+    /// offensive source bit, so this is derived at projection time from the
+    /// decoded class/spec + the Offensive slot's spell id. Diagnostic/parity
+    /// only — the policy verdict is unchanged, and the Defensive path keeps its
+    /// explicit wire bit (<see cref="DefensiveCatalogSource"/>) byte-identical.
+    /// </summary>
+    public bool OffensiveDerivedGapFill { get; init; }
+
+    /// <summary>
+    /// Resolves the Offensive source explicitly: the projected derived bit OR
+    /// the id-membership fallback for manually-built contexts (tests/replay).
+    /// Diagnostic/parity only; it never changes a verdict by itself.
+    /// </summary>
+    public bool IsOffensiveGapFill(int spellId, AbilityCatalog catalog) =>
+        OffensiveDerivedGapFill || catalog.IsOffensiveGapFill(Class, Spec, spellId);
 
     public string? Class { get; init; }
     public string? Spec { get; init; }
@@ -193,6 +280,8 @@ internal sealed class CombatContext
             DefensiveUrgency = urgency,
             StaggerUrgency = frame.StaggerUrgency,
             DefensiveCatalogSource = frame.DefensiveCatalogSource,
+            OffensiveDerivedGapFill = AbilityCatalog.Default.IsOffensiveGapFill(
+                frame.ClassName, frame.SpecName, frame.SpellId(Slot.Offensive)),
             ContextValid = true,
         };
     }
@@ -203,6 +292,66 @@ internal sealed class CombatContext
         : hpPct < 50 ? DefensiveUrgency.Orange
         : hpPct < 100 ? DefensiveUrgency.Yellow
         : DefensiveUrgency.White;
+
+    /// <summary>
+    /// A copy with the engine's per-target TTK estimate attached (v3.2.0). The
+    /// estimator lives in <c>RotationEngine</c>; this is a pure passthrough so
+    /// the policy/providers can read it without a scheduler signature change.
+    /// </summary>
+    /// <param name="historyDurFactor">
+    /// Optional v3.7 override for the adaptive-need duration factor
+    /// (<c>[TimeToKill] HistoryDurFactor</c>). When null the estimator's own
+    /// <see cref="TtkEstimate.NeedDurFactor"/> is used, so the old one-argument
+    /// call keeps working unchanged (legacy/replay paths).
+    /// </param>
+    public CombatContext WithTtk(TtkEstimate estimate, double? historyDurFactor = null)
+    {
+        var durFactor = historyDurFactor ?? estimate.NeedDurFactor;
+        if (TtkValid == estimate.Valid && TtkSec.Equals(estimate.TtkSec)
+            && TtkProvisional == estimate.Provisional && TargetAgeSec.Equals(estimate.AgeSec)
+            && FastPackLatch == estimate.FastPackLatch
+            && TtkHistBinding == estimate.HistBinding
+            && TtkHistRate.Equals(estimate.HistRate)
+            && TtkHistSec.Equals(estimate.HistTtkSec)
+            && TtkHistProvisional == estimate.HistProvisional
+            && TtkHistKills == estimate.HistKills
+            && TtkHistDurFactor.Equals(durFactor)) return this;
+        return new CombatContext
+        {
+            HpValid = HpValid,
+            HpSource = HpSource,
+            HpPct = HpPct,
+            HpPctUpper = HpPctUpper,
+            Cast = Cast,
+            TargetCasting = TargetCasting,
+            TargetCastInterruptible = TargetCastInterruptible,
+            TargetInMelee = TargetInMelee,
+            TargetHpValid = TargetHpValid,
+            TargetHpPct = TargetHpPct,
+            SlotRange = SlotRange,
+            SlotBuffActive = SlotBuffActive,
+            BuffProbeValid = BuffProbeValid,
+            DefensiveUrgency = DefensiveUrgency,
+            StaggerUrgency = StaggerUrgency,
+            DefensiveCatalogSource = DefensiveCatalogSource,
+            OffensiveDerivedGapFill = OffensiveDerivedGapFill,
+            Class = Class,
+            Spec = Spec,
+            ContextValid = ContextValid,
+            TtkValid = estimate.Valid,
+            TtkSec = estimate.TtkSec,
+            TargetHpFrac = estimate.TargetHpFrac,
+            TtkProvisional = estimate.Provisional,
+            TargetAgeSec = estimate.AgeSec,
+            FastPackLatch = estimate.FastPackLatch,
+            TtkHistBinding = estimate.HistBinding,
+            TtkHistRate = estimate.HistRate,
+            TtkHistSec = estimate.HistTtkSec,
+            TtkHistProvisional = estimate.HistProvisional,
+            TtkHistKills = estimate.HistKills,
+            TtkHistDurFactor = durFactor,
+        };
+    }
 
     /// <summary>
     /// A copy with one slot's range replaced. Used by the scheduler to evaluate
@@ -232,9 +381,22 @@ internal sealed class CombatContext
             DefensiveUrgency = DefensiveUrgency,
             StaggerUrgency = StaggerUrgency,
             DefensiveCatalogSource = DefensiveCatalogSource,
+            OffensiveDerivedGapFill = OffensiveDerivedGapFill,
             Class = Class,
             Spec = Spec,
             ContextValid = ContextValid,
+            TtkValid = TtkValid,
+            TtkSec = TtkSec,
+            TargetHpFrac = TargetHpFrac,
+            TtkProvisional = TtkProvisional,
+            TargetAgeSec = TargetAgeSec,
+            FastPackLatch = FastPackLatch,
+            TtkHistBinding = TtkHistBinding,
+            TtkHistRate = TtkHistRate,
+            TtkHistSec = TtkHistSec,
+            TtkHistProvisional = TtkHistProvisional,
+            TtkHistKills = TtkHistKills,
+            TtkHistDurFactor = TtkHistDurFactor,
         };
     }
 }

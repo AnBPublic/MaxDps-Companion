@@ -1,0 +1,1 @@
+Interaction-design patterns were informed by publicly available open-source desktop-tool references; no third-party brand names, logos, trademarks, or proprietary assets were copied (clean-room architectural derivation).

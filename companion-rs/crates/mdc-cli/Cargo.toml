@@ -1,0 +1,12 @@
+[package]
+name = "mdc-cli"
+description = "Companion CLI: doctor / audit / replay / invoke through the shared command registry."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mdc-commands = { path = "../mdc-commands" }
+serde_json = "1"

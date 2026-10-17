@@ -1,0 +1,166 @@
+{
+  "schema": 1,
+  "class": "HUNTER",
+  "abilities": [
+    {
+      "spellId": 781,
+      "role": "Mobility",
+      "route": "Mobility",
+      "emergencyEscape": true,
+      "offGcd": true,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Disengage: backward leap away from the target; never automatic on its own. Needs a confirmed out-of-melee + in-range gap-closer/ranged-disengage context before it may ever fire."
+    },
+    {
+      "spellId": 5384,
+      "role": "Utility",
+      "route": "Mobility",
+      "emergencyEscape": true,
+      "offGcd": false,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Feign Death: threat drop / emergency feign; manual escape only."
+    },
+    {
+      "spellId": 19577,
+      "role": "CC",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Auto",
+      "minUrgency": 0,
+      "notes": "Intimidation: pet stun usable as an interrupt; only on a casting or fleeing non-boss target."
+    },
+    {
+      "spellId": 109248,
+      "role": "CC",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Binding Shot: root; manual (target state and positioning are not observable)."
+    },
+    {
+      "spellId": 109304,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Exhilaration: solo self-sustain ladder (30% max HP self / 100% pet)."
+    },
+    {
+      "spellId": 147362,
+      "role": "Utility",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 0,
+      "notes": "Counter Shot: ranged kick (BM/MM)."
+    },
+    {
+      "spellId": 186257,
+      "role": "Mobility",
+      "route": "Mobility",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Aspect of the Cheetah: speed burst; manual movement utility."
+    },
+    {
+      "spellId": 186265,
+      "role": "Major",
+      "route": "Defensive",
+      "emergencyEscape": true,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 4,
+      "notes": "Aspect of the Turtle: immunity last resort; stops acting, so only at Red."
+    },
+    {
+      "spellId": 187650,
+      "role": "CC",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Freezing Trap: incapacitate; manual (breaks on damage, target state not observable)."
+    },
+    {
+      "spellId": 187698,
+      "role": "CC",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Tar Trap: root/slow area denial; manual."
+    },
+    {
+      "spellId": 187707,
+      "role": "Utility",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 0,
+      "notes": "Muzzle: Survival melee kick."
+    },
+    {
+      "spellId": 190925,
+      "role": "Mobility",
+      "route": "Mobility",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Auto",
+      "minUrgency": 0,
+      "notes": "Harpoon (Survival): gap closer; only when the target is confirmed out of melee and in range."
+    },
+    {
+      "spellId": 199483,
+      "role": "Utility",
+      "route": "Mobility",
+      "emergencyEscape": true,
+      "offGcd": true,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Camouflage: stealth escape / threat drop; manual."
+    },
+    {
+      "spellId": 213691,
+      "role": "CC",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Scatter Shot: disorient/incapacitate; manual."
+    },
+    {
+      "spellId": 281195,
+      "role": "Major",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Never",
+      "minUrgency": 4,
+      "notes": "Survival of the Fittest: needs verification (id absent from spell-verification.json; kit listed by vendor)."
+    },
+    {
+      "spellId": 388035,
+      "role": "Major",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Never",
+      "minUrgency": 4,
+      "notes": "Fortitude of the Bear: needs verification (id absent from spell-verification.json)."
+    }
+  ]
+}

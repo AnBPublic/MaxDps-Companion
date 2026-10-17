@@ -1,0 +1,186 @@
+{
+  "schema": 1,
+  "class": "MAGE",
+  "abilities": [
+    {
+      "spellId": 66,
+      "role": "Utility",
+      "route": "Mobility",
+      "emergencyEscape": true,
+      "offGcd": true,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Invisibility: stealth escape / threat drop; manual."
+    },
+    {
+      "spellId": 118,
+      "role": "CC",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Never",
+      "minUrgency": 0,
+      "notes": "Polymorph: never automatic (breaks on damage, target state not observable)."
+    },
+    {
+      "spellId": 122,
+      "role": "CC",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Frost Nova: root; manual."
+    },
+    {
+      "spellId": 1953,
+      "role": "Mobility",
+      "route": "Mobility",
+      "emergencyEscape": true,
+      "offGcd": true,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Blink: forward teleport; not safely auto-aimable, manual repositioning only."
+    },
+    {
+      "spellId": 2139,
+      "role": "Utility",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 0,
+      "notes": "Counterspell: ranged kick."
+    },
+    {
+      "spellId": 11426,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Ice Barrier: Frost absorb; minor sustain."
+    },
+    {
+      "spellId": 31661,
+      "role": "CC",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Dragon's Breath: disorient; manual."
+    },
+    {
+      "spellId": 45438,
+      "role": "Major",
+      "route": "Defensive",
+      "emergencyEscape": true,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 4,
+      "notes": "Ice Block: immunity last resort; stops acting, so only at Red."
+    },
+    {
+      "spellId": 55342,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Mirror Image: minor defensive/absorb images."
+    },
+    {
+      "spellId": 108839,
+      "role": "Mobility",
+      "route": "Mobility",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Ice Floes: cast-while-moving window; manual movement utility."
+    },
+    {
+      "spellId": 110959,
+      "role": "Utility",
+      "route": "Mobility",
+      "emergencyEscape": true,
+      "offGcd": true,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Greater Invisibility: threat drop / avoid; not a full immunity, manual escape."
+    },
+    {
+      "spellId": 113724,
+      "role": "CC",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Ring of Frost: incapacitate; manual."
+    },
+    {
+      "spellId": 235219,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Cold Snap: resets Ice Block / cooldowns, not a panic button; manual."
+    },
+    {
+      "spellId": 235313,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Blazing Barrier: Fire absorb; minor sustain."
+    },
+    {
+      "spellId": 235450,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Prismatic Barrier: Arcane absorb; minor sustain."
+    },
+    {
+      "spellId": 342245,
+      "role": "Major",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 4,
+      "notes": "Alter Time: major defensive positional/time rewind."
+    },
+    {
+      "spellId": 383121,
+      "role": "CC",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Never",
+      "minUrgency": 0,
+      "notes": "Mass Polymorph: never automatic (target state not observable)."
+    },
+    {
+      "spellId": 414660,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Suggest",
+      "minUrgency": 2,
+      "notes": "Mass Barrier: group absorb; manual (ally state not observable)."
+    }
+  ]
+}

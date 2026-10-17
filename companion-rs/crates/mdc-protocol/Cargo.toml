@@ -1,0 +1,11 @@
+[package]
+name = "mdc-protocol"
+description = "Pure decode of the MaxDpsBridge pixel protocol: v1/v4/v5 core (35 cells) + Ext2 (40) + Ext3 (43). No I/O, no branding."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# Deliberately empty: the wire decode is a pure function over `[Color]`.

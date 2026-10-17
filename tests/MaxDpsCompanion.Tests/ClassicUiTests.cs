@@ -1,179 +1,101 @@
+using MaxDpsCompanion.Ui.Shell;
 using Xunit;
 
 namespace MaxDpsCompanion.Tests;
 
 /// <summary>
-/// Classic-UI tests (v3.0.0 workstream A). The headline case is the v2.8.1
-/// scroll defect: a focus-driven auto-scroll offset was silently reset by the
-/// live status refresh, leaving a large empty band above the first card.
-/// Rule, enforced for life: no AutoScrollPosition writes on any timer path.
+/// P2-E port of the v3 classic-UI tests (docs/plans/2026-10-11-winui3-v4-migration.md §6).
+///
+/// FINAL FATES (14 original tests):
+///  * REINSTATED (4): DefaultAndMinimum_Sizes (window consts), Toggle_Writes_
+///    Its_Settings_Key (ToggleModel), WidthTiers_ScaleFontAndRowHeight and
+///    WidthTiers_Scale_Popups (frozen UiScale tiers).
+///  * DELETED (10), each a WinForms control/internal assertion that has no
+///    XAML-free equivalent; replacements noted:
+///    - ScrollSurvivesRefresh (AutoScrollPosition/VerticalScroll internals) —
+///      WinUI uses ScrollViewer; covered by --ui-smoke-test visual tree walk.
+///    - BottomButtons_ExactLabels (control list + Enabled state) — labels are
+///      built in ShellWindow.Content.cs; covered by --ui-snapshot review.
+///    - Launcher_Delegate_Seam (test-only delegate) — WinUI calls the engine's
+///      BattleNetLauncher directly; live launch stays OWED (would start BNet).
+///    - ValueOnlyRefresh_DoesNotLayout (WinForms Layout events) — the WinUI
+///      refresh body is timed by --bench-ui instead.
+///    - Popups_Do_Not_Steal_Main_Controls (single-parent WinForms defect) —
+///      WinUI overlays are separate in-window layers; --ui-smoke-test opens
+///      both overlays and validates the result.
+///    - HeroRows_SizeToContent_NoClipping, ContentHeight_Is_Measured_NoDeadZone,
+///      UserTallerHeight_Is_Kept_NotClamped (WinForms measure/resize internals) —
+///      XAML measures sizes; --ui-smoke-test walks the tree for zero-size rows.
+///    - PopupOpen_Fast_StaticOpaqueScrim (WinForms paint internals + open
+///      timing) — the WinUI scrim is a static XAML rectangle; timing OWED live.
+///    - HeroBubble_Click_Opens_Filtered_Abilities (mouse click plumbing) —
+///      AbilityViewPresets matching is tested by ApproachADrillThroughTests;
+///      the click wiring is covered by the overlay drill in --ui-smoke-test.
 /// </summary>
 public class ClassicUiTests
 {
-    private static (T? Result, Exception? Error) RunOnSta<T>(Func<T> action)
-    {
-        T? result = default;
-        Exception? error = null;
-        var thread = new Thread(() =>
-        {
-            try { result = action(); }
-            catch (Exception ex) { error = ex; }
-        });
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.IsBackground = true;
-        thread.Start();
-        Assert.True(thread.Join(TimeSpan.FromSeconds(60)), "STA UI thread timed out");
-        return (result, error);
-    }
-
-    [Fact]
-    public void ClassicUi_ScrollSurvivesRefresh()
-    {
-        var (result, error) = RunOnSta(() =>
-        {
-            var settings = new AppSettings();
-            using var form = new MainForm(settings);
-            form.StartPosition = FormStartPosition.Manual;
-            form.Location = new Point(-32000, -32000);
-            form.ShowInTaskbar = false;
-            form.Show();
-            System.Windows.Forms.Application.DoEvents();
-            form.OpenAdvancedForTest();
-            System.Windows.Forms.Application.DoEvents();
-            var panel = form.ConfigurationForTest.ScrollArea;
-            // Guarantee a scrollable range regardless of the headless form size.
-            panel.AutoScrollMinSize = new Size(0, 4000);
-            panel.PerformLayout();
-            panel.AutoScrollPosition = new Point(0, 300);
-            System.Windows.Forms.Application.DoEvents();
-            var set = panel.VerticalScroll.Value;
-
-            for (var i = 0; i < 20; i++) form.RefreshStatusForTest();
-            return (Set: set, After: panel.VerticalScroll.Value);
-        });
-
-        Assert.Null(error);
-        Assert.True(result.Set == 300, $"scroll did not take (got {result.Set})");
-        Assert.Equal(300, result.After);
-    }
-
     [Fact]
     public void ClassicUi_DefaultAndMinimum_Sizes()
     {
-        var (result, error) = RunOnSta(() =>
-        {
-            var settings = new AppSettings();
-            using var form = new MainForm(settings);
-            form.CreateControl();
-            return (form.MinimumSizeForTest, form.ClientSize, form.DefaultClientSizeForTest);
-        });
-
-        Assert.Null(error);
-        Assert.Equal(new Size(520, 560), result.MinimumSizeForTest);
-        Assert.True(result.ClientSize.Width >= 520, $"client width {result.ClientSize.Width} below minimum");
-        Assert.True(result.ClientSize.Height >= 560, $"client height {result.ClientSize.Height} below minimum");
-        Assert.Equal(new Size(660, 920), result.DefaultClientSizeForTest);
-    }
-
-    [Fact]
-    public void ClassicUi_BottomButtons_ExactLabels_AndEnabledByState()
-    {
-        var (result, error) = RunOnSta(() =>
-        {
-            var settings = new AppSettings();
-            using var form = new MainForm(settings);
-            form.CreateControl();
-            return (Labels: form.BottomButtonLabelsForTest.ToArray(), Start: form.StartEnabledForTest, Stop: form.StopEnabledForTest);
-        });
-
-        Assert.Null(error);
-        Assert.Equal(
-            new[] { "Start", "Stop", "Launch Game", "Recalibrate", "Abilities\u2026", "Advanced\u2026", "Open Folder" },
-            result.Labels);
-        Assert.True(result.Start, "Start must be enabled while stopped");
-        Assert.False(result.Stop, "Stop must be disabled while stopped");
+        // Frosted constants from the WinUI shell (const access is inlined at
+        // compile time — no XAML runtime is loaded by this test).
+        Assert.Equal(660, ShellWindow.DefaultWidthDip);
+        Assert.Equal(920, ShellWindow.DefaultHeightDip);
+        Assert.Equal(520, Win32Host.MinWidthDip);
+        Assert.Equal(560, Win32Host.MinHeightDip);
     }
 
     [Fact]
     public void ClassicUi_Toggle_Writes_Its_Settings_Key()
     {
-        var (result, error) = RunOnSta(() =>
-        {
-            var settings = new AppSettings();
-            using var form = new MainForm(settings);
-            form.CreateControl();
-            var beforeSolo = settings.SoloEnabled;
-            form.SoloToggleForTest.Checked = !form.SoloToggleForTest.Checked;
-            return (Before: beforeSolo, After: settings.SoloEnabled);
-        });
+        // MainForm.SoloToggleForTest.Checked flip parity through the frozen model.
+        var settings = new AppSettings();
+        var model = ToggleModel.FromSettings(settings);
+        Assert.False(model.Solo);
+        Assert.False(settings.SoloEnabled);
 
-        Assert.Null(error);
-        Assert.False(result.Before);
-        Assert.True(result.After);
+        model.Solo = true;
+        model.ApplyToSettings(settings);
+
+        Assert.True(settings.SoloEnabled);
     }
 
+    /// <summary>D5 (old test): width tiers pick the base font step + row height at 520/660/900/1100.</summary>
     [Fact]
-    public void ClassicUi_Launcher_Delegate_Seam_No_Real_BattleNet()
+    public void ClassicUi_WidthTiers_ScaleFontAndRowHeight()
     {
-        var (result, error) = RunOnSta(() =>
+        var samples = new List<(int Width, float Font, int Row, UiTier Tier)>();
+        foreach (var width in new[] { 520, 660, 900, 1100 })
         {
-            var settings = new AppSettings();
-            using var form = new MainForm(settings);
-            form.CreateControl();
-            var path = "unused";
-            form.Launcher = p => { path = p ?? "<null>"; return (true, "stub-launch-ok"); };
-            form.InvokeLaunchForTest();
-            return (Status: form.StatusLineForTest, Path: path);
-        });
-
-        Assert.Null(error);
-        Assert.Contains("stub-launch-ok", result.Status);
-    }
-
-    /// <summary>
-    /// A7 perf guard: the 250 ms timer body is value-only. Fifty refreshes with
-    /// every field changing must not perform layout anywhere in the window or
-    /// the open popup (no Add/Remove/Bounds/Visible churn on a timer path).
-    /// </summary>
-    [Fact]
-    public void ClassicUi_ValueOnlyRefresh_DoesNotLayout()
-    {
-        var (layouts, error) = RunOnSta(() =>
-        {
-            var settings = new AppSettings();
-            using var form = new MainForm(settings);
-            form.StartPosition = FormStartPosition.Manual;
-            form.Location = new Point(-32000, -32000);
-            form.ShowInTaskbar = false;
-            form.Show();
-            System.Windows.Forms.Application.DoEvents();
-
-            form.OpenAdvancedForTest();
-            form.AdvancedTabsForTest.SelectedIndex = 1; // Diagnostics: live value labels
-            System.Windows.Forms.Application.DoEvents();
-
-            var count = 0;
-            void OnLayout(object? _, LayoutEventArgs __) => count++;
-            foreach (var control in Descendants(form)) control.Layout += OnLayout;
-
-            count = 0;
-            form.PumpChangingSnapshotsForTest(50);
-            return count;
-        });
-
-        Assert.Null(error);
-        Assert.Equal(0, layouts);
-    }
-
-    private static IEnumerable<Control> Descendants(Control root)
-    {
-        var stack = new Stack<Control>();
-        stack.Push(root);
-        while (stack.Count > 0)
-        {
-            var control = stack.Pop();
-            yield return control;
-            foreach (Control child in control.Controls) stack.Push(child);
+            var scale = UiScale.For(width);
+            samples.Add((width, scale.BaseFont, scale.RowHeight, scale.Tier));
         }
+
+        Assert.Equal(new[] { 520, 660, 900, 1100 }, samples.Select(s => s.Width).ToArray());
+        Assert.Equal(new[] { 9f, 10f, 11f, 12f }, samples.Select(s => s.Font).ToArray());
+        Assert.Equal(new[] { 56, 66, 74, 82 }, samples.Select(s => s.Row).ToArray());
+        Assert.Equal(new[] { UiTier.Compact, UiTier.Classic, UiTier.Roomy, UiTier.Wide }, samples.Select(s => s.Tier).ToArray());
+    }
+
+    /// <summary>D5: the width tier reaches the popup toggle geometry and type (old Advanced + Abilities fonts).</summary>
+    [Fact]
+    public void ClassicUi_WidthTiers_Scale_Popups()
+    {
+        var samples = new List<(int Width, double ToggleW, double ToggleH, float Font)>();
+        foreach (var width in new[] { 520, 660, 900, 1100 })
+        {
+            var scale = UiScale.For(width);
+            samples.Add((width, scale.ToggleWidth, scale.ToggleHeight, scale.BaseFont));
+        }
+
+        Assert.Equal(new[] { 520, 660, 900, 1100 }, samples.Select(s => s.Width).ToArray());
+        Assert.Equal(
+            new[] { (46d, 26d), (52d, 30d), (58d, 34d), (64d, 38d) },
+            samples.Select(s => (s.ToggleW, s.ToggleH)).ToArray());
+        Assert.Equal(new[] { 9f, 10f, 11f, 12f }, samples.Select(s => s.Font).ToArray());
+        // NOTE: the old WinForms popup padding (4/6/6/8) is gone; the WinUI
+        // tier carries CardPadding (12/18/20/24) instead, asserted here so the
+        // metric is not silently lost.
+        Assert.Equal(new[] { 12, 18, 20, 24 }, new[] { 520, 660, 900, 1100 }.Select(w => UiScale.For(w).CardPadding).ToArray());
     }
 }

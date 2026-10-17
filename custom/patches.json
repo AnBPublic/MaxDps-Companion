@@ -1,0 +1,2934 @@
+{
+  "schemaVersion": 1,
+  "generatedUtc": "2026-10-03T12:12:52Z",
+  "fork": "custom-maxdps-fork",
+  "upstreamVersion": "v11.3.49",
+  "interface": 120100,
+  "source": "kaminaris MaxDps",
+  "pristineRoot": "custom/upstream-pristine",
+  "kinds": {
+    "data": "Cooldowns.lua offensive-table spell-ID moves",
+    "guard": "Specialization/*.lua ACSpells loop -> GlowCooldownMidnight bypass",
+    "canary": "setSpell sentinel must survive"
+  },
+  "count": 135,
+  "patches": [
+    {
+      "id": "P-DATA-001",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "MAGE",
+      "spec": "Fire",
+      "spellId": 190319,
+      "spellName": "Combustion",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "\\[\"Combustion\"]\\ =\\ 190319,",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Combustion\"] = 190319, -- P-DATA-001 stale-v11.3.49 id; 12.1 move pending (bridge deny-list primary)"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-DATA-001"
+      }
+    },
+    {
+      "id": "P-DATA-002",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "MAGE",
+      "spec": "Arcane",
+      "spellId": 365350,
+      "spellName": "Arcane Surge",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "\\[\"Arcane\\ Surge\"]\\ =\\ 365350,",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Arcane Surge\"] = 365350, -- P-DATA-002 stale-v11.3.49 id; 12.1 move pending (bridge deny-list primary)"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-DATA-002"
+      }
+    },
+    {
+      "id": "P-DATA-003",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "MAGE",
+      "spec": "Arcane",
+      "spellId": 12051,
+      "spellName": "Evocation",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "\\[\"Evocation\"]\\ =\\ 12051,",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Evocation\"] = 12051, -- P-DATA-003 stale-v11.3.49 id; 12.1 move pending (bridge deny-list primary)"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-DATA-003"
+      }
+    },
+    {
+      "id": "P-DATA-004",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "SHAMAN",
+      "spec": "Enhancement",
+      "spellId": 384352,
+      "spellName": "Doom Winds",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "\\[\"Doom\\ Winds\"]\\ =\\ 384352,",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Doom Winds\"] = 384352, -- P-DATA-004 stale-v11.3.49 id; 12.1 move pending (bridge deny-list primary)"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-DATA-004"
+      }
+    },
+    {
+      "id": "P-DATA-005",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "WARLOCK",
+      "spec": "Demonology",
+      "spellId": 196277,
+      "spellName": "Implosion",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "\\[\"Implosion\"]\\ =\\ 196277,",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Implosion\"] = 196277, -- P-DATA-005 stale-v11.3.49 id; 12.1 move pending (bridge deny-list primary)"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-DATA-005"
+      }
+    },
+    {
+      "id": "P-DATA-006",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "PRIEST",
+      "spec": "Shadow",
+      "spellId": 391109,
+      "spellName": "Dark Ascension",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "\\[\"Dark\\ Ascension\"]\\ =\\ 391109,",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Dark Ascension\"] = 391109, -- P-DATA-006 stale-v11.3.49 id; 12.1 move pending (bridge deny-list primary)"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-DATA-006"
+      }
+    },
+    {
+      "id": "P-DATA-007",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "DEATHKNIGHT",
+      "spec": "Unholy",
+      "spellId": 207289,
+      "spellName": "Unholy Assault",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "\\[\"Unholy\\ Assault\"]\\ =\\ 207289,",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Unholy Assault\"] = 207289, -- P-DATA-007 stale-v11.3.49 id; 12.1 move pending (bridge deny-list primary)"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-DATA-007"
+      }
+    },
+    {
+      "id": "P-DATA-008",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "DEMONHUNTER",
+      "spec": "Havoc",
+      "spellId": 258860,
+      "spellName": "Essence Break",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "\\[\"Essence\\ Break\"]\\ =\\ 258860,",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Essence Break\"] = 258860, -- P-DATA-008 stale-v11.3.49 id; 12.1 move pending (bridge deny-list primary)"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-DATA-008"
+      }
+    },
+    {
+      "id": "P-DATA-009",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "WARRIOR",
+      "spec": "Arms",
+      "spellId": 262161,
+      "spellName": "Warbreaker",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "\\[\"Warbreaker\"]\\ =\\ 262161,",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Warbreaker\"] = 262161, -- P-DATA-009 stale-v11.3.49 id; 12.1 move pending (bridge deny-list primary)"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-DATA-009"
+      }
+    },
+    {
+      "id": "P-DATA-010",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "WARRIOR",
+      "spec": "Arms",
+      "spellId": 167105,
+      "spellName": "Colossus Smash",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Colossus\\ Smash\"]\\ =\\ 167105,",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "--[\"Colossus Smash\"] = 167105, -- P-DATA-010 stale-v11.3.49 id; 12.1 move pending (bridge deny-list primary)"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-DATA-010"
+      }
+    },
+    {
+      "id": "P-DATA-011",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "EVOKER",
+      "spec": "Preservation",
+      "spellId": 357210,
+      "spellName": "Deep Breath",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "\\[\"Deep\\ Breath\"]\\ =\\ 357210,",
+        "scope": "\\[\"Tip the Scales\"\\] = 370553,"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Deep Breath\"] = 357210, -- P-DATA-011 stale-v11.3.49 id; 12.1 move pending (bridge deny-list primary)"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-DATA-011"
+      }
+    },
+    {
+      "id": "P-DATA-012",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "DEATHKNIGHT",
+      "spec": "Unholy",
+      "spellId": 343294,
+      "spellName": "Soul Reaper",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "\\[\"Soul\\ Reaper\"]\\ =\\ 343294,",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Soul Reaper\"] = 343294, -- P-DATA-012 stale-v11.3.49 id; 12.1 move pending (bridge deny-list primary)"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-DATA-012"
+      }
+    },
+    {
+      "id": "P-DATA-013",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "DEATHKNIGHT",
+      "spec": "Blood",
+      "spellId": 194844,
+      "spellName": "Bonestorm",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "\\[\"Bonestorm\"]\\ =\\ 194844,",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Bonestorm\"] = 194844, -- P-DATA-013 stale-v11.3.49 id; 12.1 move pending (bridge deny-list primary)"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-DATA-013"
+      }
+    },
+    {
+      "id": "P-DATA-014",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "DEMONHUNTER",
+      "spec": "Havoc",
+      "spellId": 342817,
+      "spellName": "Glaive Tempest",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "\\[\"Glaive\\ Tempest\"]\\ =\\ 342817,",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Glaive Tempest\"] = 342817, -- P-DATA-014 stale-v11.3.49 id; 12.1 move pending (bridge deny-list primary)"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-DATA-014"
+      }
+    },
+    {
+      "id": "P-DATA-015",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "DEMONHUNTER",
+      "spec": "Havoc",
+      "spellId": 258925,
+      "spellName": "Fel Barrage",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "\\[\"Fel\\ Barrage\"]\\ =\\ 258925,",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Fel Barrage\"] = 258925, -- P-DATA-015 stale-v11.3.49 id; 12.1 move pending (bridge deny-list primary)"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-DATA-015"
+      }
+    },
+    {
+      "id": "P-DATA-016",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "DRUID",
+      "spec": "Guardian",
+      "spellId": 50334,
+      "spellName": "Berserk",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "\\[\"Berserk\"]\\ =\\ 50334,",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Berserk\"] = 50334, -- P-DATA-016 stale-v11.3.49 id; 12.1 move pending (bridge deny-list primary)"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-DATA-016"
+      }
+    },
+    {
+      "id": "P-DATA-017",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "DRUID",
+      "spec": "Guardian",
+      "spellId": 200851,
+      "spellName": "Rage of the Sleeper",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "\\[\"Rage\\ of\\ the\\ Sleeper\"]\\ =\\ 200851,",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Rage of the Sleeper\"] = 200851, -- P-DATA-017 stale-v11.3.49 id; 12.1 move pending (bridge deny-list primary)"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-DATA-017"
+      }
+    },
+    {
+      "id": "P-DATA-018",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "EVOKER",
+      "spec": "Preservation",
+      "spellId": 382266,
+      "spellName": "Fire Breath",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "\\[\"Fire\\ Breath\"]\\ =\\ 382266,",
+        "scope": "\\[\"Tip the Scales\"\\] = 370553,\\s*\\r?\\n\\s*\\[\"Deep Breath\"\\] = 357210,"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Fire Breath\"] = 382266, -- P-DATA-018 stale-v11.3.49 id; 12.1 move pending (bridge deny-list primary)"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-DATA-018"
+      }
+    },
+    {
+      "id": "P-DATA-019",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "EVOKER",
+      "spec": "Preservation",
+      "spellId": 382411,
+      "spellName": "Eternity Surge",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "\\[\"Eternity\\ Surge\"]\\ =\\ 382411,",
+        "scope": "\\[\"Tip the Scales\"\\] = 370553,\\s*\\r?\\n\\s*\\[\"Deep Breath\"\\] = 357210,\\s*\\r?\\n\\s*\\[\"Fire Breath\"\\] = 382266,"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Eternity Surge\"] = 382411, -- P-DATA-019 stale-v11.3.49 id; 12.1 move pending (bridge deny-list primary)"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-DATA-019"
+      }
+    },
+    {
+      "id": "P-DATA-020",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "PALADIN",
+      "spec": "Holy",
+      "spellId": 114165,
+      "spellName": "Holy Prism",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "\\[\"Holy\\ Prism\"]\\ =\\ 114165,",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Holy Prism\"] = 114165, -- P-DATA-020 stale-v11.3.49 id; 12.1 move pending (bridge deny-list primary)"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-DATA-020"
+      }
+    },
+    {
+      "id": "P-DATA-021",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "PRIEST",
+      "spec": "Shadow",
+      "spellId": 200174,
+      "spellName": "Mindbender",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "\\[\"Mindbender\"]\\ =\\ 200174,",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Mindbender\"] = 200174, -- P-DATA-021 stale-v11.3.49 id; 12.1 move pending (bridge deny-list primary)"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-DATA-021"
+      }
+    },
+    {
+      "id": "P-DATA-022",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "WARRIOR",
+      "spec": "Protection",
+      "spellId": 385952,
+      "spellName": "Shield Charge",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "\\[\"Shield\\ Charge\"]\\ =\\ 385952,",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Shield Charge\"] = 385952, -- P-DATA-022 stale-v11.3.49 id; 12.1 move pending (bridge deny-list primary)"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-DATA-022"
+      }
+    },
+    {
+      "id": "P-DATA-023",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "WARRIOR",
+      "spec": "Arms",
+      "spellId": 228920,
+      "spellName": "Ravager",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Sweeping Strikes\"]\\ =\\ 260708,",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "--[\"Sweeping Strikes\"] = 260708,\n                [\"Ravager\"] = 228920, -- P-DATA-023 added-to-offensive (glow->offensive slot; bridge deny-list keeps it off Main)"
+      },
+      "fixedWhen": {
+        "regex": "\\[\"Ravager\"]\\s*=\\s*228920"
+      }
+    },
+    {
+      "id": "P-DATA-024",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "PALADIN",
+      "spec": "Retribution",
+      "spellId": 375576,
+      "spellName": "Divine Toll",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Divine Toll\"]\\ =\\ 375576,",
+        "scope": "Retribution\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Divine Toll\"] = 375576, -- P-DATA-024 added-to-offensive (60s core; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*--\\[\"Wake of Ashes\"\\] = 255937,\\r?\\n^\\s*\\[\"Divine Toll\"\\] = 375576,"
+      }
+    },
+    {
+      "id": "P-DATA-025",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "DEATHKNIGHT",
+      "spec": "Frost",
+      "spellId": 51271,
+      "spellName": "Pillar of Frost",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Pillar of Frost\"\\]\\ =\\ 51271,",
+        "scope": "Frost\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Pillar of Frost\"] = 51271, -- P-DATA-025 added-to-offensive (60s; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Pillar of Frost\"\\] = 51271,"
+      }
+    },
+    {
+      "id": "P-DATA-026",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "DEATHKNIGHT",
+      "spec": "Unholy",
+      "spellId": 63560,
+      "spellName": "Dark Transformation",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Dark Transformation\"\\]\\ =\\ 63560,",
+        "scope": "Unholy\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Dark Transformation\"] = 63560, -- P-DATA-026 added-to-offensive (45s; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Dark Transformation\"\\] = 63560,"
+      }
+    },
+    {
+      "id": "P-DATA-027",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "DEMONHUNTER",
+      "spec": "Havoc",
+      "spellId": 198013,
+      "spellName": "Eye Beam",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Eye Beam\"\\]\\ =\\ 198013,",
+        "scope": "Havoc\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Eye Beam\"] = 198013, -- P-DATA-027 added-to-offensive (40s; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Eye Beam\"\\] = 198013,"
+      }
+    },
+    {
+      "id": "P-DATA-028",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "DEMONHUNTER",
+      "spec": "Vengeance",
+      "spellId": 207407,
+      "spellName": "Soul Carver",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Soul Carver\"\\]\\ =\\ 207407,",
+        "scope": "Vengeance\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Soul Carver\"] = 207407, -- P-DATA-028 added-to-offensive (60s; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Soul Carver\"\\] = 207407,"
+      }
+    },
+    {
+      "id": "P-DATA-029",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "DEMONHUNTER",
+      "spec": "Vengeance",
+      "spellId": 204596,
+      "spellName": "Sigil of Flame",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Sigil of Flame\"\\]\\ =\\ 204596,",
+        "scope": "Vengeance\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Sigil of Flame\"] = 204596, -- P-DATA-029 added-to-offensive (30s; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Sigil of Flame\"\\] = 204596,"
+      }
+    },
+    {
+      "id": "P-DATA-030",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "DRUID",
+      "spec": "Balance",
+      "spellId": 202770,
+      "spellName": "Fury of Elune",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Fury of Elune\"\\]\\ =\\ 202770,",
+        "scope": "Balance\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Fury of Elune\"] = 202770, -- P-DATA-030 added-to-offensive (60s; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Fury of Elune\"\\] = 202770,"
+      }
+    },
+    {
+      "id": "P-DATA-031",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "DRUID",
+      "spec": "Balance",
+      "spellId": 202425,
+      "spellName": "Warrior of Elune",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Warrior of Elune\"\\]\\ =\\ 202425,",
+        "scope": "Balance\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Warrior of Elune\"] = 202425, -- P-DATA-031 added-to-offensive (45s; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Warrior of Elune\"\\] = 202425,"
+      }
+    },
+    {
+      "id": "P-DATA-032",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "DRUID",
+      "spec": "Feral",
+      "spellId": 274837,
+      "spellName": "Feral Frenzy",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Feral Frenzy\"\\]\\ =\\ 274837,",
+        "scope": "Feral\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Feral Frenzy\"] = 274837, -- P-DATA-032 added-to-offensive (45s; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Feral Frenzy\"\\] = 274837,"
+      }
+    },
+    {
+      "id": "P-DATA-033",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "EVOKER",
+      "spec": "Devastation",
+      "spellId": 370452,
+      "spellName": "Shattering Star",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Shattering Star\"\\]\\ =\\ 370452,",
+        "scope": "Devastation\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Shattering Star\"] = 370452, -- P-DATA-033 added-to-offensive (20s; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Shattering Star\"\\] = 370452,"
+      }
+    },
+    {
+      "id": "P-DATA-034",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "EVOKER",
+      "spec": "Augmentation",
+      "spellId": 395152,
+      "spellName": "Ebon Might",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Ebon Might\"\\]\\ =\\ 395152,",
+        "scope": "Augmentation\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Ebon Might\"] = 395152, -- P-DATA-034 added-to-offensive (30s; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Ebon Might\"\\] = 395152,"
+      }
+    },
+    {
+      "id": "P-DATA-035",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "EVOKER",
+      "spec": "Augmentation",
+      "spellId": 396286,
+      "spellName": "Upheaval",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Upheaval\"\\]\\ =\\ 396286,",
+        "scope": "Augmentation\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Upheaval\"] = 396286, -- P-DATA-035 added-to-offensive (40s; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Upheaval\"\\] = 396286,"
+      }
+    },
+    {
+      "id": "P-DATA-036",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "HUNTER",
+      "spec": "Marksmanship",
+      "spellId": 257044,
+      "spellName": "Rapid Fire",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Rapid Fire\"\\]\\ =\\ 257044,",
+        "scope": "Marksmanship\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Rapid Fire\"] = 257044, -- P-DATA-036 added-to-offensive (20s; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Rapid Fire\"\\] = 257044,"
+      }
+    },
+    {
+      "id": "P-DATA-037",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "HUNTER",
+      "spec": "Marksmanship",
+      "spellId": 260243,
+      "spellName": "Volley",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Volley\"\\]\\ =\\ 260243,",
+        "scope": "Marksmanship\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Volley\"] = 260243, -- P-DATA-037 added-to-offensive (45s; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Volley\"\\] = 260243,"
+      }
+    },
+    {
+      "id": "P-DATA-038",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "HUNTER",
+      "spec": "Marksmanship",
+      "spellId": 392060,
+      "spellName": "Wailing Arrow",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Wailing Arrow\"\\]\\ =\\ 392060,",
+        "scope": "Marksmanship\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Wailing Arrow\"] = 392060, -- P-DATA-038 added-to-offensive (60s; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Wailing Arrow\"\\] = 392060,"
+      }
+    },
+    {
+      "id": "P-DATA-041",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "MAGE",
+      "spec": "Arcane",
+      "spellId": 321507,
+      "spellName": "Touch of the Magi",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Touch of the Magi\"\\]\\ =\\ 321507,",
+        "scope": "Arcane\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Touch of the Magi\"] = 321507, -- P-DATA-041 added-to-offensive (45s core; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Touch of the Magi\"\\] = 321507,"
+      }
+    },
+    {
+      "id": "P-DATA-042",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "MAGE",
+      "spec": "Frost",
+      "spellId": 84714,
+      "spellName": "Frozen Orb",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Frozen Orb\"\\]\\ =\\ 84714,",
+        "scope": "Frost\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Frozen Orb\"] = 84714, -- P-DATA-042 added-to-offensive (60s core; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Frozen Orb\"\\] = 84714,"
+      }
+    },
+    {
+      "id": "P-DATA-043",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "MAGE",
+      "spec": "Frost",
+      "spellId": 205021,
+      "spellName": "Ray of Frost",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Ray of Frost\"\\]\\ =\\ 205021,",
+        "scope": "Frost\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Ray of Frost\"] = 205021, -- P-DATA-043 added-to-offensive (60s core; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Ray of Frost\"\\] = 205021,"
+      }
+    },
+    {
+      "id": "P-DATA-044",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "MAGE",
+      "spec": "Frost",
+      "spellId": 153595,
+      "spellName": "Comet Storm",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Comet Storm\"\\]\\ =\\ 153595,",
+        "scope": "Frost\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Comet Storm\"] = 153595, -- P-DATA-044 added-to-offensive (30s core; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Comet Storm\"\\] = 153595,"
+      }
+    },
+    {
+      "id": "P-DATA-045",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "MONK",
+      "spec": "Brewmaster",
+      "spellId": 325153,
+      "spellName": "Exploding Keg",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Exploding Keg\"\\]\\ =\\ 325153,",
+        "scope": "Brewmaster\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Exploding Keg\"] = 325153, -- P-DATA-045 added-to-offensive (60s core; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Exploding Keg\"\\] = 325153,"
+      }
+    },
+    {
+      "id": "P-DATA-046",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "MONK",
+      "spec": "Windwalker",
+      "spellId": 392983,
+      "spellName": "Strike of the Windlord",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Strike of the Windlord\"\\]\\ =\\ 392983,",
+        "scope": "Windwalker\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Strike of the Windlord\"] = 392983, -- P-DATA-046 added-to-offensive (30s core; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Strike of the Windlord\"\\] = 392983,"
+      }
+    },
+    {
+      "id": "P-DATA-047",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "PALADIN",
+      "spec": "Retribution",
+      "spellId": 343527,
+      "spellName": "Execution Sentence",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Execution Sentence\"\\]\\ =\\ 343527,",
+        "scope": "Retribution\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Execution Sentence\"] = 343527, -- P-DATA-047 added-to-offensive (60s core; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Execution Sentence\"\\] = 343527,"
+      }
+    },
+    {
+      "id": "P-DATA-048",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "PALADIN",
+      "spec": "Retribution",
+      "spellId": 343721,
+      "spellName": "Final Reckoning",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Final Reckoning\"\\]\\ =\\ 343721,",
+        "scope": "Retribution\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Final Reckoning\"] = 343721, -- P-DATA-048 added-to-offensive (60s core; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Final Reckoning\"\\] = 343721,"
+      }
+    },
+    {
+      "id": "P-DATA-049",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "PALADIN",
+      "spec": "Retribution",
+      "spellId": 255937,
+      "spellName": "Wake of Ashes",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Wake of Ashes\"\\]\\ =\\ 255937,",
+        "scope": "Retribution\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Wake of Ashes\"] = 255937, -- P-DATA-049 added-to-offensive (30s core; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Wake of Ashes\"\\] = 255937,"
+      }
+    },
+    {
+      "id": "P-DATA-050",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "PRIEST",
+      "spec": "Shadow",
+      "spellId": 263165,
+      "spellName": "Void Torrent",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Void Torrent\"\\]\\ =\\ 263165,",
+        "scope": "Shadow\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Void Torrent\"] = 263165, -- P-DATA-050 added-to-offensive (30s core; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Void Torrent\"\\] = 263165,"
+      }
+    },
+    {
+      "id": "P-DATA-051",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "ROGUE",
+      "spec": "Assassination",
+      "spellId": 385627,
+      "spellName": "Kingsbane",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Kingsbane\"\\]\\ =\\ 385627,",
+        "scope": "Assassination\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Kingsbane\"] = 385627, -- P-DATA-051 added-to-offensive (60s core; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Kingsbane\"\\] = 385627,"
+      }
+    },
+    {
+      "id": "P-DATA-052",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "ROGUE",
+      "spec": "Assassination",
+      "spellId": 382245,
+      "spellName": "Cold Blooded Killer",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Cold Blood\"\\]\\ =\\ 382245,",
+        "scope": "Assassination\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Cold Blood\"] = 382245, -- P-DATA-052 added-to-offensive (45s core; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Cold Blood\"\\] = 382245,"
+      }
+    },
+    {
+      "id": "P-DATA-053",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "ROGUE",
+      "spec": "Outlaw",
+      "spellId": 13877,
+      "spellName": "Blade Flurry",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Blade Flurry\"\\]\\ =\\ 13877,",
+        "scope": "Outlaw\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Blade Flurry\"] = 13877, -- P-DATA-053 added-to-offensive (30s core; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Blade Flurry\"\\] = 13877,"
+      }
+    },
+    {
+      "id": "P-DATA-054",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "ROGUE",
+      "spec": "Outlaw",
+      "spellId": 315341,
+      "spellName": "Between the Eyes",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Between the Eyes\"\\]\\ =\\ 315341,",
+        "scope": "Outlaw\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Between the Eyes\"] = 315341, -- P-DATA-054 added-to-offensive (30s core; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Between the Eyes\"\\] = 315341,"
+      }
+    },
+    {
+      "id": "P-DATA-055",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "ROGUE",
+      "spec": "Subtlety",
+      "spellId": 185313,
+      "spellName": "Shadow Dance",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Shadow Dance\"\\]\\ =\\ 185313,",
+        "scope": "Subtlety\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Shadow Dance\"] = 185313, -- P-DATA-055 added-to-offensive (60s core; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Shadow Dance\"\\] = 185313,"
+      }
+    },
+    {
+      "id": "P-DATA-056",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "ROGUE",
+      "spec": "Subtlety",
+      "spellId": 212283,
+      "spellName": "Symbols of Death",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Symbols of Death\"\\]\\ =\\ 212283,",
+        "scope": "Subtlety\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Symbols of Death\"] = 212283, -- P-DATA-056 added-to-offensive (30s core; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Symbols of Death\"\\] = 212283,"
+      }
+    },
+    {
+      "id": "P-DATA-057",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "ROGUE",
+      "spec": "Subtlety",
+      "spellId": 280719,
+      "spellName": "Secret Technique",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Secret Technique\"\\]\\ =\\ 280719,",
+        "scope": "Subtlety\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Secret Technique\"] = 280719, -- P-DATA-057 added-to-offensive (60s core; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Secret Technique\"\\] = 280719,"
+      }
+    },
+    {
+      "id": "P-DATA-060",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "SHAMAN",
+      "spec": "Elemental",
+      "spellId": 191634,
+      "spellName": "Stormkeeper",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Stormkeeper\"\\]\\ =\\ 191634,",
+        "scope": "Elemental\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Stormkeeper\"] = 191634, -- P-DATA-060 added-to-offensive (60s core; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Stormkeeper\"\\] = 191634,"
+      }
+    },
+    {
+      "id": "P-DATA-061",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "SHAMAN",
+      "spec": "Elemental",
+      "spellId": 375982,
+      "spellName": "Primordial Wave",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "-{0,2}\\[\"Primordial Wave\"\\]\\ =\\ 375982,",
+        "scope": "Elemental\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Primordial Wave\"] = 375982, -- P-DATA-061 added-to-offensive (45s core; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Primordial Wave\"\\] = 375982, -- P-DATA-061"
+      }
+    },
+    {
+      "id": "P-DATA-062",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "SHAMAN",
+      "spec": "Enhancement",
+      "spellId": 375982,
+      "spellName": "Primordial Wave",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "-{0,2}\\[\"Primordial Wave\"\\]\\ =\\ 375982,",
+        "scope": "Enhancement\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Primordial Wave\"] = 375982, -- P-DATA-062 added-to-offensive (45s core; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Primordial Wave\"\\] = 375982, -- P-DATA-062"
+      }
+    },
+    {
+      "id": "P-DATA-063",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "SHAMAN",
+      "spec": "Enhancement",
+      "spellId": 197214,
+      "spellName": "Sundering",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Sundering\"\\]\\ =\\ 197214,",
+        "scope": "Enhancement\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Sundering\"] = 197214, -- P-DATA-063 added-to-offensive (40s core; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Sundering\"\\] = 197214,"
+      }
+    },
+    {
+      "id": "P-DATA-064",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "WARLOCK",
+      "spec": "Affliction",
+      "spellId": 386997,
+      "spellName": "Soul Rot",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Soul Rot\"\\]\\ =\\ 386997,",
+        "scope": "Affliction\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Soul Rot\"] = 386997, -- P-DATA-064 added-to-offensive (60s core; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Soul Rot\"\\] = 386997,"
+      }
+    },
+    {
+      "id": "P-DATA-065",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "WARLOCK",
+      "spec": "Affliction",
+      "spellId": 278350,
+      "spellName": "Vile Taint",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Vile Taint\"\\]\\ =\\ 278350,",
+        "scope": "Affliction\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Vile Taint\"] = 278350, -- P-DATA-065 added-to-offensive (30s core; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Vile Taint\"\\] = 278350,"
+      }
+    },
+    {
+      "id": "P-DATA-066",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "WARLOCK",
+      "spec": "Affliction",
+      "spellId": 205179,
+      "spellName": "Phantom Singularity",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Phantom Singularity\"\\]\\ =\\ 205179,",
+        "scope": "Affliction\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Phantom Singularity\"] = 205179, -- P-DATA-066 added-to-offensive (45s core; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Phantom Singularity\"\\] = 205179,"
+      }
+    },
+    {
+      "id": "P-DATA-067",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "WARLOCK",
+      "spec": "Demonology",
+      "spellId": 264130,
+      "spellName": "Power Siphon",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Power Siphon\"\\]\\ =\\ 264130,",
+        "scope": "Demonology\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Power Siphon\"] = 264130, -- P-DATA-067 added-to-offensive (30s core; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Power Siphon\"\\] = 264130,"
+      }
+    },
+    {
+      "id": "P-DATA-068",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "WARLOCK",
+      "spec": "Demonology",
+      "spellId": 267171,
+      "spellName": "Demonic Strength",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Demonic Strength\"\\]\\ =\\ 267171,",
+        "scope": "Demonology\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Demonic Strength\"] = 267171, -- P-DATA-068 added-to-offensive (60s core; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Demonic Strength\"\\] = 267171,"
+      }
+    },
+    {
+      "id": "P-DATA-069",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "WARLOCK",
+      "spec": "Destruction",
+      "spellId": 152108,
+      "spellName": "Cataclysm",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Cataclysm\"\\]\\ =\\ 152108,",
+        "scope": "Destruction\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Cataclysm\"] = 152108, -- P-DATA-069 added-to-offensive (30s core; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Cataclysm\"\\] = 152108,"
+      }
+    },
+    {
+      "id": "P-DATA-070",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "WARLOCK",
+      "spec": "Destruction",
+      "spellId": 6353,
+      "spellName": "Soul Fire",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Soul Fire\"\\]\\ =\\ 6353,",
+        "scope": "Destruction\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Soul Fire\"] = 6353, -- P-DATA-070 added-to-offensive (45s core; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Soul Fire\"\\] = 6353,"
+      }
+    },
+    {
+      "id": "P-DATA-071",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "WARLOCK",
+      "spec": "Destruction",
+      "spellId": 196447,
+      "spellName": "Channel Demonfire",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Channel Demonfire\"\\]\\ =\\ 196447,",
+        "scope": "Destruction\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Channel Demonfire\"] = 196447, -- P-DATA-071 added-to-offensive (25s core; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Channel Demonfire\"\\] = 196447,"
+      }
+    },
+    {
+      "id": "P-DATA-072",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "WARRIOR",
+      "spec": "Arms",
+      "spellId": 260708,
+      "spellName": "Sweeping Strikes",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Sweeping Strikes\"\\]\\ =\\ 260708,",
+        "scope": "Arms\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Sweeping Strikes\"] = 260708, -- P-DATA-072 added-to-offensive (60s core; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Sweeping Strikes\"\\] = 260708,"
+      }
+    },
+    {
+      "id": "P-DATA-073",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "DEATHKNIGHT",
+      "spec": "Frost",
+      "spellId": 279302,
+      "spellName": "Frostwyrm's Fury",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Frostwyrm's Fury\"\\]\\ =\\ 279302,",
+        "scope": "Frost\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Frostwyrm's Fury\"] = 279302, -- P-DATA-073 added-to-offensive (120s major; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Frostwyrm's Fury\"\\] = 279302,"
+      }
+    },
+    {
+      "id": "P-DATA-074",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "DEATHKNIGHT",
+      "spec": "Unholy",
+      "spellId": 42650,
+      "spellName": "Army of the Dead",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Army of the Dead\"\\]\\ =\\ 42650,",
+        "scope": "Unholy\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Army of the Dead\"] = 42650, -- P-DATA-074 added-to-offensive (3min Summon; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Army of the Dead\"\\] = 42650,"
+      }
+    },
+    {
+      "id": "P-DATA-075",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "HUNTER",
+      "spec": "Beast Mastery",
+      "spellId": 19574,
+      "spellName": "Bestial Wrath",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Bestial Wrath\"\\]\\ =\\ 19574,",
+        "scope": "\\[\"Beast Mastery\"\\]\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Bestial Wrath\"] = 19574, -- P-DATA-075 added-to-offensive (120s major; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Bestial Wrath\"\\] = 19574,"
+      }
+    },
+    {
+      "id": "P-DATA-076",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "HUNTER",
+      "spec": "Survival",
+      "spellId": 360966,
+      "spellName": "Spearhead",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Spearhead\"\\]\\ =\\ 360966,",
+        "scope": "Survival\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Spearhead\"] = 360966, -- P-DATA-076 added-to-offensive (90s major; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Spearhead\"\\] = 360966,"
+      }
+    },
+    {
+      "id": "P-DATA-077",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "MONK",
+      "spec": "Windwalker",
+      "spellId": 137639,
+      "spellName": "Storm, Earth, and Fire",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Storm, Earth, and Fire\"\\]\\ =\\ 137639,",
+        "scope": "Windwalker\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Storm, Earth, and Fire\"] = 137639, -- P-DATA-077 added-to-offensive (90s major; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Storm, Earth, and Fire\"\\] = 137639,"
+      }
+    },
+    {
+      "id": "P-DATA-078",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "ROGUE",
+      "spec": "Outlaw",
+      "spellId": 51690,
+      "spellName": "Killing Spree",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Killing Spree\"\\]\\ =\\ 51690,",
+        "scope": "Outlaw\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Killing Spree\"] = 51690, -- P-DATA-078 added-to-offensive (90s major; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Killing Spree\"\\] = 51690,"
+      }
+    },
+    {
+      "id": "P-DATA-079",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "SHAMAN",
+      "spec": "Elemental",
+      "spellId": 198067,
+      "spellName": "Fire Elemental",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Fire Elemental\"\\]\\ =\\ 198067,",
+        "scope": "Elemental\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Fire Elemental\"] = 198067, -- P-DATA-079 added-to-offensive (150s major; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Fire Elemental\"\\] = 198067,"
+      }
+    },
+    {
+      "id": "P-DATA-080",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "SHAMAN",
+      "spec": "Elemental",
+      "spellId": 192249,
+      "spellName": "Storm Elemental",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Storm Elemental\"\\]\\ =\\ 192249,",
+        "scope": "Elemental\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Storm Elemental\"] = 192249, -- P-DATA-080 added-to-offensive (150s major; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Storm Elemental\"\\] = 192249,"
+      }
+    },
+    {
+      "id": "P-DATA-081",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "SHAMAN",
+      "spec": "Enhancement",
+      "spellId": 51533,
+      "spellName": "Feral Spirit",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Feral Spirit\"\\]\\ =\\ 51533,",
+        "scope": "Enhancement\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Feral Spirit\"] = 51533, -- P-DATA-081 added-to-offensive (90s major; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Feral Spirit\"\\] = 51533,"
+      }
+    },
+    {
+      "id": "P-DATA-082",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "WARLOCK",
+      "spec": "Demonology",
+      "spellId": 111898,
+      "spellName": "Grimoire: Felguard",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Grimoire: Felguard\"\\]\\ =\\ 111898,",
+        "scope": "Demonology\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Grimoire: Felguard\"] = 111898, -- P-DATA-082 added-to-offensive (120s major; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Grimoire: Felguard\"\\] = 111898,"
+      }
+    },
+    {
+      "id": "P-DATA-083",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "WARRIOR",
+      "spec": "Arms",
+      "spellId": 227847,
+      "spellName": "Bladestorm",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "--\\[\"Bladestorm\"\\]\\ =\\ 227847,",
+        "scope": "Arms\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Bladestorm\"] = 227847, -- P-DATA-083 added-to-offensive (90s major; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Bladestorm\"\\] = 227847,"
+      }
+    },
+    {
+      "id": "P-DATA-084",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "DRUID",
+      "spec": "Balance",
+      "spellId": 391528,
+      "spellName": "Convoke the Spirits",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "-{0,2}\\[\"Convoke the Spirits\"\\]\\ =\\ 391528,",
+        "scope": "Balance\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Convoke the Spirits\"] = 391528, -- P-DATA-084 added-to-offensive (120s major; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Convoke the Spirits\"\\] = 391528, -- P-DATA-084"
+      }
+    },
+    {
+      "id": "P-DATA-085",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "DRUID",
+      "spec": "Feral",
+      "spellId": 391528,
+      "spellName": "Convoke the Spirits",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "-{0,2}\\[\"Convoke the Spirits\"\\]\\ =\\ 391528,",
+        "scope": "Feral\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Convoke the Spirits\"] = 391528, -- P-DATA-085 added-to-offensive (120s major; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Convoke the Spirits\"\\] = 391528, -- P-DATA-085"
+      }
+    },
+    {
+      "id": "P-DATA-086",
+      "kind": "data",
+      "addon": "MaxDps",
+      "file": "Cooldowns.lua",
+      "class": "DRUID",
+      "spec": "Guardian",
+      "spellId": 391528,
+      "spellName": "Convoke the Spirits",
+      "newSpellId": null,
+      "anchor": {
+        "regex": "-{0,2}\\[\"Convoke the Spirits\"\\]\\ =\\ 391528,",
+        "scope": "Guardian\\ =\\ \\{\\r?\\n\\s*offensive\\ =\\ \\{"
+      },
+      "apply": {
+        "op": "replace",
+        "text": "[\"Convoke the Spirits\"] = 391528, -- P-DATA-086 added-to-offensive (120s major; glow->offensive slot)"
+      },
+      "fixedWhen": {
+        "regex": "(?m)^\\s*\\[\"Convoke the Spirits\"\\] = 391528, -- P-DATA-086"
+      }
+    },
+    {
+      "id": "P-GUARD-001",
+      "kind": "guard",
+      "addon": "MaxDps_DeathKnight",
+      "file": "Specialization/Blood.lua",
+      "class": "DEATHKNIGHT",
+      "spec": "Blood",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-001 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-001"
+      }
+    },
+    {
+      "id": "P-GUARD-002",
+      "kind": "guard",
+      "addon": "MaxDps_DeathKnight",
+      "file": "Specialization/Frost.lua",
+      "class": "DEATHKNIGHT",
+      "spec": "Frost",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-002 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-002"
+      }
+    },
+    {
+      "id": "P-GUARD-003",
+      "kind": "guard",
+      "addon": "MaxDps_DeathKnight",
+      "file": "Specialization/Unholy.lua",
+      "class": "DEATHKNIGHT",
+      "spec": "Unholy",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-003 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-003"
+      }
+    },
+    {
+      "id": "P-GUARD-004",
+      "kind": "guard",
+      "addon": "MaxDps_DemonHunter",
+      "file": "Specialization/Devourer.lua",
+      "class": "DEMONHUNTER",
+      "spec": "Devourer",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-004 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-004"
+      }
+    },
+    {
+      "id": "P-GUARD-005",
+      "kind": "guard",
+      "addon": "MaxDps_DemonHunter",
+      "file": "Specialization/Havoc.lua",
+      "class": "DEMONHUNTER",
+      "spec": "Havoc",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-005 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-005"
+      }
+    },
+    {
+      "id": "P-GUARD-006",
+      "kind": "guard",
+      "addon": "MaxDps_DemonHunter",
+      "file": "Specialization/Vengeance.lua",
+      "class": "DEMONHUNTER",
+      "spec": "Vengeance",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-006 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-006"
+      }
+    },
+    {
+      "id": "P-GUARD-007",
+      "kind": "guard",
+      "addon": "MaxDps_Druid",
+      "file": "Specialization/Balance.lua",
+      "class": "DRUID",
+      "spec": "Balance",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-007 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-007"
+      }
+    },
+    {
+      "id": "P-GUARD-008",
+      "kind": "guard",
+      "addon": "MaxDps_Druid",
+      "file": "Specialization/Feral.lua",
+      "class": "DRUID",
+      "spec": "Feral",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-008 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-008"
+      }
+    },
+    {
+      "id": "P-GUARD-009",
+      "kind": "guard",
+      "addon": "MaxDps_Druid",
+      "file": "Specialization/Guardian.lua",
+      "class": "DRUID",
+      "spec": "Guardian",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-009 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-009"
+      }
+    },
+    {
+      "id": "P-GUARD-010",
+      "kind": "guard",
+      "addon": "MaxDps_Druid",
+      "file": "Specialization/Restoration.lua",
+      "class": "DRUID",
+      "spec": "Restoration",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-010 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-010"
+      }
+    },
+    {
+      "id": "P-GUARD-011",
+      "kind": "guard",
+      "addon": "MaxDps_Evoker",
+      "file": "Specialization/Augmentation.lua",
+      "class": "EVOKER",
+      "spec": "Augmentation",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-011 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-011"
+      }
+    },
+    {
+      "id": "P-GUARD-012",
+      "kind": "guard",
+      "addon": "MaxDps_Evoker",
+      "file": "Specialization/Devastation.lua",
+      "class": "EVOKER",
+      "spec": "Devastation",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-012 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-012"
+      }
+    },
+    {
+      "id": "P-GUARD-013",
+      "kind": "guard",
+      "addon": "MaxDps_Evoker",
+      "file": "Specialization/Preservation.lua",
+      "class": "EVOKER",
+      "spec": "Preservation",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-013 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-013"
+      }
+    },
+    {
+      "id": "P-GUARD-014",
+      "kind": "guard",
+      "addon": "MaxDps_Hunter",
+      "file": "Specialization/Beastmastery.lua",
+      "class": "HUNTER",
+      "spec": "Beastmastery",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-014 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-014"
+      }
+    },
+    {
+      "id": "P-GUARD-015",
+      "kind": "guard",
+      "addon": "MaxDps_Hunter",
+      "file": "Specialization/Marksmanship.lua",
+      "class": "HUNTER",
+      "spec": "Marksmanship",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-015 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-015"
+      }
+    },
+    {
+      "id": "P-GUARD-016",
+      "kind": "guard",
+      "addon": "MaxDps_Hunter",
+      "file": "Specialization/Survival.lua",
+      "class": "HUNTER",
+      "spec": "Survival",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-016 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-016"
+      }
+    },
+    {
+      "id": "P-GUARD-017",
+      "kind": "guard",
+      "addon": "MaxDps_Mage",
+      "file": "Specialization/Arcane.lua",
+      "class": "MAGE",
+      "spec": "Arcane",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-017 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-017"
+      }
+    },
+    {
+      "id": "P-GUARD-018",
+      "kind": "guard",
+      "addon": "MaxDps_Mage",
+      "file": "Specialization/Fire.lua",
+      "class": "MAGE",
+      "spec": "Fire",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-018 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-018"
+      }
+    },
+    {
+      "id": "P-GUARD-019",
+      "kind": "guard",
+      "addon": "MaxDps_Mage",
+      "file": "Specialization/Frost.lua",
+      "class": "MAGE",
+      "spec": "Frost",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-019 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-019"
+      }
+    },
+    {
+      "id": "P-GUARD-020",
+      "kind": "guard",
+      "addon": "MaxDps_Monk",
+      "file": "Specialization/Brewmaster.lua",
+      "class": "MONK",
+      "spec": "Brewmaster",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-020 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-020"
+      }
+    },
+    {
+      "id": "P-GUARD-021",
+      "kind": "guard",
+      "addon": "MaxDps_Monk",
+      "file": "Specialization/Mistweaver.lua",
+      "class": "MONK",
+      "spec": "Mistweaver",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-021 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-021"
+      }
+    },
+    {
+      "id": "P-GUARD-022",
+      "kind": "guard",
+      "addon": "MaxDps_Monk",
+      "file": "Specialization/Windwalker.lua",
+      "class": "MONK",
+      "spec": "Windwalker",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-022 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-022"
+      }
+    },
+    {
+      "id": "P-GUARD-023",
+      "kind": "guard",
+      "addon": "MaxDps_Paladin",
+      "file": "Specialization/Holy.lua",
+      "class": "PALADIN",
+      "spec": "Holy",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-023 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-023"
+      }
+    },
+    {
+      "id": "P-GUARD-024",
+      "kind": "guard",
+      "addon": "MaxDps_Paladin",
+      "file": "Specialization/Protection.lua",
+      "class": "PALADIN",
+      "spec": "Protection",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-024 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-024"
+      }
+    },
+    {
+      "id": "P-GUARD-025",
+      "kind": "guard",
+      "addon": "MaxDps_Paladin",
+      "file": "Specialization/Retribution.lua",
+      "class": "PALADIN",
+      "spec": "Retribution",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-025 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-025"
+      }
+    },
+    {
+      "id": "P-GUARD-026",
+      "kind": "guard",
+      "addon": "MaxDps_Priest",
+      "file": "Specialization/Discipline.lua",
+      "class": "PRIEST",
+      "spec": "Discipline",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-026 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-026"
+      }
+    },
+    {
+      "id": "P-GUARD-027",
+      "kind": "guard",
+      "addon": "MaxDps_Priest",
+      "file": "Specialization/Holy.lua",
+      "class": "PRIEST",
+      "spec": "Holy",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-027 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-027"
+      }
+    },
+    {
+      "id": "P-GUARD-028",
+      "kind": "guard",
+      "addon": "MaxDps_Priest",
+      "file": "Specialization/Shadow.lua",
+      "class": "PRIEST",
+      "spec": "Shadow",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-028 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-028"
+      }
+    },
+    {
+      "id": "P-GUARD-029",
+      "kind": "guard",
+      "addon": "MaxDps_Rogue",
+      "file": "Specialization/Assassination.lua",
+      "class": "ROGUE",
+      "spec": "Assassination",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-029 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-029"
+      }
+    },
+    {
+      "id": "P-GUARD-030",
+      "kind": "guard",
+      "addon": "MaxDps_Rogue",
+      "file": "Specialization/Outlaw.lua",
+      "class": "ROGUE",
+      "spec": "Outlaw",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-030 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-030"
+      }
+    },
+    {
+      "id": "P-GUARD-031",
+      "kind": "guard",
+      "addon": "MaxDps_Rogue",
+      "file": "Specialization/Subtlety.lua",
+      "class": "ROGUE",
+      "spec": "Subtlety",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-031 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-031"
+      }
+    },
+    {
+      "id": "P-GUARD-032",
+      "kind": "guard",
+      "addon": "MaxDps_Shaman",
+      "file": "Specialization/Elemental.lua",
+      "class": "SHAMAN",
+      "spec": "Elemental",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-032 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-032"
+      }
+    },
+    {
+      "id": "P-GUARD-033",
+      "kind": "guard",
+      "addon": "MaxDps_Shaman",
+      "file": "Specialization/Enhancement.lua",
+      "class": "SHAMAN",
+      "spec": "Enhancement",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-033 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-033"
+      }
+    },
+    {
+      "id": "P-GUARD-034",
+      "kind": "guard",
+      "addon": "MaxDps_Shaman",
+      "file": "Specialization/Restoration.lua",
+      "class": "SHAMAN",
+      "spec": "Restoration",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-034 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-034"
+      }
+    },
+    {
+      "id": "P-GUARD-035",
+      "kind": "guard",
+      "addon": "MaxDps_Warlock",
+      "file": "Specialization/Affliction.lua",
+      "class": "WARLOCK",
+      "spec": "Affliction",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-035 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-035"
+      }
+    },
+    {
+      "id": "P-GUARD-036",
+      "kind": "guard",
+      "addon": "MaxDps_Warlock",
+      "file": "Specialization/Demonology.lua",
+      "class": "WARLOCK",
+      "spec": "Demonology",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-036 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-036"
+      }
+    },
+    {
+      "id": "P-GUARD-037",
+      "kind": "guard",
+      "addon": "MaxDps_Warlock",
+      "file": "Specialization/Destruction.lua",
+      "class": "WARLOCK",
+      "spec": "Destruction",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-037 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-037"
+      }
+    },
+    {
+      "id": "P-GUARD-038",
+      "kind": "guard",
+      "addon": "MaxDps_Warrior",
+      "file": "Specialization/Arms.lua",
+      "class": "WARRIOR",
+      "spec": "Arms",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-038 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-038"
+      }
+    },
+    {
+      "id": "P-GUARD-039",
+      "kind": "guard",
+      "addon": "MaxDps_Warrior",
+      "file": "Specialization/Fury.lua",
+      "class": "WARRIOR",
+      "spec": "Fury",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-039 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-039"
+      }
+    },
+    {
+      "id": "P-GUARD-040",
+      "kind": "guard",
+      "addon": "MaxDps_Warrior",
+      "file": "Specialization/Protection.lua",
+      "class": "WARRIOR",
+      "spec": "Protection",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "if not MaxDps\\.FrameData\\.ACSpells or not MaxDps\\.FrameData\\.ACSpells\\[spellID\\] then",
+        "scope": null
+      },
+      "apply": {
+        "op": "replace",
+        "text": "if true then -- P-GUARD-040 bypass AC suppression; bridge deny-list is primary"
+      },
+      "fixedWhen": {
+        "regex": "--\\ P-GUARD-040"
+      }
+    },
+    {
+      "id": "P-CANARY-001",
+      "kind": "canary",
+      "addon": "MaxDps_DeathKnight",
+      "file": "Specialization/TWW/Unholy.lua",
+      "class": "DEATHKNIGHT",
+      "spec": "Unholy",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "local setSpell",
+        "scope": null
+      },
+      "apply": {
+        "op": "assert",
+        "text": "local setSpell"
+      },
+      "fixedWhen": {
+        "regex": "local setSpell"
+      }
+    },
+    {
+      "id": "P-CANARY-002",
+      "kind": "canary",
+      "addon": "MaxDps_DemonHunter",
+      "file": "Specialization/TWW/Vengeance.lua",
+      "class": "DEMONHUNTER",
+      "spec": "Vengeance",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "local setSpell",
+        "scope": null
+      },
+      "apply": {
+        "op": "assert",
+        "text": "local setSpell"
+      },
+      "fixedWhen": {
+        "regex": "local setSpell"
+      }
+    },
+    {
+      "id": "P-CANARY-003",
+      "kind": "canary",
+      "addon": "MaxDps_Druid",
+      "file": "Specialization/TWW/Guardian.lua",
+      "class": "DRUID",
+      "spec": "Guardian",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "local setSpell",
+        "scope": null
+      },
+      "apply": {
+        "op": "assert",
+        "text": "local setSpell"
+      },
+      "fixedWhen": {
+        "regex": "local setSpell"
+      }
+    },
+    {
+      "id": "P-CANARY-004",
+      "kind": "canary",
+      "addon": "MaxDps_Evoker",
+      "file": "Specialization/TWW/Devastation.lua",
+      "class": "EVOKER",
+      "spec": "Devastation",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "local setSpell",
+        "scope": null
+      },
+      "apply": {
+        "op": "assert",
+        "text": "local setSpell"
+      },
+      "fixedWhen": {
+        "regex": "local setSpell"
+      }
+    },
+    {
+      "id": "P-CANARY-005",
+      "kind": "canary",
+      "addon": "MaxDps_Hunter",
+      "file": "Specialization/TWW/Beastmastery.lua",
+      "class": "HUNTER",
+      "spec": "Beastmastery",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "local setSpell",
+        "scope": null
+      },
+      "apply": {
+        "op": "assert",
+        "text": "local setSpell"
+      },
+      "fixedWhen": {
+        "regex": "local setSpell"
+      }
+    },
+    {
+      "id": "P-CANARY-006",
+      "kind": "canary",
+      "addon": "MaxDps_Mage",
+      "file": "Specialization/TWW/Fire.lua",
+      "class": "MAGE",
+      "spec": "Fire",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "local setSpell",
+        "scope": null
+      },
+      "apply": {
+        "op": "assert",
+        "text": "local setSpell"
+      },
+      "fixedWhen": {
+        "regex": "local setSpell"
+      }
+    },
+    {
+      "id": "P-CANARY-007",
+      "kind": "canary",
+      "addon": "MaxDps_Monk",
+      "file": "Specialization/TWW/Windwalker.lua",
+      "class": "MONK",
+      "spec": "Windwalker",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "local setSpell",
+        "scope": null
+      },
+      "apply": {
+        "op": "assert",
+        "text": "local setSpell"
+      },
+      "fixedWhen": {
+        "regex": "local setSpell"
+      }
+    },
+    {
+      "id": "P-CANARY-008",
+      "kind": "canary",
+      "addon": "MaxDps_Paladin",
+      "file": "Specialization/TWW/Retribution.lua",
+      "class": "PALADIN",
+      "spec": "Retribution",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "local setSpell",
+        "scope": null
+      },
+      "apply": {
+        "op": "assert",
+        "text": "local setSpell"
+      },
+      "fixedWhen": {
+        "regex": "local setSpell"
+      }
+    },
+    {
+      "id": "P-CANARY-009",
+      "kind": "canary",
+      "addon": "MaxDps_Priest",
+      "file": "Specialization/TWW/Shadow.lua",
+      "class": "PRIEST",
+      "spec": "Shadow",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "local setSpell",
+        "scope": null
+      },
+      "apply": {
+        "op": "assert",
+        "text": "local setSpell"
+      },
+      "fixedWhen": {
+        "regex": "local setSpell"
+      }
+    },
+    {
+      "id": "P-CANARY-010",
+      "kind": "canary",
+      "addon": "MaxDps_Rogue",
+      "file": "Specialization/TWW/Subtlety.lua",
+      "class": "ROGUE",
+      "spec": "Subtlety",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "local setSpell",
+        "scope": null
+      },
+      "apply": {
+        "op": "assert",
+        "text": "local setSpell"
+      },
+      "fixedWhen": {
+        "regex": "local setSpell"
+      }
+    },
+    {
+      "id": "P-CANARY-011",
+      "kind": "canary",
+      "addon": "MaxDps_Shaman",
+      "file": "Specialization/TWW/Enhancement.lua",
+      "class": "SHAMAN",
+      "spec": "Enhancement",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "local setSpell",
+        "scope": null
+      },
+      "apply": {
+        "op": "assert",
+        "text": "local setSpell"
+      },
+      "fixedWhen": {
+        "regex": "local setSpell"
+      }
+    },
+    {
+      "id": "P-CANARY-012",
+      "kind": "canary",
+      "addon": "MaxDps_Warlock",
+      "file": "Specialization/TWW/Demonology.lua",
+      "class": "WARLOCK",
+      "spec": "Demonology",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "local setSpell",
+        "scope": null
+      },
+      "apply": {
+        "op": "assert",
+        "text": "local setSpell"
+      },
+      "fixedWhen": {
+        "regex": "local setSpell"
+      }
+    },
+    {
+      "id": "P-CANARY-013",
+      "kind": "canary",
+      "addon": "MaxDps_Warrior",
+      "file": "Specialization/TWW/Arms.lua",
+      "class": "WARRIOR",
+      "spec": "Arms",
+      "spellId": null,
+      "spellName": null,
+      "anchor": {
+        "regex": "local setSpell",
+        "scope": null
+      },
+      "apply": {
+        "op": "assert",
+        "text": "local setSpell"
+      },
+      "fixedWhen": {
+        "regex": "local setSpell"
+      }
+    }
+  ]
+}

@@ -1,0 +1,206 @@
+{
+  "schema": 1,
+  "class": "SHAMAN",
+  "abilities": [
+    {
+      "spellId": 108271,
+      "role": "Major",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 4,
+      "notes": "Astral Shift: major damage reduction; Red."
+    },
+    {
+      "spellId": 198103,
+      "role": "Major",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 4,
+      "notes": "Earth Elemental: major defensive summon (taunt/extra HP); Red."
+    },
+    {
+      "spellId": 98008,
+      "role": "Major",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 4,
+      "notes": "Spirit Link Totem: major group damage redistribution; Red (Restoration)."
+    },
+    {
+      "spellId": 5394,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Healing Stream Totem: solo self-sustain passive heal at/below 65% HP."
+    },
+    {
+      "spellId": 8004,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Healing Surge: solo self-sustain ladder at/below 65% HP."
+    },
+    {
+      "spellId": 77472,
+      "role": "Minor",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Auto",
+      "minUrgency": 2,
+      "notes": "Healing Wave: solo self-sustain ladder at/below 65% HP (Restoration)."
+    },
+    {
+      "spellId": 108280,
+      "role": "Utility",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Never",
+      "minUrgency": 4,
+      "notes": "Healing Tide Totem: raid heal totem; never automatic (group heal, ally state not observable)."
+    },
+    {
+      "spellId": 58875,
+      "role": "Mobility",
+      "route": "Mobility",
+      "emergencyEscape": true,
+      "offGcd": true,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Spirit Walk: root/snare break + speed burst; offered, not auto-fired (Enhancement)."
+    },
+    {
+      "spellId": 192063,
+      "role": "Mobility",
+      "route": "Mobility",
+      "emergencyEscape": true,
+      "offGcd": true,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Gust of Wind: backward leap; manual movement utility."
+    },
+    {
+      "spellId": 192077,
+      "role": "Mobility",
+      "route": "Mobility",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Wind Rush Totem: group speed totem; manual movement utility."
+    },
+    {
+      "spellId": 2645,
+      "role": "Mobility",
+      "route": "Mobility",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Ghost Wolf: instant wolf form speed; manual movement utility."
+    },
+    {
+      "spellId": 51490,
+      "role": "Mobility",
+      "route": "Mobility",
+      "emergencyEscape": true,
+      "offGcd": true,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Thunderstorm: knockback/speed; manual escape utility (Elemental/Enhancement)."
+    },
+    {
+      "spellId": 57994,
+      "role": "Utility",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Auto",
+      "minUrgency": 0,
+      "notes": "Wind Shear: ranged interrupt; only on a live enemy cast."
+    },
+    {
+      "spellId": 51514,
+      "role": "CC",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Hex: incapacitate; manual in groups (breaks on damage)."
+    },
+    {
+      "spellId": 192058,
+      "role": "CC",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Capacitor Totem: delayed AoE stun totem; manual (setup/positioning not observable)."
+    },
+    {
+      "spellId": 51485,
+      "role": "CC",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Earthgrab Totem: root totem; manual in groups."
+    },
+    {
+      "spellId": 2484,
+      "role": "CC",
+      "route": "Interrupt",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Suggest",
+      "minUrgency": 0,
+      "notes": "Earthbind Totem: AoE slow totem; manual movement utility."
+    },
+    {
+      "spellId": 8143,
+      "role": "Utility",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Never",
+      "minUrgency": 0,
+      "notes": "Tremor Totem: fear/charm/sleep pulse protection; never automatic (dispel family)."
+    },
+    {
+      "spellId": 370,
+      "role": "Utility",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": false,
+      "mode": "Never",
+      "minUrgency": 0,
+      "notes": "Purge: enemy magic dispel; never automatic (purge family)."
+    },
+    {
+      "spellId": 8177,
+      "role": "Utility",
+      "route": "Defensive",
+      "emergencyEscape": false,
+      "offGcd": true,
+      "mode": "Never",
+      "minUrgency": 0,
+      "notes": "Grounding Totem: needs verification (id absent from spell-verification.json; curated Mobility/Grounding Totem row)."
+    }
+  ]
+}

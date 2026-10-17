@@ -185,18 +185,20 @@ public class TelemetryReplayTests : IDisposable
     [Fact]
     public void Stale_Demotion_Is_Reported_And_Recomputed()
     {
+        // T4 (main-immediate): Main is exempt from stale demotion, so the
+        // stale-rejection diagnostic is pinned on a non-Main candidate.
         var ctx = Context(10_000, candidates:
         [
-            Candidate(Slot.Main, StrokeE, lastChangedMs: 0, everPressed: true),
+            Candidate(Slot.Defensive, StrokeT, lastChangedMs: 0, everPressed: true),
             Candidate(Slot.Offensive, StrokeTwo, firstSeenMs: 9000, lastChangedMs: 9000),
         ]);
         var decision = DecisionEngine.Evaluate(ctx);
-        Assert.Equal(Slot.Offensive, decision.Selected); // sanity: stale main demoted
+        Assert.Equal(Slot.Offensive, decision.Selected); // sanity: stale defensive demoted
 
         var result = ReplayRunner.Run([TickEvent(ctx, decision)]);
 
         Assert.Equal(0, result.Mismatches);
-        Assert.Contains("Main (lower rank #2, stale)", result.Report);
+        Assert.Contains("Defensive (lower rank #2, stale)", result.Report);
         Assert.Contains("stale   : a pressed candidate was demoted", result.Report);
     }
 
@@ -315,6 +317,7 @@ public class TelemetryReplayTests : IDisposable
         var plan = scheduler.Advance(new ScheduleInput
         {
             Frame = frame,
+            OutOfCombatPermitted = true,
             Candidates = candidates,
             NowMs = nowMs,
             MinKeyIntervalMs = 120,
