@@ -1253,7 +1253,7 @@ internal sealed class RotationEngine : IDisposable
             return $"your {ActionNameOf(head.SpellId, head.Stroke)} queued ({head.Stroke.Describe()})";
         return _hotbarMap.Status switch
         {
-            HotbarMapStatus.OldAddon => "user queue: addon too old for hotbar keys (install-addon-exp + /reload)",
+            HotbarMapStatus.OldAddon => "user queue: addon too old for hotbar keys (install-addon.ps1 + /reload)",
             HotbarMapStatus.Stale => "user queue: waiting for the hotbar map",
             _ => null,
         };

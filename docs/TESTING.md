@@ -121,8 +121,8 @@ throw on compare/arithmetic), loads Catalog + Keymap + Reader + Bridge, fires
 Static (parses/builds) ≠ automated test ≠ live validation. The following are
 **required** in a real client and cannot be automated offline:
 
-1. `/mdb calibrate on` → Recalibrate → v5 pattern learned (35 cells).
-2. `/mdb status` shows `protocol=5`, class/spec/extras sensible.
+1. `/mcb calibrate on` → Recalibrate → v5 pattern learned (35 cells).
+2. `/mcb status` shows `protocol=5`, class/spec/extras sensible.
 3. In combat: main rotation fires at the normal cadence; interrupts land;
    a defensive emergency preempts a live main.
 4. Housekeeping checks: stop the addon (`/reload`) → link holds after
@@ -134,7 +134,7 @@ Static (parses/builds) ≠ automated test ≠ live validation. The following are
 6. Execution safety (v2.1): while hard-casting, no GCD-riding key is sent
    (kicks/items still land); a channel is never clipped, not even by main.
 7. Interruptibility (v2.1): against a NOT_INTERRUPTIBLE cast MaxDps must not
-   produce a kick (watch `/mdb status` + the plan reason); an interruptible
+   produce a kick (watch `/mcb status` + the plan reason); an interruptible
    cast still kicks normally.
 8. Recovery (v2.1): a suggestion that keeps failing (e.g. an immune target)
    must decay its retry rate (1.5 s → 10 s) and never block the main
@@ -189,7 +189,7 @@ the canonical replay (`tests/MaxDpsCompanion.Tests/fixtures/defensive-warrior-ur
 Midnight 12.1 client (Intelligence ON; the Defensive slot enabled; a
 defensive actually bound to a key):
 
-1. Reinstall the addon (`install-addon.ps1`) and `/reload`; `/mdb status`
+1. Reinstall the addon (`install-addon.ps1`) and `/reload`; `/mcb status`
    must show `protocol=5`. **An updated addon must still decode with an older
    companion exe** (the wire version nibble stays 5 and the additive urgency
    nibbles are ignored by the old decoder — the Sep-2026 "no abilities
@@ -239,7 +239,7 @@ sha256=b71a999d5e46570e; replays defensive 16 verdicts/0 mismatches, solo
 LIVE WOW VERIFIED (owed - observe in a real client, Intelligence ON):
 
 1. Reinstall the addon (`install-addon.ps1`) + `/reload` (Catalog.lua
-   revision 3); `/mdb status` shows `protocol=5`.
+   revision 3); `/mcb status` shows `protocol=5`.
 2. Open Class skills in-game: rows show the status label (Verified /
    Research-backed / MaxDps-backed / Companion rule / Safety rule /
    Heuristic / Manual by design / Unsafe / Incomplete / Unknown) + tier +
@@ -278,9 +278,9 @@ ttk-warrior-burst 18);
 `tools/ability_audit.ps1` exit 0 (Violations 0 / Warnings 0 / Missing 0 /
 Stale 0; addon Catalog.lua matches).
 
-1. Reinstall the addon (`install-addon.ps1`) + `/reload`; `/mdb status` shows
+1. Reinstall the addon (`install-addon.ps1`) + `/reload`; `/mcb status` shows
    bridge 2.7.0, `protocol=5`, sensible class/spec/extras.
-2. Calibrate (`/mdb calibrate on` -> Recalibrate) and confirm the strip
+2. Calibrate (`/mcb calibrate on` -> Recalibrate) and confirm the strip
    decodes (Home shows connected + bridge state).
 3. Home answers the three questions at a glance: connected? what is it doing
    (current/last action + why)? what will it do automatically (mode,
@@ -356,7 +356,7 @@ collateral):
    fast-pack latch is set; group Major/Immunity must **never** be gated, and
    emergency HP always overrides. (Rationale: enemy count is unobservable; the
    tank may be dying to other mobs.)
-3. **Toggle semantics.** Confirm the hero/`/mdb` label reads **"TTK guard"** and
+3. **Toggle semantics.** Confirm the hero/`/mcb` label reads **"TTK guard"** and
    the tooltip says *OFF = cooldowns fire without dying-target protection*. The
    former band-15 collateral (blanking the execute gate/Burst consumers and the
    `[TimeToKill] Fallback=ConserveMajors` unknown-TTK hold) is **superseded in

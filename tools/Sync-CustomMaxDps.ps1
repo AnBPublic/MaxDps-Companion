@@ -29,7 +29,7 @@
 
 .PARAMETER PublishTo
     WoW Interface\AddOns folder to publish the patched tree into. Default
-    mirrors install-addon.ps1's convention.
+    mirrors tools/install-addon.ps1's convention.
 
 .PARAMETER WhatIf
     Compute and report statuses without copying, writing the report, or

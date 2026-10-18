@@ -408,22 +408,25 @@ slot is a second, independently ranged self-sustain candidate. The self-buff
 block is tri-state since bridge 2.7. Solo mode itself is unchanged from v2.8:
 `[Solo] Enabled=1` runs the survival layer (sustain at ≤65%, emergency at
 ≤35%, self-heals as an independent candidate source) — see the Solo section
-below. The addon is installed by `install-addon.ps1`; after updating always
-`/reload` (or `/mdb status` to confirm `protocol=5 ext2=1`).
+below. The addon is installed by `tools/install-addon.ps1`; after updating
+always `/reload` (or `/mcb status` to confirm `protocol=5 ext2=1`).
 
-## In-game commands (`/mdb`)
+## In-game commands (`/mcb`)
+
+Legacy aliases `/mdb` and `/mdbx` work everywhere below (and `/mcb toggles`,
+`/mcb settings`, `/mcb hotbar` are additional in-game-config commands).
 
 | Command | Effect |
 | :--- | :--- |
-| `/mdb status` | Offset, cell size, state, bound slots, class/spec + extras; `ext2=1 hpcurve=<on\|off> sh2=<id\|->`. |
-| `/mdb on` / `/mdb off` / `/mdb toggle` | Enable / pause the bridge. |
-| `/mdb offset <x> <y>` | Move the strip in physical pixels from top-left. |
-| `/mdb cellsize <px>` | Resize cells (1–64; 8 default/recommended). |
-| `/mdb calibrate on\|off` | Show/hide the 54-step calibration pattern. |
-| `/mdb heal` | Per curated self-heal entry: known / ready / usable / key / why (slot-8 + SelfHeal2 selection). |
-| `/mdb hpcurve on\|off` | Ext2 HP-curve cell on/off (SavedVariables, default on). |
-| `/mdb diag` | Scrubbed MaxDps internals snapshot. |
-| `/mdb reset` | Back to defaults (clears calibrate mode). |
+| `/mcb status` | Offset, cell size, state, bound slots, class/spec + extras; `ext2=1 hpcurve=<on\|off> sh2=<id\|->`. |
+| `/mcb on` / `/mcb off` / `/mcb toggle` | Enable / pause the bridge. |
+| `/mcb offset <x> <y>` | Move the strip in physical pixels from top-left. |
+| `/mcb cellsize <px>` | Resize cells (1-64; 8 default/recommended). |
+| `/mcb calibrate on\|off` | Show/hide the 54-step calibration pattern. |
+| `/mcb heal` | Per curated self-heal entry: known / ready / usable / key / why (slot-8 + SelfHeal2 selection). |
+| `/mcb hpcurve on\|off` | Ext2 HP-curve cell on/off (SavedVariables, default on). |
+| `/mcb diag` | Scrubbed MaxDps internals snapshot. |
+| `/mcb reset` | Back to defaults (clears calibrate mode). |
 
 ## Combat intelligence (v2.0/v2.1, `[Intelligence] Enabled=1`)
 
