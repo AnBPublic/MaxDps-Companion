@@ -39,11 +39,25 @@ DONE (code side)
 - Tests: 1072 passed / 0 failed; Lua harness 409/409; `luac -p` clean on addon root + InGame;
   `ability_audit.ps1` exit 0; `--ui-smoke-test` title `MaxDPS Companion v4.3.0 Namesake`.
 
-NEXT (post-merge rollout; primary checkout)
-- `dist\` -> `dist-legacy\`; `dist-exp\` -> `dist\` (settings.ini travels); publish; install addon;
-  migrate `WTF\...\SavedVariables\MaxDpsBridgeExp*.lua` to the new variable names and
-  `bindings-cache.wtf` `MDBX_TOGGLE_*` -> `MDCB_TOGGLE_*` (both with `.bak`); retarget the
-  Windows launch shortcuts to the new exe dir.
+ROLLED OUT (2026-10-18, primary checkout `A:\AI\GitHub\WoW-Companions\MaxDps-Companion`)
+- `dist\` -> `dist-legacy\` (frozen 3.7.9 output, 6 entries); `dist-exp\` -> `dist\` (user
+  `settings.ini` travelled, SHA256 unchanged); tracked `dist/.gitkeep` recreated;
+  `tools/publish.ps1` -> VERSION.txt `4.3.0 Namesake`, exe FileVersion 4.3.0.0.
+- Addon installed to `...\_retail_\Interface\AddOns\MaxDpsCompanionBridge` (20/20 files,
+  TOC 4.3.0, Title "MaxDps Companion Bridge"); retired `MaxDpsBridgeExp` folder moved to
+  `AddOns-Disabled\` (joins the archived `MaxDpsBridge`).
+- WTF migration (all backups `*.4.3.0.bak`): account + Mokvar/Phio/Dion SavedVariables
+  renamed `MaxDpsBridgeExp.lua` -> `MaxDpsCompanionBridge.lua` with `MaxDpsBridgeExpDB` ->
+  `MaxDpsCompanionBridgeDB` / `MaxDpsBridgeExpCharDB` -> `MaxDpsCompanionBridgeCharDB`
+  (1 occurrence each, count-verified); `bindings-cache.wtf` 8x `MDBX_TOGGLE_*` ->
+  `MDCB_TOGGLE_*`.
+- Taskbar shortcut `MaxDPS Companion.lnk` retargeted to `dist\MaxDpsCompanion.exe` (Start
+  Menu shortcut already pointed at `dist\`).
+- Verified on the published artifact: `dist\MaxDpsCompanion.exe --ui-smoke-test` -> PASS,
+  title `MaxDPS Companion v4.3.0 Namesake`, in-game-config shell True (snapshot
+  `dist\ui-smoke.png`). Note: `tools/ui_smoke.ps1` without `-ExePath` smokes the dev
+  `bin\Release` tree, which can be stale - use `-ExePath dist\MaxDpsCompanion.exe` for the
+  shipped artifact.
 
 OWED (live retail) - addon loads as "MaxDps Companion Bridge", `/mcb` (+ aliases) responds,
 toggle keybinds work, overlay icons + settings page intact; plus the 4.2.0 CC checks
