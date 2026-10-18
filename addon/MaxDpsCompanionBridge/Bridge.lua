@@ -76,11 +76,11 @@
 
 local addonName, MDCB = ...;
 
-MDCB.VERSION = "4.2.0-exp";
+MDCB.VERSION = "4.3.0";
 -- Release codename, shown next to the version in /mcb cfg (Status card) and
 -- the Debug tab. Single-sourced here; the TOC carries the same value in
 -- ## X-Codename so the AddOns list matches.
-MDCB.CODENAME = "Nightblade";
+MDCB.CODENAME = "Namesake";
 
 -- Chat print, defined FIRST: AutoCalibrate (below) and the Update watchdog
 -- both call it, and Lua resolves locals lexically -- a later `local

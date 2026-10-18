@@ -1,3 +1,18 @@
+4.3.0
+date: 2026-10-18 "Namesake"
+git: v4.3.0 (release branch)
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED - v5 core 35 + Ext2 40 + Ext3 43 + Ext4 51 (51-cell strip).
+v4.3.0: Companion 4.3.0 "Namesake". Naming release, NO wire change. The former
+          experimental pair becomes the de-facto norm: the addon is now
+          "MaxDps Companion Bridge" (folder MaxDpsCompanionBridge, saved
+          variables MaxDpsCompanionBridgeDB / MaxDpsCompanionBridgeCharDB,
+          slash /mcb with /mdb and /mdbx aliases, keybinds MDCB_TOGGLE_*), the
+          Lua namespace is MDCB and Exp/ is now InGame/. The legacy
+          MaxDpsBridge addon is archived under addon/legacy/. Migrations for
+          existing installs (saved variables + binding cache) ship with the
+          release tooling.
+
 4.2.0-exp
 date: 2026-10-18 "Nightblade"
 git: v4.2.0-exp (local build, not yet published)

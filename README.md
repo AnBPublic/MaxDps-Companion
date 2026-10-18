@@ -1,11 +1,13 @@
 > [!IMPORTANT]
-> **Current client: 4.2.0 "Nightblade"** - the WinUI 3 Windows client
+> **Current client: 4.3.0 "Namesake"** - the WinUI 3 Windows client
 > (`app/MaxDpsCompanion/`), the shared brain (`app/MaxDpsCompanion.Core/`) and the
-> macOS client (`app/MaxDpsCompanion.Mac/`), targeting `MaxDpsBridgeExp` +
-> `dist-exp`. **C# is the long-term base.** Frozen: the 3.7.9 WinForms
-> distribution (`dist/`, `build.ps1`), the stable bridge (`addon/MaxDpsBridge/`)
-> and the Rust port (`companion-rs/`, reference only, no Ext4). See
-> [`LEGACY.md`](LEGACY.md); release plans: [4.2.0 Nightblade](docs/plans/2026-10-18-rogue-cc-intelligence.md),
+> macOS client (`app/MaxDpsCompanion.Mac/`), targeting `MaxDpsCompanionBridge` +
+> `dist`. **C# is the long-term base.** Frozen: the 3.7.9 WinForms
+> distribution (`dist-legacy/`, `build.ps1`), the legacy bridge
+> (`addon/legacy/MaxDpsBridge/`) and the Rust port (`companion-rs/`, reference
+> only, no Ext4). See
+> [`LEGACY.md`](LEGACY.md); release plans: [4.3.0 Namesake](docs/plans/2026-10-18-companion-bridge-rename.md),
+> [4.2.0 Nightblade](docs/plans/2026-10-18-rogue-cc-intelligence.md),
 > [4.1.0 Paragon](docs/plans/2026-10-17-paragon-audit-remediation.md).
 
 > [!TIP]
