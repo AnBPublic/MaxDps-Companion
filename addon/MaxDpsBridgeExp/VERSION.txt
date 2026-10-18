@@ -1,3 +1,15 @@
+4.1.0-exp
+date: 2026-10-18 "Paragon"
+git: v4.1.0-exp (local build, not yet published)
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED - v5 core 35 + Ext2 40 + Ext3 43 + Ext4 51 (51-cell strip).
+v4.1.0-exp: Companion 4.1.0 "Paragon". Audit-remediation release, 51 cells
+          byte-identical. Hot path: binding cache no longer wiped per cooldown
+          event, FrameKey keyed on decision edges + combat/group/stagger
+          inputs, per-tick memo, fewer closures/allocations, HotbarWatch
+          debounce, vehicle/override/bonus-bar events, DB schema v1, strip
+          layout clamp, one shared slot->command table (slots 13-24, 73-144).
+
 4.0.4-exp
 date: 2026-10-17 "Aegis"
 git: v4.0.4-exp (published 2026-10-17)

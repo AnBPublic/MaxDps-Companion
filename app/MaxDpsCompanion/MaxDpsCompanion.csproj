@@ -27,8 +27,8 @@
     <AssemblyTitle>MaxDPS Companion</AssemblyTitle>
     <Product>MaxDPS Companion</Product>
     <RootNamespace>MaxDpsCompanion</RootNamespace>
-    <Version>4.0.4</Version>
-    <Codename>Aegis</Codename>
+    <Version>4.1.0</Version>
+    <Codename>Paragon</Codename>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Wave B (4.1 Paragon): the shared brain now lives in MaxDpsCompanion.Core
          and this app consumes it through the ProjectReference below. Everything

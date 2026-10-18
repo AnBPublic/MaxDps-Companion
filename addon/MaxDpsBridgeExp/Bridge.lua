@@ -76,7 +76,7 @@
 
 local addonName, MDBX = ...;
 
-MDBX.VERSION = "4.0.4-exp";
+MDBX.VERSION = "4.1.0-exp";
 
 -- Chat print, defined FIRST: AutoCalibrate (below) and the Update watchdog
 -- both call it, and Lua resolves locals lexically -- a later `local

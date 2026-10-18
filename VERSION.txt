@@ -1,3 +1,25 @@
+4.1.0
+Date: 2026-10-18 - "Paragon"
+Companion 4.1.0 "Paragon" / bridge 4.1.0-exp. Audit-remediation release, NO wire
+change: protocol v5 + Ext2/Ext3/Ext4, 51 cells, every cell byte-identical.
+- Addon hot path: the binding cache is no longer wiped per cooldown event
+  (revision bump + coalesced full wipe); FrameKey is keyed on the decision
+  edges plus the missing combat/grouped/stagger inputs; per-tick memo; fewer
+  closures/allocations; HotbarWatch debounce; vehicle/override/bonus-bar
+  events; SavedVariables schema version 1; strip layout clamp on scale change;
+  one shared slot->command table fixing slots 13-24 and 73-144.
+- Windows engine: single frame decode; immutable toggle-mirror and
+  colour-profile snapshots; checked key delivery with guaranteed key-up;
+  NoteExternalSend after a queued user press; a focus-blocked slot no longer
+  starves lower ranks; process-scan throttle; duty-cycle stretch cap;
+  minimized/occluded capture diagnostics; new opt-in [Window]
+  ModifierInput=Post|Auto|SendInput (default Post = unchanged behaviour).
+- Shared brain: Windows consumes MaxDpsCompanion.Core; the Mac gains the Ext4
+  decode, the Main master gate and the typing veto.
+- Mac host: permission gate, fail-closed keyboard, wider key map, tick purity,
+  settings save, native lifetime fixes.
+- CI workflow.
+
 4.0.4
 Date: 2026-10-17 - "Aegis"
 Companion 4.0.4 "Aegis" / bridge 4.0.4-exp. Behavior change, NO wire change:
