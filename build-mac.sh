@@ -88,7 +88,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp -R "$ROOT/dist-mac/MaxDpsCompanion.Mac/." "$APP/Contents/MacOS/"
 cp "$NATIVE_OUT" "$APP/Contents/MacOS/libmdc_capture.dylib"
 cp "$ROOT/app/MaxDpsCompanion.Mac/assets/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
-cp "$ROOT/dist-exp/settings.ini" "$APP/Contents/MacOS/settings.ini"
+cp "$ROOT/dist/settings.ini" "$APP/Contents/MacOS/settings.ini"
 
 # Info.plist: version/codename expanded from app/Version.props (unquoted
 # delimiter = shell expansion; the plist body contains no $ or backticks).

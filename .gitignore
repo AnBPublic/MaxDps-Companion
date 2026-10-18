@@ -5,12 +5,12 @@ backups/
 *.pdb
 dist/*
 !dist/.gitkeep
-# dist-exp/ is the experimental (in-game-config) publish output, ignored
-# exactly like dist/ (tools/install-addon-exp.ps1 never touches dist/).
-dist-exp/*
-!dist-exp/.gitkeep
+# dist-legacy/ is the archived frozen 3.7.9 WinForms output (was dist\ before
+# 4.3.0); never committed, same ignore rule as dist/.
+dist-legacy/*
+!dist-legacy/.gitkeep
 # dist-mac/ is the macOS publish output (build-mac.sh), ignored exactly like
-# dist/ and dist-exp/ (never commit a built .app; the native dylib is built
+# dist/ (never commit a built .app; the native dylib is built
 # from source, and per-machine settings live in
 # ~/Library/Application Support/MaxDpsCompanion/).
 dist-mac/*
