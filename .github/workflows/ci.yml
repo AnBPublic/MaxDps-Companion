@@ -47,9 +47,15 @@ jobs:
       - name: Build Windows app (Release)
         run: dotnet build app/MaxDpsCompanion/MaxDpsCompanion.csproj -c Release
 
+      # The test project loads the Windows app assembly, which carries the
+      # Windows App SDK bootstrap module initializer. The runner has no Windows
+      # App Runtime 1.8, so that initializer blocks testhost before the first
+      # test (first CI run hung 9 min at this step). The tests never create
+      # XAML/STA windows, so the suite is built with the initializer off; the
+      # step above still builds the real (bootstrapped) app.
       - name: Test C# suite (Release)
         working-directory: tests/MaxDpsCompanion.Tests
-        run: dotnet test -c Release
+        run: dotnet test -c Release -p:WindowsAppSdkBootstrapInitialize=false
 
       # leafo/gh-actions-lua builds Lua 5.4 + luac from source with MSVC on
       # Windows, so the MSVC developer shell must be active first.
