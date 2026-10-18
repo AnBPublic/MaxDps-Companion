@@ -4,9 +4,9 @@ The MaxDPS Companion for macOS: same decision brain as the Windows app
 (`app/MaxDpsCompanion.Core`, a portable port of the C# rotation/decision
 sources) with native macOS capture and input.
 
-Target: **retail Midnight 12.1** + the **`MaxDpsBridgeExp`** addon
-(`addon/MaxDpsBridgeExp`, `/mdbx`). The frozen legacy `MaxDpsBridge` is not the
-target of the Mac client.
+Target: **retail Midnight 12.1** + the **MaxDps Companion Bridge** addon
+(`addon/MaxDpsCompanionBridge`, `/mcb`; legacy aliases `/mdb`, `/mdbx`). The
+frozen legacy `addon/legacy/MaxDpsBridge` is not the target of the Mac client.
 
 ```
 app/MaxDpsCompanion.Core/   portable brain (PixelProtocol, Decision,
@@ -176,14 +176,14 @@ display that needs it is visible rather than silent.
 | `--bench-capture[=seconds]` | hard numbers while playing: locate time, steady-state region size, per-sample µs (mean/p50/p95/p99/max), managed allocations, our CPU share, delivered fps |
 
 Settings live in `~/Library/Application Support/MaxDpsCompanion/settings.ini`
-(seeded from the bundle; the `dist-exp` defaults are used: `InGameConfigMode=1`).
+(seeded from the bundle; the `dist` defaults are used: `InGameConfigMode=1`).
 
 ## Troubleshooting
 
 | Symptom | Check |
 | :--- | :--- |
 | `capture-backend=... NOT granted` | grant Screen Recording, then Start again |
-| `locate=null` | is the Exp bridge loaded (`/mdbx status`)? is `MaxDpsBridge` (stable) disabled? — the Exp bridge is inert while the stable one is loaded |
+| `locate=null` | is the companion bridge loaded (`/mcb status`)? is the legacy `MaxDpsBridge` disabled? — the companion bridge is inert while the legacy one is loaded |
 | decode works but nothing fires | Accessibility grant; `IsForeground` for mouse slots; watch the status line's "why" |
 | stutter / fps loss | run `--bench-capture`: steady-state region should be ~30-40 KB/frame; our CPU should stay near 1 % of one core |
 | a frame decodes only sometimes | check the repair count in `--probe`; a high count means the display's ICC profile is distorting the strip |

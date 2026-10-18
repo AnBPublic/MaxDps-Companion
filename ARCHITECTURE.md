@@ -363,12 +363,12 @@ vendor/ (read-only) ──► custom/upstream-pristine/ ──► custom/patches
                                               custom/out/  ──► AddOns
                                               (generated, reversible)
 
-addon/MaxDpsBridgeExp/MajorCooldowns.lua  MDBX.FlagOffensiveExtra
+addon/MaxDpsCompanionBridge/MajorCooldowns.lua  MDCB.FlagOffensiveExtra
         └─► Reader.CategoryOf: classify a non-vendor id as "offensive" so the
             FirstFlagged("offensive") scan still routes it → Offensive slot
 ```
 
-`MajorCooldowns.lua` now holds **only** `MDBX.FlagOffensiveExtra` (Offensive
+`MajorCooldowns.lua` now holds **only** `MDCB.FlagOffensiveExtra` (Offensive
 routing). The former `MDBX.MajorCDDeny` deny table and the `GetMainSpellID`
 deny scan were **removed in 3.7.8**: MAIN trusts the MaxDps core rotation (core
 MaxDps + every `MaxDps_<Class>` module) with no exception; the only remaining
@@ -397,7 +397,7 @@ Reader.GetMainSpellID (addon; only what MaxDps already glows)
      (MDBX.MajorCDDeny removed 3.7.8; MAIN trusts the MaxDps core rotation)
        └─ first id with C_Spell.IsSpellUsable (power veto only:
           usable==false AND noPower==true; secret/nil/throw fail OPEN) ──► MAIN
-       └─ all power-starved (or none glowing) ⇒ MDBX.MainFallback[specID |
+       └─ all power-starved (or none glowing) ⇒ MDCB.MainFallback[specID |
           "CLASS:Spec"] (MainFallback.lua; Fury 72 / "WARRIOR:Fury" →
           Bloodthirst 23881; Ret 70 / "PALADIN:Retribution" → Judgment 20271,
           Blade of Justice 184575, Crusader Strike 35395) ──► MAIN
@@ -447,62 +447,64 @@ collapsed candidate is re-admitted when that press is held, and `NoteAttempt`
 suppresses a non-emitted Main at `MainReprobeMs` (150 ms), not the 500 ms
 situational window. Live checks OWED (`docs/TESTING.md` §3j).
 
-## MaxDpsBridgeExp (CURRENT in-game-config fork, no wire change)
+## MaxDpsCompanionBridge (CURRENT; in-game-config fork, no wire change)
 
-**`addon/MaxDpsBridge` = LEGACY (frozen). `addon/MaxDpsBridgeExp` = CURRENT.**
-Exp is the stable sources renamed `MDB→MDBX` / `MaxDpsBridge→MaxDpsBridgeExp`,
-with a manual copy of the stable catalog/fallback/flag files; ports had to be
-applied to BOTH only until the freeze — from now on Exp-only (stable gets no
-further ports unless explicitly requested). The shared MaxDps fork pipeline
-below is unchanged.
+**`addon/legacy/MaxDpsBridge` = LEGACY (frozen). `addon/MaxDpsCompanionBridge` = CURRENT.**
+The companion bridge is the legacy sources renamed `MDB→MDCB` /
+`MaxDpsBridge→MaxDpsCompanionBridge`, with a manual copy of the legacy
+catalog/fallback/flag files; ports had to be applied to BOTH only until the
+freeze — from now on companion-only (the legacy addon gets no further ports
+unless explicitly requested). The shared MaxDps fork pipeline below is
+unchanged.
 
-A second, separate addon (`addon/MaxDpsBridgeExp/`) implements the approved
-`docs/plans/2026-10-03-ingame-config.md` fork: the player configures the
-toggles in-game. It is **mutually exclusive** with the stable bridge — the
+A second, separate addon (`addon/MaxDpsCompanionBridge/`) implements the
+approved `docs/plans/2026-10-03-ingame-config.md` fork: the player configures
+the toggles in-game. It is **mutually exclusive** with the legacy bridge — the
 fork checks `C_AddOns.IsAddOnLoaded("MaxDpsBridge")` and stays inert (no pixel
-frame, no strip ticker, no slash command) when the stable addon is loaded.
-No stable file, `vendor/`, or wire file changes; the 43-cell v5 + Ext2 + Ext3
+frame, no strip ticker, no slash command) when the legacy addon is loaded.
+No legacy file, `vendor/`, or wire file changes; the 43-cell v5 + Ext2 + Ext3
 strip and `PROTOCOL_VERSION = 5` are byte-identical, so the same companion exe
 decodes either addon.
 
 ```
-addon/MaxDpsBridgeExp/
-  MaxDpsBridgeExp.toc      Interface 120100, OptionalDeps MaxDps,
-                           SavedVariables MaxDpsBridgeExpDB,
-                           SavedVariablesPerCharacter MaxDpsBridgeExpCharDB
-  Exp.xml                  load order (Toggles, Catalog, MajorCooldowns,
+addon/MaxDpsCompanionBridge/
+  MaxDpsCompanionBridge.toc  Interface 120100, OptionalDeps MaxDps,
+                           SavedVariables MaxDpsCompanionBridgeDB,
+                           SavedVariablesPerCharacter MaxDpsCompanionBridgeCharDB
+  InGame.xml               load order (Toggles, Catalog, MajorCooldowns,
                            Keymap, Bars, MainFallback, Reader, HotbarWatch,
                            Bridge, Core, Profiles, Overlay, Settings, Slash)
-  Toggles.lua ... Reader.lua  stable copies renamed MDB→MDBX /
-                           MaxDpsBridge→MaxDpsBridgeExp;
-                           Bridge.lua no longer registers /mdb and exposes
-                           MDBX.HandleCommand for diagnostics
+  Toggles.lua ... Reader.lua  legacy copies renamed MDB→MDCB /
+                           MaxDpsBridge→MaxDpsCompanionBridge; the slash
+                           commands live in `InGame/Slash.lua` (`/mcb` +
+                           `/mdb`/`/mdbx` aliases) and Bridge.lua exposes
+                           MDCB.HandleCommand for diagnostics
   HotbarWatch.lua          v4.0.3 Ext4 hotbar-map streamer: keybound action-bar
                            walk (spells/items/macros, ready flag, 32-entry cap),
                            gen/seq frame cycle held ≥2 paint ticks, typing veto,
-                           /mdbx hotbar diagnostic
-  Exp/Core.lua             identity, Print, 200-line console ring,
-                           MDBX.IsInert() mutual-exclusion guard
-  Exp/Profiles.lua         v1 Global/Spec/Talent store, per-character
+                           /mcb hotbar diagnostic
+  InGame/Core.lua          identity, Print, 200-line console ring,
+                           MDCB.IsInert() mutual-exclusion guard
+  InGame/Profiles.lua      v1 Global/Spec/Talent store, per-character
                            override, versioned export/import line
-  Exp/Overlay.lua          insecure BackdropTemplate overlay (Header +
+  InGame/Overlay.lua       insecure BackdropTemplate overlay (Header +
                            13-pill/4-col grid + status-dot footer; v4.0.4
                            removed the profile line and shrunk 300x165),
                            drag-if-unlocked,
                            SetClampedToScreen, dirty flag + 0.2 s ticker only
                            OnShow, InCombatLockdown→PLAYER_REGEN_ENABLED
                            defer queue; no secure templates
-  Exp/Settings.lua         Settings.RegisterCanvasLayoutCategory (+ legacy
+  InGame/Settings.lua      Settings.RegisterCanvasLayoutCategory (+ legacy
                            InterfaceOptions fallback), 6 tabs (Pause /
                            Rotation / Binds / Settings / Console / Debug)
-  Exp/Slash.lua            /mdbx ONLY + global MDBXBinding(key)
-  Bindings.xml             BINDING_HEADER_MDBX + MDBX_TOGGLE_OVERLAY +
-                           MDBX_TOGGLE_<KEY> ×14
+  InGame/Slash.lua         /mcb + /mdb + /mdbx aliases + global MDCBBinding(key)
+  Bindings.xml             BINDING_HEADER_MDCB + MDCB_TOGGLE_OVERLAY +
+                           MDCB_TOGGLE_<KEY> ×14
 ```
 
 The fork owns toggles (ADDON-WINS, the same `Toggles.SlotAllowed` single
-gate); the companion Exp mode mirrors the Ext3 mask cells 40-42 read-only.
-Offline bar: `luac -p` every file, `lua tests/secret_harness.lua`,
+gate); the companion in-game-config mode mirrors the Ext3 mask cells 40-42
+read-only. Offline bar: `luac -p` every file, `lua tests/secret_harness.lua`,
 `pwsh tools/ability_audit.ps1`. Live retail checks stay OWED.
 
 ## Main master switch (v4.0.4, no wire change)
@@ -523,7 +525,7 @@ press buffered before the flip never replays. A missing/stale mirror fails open
 (old 40-cell addon); the addon's own blanking still prevents rotation sends.
 No cell, checksum or version-nibble change.
 
-The overlay drops the `profile:` footer (profiles stay in the `/mdbx` Config
+The overlay drops the `profile:` footer (profiles stay in the `/mcb` Config
 window) and shrinks 300x210 -> 300x165; the 13 pills and 4-column grid are
 unchanged.
 
@@ -536,13 +538,13 @@ Ext3 byte-identical; version nibble stays 5); presence = cell 28 B bit3,
 typing veto = cell 41 R bit2 (committed by the Ext3 checksum).
 
 ```
-addon/MaxDpsBridgeExp/HotbarWatch.lua (NEW)
+addon/MaxDpsCompanionBridge/HotbarWatch.lua (NEW)
   └─ walks action slots 1-180 (GetActionInfo; macros via GetMacroSpell/Item),
      resolves each keybind (Bars.BarSets / ButtonBinding / GetBindingKey
-     command map), ready flag via MDBX.IsSpellReady / item cooldown
+     command map), ready flag via MDCB.IsSpellReady / item cooldown
      (fail-closed), caps at 32 entries (bar order), bumps gen on rebuild
      (Bars event family + 2 s sweep), streams gen/seq frames held >=2 paint
-     ticks; typing veto from the chat edit box; /mdbx hotbar diagnostic
+     ticks; typing veto from the chat edit box; /mcb hotbar diagnostic
         │  cells 43-50: header (gen/seq/LAST/EMPTY) + 2 x 3-cell entries
         │  (vk+mods | idTop(isItem,ready,id21-20) | id | commit)
         ▼
@@ -689,12 +691,13 @@ ShellWindow (Ui/Shell/ShellWindow.xaml.cs; borderless OverlappedPresenter;
   774.9 ms FAIL, refresh 19.8 µs and snapshot 26.3 ms pass; exit 1**).
   `--dump-class-skills` kept; `--ui-snapshot-class-skills`/`--ui-snapshot-scroll`
   dropped (print "unavailable in this build", exit 3).
-- Publish: `pwsh tools/publish-exp.ps1` → unpackaged framework-dependent WinUI 3
+- Publish: `pwsh tools/publish.ps1` → unpackaged framework-dependent WinUI 3
   (one exe, ~43 files; `WindowsPackageType=None` + `EnableMsixTooling=true` must
   stay paired or `MaxDpsCompanion.pri` is missing and the app dies
   `0xC000027B`). Requires the Windows App SDK 1.8 runtime. Never deletes
-  `dist-exp\settings.ini` or the Rust `mdc-*.exe` (hash-checked); writes
-  `VERSION.txt` = `4.0.3 Bulwark` (derived from the built exe). `build.ps1`/`dist\` stay legacy/frozen.
+  `dist\settings.ini` or the Rust `mdc-*.exe` (hash-checked); writes
+  `VERSION.txt` from the built exe identity. `build.ps1`/`dist-legacy\` stay
+  legacy/frozen.
 - OWED live (cannot be closed offline): retail run (sampling, key sending,
   pause hotkey), tray + minimize-to-tray, per-monitor DPI across monitors, a
   clean machine with only the WinAppSDK runtime, visual-parity review.
@@ -864,9 +867,11 @@ MaxDps-Companion/
                              sysroot on PATH; #![forbid(unsafe_code)] except
                              mdc-platform-win. Mouse `SendInput` + foreground
                              gate implemented; mdc-app live run OWED.
-  addon/MaxDpsBridge/        bridge addon 3.7.7 (v5 + Ext2 + additive Ext3
-                             encoder, candidate rotation, in-game toggle UI,
-                             /mdb commands)
+  addon/legacy/MaxDpsBridge/ legacy bridge addon (frozen; v5 + Ext2 + additive
+                             Ext3 encoder, candidate rotation, in-game toggle
+                             UI, /mdb commands). The companion addon that
+                             supersedes it is `addon/MaxDpsCompanionBridge/`
+                             (tree above).
     Catalog.lua              GENERATED class/spec ids + extras (--gen-catalog,
                              incl. per-spec offensive (curated), defensive
                              (Red) and defensiveMinor (Orange) gap-fill lists,
@@ -915,23 +920,23 @@ MaxDps-Companion/
                               with InterfaceOptions_AddCategory fallback);
                               `/mdb toggles` opens it, `/mdb overlay on|off`
                               shows/hides the overlay, optional minimap button
-     MajorCooldowns.lua       Exp Offensive routing only (3.7.8): the former
-                              `MDBX.MajorCDDeny` deny table + the
-                              `GetMainSpellID` deny scan were removed — MAIN
-                              trusts the MaxDps core rotation with no exception
-                              (only the power veto + MainFallback remain). The
-                              file now holds only `MDBX.FlagOffensiveExtra`.
-                              Reader CategoryOf maps a flagged id to "offensive"
-                              so the Flags scan routes it even though it is
-                              absent from `MaxDps.classCooldowns.offensive`
+     MajorCooldowns.lua       legacy Offensive routing: `MDB.MajorCDDeny`
+                              deny table (frozen at 3.7.7; the legacy
+                              `GetMainSpellID` scan still skips these ids).
+                              `Reader.CategoryOf` consults
+                              `MDB.FlagOffensiveExtra` when present and maps a
+                              flagged id to "offensive" so the Flags scan
+                              routes it even though it is absent from
+                              `MaxDps.classCooldowns.offensive`
                               (2026-10-04: 228920 Ravager; 2026-10-06: 375576
                               Divine Toll — a 60 s on-GCD core button, so Main
                               keeps it; 2026-10-07: the R1/R2 audit set). The
-                              Offensive slot is an independent Flags-scan, so an
-                              empty Main cannot deadlock the rotation.
-                              Bridge-side fix; no vendor edit, no wire change.
-                              Stable `addon/MaxDpsBridge/` keeps its frozen
-                              3.7.7 deny.
+                              companion bridge removed its `MajorCDDeny` copy
+                              in 3.7.8 (holds only `MDCB.FlagOffensiveExtra`)
+                              and keeps the Offensive slot an independent
+                              Flags-scan, so an empty Main cannot deadlock the
+                              rotation. Bridge-side fix; no vendor edit, no
+                              wire change.
      MainFallback.lua         no-downtime MAIN fallback (plan 2026-10-03): when
                               every non-denied Main glow is denied/power-starved,
                               Reader returns the first castable per-spec filler
@@ -968,8 +973,8 @@ MaxDps-Companion/
    app/MaxDpsCompanion/       WinUI 3 companion (sampler → PostMessage), 4.0.0
                               "Lumen": unpackaged, framework-dependent
                               WinAppSDK 1.8, one exe. The WinForms UI was
-                              deleted in P3 (2026-10-11); dist/ ships the frozen
-                              LEGACY 3.7.9 client and addon/MaxDpsBridge/
+                              deleted in P3 (2026-10-11); dist-legacy/ ships the frozen
+                              LEGACY 3.7.9 client; the archived addon/legacy/MaxDpsBridge/
                               (stable) stays frozen.
     Knowledge/               ability knowledge base (v2.0; defensive v2.3; registry v2.6)
       AbilityModel.cs        enums + AbilityDefinition + slot mapping,
@@ -1054,7 +1059,7 @@ MaxDps-Companion/
                              incl. Modes SoloOnly/NormalOnly/Manual/Never/
                              Always/Automatic)
       PolicyEvaluator.cs     USE/HOLD/SKIP rules + PolicyMemory (sequencing)
-      CatalogLuaGenerator.cs emits addon/MaxDpsBridge/Catalog.lua
+      CatalogLuaGenerator.cs emits addon/MaxDpsCompanionBridge/Catalog.lua
       ClassSpellBook.cs      loads class-spells.json, applies the live-client
                              verification (official name/icon, removed ids
                              dropped), decodes tokens, flags junk/passive rows
@@ -1627,13 +1632,14 @@ scheduler action / user press -> SlotGate (movement key, physical hold, focus) -
 RotationEngine.ScanUserKeys skips any VK inside KeyDelivery's own-injection window.
 ```
 
-Addon hot path (`addon/MaxDpsBridgeExp`): a per-tick memo (`Reader.BeginTick/EndTick`) covers
+Addon hot path (`addon/MaxDpsCompanionBridge`): a per-tick memo (`Reader.BeginTick/EndTick`) covers
 `SpellVariants`, `KnownSpell`, `IsSpellReady` and `RotationCandidates`; `FrameKey` is a numeric fold over
 the decision edges (HP 30/35/50/75, stagger stage, `InCombat`, `Grouped`, toggle epoch/mask, bind
 revision) instead of raw HP; `Bars` coalesces full cache wipes and treats `SPELL_UPDATE_COOLDOWN` as a
 revision bump only; `HotbarWatch` rebuilds on a debounce timer, never on the paint path, and bumps its
-`gen` only when the streamed content changes; `MDBX.SlotCommand` (Keymap.lua) is the single slot->binding
+`gen` only when the streamed content changes; `MDCB.SlotCommand` (Keymap.lua) is the single slot->binding
 command table; SavedVariables carry `SchemaVersion` (Migrate before MergeDefaults).
 
-Repo status: the C# clients are the maintained line; `companion-rs/` and `addon/MaxDpsBridge` + `dist/` are
-frozen (see `LEGACY.md`). Sections below that describe the Rust port or a "frozen C# client" are history.
+Repo status: the C# clients are the maintained line; `companion-rs/` and the legacy
+`addon/legacy/MaxDpsBridge` + `dist-legacy/` are frozen (see `LEGACY.md`). Sections below that
+describe the Rust port or a "frozen C# client" are history.

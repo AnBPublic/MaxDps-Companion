@@ -9,7 +9,7 @@
 //! `Color` samples a capture layer produced.
 //!
 //! Checksum note: `docs/PROTOCOL.md` calls cell 10 "XOR-sum", but the shipped
-//! encoder (`addon/MaxDpsBridgeExp/Bridge.lua:58`, `:403`) and the reference
+//! encoder (`addon/MaxDpsCompanionBridge/Bridge.lua:58`, `:403`) and the reference
 //! decoder (`PixelProtocol.cs:392`) both use an **arithmetic sum** of R+G+B
 //! nibbles mod 16. This port follows the code, not the prose typo.
 

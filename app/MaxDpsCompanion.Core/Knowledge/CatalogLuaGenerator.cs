@@ -3,7 +3,7 @@ using System.Text;
 namespace MaxDpsCompanion;
 
 /// <summary>
-/// Emits <c>addon/MaxDpsBridge/Catalog.lua</c> from the ability catalog: the
+/// Emits <c>addon/MaxDpsCompanionBridge/Catalog.lua</c> from the ability catalog: the
 /// class/spec wire ids and the per-spec Mobility/SelfHeal extra lists the
 /// bridge resolves keybinds for. Generated (never hand-edited) and pinned by
 /// <c>CatalogLuaSyncTests</c>, so the C# policy and the in-game bridge cannot

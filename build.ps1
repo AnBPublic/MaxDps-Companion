@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Publishes MaxDpsCompanion.exe into dist\.
+    Publishes MaxDpsCompanion.exe into dist-legacy\.
 .DESCRIPTION
     Kills any running copy first (a locked exe would silently leave the old
     bytes in place), stamps the build version, and publishes.
@@ -13,7 +13,7 @@ $ErrorActionPreference = 'Stop'
 
 $project = Join-Path $PSScriptRoot 'app\MaxDpsCompanion\MaxDpsCompanion.csproj'
 $genDir  = 'app\MaxDpsCompanion'
-$output  = Join-Path $PSScriptRoot 'dist'
+$output  = Join-Path $PSScriptRoot 'dist-legacy'
 
 # 1. Kill any running copy — otherwise publish cannot replace the exe and the
 # old build silently survives.

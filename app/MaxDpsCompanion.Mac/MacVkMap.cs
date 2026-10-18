@@ -6,7 +6,7 @@
 // No dependency on Core Keys (owned by another stream); VK constants are
 // re-declared here as plain bytes.
 //
-// COVERAGE: every VK the addon can put on the wire (addon/MaxDpsBridgeExp/
+// COVERAGE: every VK the addon can put on the wire (addon/MaxDpsCompanionBridge/
 // Keymap.lua — letters, digits, F1-F24, numpad, OEM punctuation, navigation,
 // lock keys, mouse) is listed below. The Mac side has a real CGKeyCode for all
 // of them EXCEPT keys that do not exist on a macOS ANSI keyboard (PrintScreen,

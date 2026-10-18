@@ -9,13 +9,46 @@ by release name or date before re-investigating an old problem.
 
 - **Current:** `app/MaxDpsCompanion/` (WinUI 3 Windows client) + `app/MaxDpsCompanion.Core/`
   (shared brain, consumed by Windows since 4.1.0) + `app/MaxDpsCompanion.Mac/` +
-  `addon/MaxDpsBridgeExp/` + `dist-exp/`. **C# is the long-term base** (decision 2026-10-17).
-- **Frozen:** `addon/MaxDpsBridge/` (stable), `dist/` + `build.ps1` (3.7.9 WinForms), and
-  `companion-rs/` (Rust port; reference only, no Ext4). See `LEGACY.md`.
-- Exp and stable addons are mutually exclusive per character; use Exp (`/mdbx`).
-  Deploy: `pwsh tools/publish-exp.ps1` + `pwsh tools/install-addon-exp.ps1` (both only on the user's go-ahead).
+  `addon/MaxDpsCompanionBridge/` + `dist/`. **C# is the long-term base** (decision 2026-10-17).
+- **Frozen:** `addon/legacy/MaxDpsBridge/` (legacy stable bridge), `dist-legacy/` + `build.ps1`
+  (3.7.9 WinForms), and `companion-rs/` (Rust port; reference only, no Ext4). See `LEGACY.md`.
+- The legacy and companion bridge addons are mutually exclusive per character; use the
+  companion bridge (`/mcb`; legacy aliases `/mdb`, `/mdbx`).
+  Deploy: `pwsh tools/publish.ps1` + `pwsh tools/install-addon.ps1` (both only on the user's go-ahead).
 - Wire: protocol v5 + Ext2/Ext3/Ext4 (51 cells), unchanged since 4.0.3. Any wire change is an
   architect-trigger task (`AGENTS.md`).
+
+## 2026-10-18 RELEASE 4.3.0 "NAMESAKE" (Companion Bridge rename; NO wire change)
+
+Spec/plan: `docs/plans/2026-10-18-companion-bridge-rename.md` (approved; tasks 1-8).
+Branch `release/v4.3.0-namesake`. Identity: csproj, `app/Version.props`, `Native.cs`,
+`ReleaseIdentityTests`, addon TOC/`VERSION.txt`/`MDCB.VERSION` 4.3.0, `MDCB.CODENAME` Namesake.
+
+DONE (code side)
+- Addon renamed `MaxDpsBridgeExp` -> `MaxDpsCompanionBridge` (TOC `MaxDpsCompanionBridge.toc`,
+  Title "MaxDps Companion Bridge", `Exp/` -> `InGame/`); Lua namespace `MDBX` -> `MDCB`;
+  saved variables `MaxDpsCompanionBridgeDB` / `MaxDpsCompanionBridgeCharDB`; keybinds
+  `MDCB_TOGGLE_*`; slash `/mcb` with `/mdb` + `/mdbx` aliases; overlay/settings/chat branding updated.
+- Legacy stable addon archived: `addon/MaxDpsBridge` -> `addon/legacy/MaxDpsBridge`
+  (byte-identical rename, frozen); the harness legacy-compat section points at the archive path.
+- Companion: the in-game-config shell is now the DEFAULT (`InGameConfigMode=1`; `=0` opts into
+  the classic shell; `--exp` stays a compatibility alias); `tools/publish.ps1` +
+  `tools/install-addon.ps1` target `dist\` + the new addon; the legacy build output convention
+  moves to `dist-legacy\`; the catalog audit is strict again (exit 0; addon Catalog.lua
+  regenerated to byte-match the generator).
+- Tests: 1072 passed / 0 failed; Lua harness 409/409; `luac -p` clean on addon root + InGame;
+  `ability_audit.ps1` exit 0; `--ui-smoke-test` title `MaxDPS Companion v4.3.0 Namesake`.
+
+NEXT (post-merge rollout; primary checkout)
+- `dist\` -> `dist-legacy\`; `dist-exp\` -> `dist\` (settings.ini travels); publish; install addon;
+  migrate `WTF\...\SavedVariables\MaxDpsBridgeExp*.lua` to the new variable names and
+  `bindings-cache.wtf` `MDBX_TOGGLE_*` -> `MDCB_TOGGLE_*` (both with `.bak`); retarget the
+  Windows launch shortcuts to the new exe dir.
+
+OWED (live retail) - addon loads as "MaxDps Companion Bridge", `/mcb` (+ aliases) responds,
+toggle keybinds work, overlay icons + settings page intact; plus the 4.2.0 CC checks
+(`docs/TESTING.md` §3o) still owed.
+Static != automated test != live.
 
 ## 2026-10-18 RELEASE 4.2.0 "NIGHTBLADE" (CC intelligence; NO wire change)
 
@@ -115,7 +148,7 @@ combat via `IsSpellInRange`, stance/vehicle bar key mapping.
 
 - A denied slot MUST repaint its cell empty (4.0.3 root cause #3), else the core checksum never matches.
 - The addon `Main` pill is the master switch (4.0.4); a stale `Main=false` in SavedVariables looks like
-  "only non-core skills fire" - check `/mdbx main on` first.
+  "only non-core skills fire" - check `/mcb main on` first.
 - The user-press queue never suppresses the plan; it only wins the send-site race (4.0.3 hotfix).
 - Keep `WindowsPackageType=None` + `EnableMsixTooling=true` paired or `MaxDpsCompanion.pri` is missing
   and the app dies `0xC000027B`.

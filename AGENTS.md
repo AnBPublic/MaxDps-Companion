@@ -5,15 +5,16 @@ Then the file you are changing plus its counterpart spec.
 
 ## Ownership
 
-- `addon/MaxDpsBridge/*.lua` and `app/MaxDpsCompanion/*.cs` are owned by
-  other agents. This scaffold covers repo-level files only; do not edit
+- `addon/MaxDpsCompanionBridge/*.lua` and `app/MaxDpsCompanion/*.cs` are owned
+  by other agents. This scaffold covers repo-level files only; do not edit
   implementation files unasked.
 - One exe: `MaxDpsCompanion.exe`. No alternate shells, no second binary.
 
 ## Hard rules
 
-- `MaxDpsBridge` stable + `dist\` are **LEGACY** (frozen); all work targets
-  `MaxDpsBridgeExp` + `dist-exp` unless the user explicitly says legacy/stable.
+- `MaxDpsBridge` (archived under `addon/legacy/`) + `dist-legacy\` are
+  **LEGACY** (frozen); all work targets `MaxDpsCompanionBridge` + `dist\`
+  unless the user explicitly says legacy/stable.
 - Upstream MaxDps in `vendor/` is **read-only**. Never edit it, never import
   it as a dependency — the bridge queries the live addon at runtime.
 - The bridge never calls protected Lua and never automates gameplay
@@ -40,12 +41,13 @@ the resulting diff:
 - `app/MaxDpsCompanion/Scheduler/**`
 - `app/MaxDpsCompanion/Decision/**`
 - `app/MaxDpsCompanion/Knowledge/**` (registry/policy schema changes)
-- `addon/MaxDpsBridge/*.lua`
+- `addon/MaxDpsCompanionBridge/*.lua`
 - `vendor/` is read-only under all circumstances — never an edit target.
 
 Offline verification bar (offline ≠ live; full detail in `docs/TESTING.md`):
 `dotnet build -c Release` (0 warnings / 0 errors), `dotnet test -c Release`
 (from `tests\MaxDpsCompanion.Tests`), `lua tests/secret_harness.lua`,
-`luac -p addon/MaxDpsBridge/*.lua`, `pwsh tools/ability_audit.ps1`.
+`luac -p addon/MaxDpsCompanionBridge/*.lua addon/MaxDpsCompanionBridge/InGame/*.lua`,
+`pwsh tools/ability_audit.ps1`.
 Live retail checks (§3 of `docs/TESTING.md`) stay marked OWED until run in a
 real client.

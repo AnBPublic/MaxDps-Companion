@@ -1,6 +1,6 @@
-# Third-party asset licenses (MaxDpsBridgeExp)
+# Third-party asset licenses (MaxDpsCompanionBridge)
 
-Per-asset provenance for the experimental addon's TGA icon set and the
+Per-asset provenance for the companion bridge's TGA icon set and the
 companion-only fonts. Regenerated/checked by `tools/fetch_assets.ps1`
 (dev-time only; the build and the installed addon never download anything).
 
@@ -48,7 +48,7 @@ rendered from WoW's own texture paths. No Blizzard art is committed here.
 - Dimensions power-of-two: 64, 128, 256; never larger than 256.
 - **Top-left origin** (TGA image descriptor bit 0x20 set).
 - `SetTexture` paths drop the extension, e.g.
-  `Interface\AddOns\MaxDpsBridgeExp\Exp\Assets\main-64` (the runtime resolver
+  `Interface\AddOns\MaxDpsCompanionBridge\InGame\Assets\main-64` (the runtime resolver
   requests the `-64` variant of `<keylower>`; `-128` is optional hi-dpi art).
 
 If an expected TGA is missing at runtime the addon falls back to a stock

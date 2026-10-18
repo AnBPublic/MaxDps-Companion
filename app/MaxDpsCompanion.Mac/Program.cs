@@ -298,7 +298,7 @@ internal static class Program
         locateSw.Stop();
         if (found is not { } loc)
         {
-            Console.WriteLine("bench: strip not found - start the game with the MaxDpsBridgeExp addon loaded, then re-run");
+            Console.WriteLine("bench: strip not found - start the game with the MaxDps Companion Bridge addon loaded, then re-run");
             return 1;
         }
         // No supervisor in the CLI: apply the queued shrink-to-strip region so

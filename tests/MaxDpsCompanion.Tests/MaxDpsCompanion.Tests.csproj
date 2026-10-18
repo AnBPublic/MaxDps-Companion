@@ -51,7 +51,7 @@
   <ItemGroup>
     <!-- fixtures/Catalog.lua is a real fixture generated from the embedded
          catalog via the companion's gen-catalog CLI. The addon copy at
-         addon/MaxDpsBridge/Catalog.lua is kept in sync separately and its
+         addon/MaxDpsCompanionBridge/Catalog.lua is kept in sync separately and its
          drift is reported by tools/ability_audit.ps1. -->
     <None Include="fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

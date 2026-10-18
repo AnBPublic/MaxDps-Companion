@@ -10,11 +10,11 @@ namespace MaxDpsCompanion.Tests;
 /// presses the next tick, and a failed Main press arms no companion
 /// suppression window at all. The companion scheduler never invents a filler
 /// of its own (the per-spec filler lives in
-/// <c>addon/MaxDpsBridge/MainFallback.lua</c>). The addon half is pinned by the
+/// <c>addon/MaxDpsCompanionBridge/MainFallback.lua</c>). The addon half is pinned by the
 /// Q1 block in <c>tests/secret_harness.lua</c>.
 ///
 /// The two spell ids are the verified Fury pair from
-/// <c>addon/MaxDpsBridge/MainFallback.lua</c> (name-checked against the
+/// <c>addon/MaxDpsCompanionBridge/MainFallback.lua</c> (name-checked against the
 /// read-only <c>vendor/</c> tree): Rampage 184367 (80 Rage, power-starved) and
 /// Bloodthirst 23881 (rage generator, the fallback). They are never invented.
 /// </summary>

@@ -60,13 +60,13 @@ what a patch does.
 Three layers, in precedence order:
 
 1. **Bridge Offensive flags (runtime, no vendor edit).**
-   `addon/MaxDpsBridgeExp/MajorCooldowns.lua` populates
-   `MDBX.FlagOffensiveExtra`; `Reader.CategoryOf` maps a flagged id to
+   `addon/MaxDpsCompanionBridge/MajorCooldowns.lua` populates
+   `MDCB.FlagOffensiveExtra`; `Reader.CategoryOf` maps a flagged id to
    `"offensive"` so the `FirstFlagged("offensive")` scan routes an offensive
    that is absent from `MaxDps.classCooldowns.offensive`. **3.7.8 removed the
    former `MDBX.MajorCDDeny` denylist** — MAIN now trusts the MaxDps core
    rotation with no exception; only the game-truth power veto + `MainFallback`
-   filler remain. Stable `addon/MaxDpsBridge/` keeps its frozen deny. See below.
+   filler remain. Legacy `addon/legacy/MaxDpsBridge/` keeps its frozen deny. See below.
 2. **P-GUARD** (`kind: "guard"`, 40 entries) — `*/Specialization/*.lua`
    patch that replaces the Assisted-Combat suppression branch
    (`if not MaxDps.FrameData.ACSpells or not MaxDps.FrameData.ACSpells[spellID] then`)
@@ -83,13 +83,13 @@ Three layers, in precedence order:
 
 All three are declared once in `custom/patches.json`. `P-GUARD` and `P-DATA`
 are evaluation-order patches owned by the sync tool; the bridge Offensive flags
-(`MDBX.FlagOffensiveExtra`) are Lua that the addon loads directly and do not
+(`MDCB.FlagOffensiveExtra`) are Lua that the addon loads directly and do not
 depend on a sync run.
 
 ## Bridge Offensive routing: `MajorCooldowns.lua`
 
-In Exp 3.7.8 `MajorCooldowns.lua` (loaded from the TOC alongside
-Catalog/Keymap/Reader) holds **only** `MDBX.FlagOffensiveExtra` — the non-vendor
+Since 3.7.8, `MajorCooldowns.lua` (loaded from the TOC alongside
+Catalog/Keymap/Reader) holds **only** `MDCB.FlagOffensiveExtra` — the non-vendor
 ids `Reader.CategoryOf` classifies as `"offensive"` so the
 `FirstFlagged("offensive")` scan still routes them.
 
@@ -98,7 +98,7 @@ and the "already correct" majors (Avatar 107574, Recklessness 1719, Void
 Eruption 228260, …) — and the `GetMainSpellID` deny scan were **removed in
 3.7.8**: MAIN now trusts the MaxDps core rotation with no exception, and the
 only vetoes are game truth (`usable == false AND noPower == true`) plus the
-per-spec `MainFallback` filler. Stable `addon/MaxDpsBridge/` keeps its frozen
+per-spec `MainFallback` filler. Legacy `addon/legacy/MaxDpsBridge/` keeps its frozen
 3.7.7 deny. The fork's purpose is now only the vendor offensive-table
 un-comments / id routing (P-DATA below).
 
@@ -259,7 +259,7 @@ Celestial/Incarnation, Ascendance, Infernal, Shadow Blades.
 - [ ] **Live 12.1 id check** — resolve the true 12.1 ids for the 22 moves and
       the "already correct" majors against a real client and fill `newSpellId`.
       (Exp 3.7.8 deleted `MDBX.MajorCDDeny`; there is no deny table left to
-      refresh, and stable `addon/MaxDpsBridge/` keeps its frozen deny.) Static
+      refresh, and the legacy `addon/legacy/MaxDpsBridge/` keeps its frozen deny.) Static
       vendor names are not live proof.
 - [x] **Publish run** — DONE 2026-10-04: `Sync-CustomMaxDps.ps1` end-to-end
       onto the real `AddOns` folder. APPLIED 63 / CONFLICT 0 / FIXED-UPSTREAM

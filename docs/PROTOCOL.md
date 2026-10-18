@@ -1,4 +1,4 @@
-# Pixel protocol v5 + Ext2/Ext3/Ext4 (additive; 35/40/43/51-cell) — MaxDpsBridge ↔ MaxDpsCompanion
+# Pixel protocol v5 + Ext2/Ext3/Ext4 (additive; 35/40/43/51-cell) — MaxDpsCompanionBridge ↔ MaxDpsCompanion
 
 Normative spec. Bridge encodes, companion decodes. The frame is the **35-cell
 v5 core** plus the **additive Ext2 block** (cells 35-39), the **additive
@@ -179,7 +179,7 @@ No cell, count, or version nibble changed.
 #### v3.3.0 in-game 13 toggles (no wire change)
 
 Bridge 3.3.0 adds the companion hero's 13 toggles to the addon
-(`addon/MaxDpsBridge/Toggles.lua` + `Panel.lua`): 8 per-slot toggles (slots
+(`addon/MaxDpsCompanionBridge/Toggles.lua` + `InGame/Overlay.lua`): 8 per-slot toggles (slots
 1-8) plus Solo / Out-of-combat / Auto-target / Auto-interact / TTK (the `ttk`
 key is labelled **"TTK guard"** from v3.6; see §201 for its OFF semantics). The
 addon only ever **restricts** what the companion already decided —
@@ -369,7 +369,7 @@ exactly as before (bit 0 everywhere → Unknown → same fail-open).
 
 R = class id, G = spec ordinal, B bit0 = class/spec valid, B bit1 = self-buff
 probe block valid (v2.7 additive; see above). The id tables are generated
-into `addon/MaxDpsBridge/Catalog.lua` from the companion's knowledge base
+into `addon/MaxDpsCompanionBridge/Catalog.lua` from the companion's knowledge base
 (`AbilityCatalog.ClassOrder` / `SpecOrder`); see docs/KNOWLEDGE.md. Wire ids
 never renumber.
 
@@ -439,7 +439,7 @@ frames carry no defensive urgency, cast state, target state or range
 tri-state: every additive field is UNKNOWN and the policy falls back to its
 documented pre-v2.3 behaviour. Bridge 3.0.0 encodes v5 + Ext2: the 40-cell
 strip with the additive urgency nibbles and the Ext2 HP-curve / SelfHeal2
-block (`addon/MaxDpsBridge/Bridge.lua`, `PROTOCOL_VERSION = 5`).
+block (`addon/MaxDpsCompanionBridge/Bridge.lua`, `PROTOCOL_VERSION = 5`).
 
 ## Ext2 block (v3.0.0, additive)
 
