@@ -289,8 +289,8 @@ internal static class Native
     /// <summary>
     /// Release codename, SINGLE-SOURCED from csproj &lt;Codename&gt; via the
     /// AssemblyMetadata attribute (see the csproj). Falls back to the shipped
-    /// "Nightblade" if the attribute is somehow absent (e.g. an old exe built
-    /// before the wiring), so the title can never render a bare "v4.2.0 ".
+    /// "Namesake" if the attribute is somehow absent (e.g. an old exe built
+    /// before the wiring), so the title can never render a bare "v4.3.0 ".
     /// </summary>
     internal static string Codename
     {
@@ -304,7 +304,7 @@ internal static class Native
         }
     }
 
-    private const string CodenameFallback = "Nightblade";
+    private const string CodenameFallback = "Namesake";
 
     /// <summary>
     /// Full display form used by the title bar: "v4.2.0 Nightblade" (the "v"

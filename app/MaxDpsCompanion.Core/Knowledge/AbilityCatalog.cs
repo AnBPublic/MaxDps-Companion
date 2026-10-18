@@ -17,7 +17,7 @@ namespace MaxDpsCompanion;
 ///
 /// Lookup is by spell id and is a pure function of the two files: the catalog
 /// is deterministic, immutable after construction and has no game state.
-/// The same catalog drives the generated <c>addon/MaxDpsBridge/Catalog.lua</c>
+/// The same catalog drives the generated <c>addon/MaxDpsCompanionBridge/Catalog.lua</c>
 /// (see <see cref="CatalogLuaGenerator"/>) so the bridge and the companion can
 /// never disagree about an ability index.
 /// </summary>

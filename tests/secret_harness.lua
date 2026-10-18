@@ -272,20 +272,20 @@ C_AssistedCombat = nil
 -- ================= load the addon =================
 local MDB = {}
 _G.MaxDpsBridge = MDB
-assert(loadfile("addon/MaxDpsBridge/Catalog.lua"))("MaxDpsBridge", MDB)
-assert(loadfile("addon/MaxDpsBridge/MajorCooldowns.lua"))("MaxDpsBridge", MDB)
+assert(loadfile("addon/legacy/MaxDpsBridge/Catalog.lua"))("MaxDpsBridge", MDB)
+assert(loadfile("addon/legacy/MaxDpsBridge/MajorCooldowns.lua"))("MaxDpsBridge", MDB)
 -- Workstream C emits the real MDB.SpellAliases in Catalog.lua; this worktree
 -- stubs it so the variant path is exercised before C is merged.
 MDB.SpellAliases = { [202168] = { 34428 } }
-assert(loadfile("addon/MaxDpsBridge/Keymap.lua"))("MaxDpsBridge", MDB)
-assert(loadfile("addon/MaxDpsBridge/Bars.lua"))("MaxDpsBridge", MDB)
+assert(loadfile("addon/legacy/MaxDpsBridge/Keymap.lua"))("MaxDpsBridge", MDB)
+assert(loadfile("addon/legacy/MaxDpsBridge/Bars.lua"))("MaxDpsBridge", MDB)
 -- Q1 fallback registry loads before Reader (Reader references MDB.MainFallback).
-assert(loadfile("addon/MaxDpsBridge/MainFallback.lua"))("MaxDpsBridge", MDB)
-assert(loadfile("addon/MaxDpsBridge/Reader.lua"))("MaxDpsBridge", MDB)
+assert(loadfile("addon/legacy/MaxDpsBridge/MainFallback.lua"))("MaxDpsBridge", MDB)
+assert(loadfile("addon/legacy/MaxDpsBridge/Reader.lua"))("MaxDpsBridge", MDB)
 -- 3.3.0 toggle policy loads before Bridge (Bridge builds its slash key map at
 -- load time from MDB.Toggles.Keys); pure logic, no frames.
-assert(loadfile("addon/MaxDpsBridge/Toggles.lua"))("MaxDpsBridge", MDB)
-assert(loadfile("addon/MaxDpsBridge/Bridge.lua"))("MaxDpsBridge", MDB)
+assert(loadfile("addon/legacy/MaxDpsBridge/Toggles.lua"))("MaxDpsBridge", MDB)
+assert(loadfile("addon/legacy/MaxDpsBridge/Bridge.lua"))("MaxDpsBridge", MDB)
 assert(type(MDB.IsSpellReady) == "function")
 assert(type(MDB.IsInterruptReady) == "function")
 assert(type(MDB.GetMobilitySpellID) == "function")
@@ -312,19 +312,19 @@ assert(type(Update) == "function", "OnUpdate not wired")
 -- MaxDpsBridge stable is LEGACY/frozen: its MajorCooldowns/MainFallback no
 -- longer carry the 2026-10-04/06 routing (Ravager/Divine Toll
 -- FlagOffensiveExtra, Arms/Ret MainFallback). Those behaviours are pinned
--- against the CURRENT client, MaxDpsBridgeExp, loaded into its own table
--- (MDBX) so the frozen stable files stay untouched. Only the runtime modules
+-- against the CURRENT client, MaxDpsCompanionBridge, loaded into its own table
+-- (MDCB) so the frozen stable files stay untouched. Only the runtime modules
 -- the Reader needs are loaded; the Exp frame/overlay modules are not.
-MDBX = _G.MaxDpsBridgeExp or {}
-_G.MaxDpsBridgeExp = MDBX
-assert(loadfile("addon/MaxDpsBridgeExp/Catalog.lua"))("MaxDpsBridgeExp", MDBX)
-assert(loadfile("addon/MaxDpsBridgeExp/MajorCooldowns.lua"))("MaxDpsBridgeExp", MDBX)
-assert(loadfile("addon/MaxDpsBridgeExp/Keymap.lua"))("MaxDpsBridgeExp", MDBX)
-assert(loadfile("addon/MaxDpsBridgeExp/MainFallback.lua"))("MaxDpsBridgeExp", MDBX)
-MDBX.SpellAliases = MDBX.SpellAliases or { [202168] = { 34428 } }
-assert(loadfile("addon/MaxDpsBridgeExp/Reader.lua"))("MaxDpsBridgeExp", MDBX)
-assert(type(MDBX.GetMainSpellID) == "function")
-assert(type(MDBX.GetOffensiveCandidate) == "function")
+MDCB = _G.MaxDpsCompanionBridge or {}
+_G.MaxDpsCompanionBridge = MDCB
+assert(loadfile("addon/MaxDpsCompanionBridge/Catalog.lua"))("MaxDpsCompanionBridge", MDCB)
+assert(loadfile("addon/MaxDpsCompanionBridge/MajorCooldowns.lua"))("MaxDpsCompanionBridge", MDCB)
+assert(loadfile("addon/MaxDpsCompanionBridge/Keymap.lua"))("MaxDpsCompanionBridge", MDCB)
+assert(loadfile("addon/MaxDpsCompanionBridge/MainFallback.lua"))("MaxDpsCompanionBridge", MDCB)
+MDCB.SpellAliases = MDCB.SpellAliases or { [202168] = { 34428 } }
+assert(loadfile("addon/MaxDpsCompanionBridge/Reader.lua"))("MaxDpsCompanionBridge", MDCB)
+assert(type(MDCB.GetMainSpellID) == "function")
+assert(type(MDCB.GetOffensiveCandidate) == "function")
 
 -- ================= 1. restricted cooldown shapes =================
 -- active real cooldown: isActive=true, isOnGCD=false; the Duration object
@@ -455,7 +455,7 @@ check("T3 non-major id is not denied", MDB.MajorCDDeny[185358] ~= true)
 -- encodes directly instead of falling through to the Arms filler.
 MaxDps.SpellsGlowing = { [190319] = 1 }
 MaxDps.Spell = nil
-ok, ready = pcall(MDBX.GetMainSpellID)
+ok, ready = pcall(MDCB.GetMainSpellID)
 check("Exp former-deny glow only -> encoded as MAIN",
   ok and ready == 190319 and ready ~= 12294)
 
@@ -470,7 +470,7 @@ check("T3 denied glow skipped, non-denied kept", ok and ready == 185358)
 -- non-denied Spell is still kept.
 MaxDps.SpellsGlowing = nil
 MaxDps.Spell = 107574
-ok, ready = pcall(MDBX.GetMainSpellID)
+ok, ready = pcall(MDCB.GetMainSpellID)
 check("Exp former-deny MaxDps.Spell -> encoded as MAIN",
   ok and ready == 107574 and ready ~= 12294)
 MaxDps.Spell = 185358
@@ -823,10 +823,10 @@ do
   -- stripped first, so the ADDON_ACTION_BLOCKED name-match (a string literal)
   -- counts for nothing, and the type() existence guard is not a touch.
   local Files = {
-    "addon/MaxDpsBridge/Bars.lua", "addon/MaxDpsBridge/Bridge.lua",
-    "addon/MaxDpsBridge/Catalog.lua", "addon/MaxDpsBridge/Keymap.lua",
-    "addon/MaxDpsBridge/Options.lua", "addon/MaxDpsBridge/Panel.lua",
-    "addon/MaxDpsBridge/Reader.lua", "addon/MaxDpsBridge/Toggles.lua",
+    "addon/legacy/MaxDpsBridge/Bars.lua", "addon/legacy/MaxDpsBridge/Bridge.lua",
+    "addon/legacy/MaxDpsBridge/Catalog.lua", "addon/legacy/MaxDpsBridge/Keymap.lua",
+    "addon/legacy/MaxDpsBridge/Options.lua", "addon/legacy/MaxDpsBridge/Panel.lua",
+    "addon/legacy/MaxDpsBridge/Reader.lua", "addon/legacy/MaxDpsBridge/Toggles.lua",
   }
   local Sites, Invokes = 0, 0
   for _, Path in ipairs(Files) do
@@ -1129,13 +1129,13 @@ MaxDps.db.global.enableCooldowns = true
 -- also a valid MAIN pick (the denylist is gone).
 MaxDps.classCooldowns.WARRIOR.Arms.offensive = {}
 MaxDps.Spells[228920] = { { HotKey = { GetText = function() return "F" end } } }
-MDBX._BindCache = {}
+MDCB._BindCache = {}
 MaxDps.Flags = { [228920] = true }
-MDBX.BeginTick()
-local ravCand, ravGap = MDBX.GetOffensiveCandidate()
+MDCB.BeginTick()
+local ravCand, ravGap = MDCB.GetOffensiveCandidate()
 check("rv Ravager flagged -> offensive candidate 228920",
   ravCand == 228920 and ravGap == false)
-check("rv Exp has no MajorCDDeny table", MDBX.MajorCDDeny == nil)
+check("rv Exp has no MajorCDDeny table", MDCB.MajorCDDeny == nil)
 -- 3.7.8: a Ravager glow is no longer held out of Main — with Arms active and
 -- the glow usable, GetMainSpellID encodes 228920 directly.
 do
@@ -1143,8 +1143,8 @@ do
   local savedSpell = MaxDps.Spell
   MaxDps.SpellsGlowing = { [228920] = 1 }
   MaxDps.Spell = nil
-  MDBX.BeginTick()
-  local okMain, rvMain = pcall(MDBX.GetMainSpellID)
+  MDCB.BeginTick()
+  local okMain, rvMain = pcall(MDCB.GetMainSpellID)
   check("rv Ravager glow -> MAIN 228920 (no deny)", okMain and rvMain == 228920)
   MaxDps.SpellsGlowing = savedGlow
   MaxDps.Spell = savedSpell
@@ -1165,14 +1165,14 @@ do
   GetSpecialization = function() return 1 end
   GetSpecializationInfo = function() return 70 end
   MaxDps.Spells[375576] = { { HotKey = { GetText = function() return "G" end } } }
-  MDBX._BindCache = {}
+  MDCB._BindCache = {}
   MaxDps.Flags = { [375576] = true }
-  MDBX.BeginTick()
-  local dtCand, dtGap = MDBX.GetOffensiveCandidate()
+  MDCB.BeginTick()
+  local dtCand, dtGap = MDCB.GetOffensiveCandidate()
   check("dt Divine Toll 375576 flagged -> offensive candidate",
     dtCand == 375576 and dtGap == false)
   check("dt FlagOffensiveExtra[375576] is offensive",
-    MDBX.FlagOffensiveExtra ~= nil and MDBX.FlagOffensiveExtra[375576] == true)
+    MDCB.FlagOffensiveExtra ~= nil and MDCB.FlagOffensiveExtra[375576] == true)
   UnitClass = savedUnitClass
   GetSpecialization = savedGetSpec
   GetSpecializationInfo = savedGetSpecInfo
@@ -1990,7 +1990,7 @@ RunCcFixTests()
 local function RunMainFallbackTests ()
   -- CURRENT client (Exp) owns the per-spec fillers pinned here (Arms/Ret were
   -- added 2026-10-04/06); stable is frozen with Fury only.
-  local MDB = MDBX
+  local MDB = MDCB
   local savedGlow = MaxDps.SpellsGlowing
   local savedSpell = MaxDps.Spell
   local savedUsable = C_Spell.IsSpellUsable
@@ -2133,7 +2133,7 @@ RunMainFallbackTests()
 
 -- =====================================================================
 -- Ext4 (v4.0.x) hotbar press map: HotbarWatch + Bridge cells 43-50.
--- Loads the Exp Bars/Toggles/HotbarWatch/Bridge modules into MDBX and boots
+-- Loads the Exp Bars/Toggles/HotbarWatch/Bridge modules into MDCB and boots
 -- the Exp strip so the encode is pinned end-to-end (harness style). Scoped in
 -- a function so its locals do not push the main chunk over Lua's 200-local
 -- limit.
@@ -2141,11 +2141,11 @@ RunMainFallbackTests()
 local function RunExt4Tests ()
   -- ---- load + boot the Exp encoder ----
   local NFramesBefore = #AllFrames
-  assert(loadfile("addon/MaxDpsBridgeExp/Bars.lua"))("MaxDpsBridgeExp", MDBX)
-  assert(loadfile("addon/MaxDpsBridgeExp/Toggles.lua"))("MaxDpsBridgeExp", MDBX)
-  assert(loadfile("addon/MaxDpsBridgeExp/HotbarWatch.lua"))("MaxDpsBridgeExp", MDBX)
-  assert(loadfile("addon/MaxDpsBridgeExp/Bridge.lua"))("MaxDpsBridgeExp", MDBX)
-  assert(type(MDBX.HotbarWatch) == "table", "HotbarWatch module missing")
+  assert(loadfile("addon/MaxDpsCompanionBridge/Bars.lua"))("MaxDpsCompanionBridge", MDCB)
+  assert(loadfile("addon/MaxDpsCompanionBridge/Toggles.lua"))("MaxDpsCompanionBridge", MDCB)
+  assert(loadfile("addon/MaxDpsCompanionBridge/HotbarWatch.lua"))("MaxDpsCompanionBridge", MDCB)
+  assert(loadfile("addon/MaxDpsCompanionBridge/Bridge.lua"))("MaxDpsCompanionBridge", MDCB)
+  assert(type(MDCB.HotbarWatch) == "table", "HotbarWatch module missing")
 
   local LoaderExp
   for i = NFramesBefore + 1, #AllFrames do
@@ -2156,8 +2156,8 @@ local function RunExt4Tests ()
   end
   assert(LoaderExp, "Exp loader frame missing")
   local TexBase = TextureCount        -- Exp cells get ids TexBase+1 .. TexBase+51
-  LoaderExp._scripts.OnEvent(LoaderExp, "ADDON_LOADED", "MaxDpsBridgeExp")
-  local StripExp = _G.MaxDpsBridgeExp_Block
+  LoaderExp._scripts.OnEvent(LoaderExp, "ADDON_LOADED", "MaxDpsCompanionBridge")
+  local StripExp = _G.MaxDpsCompanionBridge_Block
   assert(StripExp, "Exp strip frame missing")
   local UpdateExp = StripExp._scripts.OnUpdate
   assert(type(UpdateExp) == "function", "Exp OnUpdate not wired")
@@ -2186,7 +2186,7 @@ local function RunExt4Tests ()
   ChatEdit_GetActiveWindow = nil
   GetCurrentKeyBoardFocus = nil
 
-  local HW = MDBX.HotbarWatch
+  local HW = MDCB.HotbarWatch
 
   -- ---- (1) EMPTY map -> one EMPTY frame + presence bit ----
   Actions, Binds = {}, {}
@@ -2318,11 +2318,11 @@ local function RunExt4Tests ()
   pcall(UpdateExp, StripExp, 0.06)
   check("E4 typing bit clear with no focus", bit.band(XNib(41), 4) == 0)
 
-  -- ---- (7) /mdbx hotbar diagnostic ----
+  -- ---- (7) /mcb hotbar diagnostic ----
   ClearChat()
-  MDBX.HandleCommand("hotbar")
+  MDCB.HandleCommand("hotbar")
   local HotLine = ChatLog[#ChatLog] or ""
-  check("E4 /mdbx hotbar prints header + entry",
+  check("E4 /mcb hotbar prints header + entry",
     HotLine:find("gen=", 1, true) ~= nil
     and HotLine:find("slot=1", 1, true) ~= nil
     and HotLine:find("binding=1", 1, true) ~= nil
@@ -2338,30 +2338,30 @@ local function RunExt4Tests ()
   GetBindingKey = function (cmd) if cmd == "ACTIONBUTTON1" then return "1" end return nil end
   MaxDps.SpellsGlowing = { [185358] = 1 }
   MaxDps.Spell = nil
-  MDBX.Toggles.Set("OOC", true)   -- neutralise the OOC master gate for this pin
-  MDBX.Toggles.Set("Main", true)
+  MDCB.Toggles.Set("OOC", true)   -- neutralise the OOC master gate for this pin
+  MDCB.Toggles.Set("Main", true)
   HW.Rebuild()
   -- Earlier sections cached a binding MISS while the bars were stubbed empty;
   -- wipe it like a bar-change event would, then re-resolve against the stubs.
-  if MDBX.InvalidateBindings then MDBX.InvalidateBindings() end
+  if MDCB.InvalidateBindings then MDCB.InvalidateBindings() end
   local OkA = pcall(UpdateExp, StripExp, 0.06)
   local a1r, a1g, a1b = XNib(1)
   check("E4x allowed Main paints a valid cell 1", OkA and bit.band(a1b, 8) == 8)
 
-  MDBX.Toggles.Set("Offensive", true)
-  MDBX.Toggles.Set("Defensive", true)
-  MDBX.Toggles.Set("SelfHeal", true)
-  MDBX.Toggles.Set("Main", false)
+  MDCB.Toggles.Set("Offensive", true)
+  MDCB.Toggles.Set("Defensive", true)
+  MDCB.Toggles.Set("SelfHeal", true)
+  MDCB.Toggles.Set("Main", false)
   -- v4.0.4: Main is the MASTER switch. All 8 slots are denied by the master
   -- gate (not by their own pill), and the other stored toggles are untouched.
   local MasterAll, MasterReason = true, 0
   for Slot = 1, 8 do
-    if MDBX.Toggles.SlotAllowed(Slot, { InCombat = true, HpPct = 80, Grouped = true }) ~= false then
+    if MDCB.Toggles.SlotAllowed(Slot, { InCombat = true, HpPct = 80, Grouped = true }) ~= false then
       MasterAll = false
     end
-    if MDBX._LastBlank[Slot] == "main off (master switch)" then MasterReason = MasterReason + 1 end
+    if MDCB._LastBlank[Slot] == "main off (master switch)" then MasterReason = MasterReason + 1 end
   end
-  local MasterSnap = MDBX.Toggles.Snapshot()
+  local MasterSnap = MDCB.Toggles.Snapshot()
   check("E4x Main OFF denies all 8 slots with the master reason", MasterAll and MasterReason == 8)
   check("E4x Main OFF leaves every other toggle physically ON",
     MasterSnap.Main == false and MasterSnap.Offensive == true
@@ -2378,10 +2378,10 @@ local function RunExt4Tests ()
   end
   local _, CoreChecksum = XNib(10)
   check("E4x core checksum matches the PAINTED cells after a deny", CoreChecksum == (PaintedSum % 16))
-  MDBX.Toggles.Set("Main", true)
+  MDCB.Toggles.Set("Main", true)
   check("E4x Main ON restores slot 1 without rewriting other toggles",
-    MDBX.Toggles.SlotAllowed(1, { InCombat = true, HpPct = 80, Grouped = true }) == true
-    and MDBX.Toggles.Get("Offensive") == true and MDBX.Toggles.Get("Defensive") == true)
+    MDCB.Toggles.SlotAllowed(1, { InCombat = true, HpPct = 80, Grouped = true }) == true
+    and MDCB.Toggles.Get("Offensive") == true and MDCB.Toggles.Get("Defensive") == true)
 
   -- restore the action-bar stubs
   GetActionInfo = function () return nil end
@@ -2401,10 +2401,10 @@ RunExt4Tests()
 -- Lua's 200-local limit.
 -- =====================================================================
 local function RunParagonTests ()
-  local TG = MDBX.Toggles
-  local DB = MaxDpsBridgeExpDB
-  local HW = MDBX.HotbarWatch
-  local StripExp = _G.MaxDpsBridgeExp_Block
+  local TG = MDCB.Toggles
+  local DB = MaxDpsCompanionBridgeDB
+  local HW = MDCB.HotbarWatch
+  local StripExp = _G.MaxDpsCompanionBridge_Block
   local UpdateExp = StripExp and StripExp._scripts and StripExp._scripts.OnUpdate
   assert(type(UpdateExp) == "function", "Exp OnUpdate missing for A1 pins")
 
@@ -2430,61 +2430,61 @@ local function RunParagonTests ()
 
   -- ---- A1.1: SPELL_UPDATE_COOLDOWN must not touch the bind caches -----
   do
-    MDBX._BindCache = { [185358] = { Miss = true } }
-    local Cache = MDBX._BindCache
-    local Rev = MDBX._BindRevision or 0
+    MDCB._BindCache = { [185358] = { Miss = true } }
+    local Cache = MDCB._BindCache
+    local Rev = MDCB._BindRevision or 0
     local Wipes = 0
-    local SavedInvalidate = MDBX.InvalidateBindings
-    MDBX.InvalidateBindings = function () Wipes = Wipes + 1; SavedInvalidate() end
-    local OkMode, Mode = pcall(MDBX.BarsEvent, "SPELL_UPDATE_COOLDOWN")
+    local SavedInvalidate = MDCB.InvalidateBindings
+    MDCB.InvalidateBindings = function () Wipes = Wipes + 1; SavedInvalidate() end
+    local OkMode, Mode = pcall(MDCB.BarsEvent, "SPELL_UPDATE_COOLDOWN")
     check("A1.1 cooldown event is revision-only", OkMode and Mode == "revision")
-    check("A1.1 cooldown event bumps _BindRevision", (MDBX._BindRevision or 0) == Rev + 1)
+    check("A1.1 cooldown event bumps _BindRevision", (MDCB._BindRevision or 0) == Rev + 1)
     check("A1.1 cooldown event keeps the cached Miss (same table)",
-      MDBX._BindCache == Cache and Cache[185358] ~= nil)
+      MDCB._BindCache == Cache and Cache[185358] ~= nil)
     check("A1.1 cooldown event runs no full invalidation", Wipes == 0)
-    local OkFlush, Pend = pcall(MDBX.BarsFlush)
+    local OkFlush, Pend = pcall(MDCB.BarsFlush)
     check("A1.1 cooldown event leaves nothing deferred", OkFlush and Pend == false)
-    MDBX.InvalidateBindings = SavedInvalidate
+    MDCB.InvalidateBindings = SavedInvalidate
   end
   do
     -- The live path: the Listener -> C_Timer -> BarsFlush chain.
-    MDBX._BindCache = { [185358] = { Miss = true } }
-    local Cache = MDBX._BindCache
+    MDCB._BindCache = { [185358] = { Miss = true } }
+    local Cache = MDCB._BindCache
     FirePlainEvent("SPELL_UPDATE_COOLDOWN")
     runDeferred()
     check("A1.1 cooldown EVENT keeps the cached Miss",
-      MDBX._BindCache == Cache and Cache[185358] ~= nil)
+      MDCB._BindCache == Cache and Cache[185358] ~= nil)
   end
 
   -- ---- A1.1: full path stays deferred and coalesces to 1 / 0.25 s -----
   do
-    MDBX._BindCache = { [185358] = { Miss = true } }
-    local Rev = MDBX._BindRevision or 0
+    MDCB._BindCache = { [185358] = { Miss = true } }
+    local Rev = MDCB._BindRevision or 0
     FirePlainEvent("UPDATE_BINDINGS")
-    check("A1.1 bar event is DEFERRED (bars repaint late)", MDBX._BindCache[185358] ~= nil)
+    check("A1.1 bar event is DEFERRED (bars repaint late)", MDCB._BindCache[185358] ~= nil)
     runDeferred()
-    check("A1.1 deferred bar event wipes the VK cache", MDBX._BindCache[185358] == nil)
-    check("A1.1 deferred bar event bumps _BindRevision", (MDBX._BindRevision or 0) == Rev + 1)
-    local Rev2 = MDBX._BindRevision or 0
-    MDBX._BindCache = { [185358] = { Miss = true } }
+    check("A1.1 deferred bar event wipes the VK cache", MDCB._BindCache[185358] == nil)
+    check("A1.1 deferred bar event bumps _BindRevision", (MDCB._BindRevision or 0) == Rev + 1)
+    local Rev2 = MDCB._BindRevision or 0
+    MDCB._BindCache = { [185358] = { Miss = true } }
     FirePlainEvent("UPDATE_BINDINGS")
     FirePlainEvent("UPDATE_MACROS")
     FirePlainEvent("ACTIONBAR_SLOT_CHANGED")
     runDeferred()
-    check("A1.1 an event burst coalesces to ONE wipe", (MDBX._BindRevision or 0) == Rev2 + 1)
-    check("A1.1 the coalesced wipe still happened", MDBX._BindCache[185358] == nil)
+    check("A1.1 an event burst coalesces to ONE wipe", (MDCB._BindRevision or 0) == Rev2 + 1)
+    check("A1.1 the coalesced wipe still happened", MDCB._BindCache[185358] == nil)
     Now = Now + 1.0
     FirePlainEvent("UPDATE_MACROS")
     runDeferred()
-    check("A1.1 next event after the window wipes again", (MDBX._BindRevision or 0) == Rev2 + 2)
+    check("A1.1 next event after the window wipes again", (MDCB._BindRevision or 0) == Rev2 + 2)
   end
 
   -- ---- A1.4: a parse miss no longer writes a global -------------------
   do
-    MDBX.LastMissBinding = nil
-    local VK = MDBX.ParseBinding("BUTTON9")
+    MDCB.LastMissBinding = nil
+    local VK = MDCB.ParseBinding("BUTTON9")
     check("A1.4 unknown token is still a nil VK", VK == nil)
-    check("A1.4 parse miss no longer writes MDBX.LastMissBinding", MDBX.LastMissBinding == nil)
+    check("A1.4 parse miss no longer writes MDCB.LastMissBinding", MDCB.LastMissBinding == nil)
   end
 
   -- ---- A1.2: FrameKey uses the DECISION EDGES, not the raw HP ---------
@@ -2503,7 +2503,7 @@ local function RunParagonTests ()
       UnitHealth = function () return Hp end
       UnitHealthMax = function () return 100 end
     end
-    local Ok, K = pcall(MDBX.FrameKey, { InCombat = Combat, Grouped = Grouped })
+    local Ok, K = pcall(MDCB.FrameKey, { InCombat = Combat, Grouped = Grouped })
     if not Ok or type(K) ~= "number" then return -1 end
     return K
   end
@@ -2524,9 +2524,9 @@ local function RunParagonTests ()
     check("A1.2 Ctx.InCombat is an input", Fk(60, true, true) ~= Fk(60, false, true))
     check("A1.2 Ctx.Grouped is an input", Fk(60, true, true) ~= Fk(60, true, false))
     check("A1.2 unknown Ctx fields differ from known ones", Fk(60, true, true) ~= Fk(60, nil, true))
-    MDBX.SoloLadderBands = { minor = 75, major = 50, immunity = 30 }
+    MDCB.SoloLadderBands = { minor = 75, major = 50, immunity = 30 }
     local Armed = Fk(60, true, true)
-    MDBX.SoloLadderBands = nil
+    MDCB.SoloLadderBands = nil
     check("A1.2 SoloLadderBands arming is an input", Armed ~= Fk(60, true, true))
     UnitStagger = function () return 10 end
     local White = Fk(60, true, true)
@@ -2546,18 +2546,18 @@ local function RunParagonTests ()
     UnitAffectingCombat = function () return false end
     TG.Set("OOC", true)
     DB.Enabled = true
-    MDBX.SetUserPaused(false)
+    MDCB.SetUserPaused(false)
     UnitHealthMax = function () return 100 end
     UnitHealth = function () return 60 end
     pcall(UpdateExp, StripExp, 0.06)          -- primes the cache
-    local N0 = MDBX._SlotScans or 0
+    local N0 = MDCB._SlotScans or 0
     UnitHealth = function () return 61 end
     pcall(UpdateExp, StripExp, 0.06)
-    local N1 = MDBX._SlotScans or 0
+    local N1 = MDCB._SlotScans or 0
     check("A1.2 HP drift inside a band reuses the cached scan", N1 == N0)
     UnitHealth = function () return 49 end
     pcall(UpdateExp, StripExp, 0.06)
-    check("A1.2 crossing 50 % repins the scan", (MDBX._SlotScans or 0) == N1 + 1)
+    check("A1.2 crossing 50 % repins the scan", (MDCB._SlotScans or 0) == N1 + 1)
   end
 
   -- ---- A1.3: per-tick memo -------------------------------------------
@@ -2567,14 +2567,14 @@ local function RunParagonTests ()
     FindBaseSpellByID = function (id) Probes = Probes + 1; return id end
     FindSpellOverrideByID = function (id) Probes = Probes + 1; return nil end
     GetOverrideSpell = function (id) Probes = Probes + 1; return nil end
-    pcall(MDBX.BeginTick)
-    local First = MDBX.SpellVariants(185358)
+    pcall(MDCB.BeginTick)
+    local First = MDCB.SpellVariants(185358)
     local P1 = Probes
-    local Second = MDBX.SpellVariants(185358)
+    local Second = MDCB.SpellVariants(185358)
     check("A1.3 SpellVariants evaluates once per tick", P1 > 0 and Probes == P1)
     check("A1.3 SpellVariants memo returns the same array", First == Second)
-    pcall(MDBX.EndTick)
-    MDBX.SpellVariants(185358)
+    pcall(MDCB.EndTick)
+    MDCB.SpellVariants(185358)
     check("A1.3 SpellVariants outside a tick reads live again", Probes > P1)
     FindBaseSpellByID, FindSpellOverrideByID, GetOverrideSpell = SavedBase, SavedOver, SavedGetOv
   end
@@ -2585,31 +2585,31 @@ local function RunParagonTests ()
       Reads = Reads + 1
       return { startTime = 0, duration = 0, isEnabled = true, isActive = false, isOnGCD = false }
     end
-    pcall(MDBX.BeginTick)
-    MDBX.IsSpellReady(185358); MDBX.IsSpellReady(185358); MDBX.IsSpellReady(185358)
+    pcall(MDCB.BeginTick)
+    MDCB.IsSpellReady(185358); MDCB.IsSpellReady(185358); MDCB.IsSpellReady(185358)
     check("A1.3 IsSpellReady probes once per tick", Reads == 1)
-    pcall(MDBX.EndTick)
-    MDBX.IsSpellReady(185358)
+    pcall(MDCB.EndTick)
+    MDCB.IsSpellReady(185358)
     check("A1.3 IsSpellReady outside a tick probes again", Reads == 2)
     C_Spell.GetSpellCooldown = SavedCD
   end
   do
-    local SavedNever = MDBX.IsNeverAutomatic
-    local SavedHeal = MDBX.Extras.WARRIOR.Arms.selfHeal
+    local SavedNever = MDCB.IsNeverAutomatic
+    local SavedHeal = MDCB.Extras.WARRIOR.Arms.selfHeal
     local Walks = 0
-    MDBX.Extras.WARRIOR.Arms.selfHeal = { 202168 }
-    MDBX.IsNeverAutomatic = function (id) Walks = Walks + 1; return SavedNever(id) end
-    pcall(MDBX.BeginTick)
-    local P1 = MDBX.RotationCandidates(8, 4)
+    MDCB.Extras.WARRIOR.Arms.selfHeal = { 202168 }
+    MDCB.IsNeverAutomatic = function (id) Walks = Walks + 1; return SavedNever(id) end
+    pcall(MDCB.BeginTick)
+    local P1 = MDCB.RotationCandidates(8, 4)
     local W1 = Walks
-    local P2 = MDBX.RotationCandidates(8, 4)
+    local P2 = MDCB.RotationCandidates(8, 4)
     check("A1.3 RotationCandidates reuses the per-tick pool",
       P1 == P2 and W1 >= 1 and Walks == W1)
-    pcall(MDBX.EndTick)
-    MDBX.RotationCandidates(8, 4)
+    pcall(MDCB.EndTick)
+    MDCB.RotationCandidates(8, 4)
     check("A1.3 RotationCandidates outside a tick re-walks", Walks > W1)
-    MDBX.Extras.WARRIOR.Arms.selfHeal = SavedHeal
-    MDBX.IsNeverAutomatic = SavedNever
+    MDCB.Extras.WARRIOR.Arms.selfHeal = SavedHeal
+    MDCB.IsNeverAutomatic = SavedNever
   end
 
   -- ---- A1.5: the HP-curve cell paints black once, not per tick --------
@@ -2638,15 +2638,15 @@ local function RunParagonTests ()
 
   -- ---- A1.6: cached SavedVariables table + precomputed keys -----------
   do
-    local SavedDBGlobal = _G.MaxDpsBridgeExpDB
+    local SavedDBGlobal = _G.MaxDpsCompanionBridgeDB
     TG.Set("Main", false)
     check("A1.6 canonical and lowercase spellings agree",
       TG.Get("Main") == false and TG.Get("main") == false and TG.Get("MAIN") == false)
-    _G.MaxDpsBridgeExpDB = { Toggles = { Main = true } }
+    _G.MaxDpsCompanionBridgeDB = { Toggles = { Main = true } }
     check("A1.6 Toggles reads the cached DB (not the swapped global)", TG.Get("Main") == false)
     pcall(TG.RefreshDatabase)
     check("A1.6 RefreshDatabase re-points the cache", TG.Get("Main") == true)
-    _G.MaxDpsBridgeExpDB = SavedDBGlobal
+    _G.MaxDpsCompanionBridgeDB = SavedDBGlobal
     pcall(TG.RefreshDatabase)
     TG.Set("Main", true)
     check("A1.6 restored DB drives the gate again", TG.Get("Main") == true)
@@ -2689,8 +2689,8 @@ local function RunParagonTests ()
   -- ---- A1.8: vehicle / override / bonus bar events --------------------
   do
     runDeferred()   -- drain anything queued before this pin
-    MDBX._BindCache = { [185358] = { Miss = true } }
-    local Rev = MDBX._BindRevision or 0
+    MDCB._BindCache = { [185358] = { Miss = true } }
+    local Rev = MDCB._BindRevision or 0
     Actions = { [1] = { "spell", 100 } }
     Binds = { ["ACTIONBUTTON1"] = "1" }
     FirePlainEvent("UPDATE_BONUS_ACTIONBAR")
@@ -2698,7 +2698,7 @@ local function RunParagonTests ()
     pcall(HW.Flush)
     runDeferred()
     check("A1.8 bonus-bar event invalidates the bindings",
-      (MDBX._BindRevision or 0) > Rev and MDBX._BindCache[185358] == nil)
+      (MDCB._BindRevision or 0) > Rev and MDCB._BindCache[185358] == nil)
     local Entries = HW.Entries()
     check("A1.8 bonus-bar event rebuilds the pressed map",
       HW.Count() == 1 and Entries[1] and Entries[1].Id == 100)
@@ -2706,18 +2706,18 @@ local function RunParagonTests ()
 
   -- ---- A1.9: SavedVariables schema migration --------------------------
   do
-    local Schema = MDBX.SCHEMA_VERSION
+    local Schema = MDCB.SCHEMA_VERSION
     check("A1.9 boot migrated the DB to schema 1",
       Schema == 1 and DB.SchemaVersion == 1)
     local Legacy = { Enabled = false }
-    local OkMig = pcall(MDBX.Migrate, Legacy)
+    local OkMig = pcall(MDCB.Migrate, Legacy)
     check("A1.9 v0 Enabled=false seeds the sticky pause",
       OkMig and Legacy.UserPaused == true and Legacy.SchemaVersion == 1)
     local Cleared = { SchemaVersion = 1, Enabled = false, UserPaused = false }
-    local OkMig2 = pcall(MDBX.Migrate, Cleared)
+    local OkMig2 = pcall(MDCB.Migrate, Cleared)
     check("A1.9 v1 never resurrects a cleared pause", OkMig2 and Cleared.UserPaused == false)
     local Fresh = {}
-    local OkMig3 = pcall(MDBX.Migrate, Fresh)
+    local OkMig3 = pcall(MDCB.Migrate, Fresh)
     check("A1.9 a fresh DB gets schema 1 and no pause",
       OkMig3 and Fresh.SchemaVersion == 1 and Fresh.UserPaused == nil)
   end
@@ -2727,22 +2727,22 @@ local function RunParagonTests ()
     local SavedX, SavedY, SavedCell = DB.OffsetX, DB.OffsetY, DB.CellSize
     UIParent._w, UIParent._h = 100, 40
     DB.OffsetX, DB.OffsetY, DB.CellSize = 5000, 5000, 999
-    MDBX.Layout()
+    MDCB.Layout()
     check("A1.10 cell size clamped to 64", DB.CellSize == 64)
     check("A1.10 offset clamped onto the screen", DB.OffsetX == 0 and DB.OffsetY == 0)
     UIParent._w, UIParent._h = 4000, 2000
     DB.OffsetX, DB.OffsetY = 5000, 5000
-    MDBX.Layout()
+    MDCB.Layout()
     check("A1.10 oversized offset clamped to the screen edge",
       DB.OffsetX == 4000 - DB.CellSize * 51 and DB.OffsetY == 2000 - DB.CellSize)
     UIParent._w, UIParent._h = nil, nil
     DB.OffsetX, DB.OffsetY, DB.CellSize = SavedX, SavedY, SavedCell
-    MDBX.Layout()
+    MDCB.Layout()
   end
 
   -- ---- A1.11: one shared, documented slot -> command table ------------
   do
-    local SC = MDBX.SlotCommand
+    local SC = MDCB.SlotCommand
     check("A1.11 main bar 1-12 -> ACTIONBUTTON",
       SC and SC(1) == "ACTIONBUTTON1" and SC(12) == "ACTIONBUTTON12")
     check("A1.11 13-24 are Action Bar 1 page 2 (ACTIONBUTTON)",
@@ -2766,8 +2766,8 @@ local function RunParagonTests ()
       HW.Count() == 1 and E[1] and E[1].Slot == 13 and E[1].VK == 0x31)
     local SavedSpells = MaxDps.Spells
     MaxDps.Spells = {}
-    MDBX._BindCache = {}
-    local VK = MDBX.ResolveBinding(185358)
+    MDCB._BindCache = {}
+    local VK = MDCB.ResolveBinding(185358)
     check("A1.11 Reader binds slot 13 through ACTIONBUTTON", VK == 0x31)
     MaxDps.Spells = SavedSpells
   end
@@ -2775,7 +2775,7 @@ local function RunParagonTests ()
   -- ---- A1.12: stale diagnostics comments ------------------------------
   do
     ClearChat()
-    if MDBX.Diag then pcall(MDBX.Diag) end
+    if MDCB.Diag then pcall(MDCB.Diag) end
     local Line = table.concat(ChatLog, "\n")
     check("A1.12 /mdb diag reports proto=5", Line:find("proto=5", 1, true) ~= nil)
   end
@@ -2787,7 +2787,7 @@ local function RunParagonTests ()
   -- a cooldown-heavy fight (readiness flips every GCD) starved it. Ready still
   -- rides the wire (entry cell 2 idTop bit2) and is now refreshed in place.
   do
-    local SavedReadyFn = MDBX.IsSpellReady
+    local SavedReadyFn = MDCB.IsSpellReady
     local ReadyNow = true
     -- Cell i of the Exp strip: the last 51 textures created (as in A1.5).
     local CellsBase = TextureCount - 50;
@@ -2796,7 +2796,7 @@ local function RunParagonTests ()
       if not c then return 0 end
       return math.floor(c[1] * 15 + 0.5)
     end
-    MDBX.IsSpellReady = function () return ReadyNow end
+    MDCB.IsSpellReady = function () return ReadyNow end
     runDeferred()
     Actions, Binds = {}, {}
     for i = 1, 4 do
@@ -2847,7 +2847,7 @@ local function RunParagonTests ()
     Binds["ACTIONBUTTON1"] = "SHIFT-1"
     pcall(HW.MarkDirty); pcall(HW.Flush)
     check("A1.13 a changed key bumps gen", HW.Gen() == (GenKey + 1) % 16)
-    MDBX.IsSpellReady = SavedReadyFn
+    MDCB.IsSpellReady = SavedReadyFn
   end
 
   -- ---- A1.14: the remaining Tick memos are gated on Tick.Active ---------
@@ -2858,7 +2858,7 @@ local function RunParagonTests ()
     local SavedItems, SavedCons = MaxDps.ItemSpells, MaxDps.Consumables
     local SavedInterrupts, SavedIdToSpec = MaxDps.classInterrupts, MaxDps.idtospec
     local SavedSpecInfo = GetSpecializationInfo
-    local SavedBindCache = MDBX._BindCache
+    local SavedBindCache = MDCB._BindCache
     runDeferred()
 
     -- (1) ScrubbedFlags + ItemSpellIDs: swapped upstream state shows at once
@@ -2866,16 +2866,16 @@ local function RunParagonTests ()
     MaxDps.Spells = { [500001] = {} }
     MaxDps.ItemSpells = { [5002] = 500001 }   -- ItemID -> ItemSpellID
     MaxDps.Consumables = { [5002] = true }
-    pcall(MDBX.BeginTick)
-    local C1 = MDBX.GetConsumableSpellID()
-    pcall(MDBX.EndTick)
+    pcall(MDCB.BeginTick)
+    local C1 = MDCB.GetConsumableSpellID()
+    pcall(MDCB.EndTick)
     check("A1.14 consumable memo warm inside the tick", C1 == 500001)
     MaxDps.Flags = { [500003] = true }
     MaxDps.Spells = { [500003] = {} }
     MaxDps.ItemSpells = { [5004] = 500003 }
     MaxDps.Consumables = { [5004] = true }
     check("A1.14 ScrubbedFlags/ItemSpellIDs are tick-gated (outside a tick)",
-      MDBX.GetConsumableSpellID() == 500003)
+      MDCB.GetConsumableSpellID() == 500003)
 
     -- (2) ClassSpec: a spec change between ticks shows at once
     MaxDps.classInterrupts = { WARRIOR = { Arms = { 6552 }, Fury = { 6553 } } }
@@ -2884,20 +2884,20 @@ local function RunParagonTests ()
     MaxDps.Spells = { [6553] = {} }
     Actions = { [1] = { "spell", 6553 } }
     Binds = { ["ACTIONBUTTON1"] = "1" }
-    MDBX._BindCache = {}
+    MDCB._BindCache = {}
     GetSpecializationInfo = function () return 71 end
-    pcall(MDBX.BeginTick)
-    local W1 = MDBX.GetInterruptSpellID()
-    pcall(MDBX.EndTick)
+    pcall(MDCB.BeginTick)
+    local W1 = MDCB.GetInterruptSpellID()
+    pcall(MDCB.EndTick)
     check("A1.14 interrupt memo warm: Arms does not own Fury's kick", W1 == nil)
     GetSpecializationInfo = function () return 72 end
-    check("A1.14 ClassSpec is tick-gated (outside a tick)", MDBX.GetInterruptSpellID() == 6553)
+    check("A1.14 ClassSpec is tick-gated (outside a tick)", MDCB.GetInterruptSpellID() == 6553)
 
     MaxDps.Spells, MaxDps.Flags = SavedSpells, SavedFlags
     MaxDps.ItemSpells, MaxDps.Consumables = SavedItems, SavedCons
     MaxDps.classInterrupts, MaxDps.idtospec = SavedInterrupts, SavedIdToSpec
     GetSpecializationInfo = SavedSpecInfo
-    MDBX._BindCache = SavedBindCache
+    MDCB._BindCache = SavedBindCache
   end
 
   -- restore the action-bar stubs and the clock

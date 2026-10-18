@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    LEGACY stable bridge installer; the current client uses tools/install-addon-exp.ps1.
+    LEGACY stable bridge installer; the current client uses tools/install-addon.ps1.
     Copies the MaxDpsBridge addon into a WoW Interface\AddOns folder.
 .EXAMPLE
     .\install-addon.ps1
@@ -13,7 +13,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$source = Join-Path $PSScriptRoot 'addon\MaxDpsBridge'
+$source = Join-Path $PSScriptRoot 'addon\legacy\MaxDpsBridge'
 if (-not (Test-Path $source)) { throw "Addon source not found at $source" }
 if (-not (Test-Path $AddOnsPath)) { throw "AddOns folder not found at $AddOnsPath" }
 

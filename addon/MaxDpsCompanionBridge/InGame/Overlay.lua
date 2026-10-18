@@ -1,14 +1,14 @@
 --- ============================ HEADER ============================
--- MaxDpsBridgeExp - insecure overlay (RICE-style replica surface).
+-- MaxDpsCompanionBridge - insecure overlay (RICE-style replica surface).
 --
 -- Plain Frame + BackdropTemplate. NO secure templates, NO protected
 -- attributes, NO RegisterForClicks automation: every pill is an ordinary
--- insecure Button that flips one in-game toggle via MDBX.Toggles. The
+-- insecure Button that flips one in-game toggle via MDCB.Toggles. The
 -- overlay is deliberately off the pixel path and can never drive gameplay.
 --
 -- Layout: Header (drag handle + lock + title) -> PillGrid (13 pills, 4
 -- columns) -> compact Footer (status dot only; v4.0.4 removed the profile
--- line so the overlay is shorter). Profiles stay in the /mdbx Config window.
+-- line so the overlay is shorter). Profiles stay in the /mcb Config window.
 --
 -- Redraw policy: a dirty flag plus a 0.2 s C_Timer ticker that exists ONLY
 -- while the overlay is shown; OnHide cancels it. Structural rebuilds that
@@ -16,9 +16,9 @@
 -- PLAYER_REGEN_ENABLED. Show/Hide/SetScale/SetAlpha are insecure and run
 -- immediately (they never touch a protected frame).
 --
--- Icons: prefer the committed Interface\AddOns\MaxDpsBridgeExp\Exp\Assets\
+-- Icons: prefer the committed Interface\AddOns\MaxDpsCompanionBridge\InGame\Assets\
 -- <keylower>-64 TGA when present, else the per-key stock Interface\Icons art
--- in BLIZZARD_ICONS, else INV_Misc_QuestionMark (see Exp/Assets/README.md).
+-- in BLIZZARD_ICONS, else INV_Misc_QuestionMark (see InGame/Assets/README.md).
 --
 -- GW2_UI skin (OptionalDep): slices 1+2 restyle the frame, fonts and pills
 -- with GW2 art. GW2 files are referenced by RUNTIME PATH STRING ONLY - never
@@ -26,12 +26,12 @@
 -- path is probed at runtime; when GW2_UI is absent or a texture fails to load
 -- the stock BackdropTemplate chrome / Blizzard fonts stay in place.
 
-local addonName, MDBX = ...;
+local addonName, MDCB = ...;
 
 local O = {};
-MDBX.Overlay = O;
+MDCB.Overlay = O;
 
-local FRAME_NAME = "MaxDpsBridgeExpOverlay";
+local FRAME_NAME = "MaxDpsCompanionBridgeOverlay";
 local TICKER_PERIOD = 0.2;
 local PILL_KEYS = {
   "Main", "Offensive", "Defensive", "Consumable", "Trinket", "Interrupt",
@@ -39,7 +39,7 @@ local PILL_KEYS = {
   "TTK", "CC",
 };
 local FALLBACK_ICON = "Interface\\Icons\\INV_Misc_QuestionMark";
-local ICON_PATH = "Interface\\AddOns\\MaxDpsBridgeExp\\Exp\\Assets\\";
+local ICON_PATH = "Interface\\AddOns\\MaxDpsCompanionBridge\\InGame\\Assets\\";
 -- Per-key stock Blizzard art for the PRIMARY pill icon when the committed -64
 -- TGA is absent (Assets\ ships only a README today). This keeps every pill on
 -- real class art instead of the QuestionMark placeholder. Names are the
@@ -81,7 +81,7 @@ local EFFECT = {
 };
 
 local function BindFor (Key)
-  local Name = "MDBX_TOGGLE_" .. tostring(Key):upper();
+  local Name = "MDCB_TOGGLE_" .. tostring(Key):upper();
   if type(_G.GetBindingKey) == "function" then
     local Ok, A = pcall(_G.GetBindingKey, Name);
     if Ok and type(A) == "string" and A ~= "" then return A; end;
@@ -150,8 +150,8 @@ end
 function O.ResolveGw2 ()
   if GW2.probed then return GW2; end;
   GW2.probed = true;
-  if MDBX.IsAddonLoaded then
-    local Ok, Loaded = pcall(MDBX.IsAddonLoaded, GW2_ADDON);
+  if MDCB.IsAddonLoaded then
+    local Ok, Loaded = pcall(MDCB.IsAddonLoaded, GW2_ADDON);
     if Ok then GW2.loaded = (Loaded == true); end;
   end;
   if not GW2.loaded then return GW2; end;
@@ -228,8 +228,8 @@ local DEFAULTS = {
 };
 
 local function DB ()
-  if type(_G.MaxDpsBridgeExpDB) ~= "table" then _G.MaxDpsBridgeExpDB = {}; end;
-  local D = _G.MaxDpsBridgeExpDB;
+  if type(_G.MaxDpsCompanionBridgeDB) ~= "table" then _G.MaxDpsCompanionBridgeDB = {}; end;
+  local D = _G.MaxDpsCompanionBridgeDB;
   if type(D.overlay) ~= "table" then D.overlay = {}; end;
   for Key, Value in pairs(DEFAULTS) do
     if D.overlay[Key] == nil then D.overlay[Key] = Value; end;
@@ -320,7 +320,7 @@ local function BuildHeader ()
 
   local Title = Header:CreateFontString(nil, "OVERLAY", "GameFontNormal");
   Title:SetPoint("LEFT", 6, 0);
-  Title:SetText("MaxDps Bridge Exp");
+  Title:SetText("MaxDps Companion Bridge");
   ApplyFont(Title, "header");
   if GW2.loaded then
     Title:SetTextColor(LIGHT_HEADER[1], LIGHT_HEADER[2], LIGHT_HEADER[3], 1);
@@ -409,7 +409,7 @@ local function BuildPills ()
     if Pill.Label.SetWordWrap then Pill.Label:SetWordWrap(false); end;
     if Pill.Label.SetNonSpaceWrap then Pill.Label:SetNonSpaceWrap(false); end;
     local Short = Key;
-    if MDBX.Toggles and MDBX.Toggles.ShortLabel then Short = MDBX.Toggles.ShortLabel(Key); end;
+    if MDCB.Toggles and MDCB.Toggles.ShortLabel then Short = MDCB.Toggles.ShortLabel(Key); end;
     Pill.Label:SetText(Short);
     ApplyFont(Pill.Label, "pill");
     Pill.On = true;
@@ -421,9 +421,9 @@ local function BuildPills ()
       PaintPill(self, true);
       if GameTooltip then
         local Short = Key;
-        if MDBX.Toggles and MDBX.Toggles.ShortLabel then Short = MDBX.Toggles.ShortLabel(Key); end;
+        if MDCB.Toggles and MDCB.Toggles.ShortLabel then Short = MDCB.Toggles.ShortLabel(Key); end;
         local Full = Key;
-        if MDBX.Toggles and MDBX.Toggles.Label then Full = MDBX.Toggles.Label(Key); end;
+        if MDCB.Toggles and MDCB.Toggles.Label then Full = MDCB.Toggles.Label(Key); end;
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT");
         -- Slice 4 tooltip: short label + full name + effect + bind + action.
         GameTooltip:SetText(tostring(Short) .. "  -  " .. tostring(Full), 1.00, 0.82, 0.36);
@@ -450,7 +450,7 @@ end
 
 local function BuildFooter ()
   -- v4.0.4: profile text is gone from the overlay (profiles stay in the
-  -- /mdbx Config window). The footer keeps only the companion-live dot; the
+  -- /mcb Config window). The footer keeps only the companion-live dot; the
   -- frame height shrinks by 45 px because the profile row used the space.
   Footer = CreateFrame("Frame", nil, Frame);
   Footer:SetPoint("BOTTOMRIGHT", Frame, "BOTTOMRIGHT", -8, 5);
@@ -530,8 +530,8 @@ function O.Ensure ()
     if Ticker then Ticker:Cancel(); Ticker = nil; end;
   end);
   Frame:SetScript("OnEvent", function ()
-    if MDBX.Toggles and MDBX.Toggles.Version then
-      local V = MDBX.Toggles.Version();
+    if MDCB.Toggles and MDCB.Toggles.Version then
+      local V = MDCB.Toggles.Version();
       if O._LastToggleVersion ~= V then O._LastToggleVersion = V; O.SetDirty(); end;
     else
       O.SetDirty();
@@ -589,19 +589,19 @@ end
 function O.Refresh ()
   Dirty = false;
   if not Frame then return; end;
-  if MDBX.Toggles and MDBX.Toggles.Version then
-    O._LastToggleVersion = MDBX.Toggles.Version();
+  if MDCB.Toggles and MDCB.Toggles.Version then
+    O._LastToggleVersion = MDCB.Toggles.Version();
   end;
   for i = 1, #Pills do
     local Pill = Pills[i];
     local On = true;
-    if MDBX.Toggles and MDBX.Toggles.Get then On = (MDBX.Toggles.Get(Pill.Key) ~= false); end;
+    if MDCB.Toggles and MDCB.Toggles.Get then On = (MDCB.Toggles.Get(Pill.Key) ~= false); end;
     Pill.On = On;
     PaintPill(Pill, Pill.Hovered == true);
   end;
-  if FooterDot and MDBX.Toggles and MDBX.Toggles.AppEpoch then
+  if FooterDot and MDCB.Toggles and MDCB.Toggles.AppEpoch then
     local Epoch = 0;
-    pcall(function () Epoch = MDBX.Toggles.AppEpoch(); end);
+    pcall(function () Epoch = MDCB.Toggles.AppEpoch(); end);
     if type(Epoch) == "number" and Epoch ~= 0 then
       FooterDot:SetColorTexture(0.2, 0.9, 0.3, 1);   -- companion live
     else
@@ -679,8 +679,8 @@ function O.SetPillCols (Value)
 end
 
 function O.FlipKey (Key)
-  if MDBX.Toggles and MDBX.Toggles.Flip then
-    MDBX.Toggles.Flip(Key);
+  if MDCB.Toggles and MDCB.Toggles.Flip then
+    MDCB.Toggles.Flip(Key);
     O.SetDirty();
   end
 end

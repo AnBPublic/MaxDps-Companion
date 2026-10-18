@@ -74,13 +74,13 @@
 -- Secret-safety: every sensor degrades to UNKNOWN (never throws) -- see the
 -- header of Reader.lua for the Midnight rules.
 
-local addonName, MDBX = ...;
+local addonName, MDCB = ...;
 
-MDBX.VERSION = "4.2.0-exp";
--- Release codename, shown next to the version in /mdbx cfg (Status card) and
+MDCB.VERSION = "4.3.0";
+-- Release codename, shown next to the version in /mcb cfg (Status card) and
 -- the Debug tab. Single-sourced here; the TOC carries the same value in
 -- ## X-Codename so the AddOns list matches.
-MDBX.CODENAME = "Nightblade";
+MDCB.CODENAME = "Namesake";
 
 -- Chat print, defined FIRST: AutoCalibrate (below) and the Update watchdog
 -- both call it, and Lua resolves locals lexically -- a later `local
@@ -88,7 +88,7 @@ MDBX.CODENAME = "Nightblade";
 -- (that was the 711x "attempt to call a nil value" spam: the error also
 -- skipped the LastContact reset, so the watchdog refired every 50ms).
 local function Print (Message)
-  DEFAULT_CHAT_FRAME:AddMessage("|cFF00D8FFMDBX|r: " .. Message);
+  DEFAULT_CHAT_FRAME:AddMessage("|cFF00D8FFMDCB|r: " .. Message);
 end
 
 -- Protocol v5 (bridge 3.0.0): 40 cells. Additive blocks on reserved nibbles:
@@ -265,8 +265,8 @@ local function Migrate (DB)
   return From;
 end
 
-MDBX.Migrate = Migrate;
-MDBX.SCHEMA_VERSION = SCHEMA_VERSION;
+MDCB.Migrate = Migrate;
+MDCB.SCHEMA_VERSION = SCHEMA_VERSION;
 
 local Root, Cells;
 local Heartbeat = 0;
@@ -282,13 +282,13 @@ local EnsureEngineElapsed = 0; -- B7: 1/s EnsureEngine throttle for a cold login
 -- Distinct from transient `Enabled` so an auto-revive can never resume play.
 local UserPaused = false;
 
-function MDBX.IsUserPaused () return UserPaused == true; end
+function MDCB.IsUserPaused () return UserPaused == true; end
 
 -- Single writer for the sticky flag: `/mdb on|off` and the Options checkbox
 -- both route through here so no UI path can bypass the fail-closed hold.
-function MDBX.SetUserPaused (Flag)
+function MDCB.SetUserPaused (Flag)
   UserPaused = (Flag == true);
-  if type(MaxDpsBridgeExpDB) == "table" then MaxDpsBridgeExpDB.UserPaused = UserPaused; end
+  if type(MaxDpsCompanionBridgeDB) == "table" then MaxDpsCompanionBridgeDB.UserPaused = UserPaused; end
   return UserPaused;
 end
 
@@ -297,10 +297,10 @@ end
 -- `DB.Enabled = false` would be re-seeded as a sticky pause on the next login,
 -- and a bare `DB.Enabled = true` would not clear an existing pause. Keeping the
 -- write here is what makes Options.lua + Panel.lua pause-safe (review finding 5).
-function MDBX.SetEnabled (Flag)
+function MDCB.SetEnabled (Flag)
   local On = (Flag ~= false);
-  if type(MaxDpsBridgeExpDB) == "table" then MaxDpsBridgeExpDB.Enabled = On; end
-  MDBX.SetUserPaused(not On);
+  if type(MaxDpsCompanionBridgeDB) == "table" then MaxDpsCompanionBridgeDB.Enabled = On; end
+  MDCB.SetUserPaused(not On);
   return On;
 end
 
@@ -335,7 +335,7 @@ local function Paint (Index, R, G, B)
 end
 
 local function Layout ()
-  local DB = MaxDpsBridgeExpDB;
+  local DB = MaxDpsCompanionBridgeDB;
   if not Root or not DB then return; end
   -- A1.10: clamp the stored geometry to the current screen. A UI-scale or
   -- resolution change used to leave the strip parked off-screen (the
@@ -378,7 +378,7 @@ local function Layout ()
     Cells[i]:SetPoint("TOPLEFT", Root, "TOPLEFT", DB.CellSize * i, 0);
     Cells[i]:SetSize(DB.CellSize, DB.CellSize);
   end
-  local Stale = _G.MaxDpsBridgeExp_Border;
+  local Stale = _G.MaxDpsCompanionBridge_Border;
   if Stale then Stale:Hide(); end
   LastPaint = {};
   SlotCache.Valid = false;   -- the repainted strip must be re-derived too
@@ -388,12 +388,12 @@ local function Layout ()
   LastPaint[0] = 15 * 256 + 0 * 16 + 15;
 end
 
-MDBX.Layout = Layout;
+MDCB.Layout = Layout;
 
 -- Manual auto-calibration: forget position/size, back to the default
 -- corner. Explicit /mdb autocal only -- no timer.
 local function AutoCalibrate (Why)
-  local DB = MaxDpsBridgeExpDB;
+  local DB = MaxDpsCompanionBridgeDB;
   if not DB then return; end
   DB.OffsetX = Defaults.OffsetX;
   DB.OffsetY = Defaults.OffsetY;
@@ -405,10 +405,10 @@ local function AutoCalibrate (Why)
   Print("auto-calibrated (" .. Why .. ") - strip is back at 0,0");
 end
 
-MDBX.AutoCalibrate = AutoCalibrate;
+MDCB.AutoCalibrate = AutoCalibrate;
 
 local function CreateBlock ()
-  Root = CreateFrame("Frame", "MaxDpsBridgeExp_Block", UIParent);
+  Root = CreateFrame("Frame", "MaxDpsCompanionBridge_Block", UIParent);
   Root:SetFrameStrata("TOOLTIP");
   Root:SetFrameLevel(128);
   Root:EnableMouse(false);
@@ -427,16 +427,16 @@ end
 
 --- Tear the LIVE fork down when the mutual-exclusion guard trips after this
 -- addon already started (stable MaxDpsBridge loaded later): stop the pixel
--- OnUpdate, hide the strip, drop the /mdbx registration and hide the overlay.
--- Idempotent; called by MDBX.EnterInert (Exp/Core.lua).
-function MDBX.Deactivate ()
+-- OnUpdate, hide the strip, drop the /mcb registration and hide the overlay.
+-- Idempotent; called by MDCB.EnterInert (InGame/Core.lua).
+function MDCB.Deactivate ()
   if Root then
     Root:SetScript("OnUpdate", nil);
     Root:Hide();
   end;
-  if type(SlashCmdList) == "table" then SlashCmdList["MDBX"] = nil; end;
-  SLASH_MDBX1 = nil;
-  if MDBX.Overlay and MDBX.Overlay.Hide then pcall(MDBX.Overlay.Hide); end;
+  if type(SlashCmdList) == "table" then SlashCmdList["MDCB"] = nil; end;
+  SLASH_MDCB1 = nil;
+  if MDCB.Overlay and MDCB.Overlay.Hide then pcall(MDCB.Overlay.Hide); end;
 end
 
 --- ======= MAXDPS READOUT =======
@@ -453,8 +453,8 @@ end
 -- closures (A1.4); the pcall stays because the probe can throw under taint.
 -- Only a plain `true` counts (fail closed), matching the old `not Ready` test.
 local function SlotReady (SpellID, IsInterrupt)
-  if IsInterrupt then return MDBX.IsInterruptReady(SpellID) == true; end
-  return MDBX.IsSpellReady(SpellID) == true;
+  if IsInterrupt then return MDCB.IsInterruptReady(SpellID) == true; end
+  return MDCB.IsSpellReady(SpellID) == true;
 end
 
 local function IsSlotReady (SpellID, IsInterrupt)
@@ -470,7 +470,7 @@ local function WriteSlot (CellIndex, SpellID, IsInterrupt, SkipGate)
       SpellID = nil;
     end
   end
-  local VirtualKey, Modifiers = MDBX.ResolveBinding(SpellID);
+  local VirtualKey, Modifiers = MDCB.ResolveBinding(SpellID);
   if not VirtualKey then
     Paint(CellIndex, 0, 0, 0);
     return 0, 0, 0, nil;
@@ -484,14 +484,14 @@ end
 
 --- ======= PER-TICK SLOT HELPERS (A1.4: file-scope, no per-tick closures) =======
 -- TickCtx / TickToggles are refreshed once per Update from the very objects
--- (Ctx table + MDBX.Toggles) the scan uses, so the hoisted readers see exactly
+-- (Ctx table + MDCB.Toggles) the scan uses, so the hoisted readers see exactly
 -- what the old closures captured.
 local TickCtx = nil;
 local TickToggles = nil;
 
 -- Single slot gate (one call per slot): the per-slot key, the OOC master and
 -- the Solo gate all live in Toggles.SlotAllowed; denials are recorded in
--- MDBX._LastBlank and read by /mdb why.
+-- MDCB._LastBlank and read by /mdb why.
 local function Allowed (Slot)
   if TickToggles and TickToggles.SlotAllowed then
     return TickToggles.SlotAllowed(Slot, TickCtx);
@@ -506,8 +506,8 @@ local function SafeRead (Fn)
   if type(Fn) ~= "function" then return nil; end
   local Ok, Value = pcall(Fn);
   if Ok then return Value; end
-  if not MDBX._ReadoutWarned then
-    MDBX._ReadoutWarned = true;
+  if not MDCB._ReadoutWarned then
+    MDCB._ReadoutWarned = true;
     Print("a MaxDps read failed; the bridge keeps running (see /mdb diag)");
   end
   return nil;
@@ -554,7 +554,7 @@ end
 -- and never act on the world. CheckInteractDistance is #nocombat-restricted in
 -- 12.x (it has raised ADDON_ACTION_BLOCKED), so it is NOT called here: Reader
 -- owns the single event-gated, breaker-protected call site and Bridge only
--- consumes MDBX.ProbeTargetMelee (nil = UNKNOWN while gated/blocked).
+-- consumes MDCB.ProbeTargetMelee (nil = UNKNOWN while gated/blocked).
 local function TargetState ()
   if type(UnitExists) ~= "function" then return nil; end
   if not UnitExists("target") then return STATE_NEED_TARGET; end
@@ -565,8 +565,8 @@ local function TargetState ()
     return STATE_NEED_TARGET;
   end
   local Near = nil;
-  if type(MDBX.ProbeTargetMelee) == "function" then
-    Near = MDBX.ProbeTargetMelee();
+  if type(MDCB.ProbeTargetMelee) == "function" then
+    Near = MDCB.ProbeTargetMelee();
   end
   if Near == 1 then return STATE_NEED_INTERACT; end
   return nil;
@@ -624,8 +624,8 @@ end
 
 local function WriteVitals ()
   local Hi, Lo, Flags = 0, 0, 0;
-  if MDBX.GetPlayerHpPct then
-    local Pct = MDBX.GetPlayerHpPct();
+  if MDCB.GetPlayerHpPct then
+    local Pct = MDCB.GetPlayerHpPct();
     if Pct then
       if Pct < 0 then Pct = 0 elseif Pct > 100 then Pct = 100 end
       Hi = math.floor(Pct / 16);
@@ -639,7 +639,7 @@ end
 
 local function WriteCast (SelfHeal2Range)
   local State = CAST_STATE_UNKNOWN;
-  if MDBX.GetCastState then State = MDBX.GetCastState(); end
+  if MDCB.GetCastState then State = MDCB.GetCastState(); end
   local Band = 15;   -- remaining-time band is not safely observable; reserved
   -- Ext2: cell 28 B bits0-1 carry the SelfHeal2 range tri-state (0 unknown /
   -- 1 in / 2 out). Ext3 (v3.5): bit2 = EXT3 PRESENT (the app mask block is
@@ -656,8 +656,8 @@ end
 -- consumers on the companion side also go blind; documented collateral).
 local function WriteTarget (ForceUnknownBand)
   local MeleeFlag, HpBand, CastFlags = 0, 15, 0;
-  if MDBX.GetTargetContext then
-    MeleeFlag, HpBand, CastFlags = MDBX.GetTargetContext();
+  if MDCB.GetTargetContext then
+    MeleeFlag, HpBand, CastFlags = MDCB.GetTargetContext();
   end
   if type(CastFlags) ~= "number" then CastFlags = 0; end
   if ForceUnknownBand then HpBand = 15; end
@@ -669,8 +669,8 @@ local function WriteRanges (Ids, Urgency, DefSource)
   local Tri = {};
   for i = 1, SLOT_COUNT do
     local Value = 0;
-    if RANGE_SLOTS[i] and Ids[i] and MDBX.GetSlotRange then
-      Value = MDBX.GetSlotRange(Ids[i]);
+    if RANGE_SLOTS[i] and Ids[i] and MDCB.GetSlotRange then
+      Value = MDCB.GetSlotRange(Ids[i]);
     end
     Tri[i] = bit.band(Value or 0, 3);
   end
@@ -688,11 +688,11 @@ end
 local function WriteBuffs (Ids, StaggerUrgency)
   local R, G = 0, 0;
   local Valid = 1;
-  if MDBX.GetSlotBuff then
+  if MDCB.GetSlotBuff then
     for i = 1, 8 do
       local Buff = 0;
       if Ids[i] and Ids[i] ~= 0 then
-        local Probe = MDBX.GetSlotBuff(Ids[i]);
+        local Probe = MDCB.GetSlotBuff(Ids[i]);
         if type(Probe) == "number" then
           Buff = Probe;
         else
@@ -721,7 +721,7 @@ end
 
 local function WriteClassSpec (BuffValid, HpCurveOn)
   local ClassId, SpecId = 0, 0;
-  if MDBX.GetClassSpec then ClassId, SpecId = MDBX.GetClassSpec(); end
+  if MDCB.GetClassSpec then ClassId, SpecId = MDCB.GetClassSpec(); end
   local Valid = 0;
   if type(ClassId) == "number" and ClassId > 0 then Valid = 1; else ClassId = 0; end
   if type(SpecId) ~= "number" then SpecId = 0; end
@@ -737,7 +737,7 @@ local function WriteClassSpec (BuffValid, HpCurveOn)
 end
 
 -- Ext2 cell 35: the HP-curve colour. The bridge never reads the player HP
--- value — it passes MDBX.HpCurve (linear green->red) into UnitHealthPercent
+-- value — it passes MDCB.HpCurve (linear green->red) into UnitHealthPercent
 -- and forwards the returned colour straight into SetVertexColor. Nothing is
 -- compared, stringified or arithmetized. Returns 1 when the cell is live so
 -- cell 33 B bit3 is set; 0 (black cell) otherwise.
@@ -754,8 +754,8 @@ local function WriteHpCurve ()
   local Tex = Cells[HP_CURVE_CELL];
   if not Tex then return 0; end
   local Curve = nil;
-  if MaxDpsBridgeExpDB.HpCurve ~= false and MDBX.EnsureHpCurve then
-    local OkC, C = pcall(MDBX.EnsureHpCurve);
+  if MaxDpsCompanionBridgeDB.HpCurve ~= false and MDCB.EnsureHpCurve then
+    local OkC, C = pcall(MDCB.EnsureHpCurve);
     if OkC then Curve = C; end
   end
   if not Curve then
@@ -834,11 +834,11 @@ end
 -- layout is frozen (docs/PROTOCOL.md §Ext4); the companion assembles gen-scoped
 -- seq cycles and holds each frame >= 2 paint ticks.
 
--- Current frame from MDBX.HotbarWatch. A missing/failed provider paints an
+-- Current frame from MDCB.HotbarWatch. A missing/failed provider paints an
 -- EMPTY (seq 0, LAST+EMPTY) frame so the block is never torn.
 local function Ext4Frame ()
-  if MDBX.HotbarWatch and type(MDBX.HotbarWatch.Frame) == "function" then
-    local Ok, Frame = pcall(MDBX.HotbarWatch.Frame);
+  if MDCB.HotbarWatch and type(MDCB.HotbarWatch.Frame) == "function" then
+    local Ok, Frame = pcall(MDCB.HotbarWatch.Frame);
     if Ok and type(Frame) == "table" then return Frame; end
   end
   return nil;
@@ -899,8 +899,8 @@ end
 -- Typing veto bit (cell 41 R bit2). Read once per tick; a failed read reports
 -- "not typing" (fail-closed), matching HotbarWatch.TypingActive.
 local function TypingActive ()
-  if MDBX.HotbarWatch and type(MDBX.HotbarWatch.TypingActive) == "function" then
-    local Ok, Active = pcall(MDBX.HotbarWatch.TypingActive);
+  if MDCB.HotbarWatch and type(MDCB.HotbarWatch.TypingActive) == "function" then
+    local Ok, Active = pcall(MDCB.HotbarWatch.TypingActive);
     if Ok and Active == true then return true; end
   end
   return false;
@@ -939,10 +939,10 @@ local function WriteEmptyFrame (State)
   Paint(EXT2_CELL, 0, 0, Heartbeat);
   -- Ext3: publish the effective mask (app or local) even on a Paused frame.
   local EMask, EEpoch, EBlocked = EXT3_MASK_BITS, 0, 0;
-  if MDBX.Toggles then
-    if MDBX.Toggles.EffectiveMask then EMask = MDBX.Toggles.EffectiveMask(); end
-    if MDBX.Toggles.AppEpoch then EEpoch = MDBX.Toggles.AppEpoch(); end
-    if MDBX.Toggles.AppBlocked then EBlocked = MDBX.Toggles.AppBlocked(); end
+  if MDCB.Toggles then
+    if MDCB.Toggles.EffectiveMask then EMask = MDCB.Toggles.EffectiveMask(); end
+    if MDCB.Toggles.AppEpoch then EEpoch = MDCB.Toggles.AppEpoch(); end
+    if MDCB.Toggles.AppBlocked then EBlocked = MDCB.Toggles.AppBlocked(); end
   end
   WriteExt3(EMask, EEpoch, EBlocked, TypingActive());
   WriteExt4();
@@ -964,10 +964,10 @@ end
 local RotationState = {};
 local ROT_SEQ = { 1, 2, 1, 3 };
 local ROTATING = { [3] = true, [6] = true, [7] = true, [8] = true };
-MDBX._RotCounts = MDBX._RotCounts or {};
+MDCB._RotCounts = MDCB._RotCounts or {};
 
 local function RotationDwell ()
-  local D = MaxDpsBridgeExpDB and tonumber(MaxDpsBridgeExpDB.RotationDwell) or 3;
+  local D = MaxDpsCompanionBridgeDB and tonumber(MaxDpsCompanionBridgeDB.RotationDwell) or 3;
   if D < 1 then D = 1 elseif D > 60 then D = 60; end
   return math.floor(D);
 end
@@ -1007,9 +1007,9 @@ local function RotationPos (Slot, Count, Pin)
 end
 
 -- Test/diagnostic reset: forget every slot clock (next tick offers top).
-function MDBX.ResetRotation ()
+function MDCB.ResetRotation ()
   RotationState = {};
-  MDBX._RotCounts = {};
+  MDCB._RotCounts = {};
 end
 
 local function Update (self, Delta)
@@ -1026,7 +1026,7 @@ local function Update (self, Delta)
   -- late in the cycle so black/white can be re-found.
   -- Only cells 1-8 carry the flat level: the learner averages exactly
   -- cells 1-8 and requires the status cell to read Paused.
-  if MaxDpsBridgeExpDB.Calibrate then
+  if MaxDpsCompanionBridgeDB.Calibrate then
     CalTick = CalTick + 1;
     if CalTick >= 8 then
       CalTick = 0;
@@ -1072,12 +1072,12 @@ local function Update (self, Delta)
 
   -- A user pause outranks a transient `Enabled` write: keep emitting the
   -- Paused frame (state = 2) so the companion holds instead of firing.
-  if not MaxDpsBridgeExpDB.Enabled or UserPaused then
+  if not MaxDpsCompanionBridgeDB.Enabled or UserPaused then
     WriteEmptyFrame(STATE_PAUSED);
     return;
   end
 
-  MDBX.EnsureHooks();
+  MDCB.EnsureHooks();
 
   -- 3.3.0 in-game toggle context. Built ONCE per tick from plain, pcall-
   -- contained game APIs; every field is boolean/number-or-nil so Toggles.lua
@@ -1090,8 +1090,8 @@ local function Update (self, Delta)
       if OkC then InCombat = (V == true); end
     end
     local HpPct = nil;
-    if MDBX.GetPlayerHpPct then
-      local OkH, V = pcall(MDBX.GetPlayerHpPct);
+    if MDCB.GetPlayerHpPct then
+      local OkH, V = pcall(MDCB.GetPlayerHpPct);
       if OkH and type(V) == "number" then HpPct = V; end
     end
     local Grouped = nil;
@@ -1102,9 +1102,9 @@ local function Update (self, Delta)
     Ctx = { InCombat = InCombat, HpPct = HpPct, Grouped = Grouped };
   end
 
-  local Toggles = MDBX.Toggles;
+  local Toggles = MDCB.Toggles;
   -- Single slot gate (Toggles.SlotAllowed: per-slot key, OOC master and the
-  -- Solo gate; denials land in MDBX._LastBlank). A1.4: the per-tick context is
+  -- Solo gate; denials land in MDCB._LastBlank). A1.4: the per-tick context is
   -- handed to the file-scope helper instead of allocating closures.
   TickCtx, TickToggles = Ctx, Toggles;
 
@@ -1117,9 +1117,9 @@ local function Update (self, Delta)
     local SoloOn = Toggles and Toggles.Get and Toggles.Get("Solo");
     local Ungrouped = type(Ctx.Grouped) == "boolean" and Ctx.Grouped == false;
     if SoloOn and Ungrouped then
-      MDBX.SoloLadderBands = { minor = 75, major = 50, immunity = 30 };
+      MDCB.SoloLadderBands = { minor = 75, major = 50, immunity = 30 };
     else
-      MDBX.SoloLadderBands = nil;
+      MDCB.SoloLadderBands = nil;
     end
   end
 
@@ -1130,11 +1130,11 @@ local function Update (self, Delta)
   local MaxDpsGlobal = _G.MaxDps;
   if (not MaxDpsGlobal or not MaxDpsGlobal.Spells or not next(MaxDpsGlobal.Spells))
     and not UserPaused
-    and MDBX.EnsureEngine then
+    and MDCB.EnsureEngine then
     EnsureEngineElapsed = EnsureEngineElapsed + Delta;
     if EnsureEngineElapsed >= 1 then
       EnsureEngineElapsed = 0;
-      pcall(MDBX.EnsureEngine);
+      pcall(MDCB.EnsureEngine);
     end
   else
     EnsureEngineElapsed = 0;
@@ -1142,14 +1142,14 @@ local function Update (self, Delta)
 
   -- PERF: reset the per-tick memo ONCE per update (the slot getters share
   -- one Flags scrub, one item map and one class/spec resolve per tick).
-  if MDBX.BeginTick then MDBX.BeginTick(); end
+  if MDCB.BeginTick then MDCB.BeginTick(); end
 
   -- v3.5 rotation clock + defensive pin. The pin reads the HP urgency before
   -- the scan (the wire urgency later is identity-aware); a secret HP stays
   -- UNKNOWN and never pins.
   local DefPin = false;
-  if MDBX.GetDefensiveUrgencyNibble then
-    local OkPin, Pin = pcall(MDBX.GetDefensiveUrgencyNibble, nil);
+  if MDCB.GetDefensiveUrgencyNibble then
+    local OkPin, Pin = pcall(MDCB.GetDefensiveUrgencyNibble, nil);
     DefPin = (OkPin and type(Pin) == "number" and Pin >= 3);
   end
   if RotationTick(DefPin) then SlotCache.Valid = false; end
@@ -1169,7 +1169,7 @@ local function Update (self, Delta)
   do
     -- A1.2: the key is a numeric fold now and it takes the SAME ctx the slot
     -- gates use (combat/group state used to be missing from it entirely).
-    local OkK, K = pcall(MDBX.FrameKey, Ctx);
+    local OkK, K = pcall(MDCB.FrameKey, Ctx);
     if OkK and type(K) == "number" then Key = K; end
   end
   local Clean = Key ~= nil and SlotCache.Valid and SlotCache.Key == Key;
@@ -1188,27 +1188,27 @@ local function Update (self, Delta)
     -- never even invokes MaxDps (no wasted work, no side effects). A denied
     -- slot paints an all-zero/FLAG_VALID-clear cell (= EMPTY).
     DefCatalog, Heal2, SH2 = false, nil, nil;
-    R[1], G[1], B[1], Id[1] = ReadSlot(1, MDBX.GetMainSpellID, false, true);
+    R[1], G[1], B[1], Id[1] = ReadSlot(1, MDCB.GetMainSpellID, false, true);
     -- Offensive: MaxDps flagged+bound first; when MaxDps names none the
     -- curated gap-fill list supplies the first ready+bound entry (v3.0.0). No
     -- source bit is encoded: the companion detects a gap-fill by id membership
     -- in the shared generated offensive list (see docs/PROTOCOL.md).
-    R[2], G[2], B[2], Id[2] = ReadSlot(2, MDBX.GetOffensiveSpellID);
+    R[2], G[2], B[2], Id[2] = ReadSlot(2, MDCB.GetOffensiveSpellID);
     -- Slots 3/6/7/8 rotate over their multi-candidate pool (v3.5). The pool
     -- is ready+bound+known, never-automatic filtered, cap 4; the weighted
     -- position comes from the per-slot clock advanced at the top of Update.
     local DefId = nil;
     if Allowed(3) then
-      local Pool = (MDBX.RotationCandidates and MDBX.RotationCandidates(3, 4)) or {};
-      MDBX._RotCounts[3] = #Pool;
+      local Pool = (MDCB.RotationCandidates and MDCB.RotationCandidates(3, 4)) or {};
+      MDCB._RotCounts[3] = #Pool;
       local Pos = RotationPos(3, #Pool, DefPin);
       if Pos then DefId = Pool[Pos]; end
       if DefId then
         -- Source bit: clear only when the offered id is MaxDps's own flagged
         -- candidate; any catalog entry is a gap-fill (cell 31 B bit0).
         local FlaggedId = nil;
-        if MDBX.GetDefensiveCandidate then
-          local OkFlag, Flagged, FlaggedCatalog = pcall(MDBX.GetDefensiveCandidate);
+        if MDCB.GetDefensiveCandidate then
+          local OkFlag, Flagged, FlaggedCatalog = pcall(MDCB.GetDefensiveCandidate);
           if OkFlag and type(Flagged) == "number" and Flagged ~= 0 and FlaggedCatalog == false then
             FlaggedId = Flagged;
           end
@@ -1217,8 +1217,8 @@ local function Update (self, Delta)
       end
     end
     R[3], G[3], B[3], Id[3] = WriteSlot(3, DefId);
-    R[4], G[4], B[4], Id[4] = ReadSlot(4, MDBX.GetConsumableSpellID);
-    R[5], G[5], B[5], Id[5] = ReadSlot(5, MDBX.GetTrinketSpellID);
+    R[4], G[4], B[4], Id[4] = ReadSlot(4, MDCB.GetConsumableSpellID);
+    R[5], G[5], B[5], Id[5] = ReadSlot(5, MDCB.GetTrinketSpellID);
     -- Interrupt (slot 6): a live, ready MaxDps interrupt that the target
     -- sensor confirms is a casting, interruptible cast pins the slot;
     -- otherwise the slot rotates the curated CC pool. v3.5: the pin uses the
@@ -1227,18 +1227,18 @@ local function Update (self, Delta)
     do
       local IntId = nil;
       if Allowed(6) then
-        IntId = SafeRead(MDBX.GetInterruptSpellID);
+        IntId = SafeRead(MDCB.GetInterruptSpellID);
         local PinReady = false;
         if IntId then
-          local PinFn = MDBX.IsInterruptPinReady or MDBX.IsInterruptReady;
+          local PinFn = MDCB.IsInterruptPinReady or MDCB.IsInterruptReady;
           local OkInt, Ready = pcall(PinFn, IntId);
           PinReady = OkInt and Ready == true;
         end
         if PinReady then
-          MDBX._RotCounts[6] = 1;
+          MDCB._RotCounts[6] = 1;
         else
-          local Pool = (MDBX.RotationCandidates and MDBX.RotationCandidates(6, 4)) or {};
-          MDBX._RotCounts[6] = #Pool;
+          local Pool = (MDCB.RotationCandidates and MDCB.RotationCandidates(6, 4)) or {};
+          MDCB._RotCounts[6] = #Pool;
           local Pos = RotationPos(6, #Pool, false);
           IntId = Pos and Pool[Pos] or nil;
         end
@@ -1249,8 +1249,8 @@ local function Update (self, Delta)
     do
       local MobId = nil;
       if Allowed(7) then
-        local Pool = (MDBX.RotationCandidates and MDBX.RotationCandidates(7, 4)) or {};
-        MDBX._RotCounts[7] = #Pool;
+        local Pool = (MDCB.RotationCandidates and MDCB.RotationCandidates(7, 4)) or {};
+        MDCB._RotCounts[7] = #Pool;
         local Pos = RotationPos(7, #Pool, false);
         MobId = Pos and Pool[Pos] or nil;
       end
@@ -1261,8 +1261,8 @@ local function Update (self, Delta)
     -- denied SelfHeal slot nils BOTH, so the block blanks too.
     local Heal1 = nil;
     if Allowed(8) then
-      local Pool = (MDBX.RotationCandidates and MDBX.RotationCandidates(8, 4)) or {};
-      MDBX._RotCounts[8] = #Pool;
+      local Pool = (MDCB.RotationCandidates and MDCB.RotationCandidates(8, 4)) or {};
+      MDCB._RotCounts[8] = #Pool;
       local Pos = RotationPos(8, #Pool, false);
       if Pos then
         Heal1 = Pool[Pos];
@@ -1278,7 +1278,7 @@ local function Update (self, Delta)
     local S2Hi, S2Lo, S2Flags, S2Id = WriteSlot(SELFHEAL2_CELL, Heal2);
     SH2 = { Hi = S2Hi or 0, Lo = S2Lo or 0, Flags = S2Flags or 0, Id = S2Id or 0 };
 
-    MDBX._SlotScans = (MDBX._SlotScans or 0) + 1;   -- diagnostics/bench only
+    MDCB._SlotScans = (MDCB._SlotScans or 0) + 1;   -- diagnostics/bench only
     if Key ~= nil then
       SlotCache.Valid = true;
       SlotCache.Key = Key;
@@ -1295,7 +1295,7 @@ local function Update (self, Delta)
 
   -- A1.3: the scan is done — drop the per-tick memo so a direct caller
   -- (diagnostics, tests, HotbarWatch's own bracket) always sees live reads.
-  if MDBX.EndTick then MDBX.EndTick(); end
+  if MDCB.EndTick then MDCB.EndTick(); end
 
   for i = 1, SLOT_COUNT do
     WriteSpellId(i, Id[i] or 0);
@@ -1306,15 +1306,15 @@ local function Update (self, Delta)
   -- the stagger stage on its own for the policy's per-ability source choice.
   -- Every getter is pcall-contained; anything unexpected stays 0 = UNKNOWN.
   local Urgency, StaggerUrgency = 0, 0;
-  if MDBX.GetDefensiveUrgencyFallback then
-    local OkU, U = pcall(MDBX.GetDefensiveUrgencyFallback, Id[3]);
+  if MDCB.GetDefensiveUrgencyFallback then
+    local OkU, U = pcall(MDCB.GetDefensiveUrgencyFallback, Id[3]);
     if OkU and type(U) == "number" and U >= 0 and U <= 4 then Urgency = U; end
-  elseif MDBX.GetDefensiveUrgencyNibble then
-    local OkU, U = pcall(MDBX.GetDefensiveUrgencyNibble, Id[3]);
+  elseif MDCB.GetDefensiveUrgencyNibble then
+    local OkU, U = pcall(MDCB.GetDefensiveUrgencyNibble, Id[3]);
     if OkU and type(U) == "number" and U >= 0 and U <= 4 then Urgency = U; end
   end
-  if MDBX.GetStaggerUrgency then
-    local OkS, S = pcall(MDBX.GetStaggerUrgency);
+  if MDCB.GetStaggerUrgency then
+    local OkS, S = pcall(MDCB.GetStaggerUrgency);
     if OkS and type(S) == "number" and S >= 0 and S <= 4 then StaggerUrgency = S; end
   end
 
@@ -1329,8 +1329,8 @@ local function Update (self, Delta)
 
   local Vh, Vl, Vf = WriteVitals();
   local SelfHeal2Range = 0;
-  if Heal2 and MDBX.GetSlotRange then
-    local OkR2, R2 = pcall(MDBX.GetSlotRange, Heal2);
+  if Heal2 and MDCB.GetSlotRange then
+    local OkR2, R2 = pcall(MDCB.GetSlotRange, Heal2);
     if OkR2 and type(R2) == "number" then SelfHeal2Range = bit.band(R2, 3); end
   end
   local Ch, Cg, Cf = WriteCast(SelfHeal2Range);
@@ -1350,10 +1350,10 @@ local function Update (self, Delta)
   -- in-game state every frame, so an in-game flip (notably OOC off) reaches
   -- the companion even while the app epoch is live. Presence bit in cell 28 B.
   local PubMask, PubEpoch, PubBlocked = EXT3_MASK_BITS, 0, 0;
-  if MDBX.Toggles then
-    if MDBX.Toggles.EffectiveMask then PubMask = MDBX.Toggles.EffectiveMask(); end
-    if MDBX.Toggles.AppEpoch then PubEpoch = MDBX.Toggles.AppEpoch(); end
-    if MDBX.Toggles.AppBlocked then PubBlocked = MDBX.Toggles.AppBlocked(); end
+  if MDCB.Toggles then
+    if MDCB.Toggles.EffectiveMask then PubMask = MDCB.Toggles.EffectiveMask(); end
+    if MDCB.Toggles.AppEpoch then PubEpoch = MDCB.Toggles.AppEpoch(); end
+    if MDCB.Toggles.AppBlocked then PubBlocked = MDCB.Toggles.AppBlocked(); end
   end
   WriteExt3(PubMask, PubEpoch, PubBlocked, TypingActive());
   WriteExt4();
@@ -1398,17 +1398,17 @@ end
 -- Lower-case spelling -> canonical toggle key, built from Toggles.Keys() so
 -- the slash surface stays in lockstep with the policy table (no second list).
 local ToggleKeyLower = {};
-if MDBX.Toggles and MDBX.Toggles.Keys then
-  local SlashKeys = MDBX.Toggles.Keys();
+if MDCB.Toggles and MDCB.Toggles.Keys then
+  local SlashKeys = MDCB.Toggles.Keys();
   for i = 1, #SlashKeys do ToggleKeyLower[SlashKeys[i]:lower()] = SlashKeys[i]; end
 end
 
 local function TogglesLine ()
-  if not (MDBX.Toggles and MDBX.Toggles.Keys and MDBX.Toggles.Get) then return "unavailable"; end
-  local Keys = MDBX.Toggles.Keys();
+  if not (MDCB.Toggles and MDCB.Toggles.Keys and MDCB.Toggles.Get) then return "unavailable"; end
+  local Keys = MDCB.Toggles.Keys();
   local On, Off = 0, {};
   for i = 1, #Keys do
-    if MDBX.Toggles.Get(Keys[i]) then On = On + 1; else Off[#Off + 1] = Keys[i]; end
+    if MDCB.Toggles.Get(Keys[i]) then On = On + 1; else Off[#Off + 1] = Keys[i]; end
   end
   local Text = ("%d/%d ON"):format(On, #Keys);
   if #Off > 0 then Text = Text .. "; OFF: " .. table.concat(Off, ", "); end
@@ -1417,17 +1417,17 @@ end
 
 local function HandleCommand (Input)
   local Command, Arg1, Arg2 = strsplit(" ", strlower(strtrim(Input or "")));
-  local DB = MaxDpsBridgeExpDB;
+  local DB = MaxDpsCompanionBridgeDB;
 
   -- Diagnostics live in Reader.lua (needs MaxDps internals there).
-  if Command == "diag" and MDBX.Diag then
-    MDBX.Diag();
+  if Command == "diag" and MDCB.Diag then
+    MDCB.Diag();
     return;
   end
 
   if Command == "hotbar" then
-    if MDBX.HotbarWatch and MDBX.HotbarWatch.Diag then
-      local OkHot, Text = pcall(MDBX.HotbarWatch.Diag);
+    if MDCB.HotbarWatch and MDCB.HotbarWatch.Diag then
+      local OkHot, Text = pcall(MDCB.HotbarWatch.Diag);
       Print(OkHot and Text or "hotbar diag failed (contained)");
     else
       Print("hotbar diag unavailable");
@@ -1436,8 +1436,8 @@ local function HandleCommand (Input)
   end
 
   if Command == "heal" then
-    if MDBX.SelfHealDiag then
-      local OkHeal, Text = pcall(MDBX.SelfHealDiag);
+    if MDCB.SelfHealDiag then
+      local OkHeal, Text = pcall(MDCB.SelfHealDiag);
       Print(OkHeal and Text or "heal diag failed (contained)");
     else
       Print("heal diag unavailable");
@@ -1488,14 +1488,14 @@ local function HandleCommand (Input)
       Refuse = "bad checksum (epoch)";
     end
     if Refuse then
-      if MDBX.Toggles and MDBX.Toggles.SetAppBlocked then
-        MDBX.Toggles.SetAppBlocked((MDBX.Toggles.BLOCKED_APP or EXT3_BLOCKED_APP));
+      if MDCB.Toggles and MDCB.Toggles.SetAppBlocked then
+        MDCB.Toggles.SetAppBlocked((MDCB.Toggles.BLOCKED_APP or EXT3_BLOCKED_APP));
       end
       Print("mask refused (" .. Refuse .. "); stored mask unchanged");
       return;
     end
-    if MDBX.Toggles and MDBX.Toggles.SetAppMask then
-      MDBX.Toggles.SetAppMask(MaskArg, EpochArg, 0);
+    if MDCB.Toggles and MDCB.Toggles.SetAppMask then
+      MDCB.Toggles.SetAppMask(MaskArg, EpochArg, 0);
     end
     Print(("app mask 0x%04X epoch %d applied (default; overlay-wins)")
       :format(MaskArg, EpochArg));
@@ -1525,9 +1525,9 @@ local function HandleCommand (Input)
     -- back on) is the only thing that clears it. The Options checkbox routes
     -- through the same setter, so no UI path can diverge the two flags.
     if Command == "toggle" then
-      MDBX.SetEnabled(not DB.Enabled);
+      MDCB.SetEnabled(not DB.Enabled);
     else
-      MDBX.SetEnabled(Command == "on");
+      MDCB.SetEnabled(Command == "on");
     end
     -- on/off doubles as the panic switch for the calibrate pattern.
     if DB.Calibrate and Command ~= "toggle" then
@@ -1554,8 +1554,8 @@ local function HandleCommand (Input)
       -- would otherwise leave the learner sweeping a dead corner. Route
       -- through the single writer so Enabled and the sticky pause clear in
       -- lockstep (never a bare `DB.Enabled = true`).
-      if not DB.Enabled or MDBX.IsUserPaused() then
-        MDBX.SetEnabled(true);
+      if not DB.Enabled or MDCB.IsUserPaused() then
+        MDCB.SetEnabled(true);
         Print("bridge enabled");
       end
       CalStep = 0;
@@ -1581,7 +1581,7 @@ local function HandleCommand (Input)
     Layout();
     Print("settings reset to defaults");
   elseif Command == "status" then
-    local Main = MDBX.GetMainSpellID();
+    local Main = MDCB.GetMainSpellID();
     local NextFn = "nil";
     local MDPS = _G.MaxDps;
     if MDPS then
@@ -1598,25 +1598,25 @@ local function HandleCommand (Input)
     local OkStatus, Captured = pcall(function ()
       if type(dropsecretaccess) == "function" then dropsecretaccess(); end
       local R = "";
-      local M = MDBX.GetMainSpellID();
+      local M = MDCB.GetMainSpellID();
       if M then R = R .. "M"; else
         local ES = _G.MaxDps and _G.MaxDps.Spell;
         if type(ES) == "number" and ES ~= 0 then R = R .. "m"; else R = R .. "-"; end
       end
-      if MDBX.GetOffensiveSpellID() then R = R .. "O"; else R = R .. "-"; end
-      if MDBX.GetDefensiveSpellID() then R = R .. "D"; else R = R .. "-"; end
-      if MDBX.GetConsumableSpellID() then R = R .. "N"; else R = R .. "-"; end
-      if MDBX.GetTrinketSpellID() then R = R .. "T"; else R = R .. "-"; end
-      if MDBX.GetInterruptSpellID() then R = R .. "I"; else R = R .. "-"; end
-      if MDBX.GetMobilitySpellID and MDBX.GetMobilitySpellID() then R = R .. "Mob"; else R = R .. "-"; end
-      if MDBX.GetSelfHealSpellID and MDBX.GetSelfHealSpellID() then R = R .. "H"; else R = R .. "-"; end
+      if MDCB.GetOffensiveSpellID() then R = R .. "O"; else R = R .. "-"; end
+      if MDCB.GetDefensiveSpellID() then R = R .. "D"; else R = R .. "-"; end
+      if MDCB.GetConsumableSpellID() then R = R .. "N"; else R = R .. "-"; end
+      if MDCB.GetTrinketSpellID() then R = R .. "T"; else R = R .. "-"; end
+      if MDCB.GetInterruptSpellID() then R = R .. "I"; else R = R .. "-"; end
+      if MDCB.GetMobilitySpellID and MDCB.GetMobilitySpellID() then R = R .. "Mob"; else R = R .. "-"; end
+      if MDCB.GetSelfHealSpellID and MDCB.GetSelfHealSpellID() then R = R .. "H"; else R = R .. "-"; end
       local MT = "-";
       if type(Main) == "number" then MT = tostring(Main); end
       local ET = "-";
-      if MDBX.GetExtrasDiag then ET = MDBX.GetExtrasDiag(); end
+      if MDCB.GetExtrasDiag then ET = MDCB.GetExtrasDiag(); end
       local UT = "-";
-      if MDBX.GetDefensiveUrgencyNibble then
-        UT = tostring(MDBX.GetDefensiveUrgencyNibble(nil));
+      if MDCB.GetDefensiveUrgencyNibble then
+        UT = tostring(MDCB.GetDefensiveUrgencyNibble(nil));
       end
       return { Ready = R, MainText = MT, Extras = ET, Urgency = UT };
     end);
@@ -1627,28 +1627,28 @@ local function HandleCommand (Input)
       if type(Captured.Urgency) == "string" then UrgencyText = Captured.Urgency; end
     end
     local Sh2Text = "-";
-    if MDBX.GetSelfHeal2SpellID then
-      local OkSh2, Sh2 = pcall(MDBX.GetSelfHeal2SpellID);
+    if MDCB.GetSelfHeal2SpellID then
+      local OkSh2, Sh2 = pcall(MDCB.GetSelfHeal2SpellID);
       if OkSh2 and type(Sh2) == "number" then Sh2Text = tostring(Sh2); end
     end
     if DB.HpCurve == nil then DB.HpCurve = true; end
     local AppEpochText, AppMaskText, AppBlockedText = 0, EXT3_MASK_BITS, 0;
-    if MDBX.Toggles then
-      if MDBX.Toggles.AppEpoch then AppEpochText = MDBX.Toggles.AppEpoch(); end
-      if MDBX.Toggles.EffectiveMask then AppMaskText = MDBX.Toggles.EffectiveMask(); end
-      if MDBX.Toggles.AppBlocked then AppBlockedText = MDBX.Toggles.AppBlocked(); end
+    if MDCB.Toggles then
+      if MDCB.Toggles.AppEpoch then AppEpochText = MDCB.Toggles.AppEpoch(); end
+      if MDCB.Toggles.EffectiveMask then AppMaskText = MDCB.Toggles.EffectiveMask(); end
+      if MDCB.Toggles.AppBlocked then AppBlockedText = MDCB.Toggles.AppBlocked(); end
     end
-    local RC = MDBX._RotCounts or {};
+    local RC = MDCB._RotCounts or {};
     local RotText = ("3:%d,6:%d,7:%d,8:%d"):format(RC[3] or 0, RC[6] or 0, RC[7] or 0, RC[8] or 0);
     Print(("v%s protocol=%d ext2=1 ext3=1 ext4=1 hpcurve=%s sh2=%s enabled=%s calibrate=%s offset=%d,%d cell=%dpx bound=%d spell=%s next=%s ready=%s urg=%s extras=%s toggles=%s app=%s/%s/%d dwell=%d rot=%s")
-      :format(MDBX.VERSION, PROTOCOL_VERSION, DB.HpCurve and "on" or "off", Sh2Text,
+      :format(MDCB.VERSION, PROTOCOL_VERSION, DB.HpCurve and "on" or "off", Sh2Text,
         tostring(DB.Enabled), tostring(DB.Calibrate),
-        DB.OffsetX, DB.OffsetY, DB.CellSize, MDBX.BindingCount(), MainText, NextFn, Ready, UrgencyText, ExtrasText,
+        DB.OffsetX, DB.OffsetY, DB.CellSize, MDCB.BindingCount(), MainText, NextFn, Ready, UrgencyText, ExtrasText,
         TogglesLine(),
         tostring(AppEpochText), ("0x%04X"):format(AppMaskText), AppBlockedText,
         RotationDwell(), RotText));
   elseif Command == "version" then
-    Print("MaxDpsBridgeExp v" .. MDBX.VERSION .. " (protocol v" .. PROTOCOL_VERSION .. ")");
+    Print("MaxDpsCompanionBridge v" .. MDCB.VERSION .. " (protocol v" .. PROTOCOL_VERSION .. ")");
   elseif Command == "autocal" then
     AutoCalibrate("manual /mdb autocal");
   elseif Command == "toggles" then
@@ -1669,7 +1669,7 @@ local function HandleCommand (Input)
     -- immediately after this handler returns.
     Print("overlay " .. (DB.Ui.Overlay and "|cFF00FF00on|r" or "|cFFFF0000off|r"));
   elseif Command == "all" then
-    if not (MDBX.Toggles and MDBX.Toggles.Keys and MDBX.Toggles.Set) then
+    if not (MDCB.Toggles and MDCB.Toggles.Keys and MDCB.Toggles.Set) then
       Print("toggles unavailable");
       return;
     end
@@ -1677,33 +1677,33 @@ local function HandleCommand (Input)
       Print("usage: /mdb all on|off");
       return;
     end
-    local Keys = MDBX.Toggles.Keys();
-    for i = 1, #Keys do MDBX.Toggles.Set(Keys[i], Arg1 == "on"); end
+    local Keys = MDCB.Toggles.Keys();
+    for i = 1, #Keys do MDCB.Toggles.Set(Keys[i], Arg1 == "on"); end
     Print("all toggles " .. (Arg1 == "on" and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r"));
   elseif Command == "why" then
     if Arg1 == "heal" then
-      local Last = MDBX._LastBlank or {};
+      local Last = MDCB._LastBlank or {};
       Print(("why heal: slot8=%s, slot3=%s (nil = allowed; set in Toggles.SlotAllowed)")
         :format(tostring(Last[8] or "allowed"), tostring(Last[3] or "allowed")));
     else
       Print("usage: /mdb why heal");
     end
-  elseif ToggleKeyLower[Command] and MDBX.Toggles and MDBX.Toggles.Set then
+  elseif ToggleKeyLower[Command] and MDCB.Toggles and MDCB.Toggles.Set then
     local Canon = ToggleKeyLower[Command];
     -- OVERLAY-WINS (2026-09-30): the in-game value is always writable, even
     -- while the app epoch is live. Set() persists it; the effective mask and
     -- the Ext3 mirror republish from Get() on the next frame, and FrameKey
     -- includes the stored toggles so the slot cells repaint immediately.
     if Arg1 == "on" then
-      MDBX.Toggles.Set(Canon, true);
+      MDCB.Toggles.Set(Canon, true);
     elseif Arg1 == "off" then
-      MDBX.Toggles.Set(Canon, false);
+      MDCB.Toggles.Set(Canon, false);
     elseif Arg1 ~= nil then
       Print("usage: /mdb " .. Command .. " [on|off]");
       return;
     end
-    Print(("%s is %s"):format(MDBX.Toggles.Label(Canon),
-      MDBX.Toggles.Get(Canon) and "|cFF00FF00on|r" or "|cFFFF0000off|r"));
+    Print(("%s is %s"):format(MDCB.Toggles.Label(Canon),
+      MDCB.Toggles.Get(Canon) and "|cFF00FF00on|r" or "|cFFFF0000off|r"));
   else
     Print("commands: |cFFFFFF00on|r / |cFFFFFF00off|r / |cFFFFFF00toggle|r / "
       .. "|cFFFFFF00offset <x> <y>|r / |cFFFFFF00cellsize <px>|r / |cFFFFFF00calibrate on|off|r / "
@@ -1727,54 +1727,54 @@ do
     if Event == "ADDON_LOADED" then
       if Arg1 ~= addonName then return; end
 
-      -- Exp fork: Core.lua defines MDBX.IsInert() (stable MaxDpsBridge
+      -- In-game modules: Core.lua defines MDCB.IsInert() (stable MaxDpsBridge
       -- loaded). All files load before ADDON_LOADED fires, so Core is
       -- guaranteed to have installed the guard by now. Stay fully inert:
       -- no pixel frame, no strip ticker, no slash command. EnterInert also
       -- tears down a fork that was already live (stable loaded later).
-      if MDBX.IsInert and MDBX.IsInert() then
-        if MDBX.EnterInert then MDBX.EnterInert(); else MDBX.Inert = true; end;
+      if MDCB.IsInert and MDCB.IsInert() then
+        if MDCB.EnterInert then MDCB.EnterInert(); else MDCB.Inert = true; end;
         return;
       end
 
-      MaxDpsBridgeExpDB = MaxDpsBridgeExpDB or {};
+      MaxDpsCompanionBridgeDB = MaxDpsCompanionBridgeDB or {};
       -- A1.9: versioned migration BEFORE the per-key defaults merge, so a
       -- legacy Enabled=false / UserPaused pair is read while it is still the
       -- only truth.
-      Migrate(MaxDpsBridgeExpDB);
+      Migrate(MaxDpsCompanionBridgeDB);
       -- Per-key merge so an old SavedVariables file stays valid: existing
       -- top-level values and existing toggles are preserved; only missing
       -- keys are seeded from Defaults (nested tables are copied, not aliased).
-      MergeDefaults(MaxDpsBridgeExpDB, Defaults);
+      MergeDefaults(MaxDpsCompanionBridgeDB, Defaults);
       -- A1.6: give Toggles the cached DB table (it reads it several times per
       -- slot per tick; the global lookup is only needed until load).
-      if MDBX.Toggles and MDBX.Toggles.RefreshDatabase then
-        MDBX.Toggles.RefreshDatabase();
+      if MDCB.Toggles and MDCB.Toggles.RefreshDatabase then
+        MDCB.Toggles.RefreshDatabase();
       end
 
       -- Legacy pause memory is folded into the v0 -> v1 migration above; from
       -- here on only the explicit flag is authoritative.
-      UserPaused = (MaxDpsBridgeExpDB.UserPaused == true);
-      MaxDpsBridgeExpDB.UserPaused = UserPaused;
+      UserPaused = (MaxDpsCompanionBridgeDB.UserPaused == true);
+      MaxDpsCompanionBridgeDB.UserPaused = UserPaused;
 
       CreateBlock();
       Root:SetScript("OnUpdate", Update);
 
-      -- Exp fork: the stable handler is exposed for Slash.lua's /mdbx
+      -- In-game modules: the stable handler is exposed for Slash.lua's /mcb
       -- dispatcher. This copy NEVER registers /mdb (stable-only).
-      MDBX.HandleCommand = HandleCommand;
+      MDCB.HandleCommand = HandleCommand;
 
-      MDBX.EnsureHooks();
+      MDCB.EnsureHooks();
       -- v2.0: arg-blind cast sensors (player + target unit events).
-      if MDBX.InitSensors then pcall(MDBX.InitSensors); end
+      if MDCB.InitSensors then pcall(MDCB.InitSensors); end
       if C_Timer and C_Timer.After then
         -- MaxDps may load after us despite the dependency; retry hooks once.
-        C_Timer.After(5, MDBX.EnsureHooks);
+        C_Timer.After(5, MDCB.EnsureHooks);
       end
     elseif Event == "PLAYER_ENTERING_WORLD" then
-      if MDBX.IsInert and MDBX.IsInert() then return; end;
-      MDBX.EnsureHooks();
-      if MDBX.ResetSensors then pcall(MDBX.ResetSensors); end
+      if MDCB.IsInert and MDCB.IsInert() then return; end;
+      MDCB.EnsureHooks();
+      if MDCB.ResetSensors then pcall(MDCB.ResetSensors); end
     elseif Root then
       Layout();
     end

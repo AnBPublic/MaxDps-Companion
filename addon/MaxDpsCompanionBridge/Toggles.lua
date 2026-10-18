@@ -17,7 +17,7 @@
 -- companion can read back the overlay (notably the OOC bit for its
 -- out-of-combat hold). The old "app wins" masked veto is removed.
 --
--- Storage: MaxDpsBridgeExpDB.Toggles[<Key>] booleans. An explicit local value
+-- Storage: MaxDpsCompanionBridgeDB.Toggles[<Key>] booleans. An explicit local value
 -- wins. A missing key reads as ON (fail open) for every key EXCEPT OOC:
 -- out-of-combat automation is fail-CLOSED, so a missing OOC key reads OFF
 -- (hold) unless the companion is live and pushed an OOC bit ON (its
@@ -31,7 +31,7 @@
 -- writes a slot. It is deliberately context-driven: the only inputs are the
 -- slot number and ctx{ InCombat, HpPct, Grouped } supplied by Bridge.lua,
 -- which owns the game APIs (IsInGroup / UnitAffectingCombat) and the
--- sanitized MDBX.GetPlayerHpPct(). No game API is called here, no value is
+-- sanitized MDCB.GetPlayerHpPct(). No game API is called here, no value is
 -- compared unless type() says it is a plain number/boolean, and the whole
 -- body is pcall-contained and fails OPEN (allow). Secret values therefore
 -- degrade to "allow", never to a blank slot or a throw.
@@ -46,14 +46,14 @@
 -- untouched. The companion applies the same master gate from the Ext3 mirror,
 -- so auto-target / auto-interact / queued user presses stop as well.
 --
--- Reason strings: every denial records MDBX._LastBlank[slot] so `/mdb why`
+-- Reason strings: every denial records MDCB._LastBlank[slot] so `/mdb why`
 -- and the status line can explain the blank ("main off (master switch)",
 -- "solo not grouped").
 
-local addonName, MDBX = ...;
+local addonName, MDCB = ...;
 
-MDBX._LastBlank = MDBX._LastBlank or {};
-MDBX._LastAllow = MDBX._LastAllow or {};
+MDCB._LastBlank = MDCB._LastBlank or {};
+MDCB._LastAllow = MDCB._LastAllow or {};
 
 -- Monotonic dirty counter (Stream 1 §1.3): bumped by every Set/Flip/SetVeto so
 -- a consumer (Bridge.OnUpdate dirty-flag, Stream 2) can cheaply tell whether
@@ -144,7 +144,7 @@ end
 
 -- A1.6: cached SavedVariables table. Every accessor used to reach the global
 -- several times per call (Get -> LocalSet + LocalGet, 8 slots x several keys
--- per tick). Bridge calls MDBX.Toggles.RefreshDatabase() once at ADDON_LOADED
+-- per tick). Bridge calls MDCB.Toggles.RefreshDatabase() once at ADDON_LOADED
 -- (after MergeDefaults), and any writer that has to CREATE the table refreshes
 -- the cache itself. Until then the helpers fall back to the global, so no path
 -- can observe a stale nil.
@@ -152,7 +152,7 @@ local CachedDB = nil;
 local function SavedDB ()
   local D = CachedDB;
   if D ~= nil then return D; end
-  return _G.MaxDpsBridgeExpDB;
+  return _G.MaxDpsCompanionBridgeDB;
 end
 
 -- ---- App-pushed mask defaults (v3.5 / Ext3) -----------------------------
@@ -248,7 +248,7 @@ local function Set (Key, On)
   local C = Canon(Key);
   if not C then return Get(Key); end
   local DB = SavedDB();
-  if type(DB) ~= "table" then DB = {}; CachedDB = DB; _G.MaxDpsBridgeExpDB = DB; end
+  if type(DB) ~= "table" then DB = {}; CachedDB = DB; _G.MaxDpsCompanionBridgeDB = DB; end
   local Toggles = DB.Toggles;
   if type(Toggles) ~= "table" then Toggles = {}; DB.Toggles = Toggles; end
   local Value = (On ~= false);
@@ -294,7 +294,7 @@ local function SetVeto (Group, On)
   local C = CanonVeto(Group);
   if not C then return GetVeto(Group); end
   local DB = SavedDB();
-  if type(DB) ~= "table" then DB = {}; CachedDB = DB; _G.MaxDpsBridgeExpDB = DB; end
+  if type(DB) ~= "table" then DB = {}; CachedDB = DB; _G.MaxDpsCompanionBridgeDB = DB; end
   local Veto = DB.Veto;
   if type(Veto) ~= "table" then Veto = {}; DB.Veto = Veto; end
   local Value = (On ~= false);
@@ -340,7 +340,7 @@ end
 
 -- Reason texts are short and stable so `/mdb why` stays greppable.
 local function Deny (Slot, Reason)
-  MDBX._LastBlank[Slot] = Reason;
+  MDCB._LastBlank[Slot] = Reason;
   return false;
 end
 
@@ -359,7 +359,7 @@ local function SlotAllowedCore (Slot, Ctx)
 
     -- Fresh tick: clear this slot's allow diagnostic so a stale note from a
     -- previous tick never survives a later deny.
-    if MDBX._LastAllow then MDBX._LastAllow[Slot] = nil; end
+    if MDCB._LastAllow then MDCB._LastAllow[Slot] = nil; end
 
     -- 0) v4.0.4 MASTER GATE: Main OFF suspends EVERY slot, not just the core
     --    rotation. The other stored toggles are never rewritten - the overlay
@@ -421,18 +421,18 @@ local function SlotAllowedCore (Slot, Ctx)
         end
         -- Diagnostic only (/mdb why heal copy): the slot was allowed because
         -- the HP reading is unreadable. Never a blank reason.
-        if Unknown then MDBX._LastAllow[Slot] = "unknown HP allowed"; end
+        if Unknown then MDCB._LastAllow[Slot] = "unknown HP allowed"; end
       end
     end
 
-    MDBX._LastBlank[Slot] = nil;
+    MDCB._LastBlank[Slot] = nil;
     return true;
 end
 
 local function SlotAllowed (Slot, Ctx)
   local Ok, Allowed = pcall(SlotAllowedCore, Slot, Ctx);
   if Ok then return Allowed; end
-  MDBX._LastBlank = MDBX._LastBlank or {};
+  MDCB._LastBlank = MDCB._LastBlank or {};
   return true;   -- fail open on any gate error
 end
 
@@ -452,7 +452,7 @@ end
 -- to its wire range; the reserved bit stays 0. Returns the stored triple.
 local function SetAppMask (Mask, Epoch, Blocked)
   local DB = SavedDB();
-  if type(DB) ~= "table" then DB = {}; CachedDB = DB; _G.MaxDpsBridgeExpDB = DB; end
+  if type(DB) ~= "table" then DB = {}; CachedDB = DB; _G.MaxDpsCompanionBridgeDB = DB; end
   DB.AppMask = ClampN(Mask, 0, ALL_MASK, ALL_MASK);
   DB.AppEpoch = ClampN(Epoch, 0, 15, 0);
   DB.AppBlocked = ClampN(Blocked, 0, 15, 0);
@@ -462,7 +462,7 @@ end
 
 local function SetAppBlocked (Nibble)
   local DB = SavedDB();
-  if type(DB) ~= "table" then DB = {}; CachedDB = DB; _G.MaxDpsBridgeExpDB = DB; end
+  if type(DB) ~= "table" then DB = {}; CachedDB = DB; _G.MaxDpsCompanionBridgeDB = DB; end
   DB.AppBlocked = ClampN(Nibble, 0, 15, 0);
   BumpVersion();
   return DB.AppBlocked;
@@ -488,7 +488,7 @@ local function EffectiveMask ()
   return M;
 end
 
-MDBX.Toggles = {
+MDCB.Toggles = {
   Get = Get,
   Set = Set,
   Flip = Flip,
@@ -533,7 +533,7 @@ MDBX.Toggles = {
   -- bridge's ADDON_LOADED (after the DB exists and MergeDefaults ran); a
   -- writer that has to create a brand-new DB table refreshes it itself.
   RefreshDatabase = function ()
-    CachedDB = _G.MaxDpsBridgeExpDB;
+    CachedDB = _G.MaxDpsCompanionBridgeDB;
     return CachedDB;
   end,
 };
@@ -541,10 +541,10 @@ MDBX.Toggles = {
 -- Convenience getters for Bridge.lua's non-slot gates (AutoTarget /
 -- AutoInteract suppress the need-target / need-interact states, TTK forces
 -- the target HP band to unknown).
-function MDBX.Toggles.IsTTK () return Get("TTK"); end
-function MDBX.Toggles.IsOOC () return Get("OOC"); end
-function MDBX.Toggles.IsAutoTarget () return Get("AutoTarget"); end
-function MDBX.Toggles.IsAutoInteract () return Get("AutoInteract"); end
+function MDCB.Toggles.IsTTK () return Get("TTK"); end
+function MDCB.Toggles.IsOOC () return Get("OOC"); end
+function MDCB.Toggles.IsAutoTarget () return Get("AutoTarget"); end
+function MDCB.Toggles.IsAutoInteract () return Get("AutoInteract"); end
 
 -- ---- Crowd control (v3.4.0 CC appendix) -------------------------------
 -- A 14th toggle that is deliberately NOT part of the canonical 13 (Keys()
@@ -559,15 +559,15 @@ function MDBX.Toggles.IsAutoInteract () return Get("AutoInteract"); end
 --
 -- The app mask no longer vetoes an in-game ON. The companion's own opt-in
 -- remains AppSettings.CrowdControlEnabled.
-function MDBX.Toggles.IsCC ()
+function MDCB.Toggles.IsCC ()
   local Ok, Allowed = pcall(Get, "CC");
   if Ok then return Allowed ~= false; end
   return true;
 end
 
-function MDBX.Toggles.SetCC (On)
+function MDCB.Toggles.SetCC (On)
   local DB = SavedDB();
-  if type(DB) ~= "table" then DB = {}; CachedDB = DB; _G.MaxDpsBridgeExpDB = DB; end
+  if type(DB) ~= "table" then DB = {}; CachedDB = DB; _G.MaxDpsCompanionBridgeDB = DB; end
   local Toggles = DB.Toggles;
   if type(Toggles) ~= "table" then Toggles = {}; DB.Toggles = Toggles; end
   local Value = (On ~= false);

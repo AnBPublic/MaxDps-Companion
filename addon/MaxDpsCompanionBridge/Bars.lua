@@ -5,7 +5,7 @@
 -- action slot scan, and only falls back to this map when neither yields a
 -- raw binding string.
 
-local addonName, MDBX = ...;
+local addonName, MDCB = ...;
 
 local pairs = pairs;
 local tostring = tostring;
@@ -110,7 +110,7 @@ end
 local function Rebuild ()
   wipe(Bindings);
   -- Reader caches spellID -> VK; bar contents just changed, drop it too.
-  if MDBX._BindCache then wipe(MDBX._BindCache); end
+  if MDCB._BindCache then wipe(MDCB._BindCache); end
   local Bars = ActiveBarSet();
   for i = 1, #Bars do
     local Prefix, Count = Bars[i][1], Bars[i][2];
@@ -163,30 +163,30 @@ local function ApplyFullInvalidate ()
   FullPending = false;
   FlushScheduled = false;
   LastFullAt = NowSeconds() or LastFullAt;
-  MDBX.InvalidateBindings();
+  MDCB.InvalidateBindings();
 end
 
 --[[*
-  * @function MDBX.BarsFlush
+  * @function MDCB.BarsFlush
   * @desc Apply a scheduled full invalidation now (the C_Timer backstop, and
   *       the deterministic hook the offline harness drives).
   * @return boolean true when a pending wipe was applied
   *]]
-function MDBX.BarsFlush ()
+function MDCB.BarsFlush ()
   if not FullPending then return false; end
   ApplyFullInvalidate();
   return true;
 end
 
 --[[*
-  * @function MDBX.BarsEvent
+  * @function MDCB.BarsEvent
   * @desc Route one bar-family event. Returns "revision" (cooldown-only, cheap),
   *       "full" (wipe scheduled), or "coalesced" (folded into the scheduled
   *       one so a burst costs a single wipe).
   *]]
-function MDBX.BarsEvent (Event)
+function MDCB.BarsEvent (Event)
   if Event == "SPELL_UPDATE_COOLDOWN" then
-    MDBX._BindRevision = (MDBX._BindRevision or 0) + 1;
+    MDCB._BindRevision = (MDCB._BindRevision or 0) + 1;
     return "revision";
   end
   if FlushScheduled then
@@ -205,38 +205,38 @@ function MDBX.BarsEvent (Event)
   FlushScheduled = true;
   FullPending = true;
   if type(C_Timer) == "table" and type(C_Timer.After) == "function" then
-    C_Timer.After(Delay, MDBX.BarsFlush);
+    C_Timer.After(Delay, MDCB.BarsFlush);
   else
-    MDBX.BarsFlush();   -- no scheduler (offline harness / ancient client)
+    MDCB.BarsFlush();   -- no scheduler (offline harness / ancient client)
   end
   return "full";
 end
 
 --[[*
-  * @function MDBX.BindingForTexture
+  * @function MDCB.BindingForTexture
   * @desc Binding string bound to the action bar slot showing <Texture>, or nil.
   *]]
-function MDBX.BindingForTexture (Texture)
+function MDCB.BindingForTexture (Texture)
   if not Texture then return nil; end
   if FullPending then ApplyFullInvalidate(); end
   if Dirty then Rebuild(); end
   return Bindings[tostring(Texture)];
 end
 
-function MDBX.InvalidateBindings ()
+function MDCB.InvalidateBindings ()
   Dirty = true;
   -- PERF (Stream 2, 3.4.0): bump the binding/readiness revision so
   -- Bridge.FrameKey invalidates the cached slot scan. Bars repaint a frame
   -- late, cooldown resets fire SPELL_UPDATE_COOLDOWN, and both change which
   -- candidate is ready/bound without any upstream table identity changing.
-  MDBX._BindRevision = (MDBX._BindRevision or 0) + 1;
+  MDCB._BindRevision = (MDCB._BindRevision or 0) + 1;
   -- The per-spell VK cache is wiped here so a bar / binding change is
   -- reflected on the very next tick, not whenever the texture fallback
   -- happens to run.
-  if MDBX._BindCache then wipe(MDBX._BindCache); end
+  if MDCB._BindCache then wipe(MDCB._BindCache); end
 end
 
-function MDBX.BindingCount ()
+function MDCB.BindingCount ()
   if FullPending then ApplyFullInvalidate(); end
   if Dirty then Rebuild(); end
   local Count = 0;
@@ -260,6 +260,6 @@ do
   -- Readiness-only: revision bump, never a cache/map wipe (A1.1).
   Listener:RegisterEvent("SPELL_UPDATE_COOLDOWN");
   Listener:SetScript("OnEvent", function (_, Event)
-    MDBX.BarsEvent(Event);
+    MDCB.BarsEvent(Event);
   end);
 end

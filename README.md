@@ -1,17 +1,19 @@
 > [!IMPORTANT]
-> **Current client: 4.2.0 "Nightblade"** - the WinUI 3 Windows client
+> **Current client: 4.3.0 "Namesake"** - the WinUI 3 Windows client
 > (`app/MaxDpsCompanion/`), the shared brain (`app/MaxDpsCompanion.Core/`) and the
-> macOS client (`app/MaxDpsCompanion.Mac/`), targeting `MaxDpsBridgeExp` +
-> `dist-exp`. **C# is the long-term base.** Frozen: the 3.7.9 WinForms
-> distribution (`dist/`, `build.ps1`), the stable bridge (`addon/MaxDpsBridge/`)
-> and the Rust port (`companion-rs/`, reference only, no Ext4). See
-> [`LEGACY.md`](LEGACY.md); release plans: [4.2.0 Nightblade](docs/plans/2026-10-18-rogue-cc-intelligence.md),
+> macOS client (`app/MaxDpsCompanion.Mac/`), targeting `MaxDpsCompanionBridge` +
+> `dist`. **C# is the long-term base.** Frozen: the 3.7.9 WinForms
+> distribution (`dist-legacy/`, `build.ps1`), the legacy bridge
+> (`addon/legacy/MaxDpsBridge/`) and the Rust port (`companion-rs/`, reference
+> only, no Ext4). See
+> [`LEGACY.md`](LEGACY.md); release plans: [4.3.0 Namesake](docs/plans/2026-10-18-companion-bridge-rename.md),
+> [4.2.0 Nightblade](docs/plans/2026-10-18-rogue-cc-intelligence.md),
 > [4.1.0 Paragon](docs/plans/2026-10-17-paragon-audit-remediation.md).
 
 > [!TIP]
 > **macOS Companion — `3.7.9 "Unyielding" (mac)`:** the macOS client lives in
 > [`app/MaxDpsCompanion.Mac/`](app/MaxDpsCompanion.Mac/) (+ the portable brain
-> in `app/MaxDpsCompanion.Core/`) and targets **`MaxDpsBridgeExp`** on retail.
+> in `app/MaxDpsCompanion.Core/`) and targets the **MaxDps Companion Bridge** addon on retail.
 > Build with `./build-mac.sh`, install to `/Applications`, grant **Screen
 > Recording** + **Accessibility**, then Start (or run `--probe` for a
 > read-only report). Capture is a **window-filtered ScreenCaptureKit stream
@@ -33,12 +35,12 @@ Two pieces:
 
  | Piece | What it does |
  | :--- | :--- |
- | `MaxDpsBridgeExp` (addon, `addon/MaxDpsBridgeExp/`) | Queries the MaxDps rotation engine each frame and encodes suggestions, ability ids, combat context and the keybound hotbar map into a 51-cell strip of flat-coloured pixels (35-cell v5 core + additive Ext2/Ext3/Ext4 blocks). |
+ | `MaxDpsCompanionBridge` (addon, `addon/MaxDpsCompanionBridge/`) | Queries the MaxDps rotation engine each frame and encodes suggestions, ability ids, combat context and the keybound hotbar map into a 51-cell strip of flat-coloured pixels (35-cell v5 core + additive Ext2/Ext3/Ext4 blocks). |
  | `MaxDpsCompanion.exe` (desktop app, `app/MaxDpsCompanion/`) | WinUI 3 shell that samples those pixels, decodes the frame, evaluates every situational suggestion (USE / HOLD / SKIP / UNAVAILABLE / UNKNOWN) against an embedded ability intelligence registry + explicit candidate providers, queues recognised hotbar presses, schedules one action at a time, and replays the player's own keybinds into the attached game window. |
 
-The stable `MaxDpsBridge` addon (`addon/MaxDpsBridge/`, 40-cell strip) and the
-old WinForms client (`dist/`) are **legacy/frozen**; all current work targets
-`MaxDpsBridgeExp` + `dist-exp`.
+The legacy `MaxDpsBridge` addon (`addon/legacy/MaxDpsBridge/`, 40-cell strip) and the
+old WinForms client (`dist-legacy/`) are **legacy/frozen**; all current work targets
+`MaxDpsCompanionBridge` + `dist`.
 
 ## v4.0.4 "Aegis" - Main is the master switch; compact overlay (no wire change)
 
@@ -406,22 +408,25 @@ slot is a second, independently ranged self-sustain candidate. The self-buff
 block is tri-state since bridge 2.7. Solo mode itself is unchanged from v2.8:
 `[Solo] Enabled=1` runs the survival layer (sustain at ≤65%, emergency at
 ≤35%, self-heals as an independent candidate source) — see the Solo section
-below. The addon is installed by `install-addon.ps1`; after updating always
-`/reload` (or `/mdb status` to confirm `protocol=5 ext2=1`).
+below. The addon is installed by `tools/install-addon.ps1`; after updating
+always `/reload` (or `/mcb status` to confirm `protocol=5 ext2=1`).
 
-## In-game commands (`/mdb`)
+## In-game commands (`/mcb`)
+
+Legacy aliases `/mdb` and `/mdbx` work everywhere below (and `/mcb toggles`,
+`/mcb settings`, `/mcb hotbar` are additional in-game-config commands).
 
 | Command | Effect |
 | :--- | :--- |
-| `/mdb status` | Offset, cell size, state, bound slots, class/spec + extras; `ext2=1 hpcurve=<on\|off> sh2=<id\|->`. |
-| `/mdb on` / `/mdb off` / `/mdb toggle` | Enable / pause the bridge. |
-| `/mdb offset <x> <y>` | Move the strip in physical pixels from top-left. |
-| `/mdb cellsize <px>` | Resize cells (1–64; 8 default/recommended). |
-| `/mdb calibrate on\|off` | Show/hide the 54-step calibration pattern. |
-| `/mdb heal` | Per curated self-heal entry: known / ready / usable / key / why (slot-8 + SelfHeal2 selection). |
-| `/mdb hpcurve on\|off` | Ext2 HP-curve cell on/off (SavedVariables, default on). |
-| `/mdb diag` | Scrubbed MaxDps internals snapshot. |
-| `/mdb reset` | Back to defaults (clears calibrate mode). |
+| `/mcb status` | Offset, cell size, state, bound slots, class/spec + extras; `ext2=1 hpcurve=<on\|off> sh2=<id\|->`. |
+| `/mcb on` / `/mcb off` / `/mcb toggle` | Enable / pause the bridge. |
+| `/mcb offset <x> <y>` | Move the strip in physical pixels from top-left. |
+| `/mcb cellsize <px>` | Resize cells (1-64; 8 default/recommended). |
+| `/mcb calibrate on\|off` | Show/hide the 54-step calibration pattern. |
+| `/mcb heal` | Per curated self-heal entry: known / ready / usable / key / why (slot-8 + SelfHeal2 selection). |
+| `/mcb hpcurve on\|off` | Ext2 HP-curve cell on/off (SavedVariables, default on). |
+| `/mcb diag` | Scrubbed MaxDps internals snapshot. |
+| `/mcb reset` | Back to defaults (clears calibrate mode). |
 
 ## Combat intelligence (v2.0/v2.1, `[Intelligence] Enabled=1`)
 
@@ -636,7 +641,7 @@ base (`vendor-abilities.json`, regenerated by
 (`abilities.json`) with per-ability purpose/tier/conditions plus per-spec
 Mobility/SelfHeal lists and a derived defensive gap-fill list. The bridge
 mirrors the class/spec ids and extras via the generated
-`addon/MaxDpsBridge/Catalog.lua`
+`addon/MaxDpsCompanionBridge/Catalog.lua`
 (`MaxDpsCompanion.exe --gen-catalog=<path>`); a test fails if it drifts. The
 user per-ability ON/OFF layer is `Knowledge/AbilityPolicy.cs` (`[Abilities]`).
 Research artifact and sources: `docs/research/ABILITY_RESEARCH.md`.
@@ -657,29 +662,29 @@ ring, nothing on disk until you export, no network, no Blizzard values.
 ## Build / install
 
 ```powershell
-.\tools\install-addon-exp.ps1   # CURRENT: copy MaxDpsBridgeExp into Interface\AddOns (never touches MaxDps*)
-.\tools\publish-exp.ps1         # CURRENT: WinUI 3 4.0.3 "Bulwark" -> dist-exp\MaxDpsCompanion.exe
+.\tools\install-addon.ps1      # CURRENT: copy MaxDpsCompanionBridge into Interface\AddOns (never touches legacy addons)
+.\tools\publish.ps1            # CURRENT: WinUI 3 4.3.0 "Namesake" -> dist\MaxDpsCompanion.exe
                                 #   (unpackaged, framework-dependent; keeps settings.ini + the Rust
                                 #    mdc-*.exe untouched; asserts MaxDpsCompanion.exe +
-                                #    MaxDpsCompanion.pri; writes VERSION.txt = 4.0.3 Bulwark)
-.\build.ps1                     # LEGACY: publishes the frozen 3.7.9 WinForms client to dist\
+                                #    MaxDpsCompanion.pri; writes VERSION.txt = 4.3.0 Namesake)
+.\build.ps1                     # LEGACY: publishes the frozen 3.7.9 WinForms client to dist-legacy\
 ```
 
-Prerequisite for the dist-exp client: the **Windows App SDK 1.8 runtime**
+Prerequisite for the dist client: the **Windows App SDK 1.8 runtime**
 (framework-dependent, same model as the .NET 8 Desktop Runtime). A clean machine
-with only that runtime is still an OWED live check. `tools/publish-exp.ps1` must
+with only that runtime is still an OWED live check. `tools/publish.ps1` must
 keep `EnableMsixTooling=true` + `WindowsPackageType=None` paired, or the
 published output lacks the XAML resource index (`MaxDpsCompanion.pri`) and the
 app fails `0xC000027B`.
 
-Then in game: `/reload`, `/mdbx status`, Start in the app. Client must be
+Then in game: `/reload`, `/mcb status`, Start in the app. Client must be
 windowed/borderless and visible. Tests: `docs/TESTING.md`.
 
-`MaxDpsBridge` + `dist\` + `install-addon.ps1` + `build.ps1` are
-**LEGACY/deprecated** (the frozen 3.7.9 WinForms client); all releases, fixes
-and deploys target the Exp client unless legacy is explicitly requested.
+`MaxDpsBridge` + `dist-legacy\` + `build.ps1` are **LEGACY/deprecated** (the
+frozen 3.7.9 WinForms client); all releases, fixes and deploys target the
+companion client unless legacy is explicitly requested.
 
-Version locations: addon `MaxDpsBridge.toc` + `addon/MaxDpsBridge/VERSION.txt`,
+Version locations: addon `MaxDpsCompanionBridge.toc` + `addon/MaxDpsCompanionBridge/VERSION.txt`,
 app title bar (`ThisAssembly.Gen.cs` stamp), repo `VERSION.txt`.
 
 ## Safety limits

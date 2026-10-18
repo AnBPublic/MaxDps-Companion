@@ -297,6 +297,6 @@ internal sealed class ToggleSync
     /// </summary>
     public static string? MainOffNote(bool mirrorValid, int mirrorMask) =>
         mirrorValid && !IsSet(mirrorMask, BitMain)
-            ? "addon Main toggle is OFF - rotation suspended (/mdbx main on)"
+            ? "addon Main toggle is OFF - rotation suspended (/mcb main on)"
             : null;
 }

@@ -1,4 +1,4 @@
-# MaxDpsBridgeExp assets (placeholder)
+# MaxDpsCompanionBridge assets (placeholder)
 
 This folder holds the committed `.tga` icons for the experimental addon,
 plus this placeholder. **Do not hand-edit binaries here** — regenerate them
@@ -7,12 +7,12 @@ with `tools/fetch_assets.ps1` (dev-time only) and commit the results.
 Expected names (64/128 variants): ``<name>-64.tga`` and ``<name>-128.tga``
 for the toggle keys and chrome icons listed in `assets/LICENSES.md`.
 `SetTexture` paths drop the extension, e.g.
-`Interface\AddOns\MaxDpsBridgeExp\Exp\Assets\main-64`.
+`Interface\AddOns\MaxDpsCompanionBridge\InGame\Assets\main-64`.
 
 ## Runtime resolver
 
 `Exp/Overlay.lua` (`IconFor`) resolves each pill to
-`Interface\AddOns\MaxDpsBridgeExp\Exp\Assets\<keylower>-64`, i.e. the 64 px
+`Interface\AddOns\MaxDpsCompanionBridge\InGame\Assets\<keylower>-64`, i.e. the 64 px
 variant of the matching file written by `tools/fetch_assets.ps1`
 (`Main` -> `main-64.tga`, `SelfHeal` -> `selfheal-64.tga`). The `-128`
 variant is optional hi-dpi art; the resolver never requests it and a missing

@@ -29,14 +29,14 @@
 -- frame build) so the companion can still assemble a complete seq cycle for
 -- one gen while cooldowns tick. See Ext4Assembler: it validates gen/seq only.
 
-local addonName, MDBX = ...;
+local addonName, MDCB = ...;
 
 local type, pcall, tostring = type, pcall, tostring;
 local math_floor = math.floor;
 
-MDBX.HotbarWatch = MDBX.HotbarWatch or {};
+MDCB.HotbarWatch = MDCB.HotbarWatch or {};
 
-local HotbarWatch = MDBX.HotbarWatch;
+local HotbarWatch = MDCB.HotbarWatch;
 
 local MAX_ENTRIES   = 32;
 local MAX_ID        = 2 ^ 22;        -- 4,194,304 exclusive (22-bit id)
@@ -46,7 +46,7 @@ local SLOT_COUNT    = 180;           -- main bar + 6 extra bars + 2 bonus bars
 
 local function Print (Message)
   if type(DEFAULT_CHAT_FRAME) == "table" and DEFAULT_CHAT_FRAME.AddMessage then
-    DEFAULT_CHAT_FRAME:AddMessage("|cFF00D8FFMDBX|r hotbar: " .. tostring(Message));
+    DEFAULT_CHAT_FRAME:AddMessage("|cFF00D8FFMDCB|r hotbar: " .. tostring(Message));
   end
 end
 
@@ -80,11 +80,11 @@ end
 -- cited against the documented Blizzard slot layout there. The old inline
 -- copy mapped 13-24 AND 61-72 to MULTIACTIONBAR1 and 73-156 to
 -- MULTIACTIONBAR5; 61-72 was the only confirmed row.
-local SlotCommand = MDBX.SlotCommand;
+local SlotCommand = MDCB.SlotCommand;
 
 --- ======= BAR-ADDON BUTTONS =======
 -- Mirrors the pattern names Bars.lua probes. The binding itself is read
--- through Bars' exposed MDBX.BindingForTexture, so the addon's own texture ->
+-- through Bars' exposed MDCB.BindingForTexture, so the addon's own texture ->
 -- binding map stays single-sourced (we never re-implement ButtonBinding).
 -- Step = buttons-per-bar stride for index-based slot fallback (Bartender's
 -- BT4Button1-120 map 1:1 to action slots).
@@ -138,7 +138,7 @@ local function BuildSlotBinding ()
     end
   end
   local Set = ActiveAddonBars();
-  if Set and MDBX.BindingForTexture then
+  if Set and MDCB.BindingForTexture then
     pcall(function ()
       for b = 1, #Set.Bars do
         local Prefix, Count = Set.Bars[b][1], Set.Bars[b][2];
@@ -154,7 +154,7 @@ local function BuildSlotBinding ()
                 if OkT then Texture = Tex; end
               end
               if Texture then
-                local OkB, Binding = pcall(MDBX.BindingForTexture, Texture);
+                local OkB, Binding = pcall(MDCB.BindingForTexture, Texture);
                 if OkB and type(Binding) == "string" and Binding ~= "" then Map[Slot] = Binding; end
               end
             end
@@ -193,8 +193,8 @@ end
 
 --- ======= READINESS (fail-closed) =======
 local function SpellReady (SpellId)
-  if type(MDBX.IsSpellReady) ~= "function" then return false; end
-  local Ok, Ready = pcall(MDBX.IsSpellReady, SpellId);
+  if type(MDCB.IsSpellReady) ~= "function" then return false; end
+  local Ok, Ready = pcall(MDCB.IsSpellReady, SpellId);
   if Ok and Ready == true then return true; end
   return false;
 end
@@ -309,7 +309,7 @@ function HotbarWatch.Rebuild ()
   -- Per-rebuild readiness memo: one BeginTick/EndTick bracket so the whole
   -- walk shares one evaluation per spell (A1.3) and never leaks a memo into
   -- the next bridge tick.
-  if MDBX.BeginTick then MDBX.BeginTick(); end
+  if MDCB.BeginTick then MDCB.BeginTick(); end
   for Slot = 1, SLOT_COUNT do
     local Kind, Id = ActionInfo(Slot);
     local Entry = nil;
@@ -345,8 +345,8 @@ function HotbarWatch.Rebuild ()
       -- Resolve the keybinding for this slot.
       local BindingStr = Binding[Slot];
       local VK, Mods = nil, 0;
-      if type(BindingStr) == "string" and type(MDBX.ParseBinding) == "function" then
-        local OkP, Pv, Pm = pcall(MDBX.ParseBinding, BindingStr);
+      if type(BindingStr) == "string" and type(MDCB.ParseBinding) == "function" then
+        local OkP, Pv, Pm = pcall(MDCB.ParseBinding, BindingStr);
         if OkP and type(Pv) == "number" then
           VK = Pv;
           if type(Pm) == "number" then Mods = Pm; end
@@ -370,7 +370,7 @@ function HotbarWatch.Rebuild ()
 
   Entries = New;
   EntryCount = #New;
-  if MDBX.EndTick then MDBX.EndTick(); end
+  if MDCB.EndTick then MDCB.EndTick(); end
   -- A1.7: gen is the companion's "new map, restart the seq cycle" signal.
   -- A sweep or readiness refresh that produced the same IDENTITY must not bump
   -- it (the old code bumped gen on every rebuild, so the 2 s sweep threw away a
@@ -500,7 +500,7 @@ function HotbarWatch.TypingActive ()
   return false;
 end
 
---- ======= DIAGNOSTICS (/mdbx hotbar) =======
+--- ======= DIAGNOSTICS (/mcb hotbar) =======
 function HotbarWatch.Count () return EntryCount; end
 function HotbarWatch.Gen () return Gen; end
 function HotbarWatch.Seq () return EntryCount > 0 and Seq or 0; end

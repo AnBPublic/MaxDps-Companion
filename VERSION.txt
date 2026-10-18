@@ -1,3 +1,24 @@
+4.3.0
+Date: 2026-10-18 - "Namesake"
+Companion 4.3.0 "Namesake" / bridge 4.3.0. Naming release, NO wire change:
+protocol v5 + Ext2/Ext3/Ext4, 51 cells, every cell byte-identical.
+- The former experimental pair becomes the de-facto norm: the addon is now
+  "MaxDps Companion Bridge" (folder addon/MaxDpsCompanionBridge, TOC
+  MaxDpsCompanionBridge.toc, saved variables MaxDpsCompanionBridgeDB /
+  MaxDpsCompanionBridgeCharDB, slash /mcb with /mdb and /mdbx aliases, keybind
+  header/actions MDCB_TOGGLE_*), the Lua namespace is MDCB, and Exp/ is now
+  InGame/.
+- The frozen legacy MaxDpsBridge addon is archived under addon/legacy/; the
+  legacy companion output moves to dist-legacy/, and the current pair takes
+  the plain names (dist/, MaxDpsCompanionBridge).
+- Companion: the in-game-config shell is now the DEFAULT (InGameConfigMode=1;
+  InGameConfigMode=0 opts back into the classic shell; --exp stays a
+  compatibility alias).
+- Existing installs migrate with tooling: SavedVariables files rewritten to
+  the new variable names and bindings-cache.wtf MDBX_TOGGLE_* -> MDCB_TOGGLE_*,
+  both with .bak backups (WTF is keyed by addon folder / variable name, so the
+  migration runs outside the game).
+
 4.2.0
 Date: 2026-10-18 - "Nightblade"
 Companion 4.2.0 "Nightblade" / bridge 4.2.0-exp. CC intelligence release, NO

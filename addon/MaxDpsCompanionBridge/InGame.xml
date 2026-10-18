@@ -1,8 +1,8 @@
 <Ui xmlns="http://www.blizzard.com/wow/ui/">
-    <!-- MaxDpsBridgeExp load order. Toggles first; the Bridge.lua runtime
+    <!-- MaxDpsCompanionBridge load order. Toggles first; the Bridge.lua runtime
          dependencies (Catalog/MajorCooldowns/Keymap/Bars/MainFallback/Reader)
          follow so the renamed encoder has its companion-only helpers; then
-         Bridge.lua itself, then the Exp modules in expansion order. -->
+         Bridge.lua itself, then the InGame modules in load order. -->
     <Script file="Toggles.lua"/>
     <Script file="Catalog.lua"/>
     <Script file="MajorCooldowns.lua"/>
@@ -11,13 +11,13 @@
     <Script file="MainFallback.lua"/>
     <Script file="Reader.lua"/>
     <!-- Ext4 hotbar map provider: after Reader (readiness/binding helpers),
-         before Bridge (Bridge paints the cells from MDBX.HotbarWatch.Frame). -->
+         before Bridge (Bridge paints the cells from MDCB.HotbarWatch.Frame). -->
     <Script file="HotbarWatch.lua"/>
     <Script file="Bridge.lua"/>
-    <Script file="Exp/Core.lua"/>
-    <Script file="Exp/Profiles.lua"/>
-    <Script file="Exp/Overlay.lua"/>
-    <Script file="Exp/Settings.lua"/>
-    <Script file="Exp/Config.lua"/>
-    <Script file="Exp/Slash.lua"/>
+    <Script file="InGame/Core.lua"/>
+    <Script file="InGame/Profiles.lua"/>
+    <Script file="InGame/Overlay.lua"/>
+    <Script file="InGame/Settings.lua"/>
+    <Script file="InGame/Config.lua"/>
+    <Script file="InGame/Slash.lua"/>
 </Ui>

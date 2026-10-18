@@ -4,7 +4,7 @@ P2-E live UI smoke (docs/plans/2026-10-11-winui3-v4-migration.md §5/§6).
 
 Runs the built companion's hosted smoke mode against a REAL shown WinUI
 window: ShellValidation walks the visual tree (title, zero-size interactive
-elements, accessible names, hero toggle count, Exp toggle-free contract), the
+elements, accessible names, hero toggle count, toggle-free contract), the
 Advanced/Abilities overlays are opened and closed, and RenderTargetBitmap
 renders the window to ui-smoke.png with a non-blank colour-grid assertion
 (ui-smoke.txt / ui-smoke-layout.txt sit next to the PNG).
@@ -13,16 +13,13 @@ Checks: process exit 0 AND ui-smoke.png exists with real content.
 A finding, blank render or crash is a failure (exit 3 from the exe -> this
 script throws). Run from the repository root:
 
-  pwsh -File tools/ui_smoke.ps1
-  pwsh -File tools/ui_smoke.ps1 -Exp        # in-game-config shell: asserts ZERO toggles
+  pwsh -File tools/ui_smoke.ps1                       # in-game-config shell (default)
   pwsh -File tools/ui_smoke.ps1 -ExePath <path-to-exe>
 #>
 [CmdletBinding()]
 param(
     # Explicit companion exe; default = newest bin/Release exe.
-    [string]$ExePath,
-    # Run the Exp (in-game-config) shell instead of the classic shell.
-    [switch]$Exp
+    [string]$ExePath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -52,7 +49,6 @@ $stderr = Join-Path ([System.IO.Path]::GetTempPath()) "mdb-ui-smoke-$([guid]::Ne
 if (Test-Path -LiteralPath $png) { Remove-Item -LiteralPath $png -Force }
 
 $arguments = @('--ui-smoke-test')
-if ($Exp) { $arguments += '--exp' }
 
 try {
     $process = Start-Process -FilePath $exe -ArgumentList $arguments -Wait -PassThru `

@@ -1,8 +1,8 @@
 <#
 .SYNOPSIS
-    Dev-time asset pipeline for MaxDpsBridgeExp: downloads pinned upstream
+    Dev-time asset pipeline for MaxDpsCompanionBridge: downloads pinned upstream
     SVGs/fonts, rasterizes them, and writes validated 32-bit top-left TGA
-    icons into addon/MaxDpsBridgeExp/Exp/Assets.
+    icons into addon/MaxDpsCompanionBridge/InGame/Assets.
 
 .DESCRIPTION
     OFFLINE-SAFE STUB. Nothing here runs at build time or at addon runtime;
@@ -70,10 +70,10 @@ $ErrorActionPreference = 'Stop'
 if (-not $RepoRoot) { $RepoRoot = Split-Path -Parent $PSScriptRoot }
 if (-not (Test-Path -LiteralPath $RepoRoot)) { throw "RepoRoot not found: $RepoRoot" }
 
-$assetsOut  = Join-Path $RepoRoot 'addon\MaxDpsBridgeExp\Exp\Assets'
+$assetsOut  = Join-Path $RepoRoot 'addon\MaxDpsCompanionBridge\InGame\Assets'
 $fontsOut   = Join-Path $RepoRoot 'app\MaxDpsCompanion\assets\fonts'
 $pinsFile   = Join-Path $PSScriptRoot 'asset-pins.json'
-$tempRoot   = Join-Path ([System.IO.Path]::GetTempPath()) ("mdbx-assets-{0}" -f [guid]::NewGuid().ToString('N'))
+$tempRoot   = Join-Path ([System.IO.Path]::GetTempPath()) ("mdcb-assets-{0}" -f [guid]::NewGuid().ToString('N'))
 
 # --- Pinned upstream manifest -------------------------------------------------
 # SHA256 pins live in asset-pins.json (key = asset Name). Empty = unpinned.
@@ -231,7 +231,7 @@ $pins = Get-Pins
 $seen = @{}
 $magick = $null
 
-Write-Output "MaxDpsBridgeExp asset fetch (dev-time; addon never downloads)"
+Write-Output "MaxDpsCompanionBridge asset fetch (dev-time; addon never downloads)"
 Write-Output "  repo:   $RepoRoot"
 Write-Output "  output: $assetsOut"
 Write-Output "  pins:   $pinsFile"
@@ -304,4 +304,4 @@ finally {
     }
 }
 
-Write-Output "Done. Commit addon/MaxDpsBridgeExp/Exp/Assets/*.tga and, on first run, tools/asset-pins.json."
+Write-Output "Done. Commit addon/MaxDpsCompanionBridge/InGame/Assets/*.tga and, on first run, tools/asset-pins.json."

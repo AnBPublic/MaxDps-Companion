@@ -11,7 +11,7 @@ internal static class Program
     private const int SchedulerBenchMinimumTicks = 900;
 
     // Environment.ProcessPath always resolves to the real .exe location,
-    // so settings.ini sits next to the exe (dist-exp\) and not in a temp dir.
+    // so settings.ini sits next to the exe (dist\) and not in a temp dir.
     internal static string AppDir { get; } =
         Path.GetDirectoryName(Environment.ProcessPath) is { Length: > 0 } dir
             ? dir
@@ -472,11 +472,11 @@ internal static class Program
     }
 
     /// <summary>
-    /// Experimental in-game-config (Exp) shell opt-in. <c>--exp</c> forces
-    /// <see cref="AppSettings.InGameConfigMode"/> on regardless of settings.ini,
-    /// so one published exe can run either shell without a second binary (spec
-    /// docs/plans/2026-10-03-ingame-config.md §1/§10; the dist-exp copy sets the
-    /// INI key instead). Parsed here so the flag and the INI share one load path.
+    /// Legacy <c>--exp</c> CLI alias: forces
+    /// <see cref="AppSettings.InGameConfigMode"/> on regardless of settings.ini.
+    /// The in-game-config shell is the default since 4.3.0, so the flag is a
+    /// no-op unless the INI set the mode off; it stays parsed so older shortcuts
+    /// keep working. Parsed here so the flag and the INI share one load path.
     /// </summary>
     internal static void ApplyExpFlag(AppSettings settings, string[] args)
     {

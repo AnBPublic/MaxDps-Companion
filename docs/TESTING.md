@@ -113,16 +113,16 @@ throw on compare/arithmetic), loads Catalog + Keymap + Reader + Bridge, fires
 
 ## 3. Live in-game E2E (retail) — OWED
 
-> DEPLOY: the **CURRENT** client is Exp — install with
-> `tools/install-addon-exp.ps1` and run the `dist-exp\` exe (`InGameConfigMode=1`,
-> `/mdbx`). Any `install-addon.ps1` step below is **LEGACY** (stable/frozen); use it
-> only when the step explicitly targets legacy.
+> DEPLOY: the **CURRENT** client is the WinUI 3 companion — install the addon with
+> `tools/install-addon.ps1` and run the `dist\` exe (the in-game-config shell is the
+> default; `/mcb`, legacy aliases `/mdb`, `/mdbx`). Any legacy-addon step below
+> applies only when it explicitly targets the frozen `addon/legacy/MaxDpsBridge`.
 
 Static (parses/builds) ≠ automated test ≠ live validation. The following are
 **required** in a real client and cannot be automated offline:
 
-1. `/mdb calibrate on` → Recalibrate → v5 pattern learned (35 cells).
-2. `/mdb status` shows `protocol=5`, class/spec/extras sensible.
+1. `/mcb calibrate on` → Recalibrate → v5 pattern learned (35 cells).
+2. `/mcb status` shows `protocol=5`, class/spec/extras sensible.
 3. In combat: main rotation fires at the normal cadence; interrupts land;
    a defensive emergency preempts a live main.
 4. Housekeeping checks: stop the addon (`/reload`) → link holds after
@@ -134,7 +134,7 @@ Static (parses/builds) ≠ automated test ≠ live validation. The following are
 6. Execution safety (v2.1): while hard-casting, no GCD-riding key is sent
    (kicks/items still land); a channel is never clipped, not even by main.
 7. Interruptibility (v2.1): against a NOT_INTERRUPTIBLE cast MaxDps must not
-   produce a kick (watch `/mdb status` + the plan reason); an interruptible
+   produce a kick (watch `/mcb status` + the plan reason); an interruptible
    cast still kicks normally.
 8. Recovery (v2.1): a suggestion that keeps failing (e.g. an immune target)
    must decay its retry rate (1.5 s → 10 s) and never block the main
@@ -189,7 +189,7 @@ the canonical replay (`tests/MaxDpsCompanion.Tests/fixtures/defensive-warrior-ur
 Midnight 12.1 client (Intelligence ON; the Defensive slot enabled; a
 defensive actually bound to a key):
 
-1. Reinstall the addon (`install-addon.ps1`) and `/reload`; `/mdb status`
+1. Reinstall the addon (`install-addon.ps1`) and `/reload`; `/mcb status`
    must show `protocol=5`. **An updated addon must still decode with an older
    companion exe** (the wire version nibble stays 5 and the additive urgency
    nibbles are ignored by the old decoder — the Sep-2026 "no abilities
@@ -239,7 +239,7 @@ sha256=b71a999d5e46570e; replays defensive 16 verdicts/0 mismatches, solo
 LIVE WOW VERIFIED (owed - observe in a real client, Intelligence ON):
 
 1. Reinstall the addon (`install-addon.ps1`) + `/reload` (Catalog.lua
-   revision 3); `/mdb status` shows `protocol=5`.
+   revision 3); `/mcb status` shows `protocol=5`.
 2. Open Class skills in-game: rows show the status label (Verified /
    Research-backed / MaxDps-backed / Companion rule / Safety rule /
    Heuristic / Manual by design / Unsafe / Incomplete / Unknown) + tier +
@@ -278,9 +278,9 @@ ttk-warrior-burst 18);
 `tools/ability_audit.ps1` exit 0 (Violations 0 / Warnings 0 / Missing 0 /
 Stale 0; addon Catalog.lua matches).
 
-1. Reinstall the addon (`install-addon.ps1`) + `/reload`; `/mdb status` shows
+1. Reinstall the addon (`install-addon.ps1`) + `/reload`; `/mcb status` shows
    bridge 2.7.0, `protocol=5`, sensible class/spec/extras.
-2. Calibrate (`/mdb calibrate on` -> Recalibrate) and confirm the strip
+2. Calibrate (`/mcb calibrate on` -> Recalibrate) and confirm the strip
    decodes (Home shows connected + bridge state).
 3. Home answers the three questions at a glance: connected? what is it doing
    (current/last action + why)? what will it do automatically (mode,
@@ -356,7 +356,7 @@ collateral):
    fast-pack latch is set; group Major/Immunity must **never** be gated, and
    emergency HP always overrides. (Rationale: enemy count is unobservable; the
    tank may be dying to other mobs.)
-3. **Toggle semantics.** Confirm the hero/`/mdb` label reads **"TTK guard"** and
+3. **Toggle semantics.** Confirm the hero/`/mcb` label reads **"TTK guard"** and
    the tooltip says *OFF = cooldowns fire without dying-target protection*. The
    former band-15 collateral (blanking the execute gate/Burst consumers and the
    `[TimeToKill] Fallback=ConserveMajors` unknown-TTK hold) is **superseded in
@@ -404,11 +404,11 @@ reproduce the hold.
 
 ### 3h. Main = MaxDps core rotation, deny list removed (3.7.8; live 12.1 retail, OWED)
 
-Offline evidence is static only — `luac -p addon/MaxDpsBridgeExp/*.lua`, `lua
+Offline evidence is static only — `luac -p addon/MaxDpsCompanionBridge/*.lua`, `lua
 tests/secret_harness.lua` (the former `MDBX.MajorCDDeny` pins are inverted for
-3.7.8) and the `MDBX.FlagOffensiveExtra` routing checks — never live proof.
-There is no automated in-game test. Observe in a real client with the Exp bridge
-**3.7.9** addon loaded (`/reload`, `/mdb status` shows `protocol=5`):
+3.7.8) and the `MDCB.FlagOffensiveExtra` routing checks — never live proof.
+There is no automated in-game test. Observe in a real client with the companion
+bridge addon loaded (`/reload`, `/mcb status` shows `protocol=5`):
 
 1. **Formerly denied core-rotation recommendations ARE Main.** Play a Warrior
    and a Fire Mage with the relevant ability available; while MaxDps glows it as
@@ -417,7 +417,7 @@ There is no automated in-game test. Observe in a real client with the Exp bridge
 2. **Offensive routing unchanged vs 3.7.7.** The same ids must still fire
    through the **Offensive** slot when ready and policy-Use
    (`Reader.GetOffensiveCandidate` → `FirstFlagged("offensive")`, via
-   `MDBX.FlagOffensiveExtra`); Offensive / Defensive / Interrupt are untouched.
+   `MDCB.FlagOffensiveExtra`); Offensive / Defensive / Interrupt are untouched.
 3. **No dead Main.** A power-starved glow (`usable == false AND noPower ==
    true`) must fall through to the next glow, or to the per-spec `MainFallback`
    filler, never stranding the slot. Secret/nil/throw fail open. An off-GCD
@@ -426,8 +426,8 @@ There is no automated in-game test. Observe in a real client with the Exp bridge
    verdicts.
 
 Also OWED: the true 12.1 ids (fill `newSpellId`; the `MDBX.MajorCDDeny` table is
-**gone in Exp 3.7.8** — Main now trusts the MaxDps core rotation — while stable
-`addon/MaxDpsBridge/` keeps its frozen deny) and the `Sync-CustomMaxDps.ps1`
+**gone in Exp 3.7.8** — Main now trusts the MaxDps core rotation — while the legacy
+`addon/legacy/MaxDpsBridge/` keeps its frozen deny) and the `Sync-CustomMaxDps.ps1`
 publish + `_backup/` rollback end-to-end. Static ≠ automated test ≠ live
 in-game.
 
@@ -456,7 +456,7 @@ bridge 3.7.9 addon loaded:
 
 Unlisted specs have no filler (MAIN may legitimately stay empty and are OWED);
 the Fury ids are verified by name against the read-only `vendor/` tree (see
-`addon/MaxDpsBridge/MainFallback.lua`). Static ≠ automated test ≠ live in-game.
+`addon/MaxDpsCompanionBridge/MainFallback.lua`). Static ≠ automated test ≠ live in-game.
 
 ### 3j. WHITE Main immediate execution (live 12.1 retail, OWED)
 
@@ -497,7 +497,7 @@ regenerated TTK fixtures/replays for the no-conservation behaviour, plus the
 offline vendor-offensive audit (161 ids across all 13 classes; 0 carrying
 `neverAutomatic`/`ManualByDesign`/`UnsafeToAutomate`; 49/161 vendor-only rows
 resolve to `MaxDpsBacked`) — never live proof. Observe in a real client with the
-Exp bridge **3.7.9** addon loaded, Intelligence ON:
+companion bridge addon loaded, Intelligence ON:
 
 1. **No TTK hold on a MaxDps offer.** Against a target whose TTK is ≤15 s (and
    in trash), a MaxDps-recommended offensive — Avatar 107574, Ravager 228920,
@@ -521,9 +521,9 @@ v3.2–v3.8 history of the removed conservation.
 
 ### 3l. Hotbar press queue (4.0.3; live 12.1 retail, OWED)
 
-Install: `pwsh tools/publish-exp.ps1` + `pwsh tools/install-addon-exp.ps1`,
-then `/reload`. `/mdbx hotbar` prints gen/seq/entries and marks the keybound
-bar entries ready=yes (incl. macros and items); `/mdbx status` shows the new
+Install: `pwsh tools/publish.ps1` + `pwsh tools/install-addon.ps1`,
+then `/reload`. `/mcb hotbar` prints gen/seq/entries and marks the keybound
+bar entries ready=yes (incl. macros and items); `/mcb status` shows the new
 `ext4=1` field.
 
 | # | Check | Expected |
@@ -533,15 +533,15 @@ bar entries ready=yes (incl. macros and items); `/mdbx status` shows the new
 | 3 | Press an off-GCD key (trinket / item) mid-GCD | Fires immediately; the rotation is not deferred; focused native press is not re-sent |
 | 4 | Spam a cooling-down ability key | Recognised/delivered, but the rotation never stalls (no persistent `your ... queued` hold) |
 | 5 | Press a UI key (B/C/M) or a movement key (WASD/Space/arrows) | Never queued |
-| 6 | Type `f` in game chat while in combat | Not delivered (typing veto; `/mdbx hotbar` shows typing=yes) |
-| 7 | Rebind an ability mid-session | `/mdbx hotbar` reflects it within ~1 s; the old key stops queueing |
+| 6 | Type `f` in game chat while in combat | Not delivered (typing veto; `/mcb hotbar` shows typing=yes) |
+| 7 | Rebind an ability mid-session | `/mcb hotbar` reflects it within ~1 s; the old key stops queueing |
 | 8 | Play with a pre-4.0.3 addon | No crash; status shows `user queue: addon too old...`; everything else unchanged |
 | 9 | `[UserQueue] Background=1`, game unfocused, press a bound key | Delivered in the next window (opt-in only) |
 | 10 | Record + export + replay a session containing user presses | 0 mismatches (user sends never feed policy memory) |
 | 11 | ElvUI / Bartender / DiabolicUI bars | Binding resolution works (at least the command-mapped bars) |
-| 12 | 51-cell strip does not clip a screen edge | If it clips, re-anchor (`/mdbx offset 0 0`) or move it; decode stays green |
+| 12 | 51-cell strip does not clip a screen edge | If it clips, re-anchor (`/mcb offset 0 0`) or move it; decode stays green |
 | 13 | Keep the rotation going for 30 s after a mid-fight press (hotfix regression check) | Core rotation (Main) continues the whole time; the pressed key fires once; no `only interrupt/trinket` pattern |
-| 14 | `/mdbx main off`, then watch the companion status | Status says `holding (addon Main off - rotation suspended)`; `/mdbx main on` restores the rotation |
+| 14 | `/mcb main off`, then watch the companion status | Status says `holding (addon Main off - rotation suspended)`; `/mcb main on` restores the rotation |
 | 15 | Flip a slot toggle OFF *after* it has been firing (hotfix regression check) | Strip keeps decoding — the companion never reports "No pixel block" and the rotation continues with that slot blanked |
 
 Static != automated test != live in-game E2E: none of the above is claimed
@@ -549,7 +549,7 @@ before a retail run.
 
 ### 3m. Main master switch + compact overlay (4.0.4; live 12.1 retail, OWED)
 
-Install the 4.0.4 companion + 4.0.4-exp addon, then `/reload`.
+Install the current companion + the MaxDps Companion Bridge addon, then `/reload`.
 
 | # | Check | Expected |
 | :--- | :--- | :--- |
@@ -559,9 +559,9 @@ Install the 4.0.4 companion + 4.0.4-exp addon, then `/reload`.
 | 4 | Main OFF, then press a bound hotbar key mid-GCD | No companion delivery/queue; the native focused-game press still behaves normally |
 | 5 | Main OFF, AutoTgt/AutoInteract ON, no target | No Tab/MB5 send; status stays on the master-off line |
 | 6 | Main ON, the other toggles still work | A per-slot OFF still blanks only that slot; Solo/OOC/TTK semantics unchanged |
-| 7 | `/mdbx main off` / `/mdbx main on` | Same master behaviour as the overlay pill |
+| 7 | `/mcb main off` / `/mcb main on` | Same master behaviour as the overlay pill |
 | 8 | Overlay geometry | No `profile:` line; frame is 300x165, 13 pills in the 4-column grid; status dot still bottom-right |
-| 9 | Profile workflows | `/mdbx profile Global / Spec / Talent` and the Config Profiles tab still work (the overlay no longer shows the profile text) |
+| 9 | Profile workflows | `/mcb profile Global / Spec / Talent` and the Config Profiles tab still work (the overlay no longer shows the profile text) |
 | 10 | Version skew | 4.0.3 companion + 4.0.4 addon: every slot blanks, but the old companion may still auto-target/interact (no master gate). 4.0.4 companion + 4.0.3 addon: the Ext3 mirror still closes the companion master gate |
 | 11 | Flip Main OFF, then ON, repeatedly during a fight | No stuck blank, no duplicate send, no stale queued press from before the OFF |
 
@@ -592,7 +592,7 @@ Live checks - each needs a retail run and stays OWED until then:
 8. **Addon frametime:** compare addon CPU (`/run UpdateAddOnCPUUsage()` with CPU profiling on, or the in-game
    AddOn profiler) for `MaxDpsBridgeExp` before (4.0.4) and after (4.1.0) in a combat dummy fight.
 9. **Ext4 map stays populated** through a cooldown-heavy fight (the hotbar queue keeps recognising presses;
-   `/mdbx hotbar`).
+   `/mcb hotbar`).
 10. **Bars:** stance/form bar (druid/rogue), vehicle and override bars: no wrong key is sent; slots 73-144 use
     the texture fallback and may resolve no key (expected, record any ability that stops firing).
 11. **SavedVariables migration:** log in with a 4.0.4 `MaxDpsBridgeExpDB`; `SchemaVersion` becomes 1, a
@@ -626,7 +626,7 @@ Offline (done, see HANDOVER): build 0/0, `dotnet test` 1071 passed, harness 409,
 7. **Uninterruptible cast.** An explicitly not-interruptible cast must not
    produce Kick or Kidney Shot.
 8. **No auto Blind/Gouge/Sap.** With `[CrowdControl] Enabled=1`, the companion
-   never presses those abilities itself; `/mdbx` slot 6 offers Kidney Shot only
+   never presses those abilities itself; `/mcb` slot 6 offers Kidney Shot only
    for a rogue.
 9. **Telemetry/replay** (optional): record a fight with a stun/Blind and replay;
    0 verdict mismatches.
@@ -636,9 +636,10 @@ Offline (done, see HANDOVER): build 0/0, `dotnet test` 1071 passed, harness 409,
 Everything in this section needs a real client on a Mac. Static/offline
 results never close these items.
 
-Preconditions: `MaxDpsBridgeExp` (3.7.9-exp) installed and enabled, the stable
-`MaxDpsBridge` **disabled** (the Exp bridge is inert while the stable one is
-loaded), Screen Recording + Accessibility granted to the app bundle.
+Preconditions: the **MaxDps Companion Bridge** addon (`addon/MaxDpsCompanionBridge`)
+installed and enabled, the legacy `MaxDpsBridge` **disabled** (the companion bridge
+is inert while the legacy one is loaded), Screen Recording + Accessibility granted
+to the app bundle.
 
 ```sh
 APP="/Applications/MaxDPS Companion.app/Contents/MacOS/MaxDpsCompanion.Mac"
@@ -654,8 +655,8 @@ APP="/Applications/MaxDPS Companion.app/Contents/MacOS/MaxDpsCompanion.Mac"
 | 4.5 | Start, then focus another app while a keyboard slot fires | stroke still lands in the game (per-process delivery), nothing leaks |
 | 4.6 | A mouse-slot ability (if bound) while the game is unfocused | hold with the "needs focus (mouse input)" reason (by design) |
 | 4.7 | Watch `repairs` over a session (`--probe` after playing) | ideally 0; non-zero means the display's ICC pipeline distorts the strip (report the count and the display profile) |
-| 4.8 | `/mdbx status` in game | `cell=8`, offsets match the app's located values; protocol 5 |
-| 4.9 | Change the strip (`/mdbx cellsize 12`, or move the offset), then Start | the ladder re-locates within ~5 s and the stream region shrinks to the new strip |
+| 4.8 | `/mcb status` in game | `cell=8`, offsets match the app's located values; protocol 5 |
+| 4.9 | Change the strip (`/mcb cellsize 12`, or move the offset), then Start | the ladder re-locates within ~5 s and the stream region shrinks to the new strip |
 | 4.10 | Move the game window / switch resolution while running | the supervisor rebuilds the stream within ~1 s; the strip keeps decoding |
 | 4.11 | `--bench-capture=10` while playing | steady-state region ~20-40 KB/frame; per-sample mean well under 0.5 ms; our CPU near 1 % of one core |
 | 4.12 | Quit the app after playing | no capture session left behind (`Activity Monitor`: no SCK helper burning CPU; app gone) |
@@ -743,7 +744,7 @@ embedded result.
 ## Tooling
 
 ```powershell
-luac -p addon/MaxDpsBridge/*.lua     # Lua syntax (all 6 files)
+luac -p addon/MaxDpsCompanionBridge/*.lua addon/MaxDpsCompanionBridge/InGame/*.lua  # Lua syntax (root + InGame)
 dotnet build -c Release              # 0 warnings / 0 errors is the bar
 ```
 

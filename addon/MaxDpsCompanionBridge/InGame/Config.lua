@@ -1,8 +1,8 @@
 --- ============================ HEADER ============================
--- MaxDpsBridgeExp - standalone config window (slices 2+3).
+-- MaxDpsCompanionBridge - standalone config window (slices 2+3).
 --
--- `/mdbx cfg` opens THIS frame. The real Settings canvas category registered
--- by Exp/Settings.lua stays available (`/mdbx settings` / the AddOns list);
+-- `/mcb cfg` opens THIS frame. The real Settings canvas category registered
+-- by InGame/Settings.lua stays available (`/mcb settings` / the AddOns list);
 -- this window is an additional, richer shell and does not replace it.
 --
 -- Shell: 860x560, draggable, Esc-closable (UISpecialFrames), insecure only.
@@ -24,17 +24,17 @@
 --
 -- Slice 3 rows: icon (same Blizzard map as the overlay pill) + short label +
 -- state pill (gold ON / dim OFF). Clicking flips the toggle through the SAME
--- shared MDBX.Toggles set path the overlay and SlotAllowed gate read, so
+-- shared MDCB.Toggles set path the overlay and SlotAllowed gate read, so
 -- overlay-wins semantics are preserved. Overlay flips and window flips stay in
 -- sync through the Toggles.Version dirty counter (event + 0.2 s ticker while
 -- shown + refresh on show).
 
-local addonName, MDBX = ...;
+local addonName, MDCB = ...;
 
 local C = {};
-MDBX.Config = C;
+MDCB.Config = C;
 
-local FRAME_NAME = "MaxDpsBridgeExpConfig";
+local FRAME_NAME = "MaxDpsCompanionBridgeConfig";
 local WIDTH, HEIGHT = 860, 560;
 local GOLD = { 1.00, 0.82, 0.36 };   -- #FFD15C
 local ACCENT = { 1.00, 0.78, 0.28 };  -- #FFC747
@@ -66,7 +66,7 @@ local EFFECT = {
 };
 
 local function BindFor (Key)
-  local Name = "MDBX_TOGGLE_" .. tostring(Key):upper();
+  local Name = "MDCB_TOGGLE_" .. tostring(Key):upper();
   if type(_G.GetBindingKey) == "function" then
     local Ok, A = pcall(_G.GetBindingKey, Name);
     if Ok and type(A) == "string" and A ~= "" then return A; end;
@@ -98,8 +98,8 @@ local Filter = "";
 local Ticker, CombatQueue, CombatWatcher;
 
 local function DB ()
-  if type(_G.MaxDpsBridgeExpDB) ~= "table" then _G.MaxDpsBridgeExpDB = {}; end;
-  local D = _G.MaxDpsBridgeExpDB;
+  if type(_G.MaxDpsCompanionBridgeDB) ~= "table" then _G.MaxDpsCompanionBridgeDB = {}; end;
+  local D = _G.MaxDpsCompanionBridgeDB;
   if type(D.ui) ~= "table" then D.ui = {}; end;
   if type(D.ui.config) ~= "table" then D.ui.config = {}; end;
   return D.ui.config;
@@ -197,20 +197,20 @@ function C.MarkDirty () Dirty = true; end
 function C.SetDirty () Dirty = true; end
 
 local function ToggleVersion ()
-  if MDBX.Toggles and MDBX.Toggles.Version then
-    local Ok, V = pcall(MDBX.Toggles.Version);
+  if MDCB.Toggles and MDCB.Toggles.Version then
+    local Ok, V = pcall(MDCB.Toggles.Version);
     if Ok and type(V) == "number" then return V; end;
   end;
   return nil;
 end
 
 local function GetOn (Key)
-  if MDBX.Toggles and MDBX.Toggles.Get then return MDBX.Toggles.Get(Key) ~= false; end;
+  if MDCB.Toggles and MDCB.Toggles.Get then return MDCB.Toggles.Get(Key) ~= false; end;
   return true;
 end
 
 local function SetOn (Key, On)
-  if MDBX.Toggles and MDBX.Toggles.Set then return MDBX.Toggles.Set(Key, On); end;
+  if MDCB.Toggles and MDCB.Toggles.Set then return MDCB.Toggles.Set(Key, On); end;
   return On;
 end
 
@@ -283,8 +283,8 @@ local function MakeToggleRow (Parent, Key)
   Row.Icon = Row:CreateTexture(nil, "ARTWORK");
   Row.Icon:SetSize(16, 16);
   Row.Icon:SetPoint("LEFT", 6, 0);
-  if MDBX.Overlay and MDBX.Overlay.IconFor then
-    local Ok, Path = pcall(MDBX.Overlay.IconFor, Key);
+  if MDCB.Overlay and MDCB.Overlay.IconFor then
+    local Ok, Path = pcall(MDCB.Overlay.IconFor, Key);
     if Ok and Path then Row.Icon:SetTexture(Path); end;
   end;
 
@@ -305,15 +305,15 @@ local function MakeToggleRow (Parent, Key)
   Row.Label:SetJustifyH("LEFT");
   Style(Row.Label, "GameFontHighlight", true, TEXT[1], TEXT[2], TEXT[3]);
   local Short = Key;
-  if MDBX.Toggles and MDBX.Toggles.ShortLabel then Short = MDBX.Toggles.ShortLabel(Key); end;
+  if MDCB.Toggles and MDCB.Toggles.ShortLabel then Short = MDCB.Toggles.ShortLabel(Key); end;
   Row.Label:SetText(Short);
 
   Row:RegisterForClicks("LeftButtonUp");
   Row:SetScript("OnClick", function (self)
     if not self.Key then return; end;
-    -- Same shared MDBX.Toggles path the overlay pills and SlotAllowed use.
-    if MDBX.Toggles and MDBX.Toggles.Flip then MDBX.Toggles.Flip(self.Key); end;
-    if MDBX.Overlay and MDBX.Overlay.SetDirty then pcall(MDBX.Overlay.SetDirty); end;
+    -- Same shared MDCB.Toggles path the overlay pills and SlotAllowed use.
+    if MDCB.Toggles and MDCB.Toggles.Flip then MDCB.Toggles.Flip(self.Key); end;
+    if MDCB.Overlay and MDCB.Overlay.SetDirty then pcall(MDCB.Overlay.SetDirty); end;
     C.MarkDirty();
     PaintRow(self);
   end);
@@ -323,9 +323,9 @@ local function MakeToggleRow (Parent, Key)
     if self.SetBackdropBorderColor then self:SetBackdropBorderColor(GOLD[1], GOLD[2], GOLD[3], 1); end;
     if GameTooltip then
       local Short = self.Key;
-      if MDBX.Toggles and MDBX.Toggles.ShortLabel then Short = MDBX.Toggles.ShortLabel(self.Key); end;
+      if MDCB.Toggles and MDCB.Toggles.ShortLabel then Short = MDCB.Toggles.ShortLabel(self.Key); end;
       local Full = self.Key;
-      if MDBX.Toggles and MDBX.Toggles.Label then Full = MDBX.Toggles.Label(self.Key); end;
+      if MDCB.Toggles and MDCB.Toggles.Label then Full = MDCB.Toggles.Label(self.Key); end;
       GameTooltip:SetOwner(self, "ANCHOR_RIGHT");
       -- Slice 4 tooltip: short label + full name + effect + bind state + action.
       GameTooltip:SetText(tostring(Short) .. "  -  " .. tostring(Full), GOLD[1], GOLD[2], GOLD[3]);
@@ -378,34 +378,34 @@ end
 function C.RefreshDashboard ()
   if QuickBody then
     QuickBody:SetText(table.concat({
-      "/mdbx cfg            this window",
-      "/mdbx settings       AddOns options page",
-      "/mdbx show|hide|toggle",
-      "/mdbx t <key> [on|off]",
-      "/mdbx profile <Global|Spec|Talent>",
-      "/mdbx export | import <string>",
-      "/mdbx console | debug | help",
+      "/mcb cfg            this window",
+      "/mcb settings       AddOns options page",
+      "/mcb show|hide|toggle",
+      "/mcb t <key> [on|off]",
+      "/mcb profile <Global|Spec|Talent>",
+      "/mcb export | import <string>",
+      "/mcb console | debug | help",
     }, "\n"));
   end;
   if StatusBody then
     local Epoch = 0;
-    if MDBX.Toggles and MDBX.Toggles.AppEpoch then
-      pcall(function () Epoch = MDBX.Toggles.AppEpoch() or 0; end);
+    if MDCB.Toggles and MDCB.Toggles.AppEpoch then
+      pcall(function () Epoch = MDCB.Toggles.AppEpoch() or 0; end);
     end;
     local Mask = 0;
-    if MDBX.Toggles and MDBX.Toggles.EffectiveMask then
-      pcall(function () Mask = MDBX.Toggles.EffectiveMask() or 0; end);
+    if MDCB.Toggles and MDCB.Toggles.EffectiveMask then
+      pcall(function () Mask = MDCB.Toggles.EffectiveMask() or 0; end);
     end;
     local Mode = "(none)";
     local Count = 0;
-    if MDBX.Profiles then
-      if MDBX.Profiles.ActiveMode then pcall(function () Mode = MDBX.Profiles.ActiveMode(); end); end;
-      if MDBX.Profiles.MODES then Count = #MDBX.Profiles.MODES; end;
+    if MDCB.Profiles then
+      if MDCB.Profiles.ActiveMode then pcall(function () Mode = MDCB.Profiles.ActiveMode(); end); end;
+      if MDCB.Profiles.MODES then Count = #MDCB.Profiles.MODES; end;
     end;
     if type(Mode) ~= "string" or Mode == "" then Mode = "(none)"; end;
     local Live = (type(Epoch) == "number" and Epoch ~= 0) and "live" or "waiting";
-    local Version = tostring(MDBX.VERSION);
-    local Codename = tostring(MDBX.CODENAME or "");
+    local Version = tostring(MDCB.VERSION);
+    local Codename = tostring(MDCB.CODENAME or "");
     if Codename ~= "" then Version = Version .. " (" .. Codename .. ")"; end;
     StatusBody:SetText(("bridge:   %s\nversion:  %s\nprofile:  %s (%d stores)\nmask:     0x%04X")
       :format(Live, Version, tostring(Mode), Count, Mask));
@@ -423,11 +423,11 @@ end
 
 local function BuildToggles (Pane)
   local Keys = {};
-  if MDBX.Profiles and MDBX.Profiles.ToggleKeys then
-    local Ok, K = pcall(MDBX.Profiles.ToggleKeys);
+  if MDCB.Profiles and MDCB.Profiles.ToggleKeys then
+    local Ok, K = pcall(MDCB.Profiles.ToggleKeys);
     if Ok and type(K) == "table" then Keys = K; end;
   end;
-  if #Keys == 0 and MDBX.Overlay and MDBX.Overlay.PILL_KEYS then Keys = MDBX.Overlay.PILL_KEYS; end;
+  if #Keys == 0 and MDCB.Overlay and MDCB.Overlay.PILL_KEYS then Keys = MDCB.Overlay.PILL_KEYS; end;
   local ColW, RowH, Gap = 330, 30, 8;
   for i = 1, #Keys do
     local Key = Keys[i];
@@ -436,8 +436,8 @@ local function BuildToggles (Pane)
     local Row = MakeToggleRow(Pane, Key);
     Row:SetPoint("TOPLEFT", Col * ColW, -RowIndex * (RowH + Gap));
     ToggleRows[#ToggleRows + 1] = Row;
-    local Text = Key .. " " .. tostring(MDBX.Toggles and MDBX.Toggles.Label(Key) or Key)
-      .. " " .. tostring(MDBX.Toggles and MDBX.Toggles.ShortLabel(Key) or Key);
+    local Text = Key .. " " .. tostring(MDCB.Toggles and MDCB.Toggles.Label(Key) or Key)
+      .. " " .. tostring(MDCB.Toggles and MDCB.Toggles.ShortLabel(Key) or Key);
     RegisterRow(Pane, Row, Text);
   end;
   local Note = Label(Pane, "Click a row to flip the in-game toggle. "
@@ -485,30 +485,30 @@ end
 local function BuildOverlay (Pane)
   local Y = 0;
   MakeStepper(Pane, "Scale (x100)", 0, Y, 50, 200, 10,
-    function () return math.floor((MDBX.Overlay and MDBX.Overlay.GetScale and MDBX.Overlay.GetScale() or 1.0) * 100); end,
-    function (V) if MDBX.Overlay then MDBX.Overlay.SetScale(V / 100); end end);
+    function () return math.floor((MDCB.Overlay and MDCB.Overlay.GetScale and MDCB.Overlay.GetScale() or 1.0) * 100); end,
+    function (V) if MDCB.Overlay then MDCB.Overlay.SetScale(V / 100); end end);
   Y = Y - 30;
   MakeStepper(Pane, "Alpha (x100)", 0, Y, 20, 100, 10,
-    function () return math.floor((MDBX.Overlay and MDBX.Overlay.GetAlpha and MDBX.Overlay.GetAlpha() or 1.0) * 100); end,
-    function (V) if MDBX.Overlay then MDBX.Overlay.SetAlpha(V / 100); end end);
+    function () return math.floor((MDCB.Overlay and MDCB.Overlay.GetAlpha and MDCB.Overlay.GetAlpha() or 1.0) * 100); end,
+    function (V) if MDCB.Overlay then MDCB.Overlay.SetAlpha(V / 100); end end);
   Y = Y - 30;
   MakeStepper(Pane, "Pill columns", 0, Y, 1, 7, 1,
-    function () return (MDBX.Overlay and MDBX.Overlay.GetPillCols and MDBX.Overlay.GetPillCols()) or 4; end,
-    function (V) if MDBX.Overlay then MDBX.Overlay.SetPillCols(V); end end);
+    function () return (MDCB.Overlay and MDCB.Overlay.GetPillCols and MDCB.Overlay.GetPillCols()) or 4; end,
+    function (V) if MDCB.Overlay then MDCB.Overlay.SetPillCols(V); end end);
   Y = Y - 40;
   local Btn = CreateFrame("Button", nil, Pane, "UIPanelButtonTemplate");
   Btn:SetSize(120, 22);
   Btn:SetPoint("TOPLEFT", 0, Y);
   Btn:SetText("Reset overlay");
   Btn:SetScript("OnClick", function ()
-    if MDBX.Overlay and MDBX.Overlay.Reset then MDBX.Overlay.Reset(); end;
+    if MDCB.Overlay and MDCB.Overlay.Reset then MDCB.Overlay.Reset(); end;
     C.RefreshPanes();
   end);
 end
 
 local function BuildProfiles (Pane)
   local Y = 0;
-  local Modes = (MDBX.Profiles and MDBX.Profiles.MODES) or {};
+  local Modes = (MDCB.Profiles and MDCB.Profiles.MODES) or {};
   if #Modes == 0 then
     Label(Pane, "(no profiles available)", 0, 0, "GameFontDisableSmall",
       MUTED[1], MUTED[2], MUTED[3]);
@@ -521,8 +521,8 @@ local function BuildProfiles (Pane)
     Btn:SetPoint("TOPLEFT", X, Y);
     Btn:SetText("Apply " .. Mode);
     Btn:SetScript("OnClick", function ()
-      if MDBX.Profiles then MDBX.Profiles.Apply(Mode); end;
-      MDBX.Print("profile " .. Mode .. " applied");
+      if MDCB.Profiles then MDCB.Profiles.Apply(Mode); end;
+      MDCB.Print("profile " .. Mode .. " applied");
       C.MarkDirty();
       C.RefreshPanes();
     end);
@@ -540,13 +540,13 @@ local function BuildProfiles (Pane)
   local Export = CreateFrame("Button", nil, Pane, "UIPanelButtonTemplate");
   Export:SetSize(90, 22); Export:SetPoint("TOPLEFT", 0, Y); Export:SetText("Export");
   Export:SetScript("OnClick", function ()
-    if MDBX.Profiles and MDBX.Profiles.Export then ExportBox:SetText(MDBX.Profiles.Export()); end
+    if MDCB.Profiles and MDCB.Profiles.Export then ExportBox:SetText(MDCB.Profiles.Export()); end
   end);
   local Import = CreateFrame("Button", nil, Pane, "UIPanelButtonTemplate");
   Import:SetSize(90, 22); Import:SetPoint("TOPLEFT", 96, Y); Import:SetText("Import");
   Import:SetScript("OnClick", function ()
-    local Ok, Msg = MDBX.Profiles.Import(ExportBox:GetText());
-    MDBX.Print((Ok and "imported: " or "import failed: ") .. tostring(Msg));
+    local Ok, Msg = MDCB.Profiles.Import(ExportBox:GetText());
+    MDCB.Print((Ok and "imported: " or "import failed: ") .. tostring(Msg));
     C.MarkDirty();
   end);
 end
@@ -556,8 +556,8 @@ local function BuildBinds (Pane)
   Label(Pane, "Bound actions (bind in the Keybindings panel)", 0, Y, "GameFontNormal", GOLD[1], GOLD[2], GOLD[3]);
   Y = Y - 22;
   local Names = { "Overlay" };
-  if MDBX.Profiles and MDBX.Profiles.ToggleKeys then
-    local K = MDBX.Profiles.ToggleKeys();
+  if MDCB.Profiles and MDCB.Profiles.ToggleKeys then
+    local K = MDCB.Profiles.ToggleKeys();
     for i = 1, #K do Names[#Names + 1] = K[i]; end;
   end;
   if #Names == 0 then
@@ -566,7 +566,7 @@ local function BuildBinds (Pane)
     Y = Y - 17;
   end;
   for i = 1, #Names do
-    local BindName = "MDBX_TOGGLE_" .. string.upper(Names[i]);
+    local BindName = "MDCB_TOGGLE_" .. string.upper(Names[i]);
     local Bind = BindFor(Names[i]);
     local Suffix = Bind and ("   [" .. Bind .. "]") or "   [unbound]";
     Label(Pane, "  " .. BindName .. "   -   " .. Names[i] .. Suffix, 0, Y,
@@ -583,7 +583,7 @@ local function BuildBinds (Pane)
     elseif type(_G.InterfaceOptionsFrame_OpenToCategory) == "function" then
       pcall(_G.InterfaceOptionsFrame_OpenToCategory, "Keybindings");
     else
-      MDBX.Print("open the Keybindings panel from the game menu");
+      MDCB.Print("open the Keybindings panel from the game menu");
     end
   end);
 end
@@ -607,7 +607,7 @@ local function BuildConsole (Pane)
   Clear:SetPoint("TOPLEFT", 0, -328);
   Clear:SetText("Clear");
   Clear:SetScript("OnClick", function ()
-    MDBX.Console.Clear();
+    MDCB.Console.Clear();
     C.RefreshConsole();
   end);
   C.RefreshConsole();
@@ -734,7 +734,7 @@ function C.Ensure ()
   local Title = TitleBar:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge");
   Title:SetPoint("LEFT", 2, 0);
   Style(Title, "GameFontNormalLarge", true, GOLD[1], GOLD[2], GOLD[3]);
-  Title:SetText("MaxDps Bridge Exp  -  Configuration");
+  Title:SetText("MaxDps Companion Bridge  -  Configuration");
 
   local Close = CreateFrame("Button", nil, Frame, "UIPanelCloseButton");
   Close:SetPoint("TOPRIGHT", -8, -8);
@@ -817,7 +817,7 @@ end
 
 function C.RefreshConsole ()
   if not ConsoleText then return; end;
-  ConsoleText:SetText(MDBX.Console.Join());
+  ConsoleText:SetText(MDCB.Console.Join());
   if ConsoleChild then
     local H = ConsoleText:GetStringHeight() or 0;
     if H < 1 then H = 1; end;
@@ -828,18 +828,18 @@ end
 function C.RefreshDebug ()
   if not DebugBody then return; end;
   local Epoch, Mask, Blocked = 0, 0, 0;
-  if MDBX.Toggles then
-    if MDBX.Toggles.AppEpoch then pcall(function () Epoch = MDBX.Toggles.AppEpoch() or 0; end); end;
-    if MDBX.Toggles.EffectiveMask then pcall(function () Mask = MDBX.Toggles.EffectiveMask() or 0; end); end;
-    if MDBX.Toggles.AppBlocked then pcall(function () Blocked = MDBX.Toggles.AppBlocked() or 0; end); end;
+  if MDCB.Toggles then
+    if MDCB.Toggles.AppEpoch then pcall(function () Epoch = MDCB.Toggles.AppEpoch() or 0; end); end;
+    if MDCB.Toggles.EffectiveMask then pcall(function () Mask = MDCB.Toggles.EffectiveMask() or 0; end); end;
+    if MDCB.Toggles.AppBlocked then pcall(function () Blocked = MDCB.Toggles.AppBlocked() or 0; end); end;
   end;
   local Lines = {
     ("effective mask: 0x%04X"):format(Mask),
     ("app epoch: %s"):format(tostring(Epoch)),
     ("blocked nibble: %s"):format(tostring(Blocked)),
-    ("addon version: %s"):format(tostring(MDBX.VERSION)),
+    ("addon version: %s"):format(tostring(MDCB.VERSION)),
     ("companion seen: %s"):format((type(Epoch) == "number" and Epoch ~= 0) and "yes" or "no"),
-    ("console lines: %d"):format(#MDBX.Console.Lines),
+    ("console lines: %d"):format(#MDCB.Console.Lines),
   };
   DebugBody:SetText(table.concat(Lines, "\n"));
 end
@@ -875,10 +875,10 @@ end
 function C.IsShown () return Frame and Frame:IsShown() == true; end
 
 function C.Open ()
-  if MDBX.IsInert and MDBX.IsInert() then return; end;
+  if MDCB.IsInert and MDCB.IsInert() then return; end;
   if InCombat() then
     C.Defer(function () C.Show(); end);
-    MDBX.Print("config window queued until combat ends");
+    MDCB.Print("config window queued until combat ends");
     return;
   end;
   C.Show();

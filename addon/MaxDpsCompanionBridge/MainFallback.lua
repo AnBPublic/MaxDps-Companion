@@ -18,7 +18,7 @@
 -- Keyed by numeric specID (MaxDps.idtospec id) and by the readable
 -- "CLASS:Spec" key ClassSpec produces. Reader tries specID first, then the
 -- string key, then a class-level list (none populated yet).
-local addonName, MDBX = ...;
+local addonName, MDCB = ...;
 
 -- Fury: Bloodthirst (23881) is the cornerstone rage GENERATOR — it costs no
 -- Rage, so it is castable precisely when Rampage (184367, 80 Rage) is
@@ -62,7 +62,7 @@ local Arms = { 12294, 7384 };
 --   vendor/MaxDps/SpellData.lua:1219  ["Judgment"] = 20271
 local Ret = { 20271, 184575, 35395 };
 
-MDBX.MainFallback = {
+MDCB.MainFallback = {
   [72] = Fury,              -- Fury specID
   ["WARRIOR:Fury"] = Fury,  -- classSpecKey
   [71] = Arms,              -- Arms specID

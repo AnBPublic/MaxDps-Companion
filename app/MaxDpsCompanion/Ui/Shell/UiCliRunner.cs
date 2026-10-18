@@ -258,7 +258,7 @@ internal static class UiCliRunner
         var lines = new List<string>
         {
             $"window title: {shell.Title}",
-            $"exp mode: {shell.SettingsInGameConfigMode}",
+            $"in-game-config shell: {shell.SettingsInGameConfigMode}",
             $"snapshot: ui-smoke.png {render.Width}x{render.Height} px, distinct grid colours {render.DistinctColors}",
         };
         var report = findings.Count == 0
