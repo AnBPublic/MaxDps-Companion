@@ -3,11 +3,11 @@
 -- virtual-key codes plus a modifier bitmask, so the desktop helper can replay
 -- the exact input without knowing anything about WoW's binding names.
 
-local addonName, MDBX = ...;
+local addonName, MDCB = ...;
 
-MDBX.MOD_SHIFT = 1;
-MDBX.MOD_CTRL  = 2;
-MDBX.MOD_ALT   = 4;
+MDCB.MOD_SHIFT = 1;
+MDCB.MOD_CTRL  = 2;
+MDCB.MOD_ALT   = 4;
 
 -- WoW key name -> Windows virtual-key code.
 -- v1.3.3 full-coverage audit (Sep-2026): EVERY bindable WoW token must map
@@ -84,7 +84,7 @@ for i = 0, 9 do VK["NUMPAD" .. i] = 0x60 + i; end
 for i = 1, 24 do VK["F" .. i] = 0x70 + (i - 1); end
 
 --[[*
-  * @function MDBX.SlotCommand
+  * @function MDCB.SlotCommand
   * @desc Action slot (1-180) -> Blizzard binding command, or nil.
   * @param Slot number
   * @return string|nil
@@ -127,7 +127,7 @@ local SlotCommands = {
   { To = 180, Command = "MULTIACTIONBAR7BUTTON" },
 };
 
-function MDBX.SlotCommand (Slot)
+function MDCB.SlotCommand (Slot)
   if type(Slot) ~= "number" then return nil; end
   Slot = math.floor(Slot);
   if Slot < 1 or Slot > 180 then return nil; end
@@ -143,12 +143,12 @@ function MDBX.SlotCommand (Slot)
 end
 
 --[[*
-  * @function MDBX.ParseBinding
+  * @function MDCB.ParseBinding
   * @desc Translate a WoW binding string into a virtual-key code + modifier mask.
   * @param Binding string|nil e.g. "ALT-CTRL-SHIFT-F5", "SHIFT-BUTTON4"
   * @return number|nil VirtualKey, number Modifiers
   *]]
-function MDBX.ParseBinding (Binding)
+function MDCB.ParseBinding (Binding)
   if type(Binding) ~= "string" or Binding == "" then return nil, 0; end
 
   local Key = strupper(Binding);
@@ -160,11 +160,11 @@ function MDBX.ParseBinding (Binding)
   while Stripped do
     Stripped = false;
     if strsub(Key, 1, 4) == "ALT-" then
-      Modifiers = bit.bor(Modifiers, MDBX.MOD_ALT); Key = strsub(Key, 5); Stripped = true;
+      Modifiers = bit.bor(Modifiers, MDCB.MOD_ALT); Key = strsub(Key, 5); Stripped = true;
     elseif strsub(Key, 1, 5) == "CTRL-" then
-      Modifiers = bit.bor(Modifiers, MDBX.MOD_CTRL); Key = strsub(Key, 6); Stripped = true;
+      Modifiers = bit.bor(Modifiers, MDCB.MOD_CTRL); Key = strsub(Key, 6); Stripped = true;
     elseif strsub(Key, 1, 6) == "SHIFT-" then
-      Modifiers = bit.bor(Modifiers, MDBX.MOD_SHIFT); Key = strsub(Key, 7); Stripped = true;
+      Modifiers = bit.bor(Modifiers, MDCB.MOD_SHIFT); Key = strsub(Key, 7); Stripped = true;
     end
   end
 
@@ -174,7 +174,7 @@ function MDBX.ParseBinding (Binding)
   -- write: this runs for every unmapped token on the hot path (a bound mouse
   -- button 6+ is a permanent miss) and each write allocated/touched a global
   -- table field the bridge never reads. Callers already see the nil VK and
-  -- encode EMPTY; /mdb status prints MDBX.LastMissBinding for any writer that
+  -- encode EMPTY; /mdb status prints MDCB.LastMissBinding for any writer that
   -- still sets it.
   local Found = VK[Key];
   return Found, Modifiers;

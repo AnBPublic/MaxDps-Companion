@@ -1,51 +1,51 @@
 <Bindings>
-    <!-- The MDBX header is declared ONCE on the first binding. WoW registers a
+    <!-- The MDCB header is declared ONCE on the first binding. WoW registers a
          header for every <Binding> that carries the attribute, so repeating it
-         raises "Binding header MDBX was attempted to be loaded more than once".
+         raises "Binding header MDCB was attempted to be loaded more than once".
          Later bindings omit header and inherit the previous header. -->
-    <Binding name="MDBX_TOGGLE_OVERLAY" header="MDBX" category="ADDONS">
-        MDBXBinding("Overlay")
+    <Binding name="MDCB_TOGGLE_OVERLAY" header="MDCB" category="ADDONS">
+        MDCBBinding("Overlay")
     </Binding>
-    <Binding name="MDBX_TOGGLE_MAIN" category="ADDONS">
-        MDBXBinding("Main")
+    <Binding name="MDCB_TOGGLE_MAIN" category="ADDONS">
+        MDCBBinding("Main")
     </Binding>
-    <Binding name="MDBX_TOGGLE_OFFENSIVE" category="ADDONS">
-        MDBXBinding("Offensive")
+    <Binding name="MDCB_TOGGLE_OFFENSIVE" category="ADDONS">
+        MDCBBinding("Offensive")
     </Binding>
-    <Binding name="MDBX_TOGGLE_DEFENSIVE" category="ADDONS">
-        MDBXBinding("Defensive")
+    <Binding name="MDCB_TOGGLE_DEFENSIVE" category="ADDONS">
+        MDCBBinding("Defensive")
     </Binding>
-    <Binding name="MDBX_TOGGLE_CONSUMABLE" category="ADDONS">
-        MDBXBinding("Consumable")
+    <Binding name="MDCB_TOGGLE_CONSUMABLE" category="ADDONS">
+        MDCBBinding("Consumable")
     </Binding>
-    <Binding name="MDBX_TOGGLE_TRINKET" category="ADDONS">
-        MDBXBinding("Trinket")
+    <Binding name="MDCB_TOGGLE_TRINKET" category="ADDONS">
+        MDCBBinding("Trinket")
     </Binding>
-    <Binding name="MDBX_TOGGLE_INTERRUPT" category="ADDONS">
-        MDBXBinding("Interrupt")
+    <Binding name="MDCB_TOGGLE_INTERRUPT" category="ADDONS">
+        MDCBBinding("Interrupt")
     </Binding>
-    <Binding name="MDBX_TOGGLE_MOBILITY" category="ADDONS">
-        MDBXBinding("Mobility")
+    <Binding name="MDCB_TOGGLE_MOBILITY" category="ADDONS">
+        MDCBBinding("Mobility")
     </Binding>
-    <Binding name="MDBX_TOGGLE_SELFHEAL" category="ADDONS">
-        MDBXBinding("SelfHeal")
+    <Binding name="MDCB_TOGGLE_SELFHEAL" category="ADDONS">
+        MDCBBinding("SelfHeal")
     </Binding>
-    <Binding name="MDBX_TOGGLE_SOLO" category="ADDONS">
-        MDBXBinding("Solo")
+    <Binding name="MDCB_TOGGLE_SOLO" category="ADDONS">
+        MDCBBinding("Solo")
     </Binding>
-    <Binding name="MDBX_TOGGLE_OOC" category="ADDONS">
-        MDBXBinding("OOC")
+    <Binding name="MDCB_TOGGLE_OOC" category="ADDONS">
+        MDCBBinding("OOC")
     </Binding>
-    <Binding name="MDBX_TOGGLE_AUTOTARGET" category="ADDONS">
-        MDBXBinding("AutoTarget")
+    <Binding name="MDCB_TOGGLE_AUTOTARGET" category="ADDONS">
+        MDCBBinding("AutoTarget")
     </Binding>
-    <Binding name="MDBX_TOGGLE_AUTOINTERACT" category="ADDONS">
-        MDBXBinding("AutoInteract")
+    <Binding name="MDCB_TOGGLE_AUTOINTERACT" category="ADDONS">
+        MDCBBinding("AutoInteract")
     </Binding>
-    <Binding name="MDBX_TOGGLE_TTK" category="ADDONS">
-        MDBXBinding("TTK")
+    <Binding name="MDCB_TOGGLE_TTK" category="ADDONS">
+        MDCBBinding("TTK")
     </Binding>
-    <Binding name="MDBX_TOGGLE_CC" category="ADDONS">
-        MDBXBinding("CC")
+    <Binding name="MDCB_TOGGLE_CC" category="ADDONS">
+        MDCBBinding("CC")
     </Binding>
 </Bindings>

@@ -9,15 +9,15 @@
 -- curated Mobility / SelfHeal spell lists the companion-only slots use.
 -- ========================================================================
 
-local _, MDBX = ...;
+local _, MDCB = ...;
 
-MDBX.CATALOG_REVISION = 4;
+MDCB.CATALOG_REVISION = 4;
 
 -- Class ids: fixed alphabetical order (wire format; never reorder).
-MDBX.ClassIds = { ["DEATHKNIGHT"]=1, ["DEMONHUNTER"]=2, ["DRUID"]=3, ["EVOKER"]=4, ["HUNTER"]=5, ["MAGE"]=6, ["MONK"]=7, ["PALADIN"]=8, ["PRIEST"]=9, ["ROGUE"]=10, ["SHAMAN"]=11, ["WARLOCK"]=12, ["WARRIOR"]=13, }
+MDCB.ClassIds = { ["DEATHKNIGHT"]=1, ["DEMONHUNTER"]=2, ["DRUID"]=3, ["EVOKER"]=4, ["HUNTER"]=5, ["MAGE"]=6, ["MONK"]=7, ["PALADIN"]=8, ["PRIEST"]=9, ["ROGUE"]=10, ["SHAMAN"]=11, ["WARLOCK"]=12, ["WARRIOR"]=13, }
 
 -- Spec ordinals per class (wire format; never reorder).
-MDBX.SpecIds = {
+MDCB.SpecIds = {
   ["DEATHKNIGHT"] = { ["Blood"]=1, ["Frost"]=2, ["Unholy"]=3, },
   ["DEMONHUNTER"] = { ["Devourer"]=1, ["Havoc"]=2, ["Vengeance"]=3, },
   ["DRUID"] = { ["Balance"]=1, ["Feral"]=2, ["Guardian"]=3, ["Restoration"]=4, },
@@ -35,7 +35,7 @@ MDBX.SpecIds = {
 
 -- Spell variants: id -> alias ids the bridge may meet on a bar or in a
 -- macro (override/base/alias resolution). Symmetric; sorted by id.
-MDBX.SpellAliases = {
+MDCB.SpellAliases = {
   [19647] = { 119910 },
   [34428] = { 202168 },
   [119910] = { 19647 },
@@ -66,7 +66,7 @@ MDBX.SpellAliases = {
 --   offensive/defensiveMinor/selfHeal lists. Race is implicit: the
 --   bridge's known-spell filter only finds a keybind for the race the
 --   player actually is, so a non-matching race simply skips the entry.
-MDBX.Extras = {
+MDCB.Extras = {
   ["DEATHKNIGHT"] = { ["Blood"] = { mobility = { 49576, 48265, 212552 }, selfHeal = { 45470, 48743, 28880, 59542, 59543, 59544, 59545, 59547, 59548, 121093, 291944, 312924 }, offensive = { 47568, 194844, 20572, 26297, 33697, 33702, 274738, 69041, 255647, 260364, 265221, 451897, 25046, 28730, 50613, 69179, 80483, 129597, 155145, 202719, 232633, 312411, 1237885 }, defensive = { 48707, 48792, 51052, 55233, 49039, 194679, 219809, 48743, 45470 }, defensiveMinor = { 49039, 194679, 219809, 20594, 58984 }, defensiveMajor = { 48707, 48792, 51052, 55233 }, cc = { 221562 }, }, ["Frost"] = { mobility = { 49576, 48265 }, selfHeal = { 45470, 48743, 28880, 59542, 59543, 59544, 59545, 59547, 59548, 121093, 291944, 312924 }, offensive = { 47568, 51271, 279302, 20572, 26297, 33697, 33702, 274738, 69041, 255647, 260364, 265221, 451897, 25046, 28730, 50613, 69179, 80483, 129597, 155145, 202719, 232633, 312411, 1237885 }, defensive = { 48707, 48792, 51052, 49039, 48743, 45470 }, defensiveMinor = { 49039, 20594, 58984 }, defensiveMajor = { 48707, 48792, 51052 }, cc = { 221562 }, }, ["Unholy"] = { mobility = { 49576, 48265 }, selfHeal = { 45470, 48743, 28880, 59542, 59543, 59544, 59545, 59547, 59548, 121093, 291944, 312924 }, offensive = { 47568, 49206, 343294, 207289, 63560, 20572, 26297, 33697, 33702, 274738, 69041, 255647, 260364, 265221, 451897, 25046, 28730, 50613, 69179, 80483, 129597, 155145, 202719, 232633, 312411, 1237885 }, defensive = { 48707, 48792, 51052, 49039, 48743, 45470 }, defensiveMinor = { 49039, 20594, 58984 }, defensiveMajor = { 48707, 48792, 51052 }, cc = { 221562 }, },
   },
   ["DEMONHUNTER"] = { ["Devourer"] = { mobility = { 195072 }, selfHeal = { 28880, 59542, 59543, 59544, 59545, 59547, 59548, 121093, 291944, 312924 }, offensive = { 20572, 26297, 33697, 33702, 274738, 69041, 255647, 260364, 265221, 451897, 25046, 28730, 50613, 69179, 80483, 129597, 155145, 202719, 232633, 312411, 1237885 }, defensive = { 196718, 198589 }, defensiveMinor = { 198589, 20594, 58984 }, defensiveMajor = { 196718 }, immunity = { 196555 }, }, ["Havoc"] = { mobility = { 195072 }, selfHeal = { 28880, 59542, 59543, 59544, 59545, 59547, 59548, 121093, 291944, 312924 }, offensive = { 191427, 370965, 342817, 258860, 198013, 20572, 26297, 33697, 33702, 274738, 69041, 255647, 260364, 265221, 451897, 25046, 28730, 50613, 69179, 80483, 129597, 155145, 202719, 232633, 312411, 1237885 }, defensive = { 196718, 198589 }, defensiveMinor = { 198589, 20594, 58984 }, defensiveMajor = { 196718 }, immunity = { 196555 }, }, ["Vengeance"] = { mobility = { 189110 }, selfHeal = { 263648, 28880, 59542, 59543, 59544, 59545, 59547, 59548, 121093, 291944, 312924 }, offensive = { 187827, 370965, 212084, 207407, 204596, 20572, 26297, 33697, 33702, 274738, 69041, 255647, 260364, 265221, 451897, 25046, 28730, 50613, 69179, 80483, 129597, 155145, 202719, 232633, 312411, 1237885 }, defensive = { 187827, 196718, 204021, 212084, 203720, 263648, 320341 }, defensiveMinor = { 203720, 263648, 320341, 20594, 58984 }, defensiveMajor = { 187827, 196718, 204021, 212084 }, },

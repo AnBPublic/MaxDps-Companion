@@ -1,5 +1,5 @@
 --- ============================ HEADER ============================
--- MaxDpsBridgeExp - profile store (v1 schema).
+-- MaxDpsCompanionBridge - profile store (v1 schema).
 --
 -- Three named stores: Global, Spec and Talent. Each store captures the 14
 -- in-game toggles plus the per-spec slider values. The active store is a
@@ -7,17 +7,17 @@
 -- profile switch can never silently overwrite a deliberate in-game toggle.
 --
 -- Export/import is a single versioned line:
---     MDBX1|Global|t:Main:1,t:OOC:0,s:MinTtkSec:0
+--     MDCB1|Global|t:Main:1,t:OOC:0,s:MinTtkSec:0
 -- An import is REJECTED when the version token does not match, so a future
 -- schema can never be half-read by an older build.
 --
 -- No game API, no frames, no protected calls: pure table work over
--- MaxDpsBridgeExpDB.Toggles / DB.profiles / DB.sliders.
+-- MaxDpsCompanionBridgeDB.Toggles / DB.profiles / DB.sliders.
 
-local addonName, MDBX = ...;
+local addonName, MDCB = ...;
 
 local P = {};
-MDBX.Profiles = P;
+MDCB.Profiles = P;
 
 P.SCHEMA = 1;
 P.MODES = { "Global", "Spec", "Talent" };
@@ -36,16 +36,16 @@ local SLIDER_DEFS = {
 P.SliderDefs = SLIDER_DEFS;
 
 local function DB ()
-  if type(_G.MaxDpsBridgeExpDB) ~= "table" then _G.MaxDpsBridgeExpDB = {}; end;
-  return _G.MaxDpsBridgeExpDB;
+  if type(_G.MaxDpsCompanionBridgeDB) ~= "table" then _G.MaxDpsCompanionBridgeDB = {}; end;
+  return _G.MaxDpsCompanionBridgeDB;
 end
 
 --- Per-character override table (SavedVariablesPerCharacter). The override
 -- wins over the account-wide DB.active.mode while set; an explicit profile
 -- command clears it.
 local function CharDB ()
-  if type(_G.MaxDpsBridgeExpCharDB) ~= "table" then _G.MaxDpsBridgeExpCharDB = {}; end;
-  return _G.MaxDpsBridgeExpCharDB;
+  if type(_G.MaxDpsCompanionBridgeCharDB) ~= "table" then _G.MaxDpsCompanionBridgeCharDB = {}; end;
+  return _G.MaxDpsCompanionBridgeCharDB;
 end
 
 local function ValidMode (Mode)
@@ -77,8 +77,8 @@ end
 --- 14 toggle keys: the canonical 13 plus the CC appendix (Ext3 bit 13).
 local function ToggleKeys ()
   local Keys = {};
-  if MDBX.Toggles and MDBX.Toggles.Keys then
-    local K = MDBX.Toggles.Keys();
+  if MDCB.Toggles and MDCB.Toggles.Keys then
+    local K = MDCB.Toggles.Keys();
     for i = 1, #K do Keys[#Keys + 1] = K[i]; end;
   end;
   Keys[#Keys + 1] = "CC";   -- Ext3 bit 13 appendix, always 14th
@@ -146,7 +146,7 @@ function P.Capture (Mode)
   local Keys = ToggleKeys();
   local Toggles = {};
   for i = 1, #Keys do
-    Toggles[Keys[i]] = (MDBX.Toggles and MDBX.Toggles.Get and MDBX.Toggles.Get(Keys[i]) ~= false) and true or false;
+    Toggles[Keys[i]] = (MDCB.Toggles and MDCB.Toggles.Get and MDCB.Toggles.Get(Keys[i]) ~= false) and true or false;
   end;
   Profile.toggles = Toggles;
   local Sliders = {};
@@ -168,7 +168,7 @@ function P.Apply (Mode)
   for i = 1, #Keys do
     local Value = Profile.toggles[Keys[i]];
     if Value ~= nil then
-      if MDBX.Toggles and MDBX.Toggles.Set then MDBX.Toggles.Set(Keys[i], Value); end;
+      if MDCB.Toggles and MDCB.Toggles.Set then MDCB.Toggles.Set(Keys[i], Value); end;
     end;
   end;
   for i = 1, #SLIDER_DEFS do
@@ -178,7 +178,7 @@ function P.Apply (Mode)
   end;
   D.active.mode = Mode;
   CharDB().profileOverride = nil;
-  if MDBX.Overlay and MDBX.Overlay.SetDirty then MDBX.Overlay.SetDirty(); end;
+  if MDCB.Overlay and MDCB.Overlay.SetDirty then MDCB.Overlay.SetDirty(); end;
   return Profile;
 end
 
@@ -203,7 +203,7 @@ function P.Export (Mode)
     local Key = SLIDER_DEFS[i].Key;
     Parts[#Parts + 1] = "s:" .. Key .. ":" .. tostring(Profile.sliders[Key] or SLIDER_DEFS[i].Default);
   end;
-  return ("MDBX%d|%s|%s"):format(P.SCHEMA, Mode, table.concat(Parts, ","));
+  return ("MDCB%d|%s|%s"):format(P.SCHEMA, Mode, table.concat(Parts, ","));
 end
 
 --- Parse a versioned export line into a store. Returns ok, message.
@@ -211,8 +211,8 @@ end
 -- parser does not understand is skipped rather than aborting the import.
 function P.Import (Text, Mode)
   if type(Text) ~= "string" or Text == "" then return false, "empty import"; end;
-  local Version, ImportMode, Body = Text:match("^MDBX(%d+)|([%a]+)|(.*)$");
-  if Version == nil then return false, "not an MDBX export string"; end;
+  local Version, ImportMode, Body = Text:match("^MDCB(%d+)|([%a]+)|(.*)$");
+  if Version == nil then return false, "not an MDCB export string"; end;
   Version = tonumber(Version);
   if Version ~= P.SCHEMA then
     return false, ("schema mismatch: got v%s, expected v%d"):format(tostring(Version), P.SCHEMA);
@@ -225,7 +225,7 @@ function P.Import (Text, Mode)
   for Entry in Body:gmatch("[^,]+") do
     local Kind, Key, Value = Entry:match("^([ts]):([^:]+):(.+)$");
     if Kind == "t" then
-      if MDBX.Toggles and MDBX.Toggles.Get(Key) ~= nil then
+      if MDCB.Toggles and MDCB.Toggles.Get(Key) ~= nil then
         Profile.toggles[Key] = (Value == "1");
       end;
     elseif Kind == "s" then

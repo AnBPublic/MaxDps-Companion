@@ -16,7 +16,7 @@
 --   Trinket    = flagged spellID in MaxDps.ItemSpells whose itemID is NOT
 --                in MaxDps.Consumables (equipped on-use trinkets)
 --
--- READINESS (v1.1.0, slots v1.2.0): every slot passes through MDBX.IsSpellReady before it
+-- READINESS (v1.1.0, slots v1.2.0): every slot passes through MDCB.IsSpellReady before it
 -- is encoded. A spell on cooldown or currently unusable (out of range,
 -- no resources, shapeshifted, ...) encodes as EMPTY (FLAG_VALID clear) so
 -- the companion skips it and fires the next ready slot instead of
@@ -37,7 +37,7 @@
 --   3. MaxDpsSpellFrame.bindText, when visible (main spell only)
 --   4. spell texture -> Bars.lua texture map fallback
 
-local addonName, MDBX = ...;
+local addonName, MDCB = ...;
 
 local InterruptSet = {};  -- spellID -> true, via GlowInteruptMidnight
 local DefensiveSet = {};  -- spellID -> true, via GlowDefensiveHPMidnight
@@ -47,7 +47,7 @@ local CooldownSet = {};   -- spellID -> true, via GlowCooldownMidnight/GlowCoold
 -- Lua lexical rule (pinned by the 204x/287x outages): a `local` is visible
 -- only BELOW its declaration. IsInterruptReady (the readiness gate) reads
 -- TargetCastInterruptible for the interruptibility veto, so the sensor state
--- MUST live above it; MDBX.InitSensors (far below) registers the event frames
+-- MUST live above it; MDCB.InitSensors (far below) registers the event frames
 -- that flip these plain booleans.
 local SensorEvents = false;
 local PlayerCasting, PlayerChanneling = false, false;
@@ -59,7 +59,7 @@ local PlayerCastSince, TargetCastSince = nil, nil;
 -- ======= v3.6 TAINT-SAFE MELEE PROBE STATE =======
 -- Declared above every user for the same lexical reason as the cast sensors:
 -- EnsureProbeEvents (below) registers the event frame that flips these plain
--- booleans, and MDBX.ProbeTargetMelee (far below) reads them. CheckInteract-
+-- booleans, and MDCB.ProbeTargetMelee (far below) reads them. CheckInteract-
 -- Distance is #nocombat-restricted in 12.x, so it is never called while any
 -- of these gates is closed; ADDON_ACTION_BLOCKED is the breaker of last resort.
 local MeleeCache = { val = nil, guid = nil, at = 0 };  -- per-target result
@@ -136,14 +136,14 @@ local function SyncSet (Set, _SpellID)
 end
 
 local function WipeCache ()
-  if MDBX._BindCache then wipe(MDBX._BindCache); end
+  if MDCB._BindCache then wipe(MDCB._BindCache); end
 end
 
-function MDBX.EnsureHooks ()
-  if MDBX._ReaderHooked then return; end
+function MDCB.EnsureHooks ()
+  if MDCB._ReaderHooked then return; end
   local MaxDps = MaxDpsEngine();
   if not MaxDps then return; end
-  if type(hooksecurefunc) ~= "function" then MDBX._ReaderHooked = true; return; end
+  if type(hooksecurefunc) ~= "function" then MDCB._ReaderHooked = true; return; end
 
     local function TryHook (Method, Set)
     if type(MaxDps[Method]) == "function" then
@@ -167,7 +167,7 @@ function MDBX.EnsureHooks ()
   TryHook("GlowCooldownMidnight", CooldownSet);
   TryHook("GlowCooldown", CooldownSet);
   TryHook("Fetch", nil);
-  MDBX._ReaderHooked = true;
+  MDCB._ReaderHooked = true;
 end
 
 --- ======= DIAGNOSTICS =======
@@ -176,7 +176,7 @@ local function DiagPrint (Message)
   DEFAULT_CHAT_FRAME:AddMessage("|cFF00D8FFMDB|r: " .. Message);
 end
 
-function MDBX.Diag ()
+function MDCB.Diag ()
   -- v1.3.0 zero-taint diag: scrubbed snapshots only (never raw tables),
   -- dropsecretaccess() containment so NOTHING here can throw under taint.
   -- A diagnostic must never be the error source.
@@ -244,7 +244,7 @@ end
 -- casts, no targeting, no protected calls. Without this the bridge (and
 -- the companion) would sit idle until first combat with no way to
 -- calibrate or verify the link in town.
-function MDBX.EnsureEngine ()
+function MDCB.EnsureEngine ()
   local MaxDps = MaxDpsEngine();
   if not MaxDps then return; end
 
@@ -272,7 +272,7 @@ function MDBX.EnsureEngine ()
   -- MaxDps's own Fetch ran (it only runs while rotationEnabled).
   if (not MaxDps.Spells or not next(MaxDps.Spells))
     and type(MaxDps.Fetch) == "function" then
-    pcall(MaxDps.Fetch, MaxDps, "MaxDpsBridgeExp");
+    pcall(MaxDps.Fetch, MaxDps, "MaxDpsCompanionBridge");
   end
 
   -- 4. Build FrameData so the retail rotation function can run read-only.
@@ -327,7 +327,7 @@ local MainFallbackList;
 
 --- ======= SLOT READOUT (guards live above CATEGORY HOOKS; duplicate deleted v1.2.3) =======
 
-function MDBX.GetMainSpellID ()
+function MDCB.GetMainSpellID ()
   -- v1.3.2 MAIN-SLOT FIX (Sep-2026: main pressed 1-2 keys then stuck —
   -- E fired, 1/2/R and Shift+E never did):
   --
@@ -442,7 +442,7 @@ end
 -- to ~10 scrubsecretvalues table copies and ~6 UnitClass/GetSpecialization
 -- lookups per 50 ms tick, all allocating Lua garbage inside the game's
 -- frame budget (GC pressure = WoW frametime spikes). Bridge.Update now
--- calls MDBX.BeginTick() once; the first getter computes, the rest reuse.
+-- calls MDCB.BeginTick() once; the first getter computes, the rest reuse.
 --
 -- 4.1.0 (A1.3) extends the SAME table with the three per-tick helper memos the
 -- slot scan hammers: SpellVariants (each evaluation probes 3 client APIs per
@@ -462,7 +462,7 @@ local Tick = {
 -- stored as a table value).
 local NIL_MEMO = {};
 
-function MDBX.BeginTick ()
+function MDCB.BeginTick ()
   Tick.Gen = Tick.Gen + 1;
   Tick.Flags, Tick.FlagsOwner, Tick.Items = nil, nil, nil;
   Tick.Class, Tick.ClassFile, Tick.Spec, Tick.SpecID = nil, nil, nil, nil;
@@ -475,7 +475,7 @@ function MDBX.BeginTick ()
   wipe(Tick.Pools);
 end
 
-function MDBX.EndTick ()
+function MDCB.EndTick ()
   Tick.Active = false;
 end
 
@@ -564,7 +564,7 @@ end
 function MainFallbackList ()
   local MaxDps, classFile, specName, specID = ClassSpec();
   if not MaxDps then return nil; end
-  local FB = MDBX.MainFallback;
+  local FB = MDCB.MainFallback;
   if type(FB) ~= "table" then return nil; end
   if type(specID) == "number" and type(FB[specID]) == "table" then return FB[specID]; end
   if classFile and specName then
@@ -599,9 +599,9 @@ local function CategoryOf (Id)
   end
   -- 2026-10-04 arms-fury-exec-fix: a few offensives MaxDps glows are absent
   -- from the static classCooldowns table (e.g. Ravager 228920), so the
-  -- first-wins Flags scan never saw them. MDBX.FlagOffensiveExtra (defined in
+  -- first-wins Flags scan never saw them. MDCB.FlagOffensiveExtra (defined in
   -- MajorCooldowns.lua) adds those ids as an explicit offensive category.
-  local Extra = MDBX.FlagOffensiveExtra;
+  local Extra = MDCB.FlagOffensiveExtra;
   if type(Extra) == "table" and Extra[Id] then return "offensive"; end
   return nil;
 end
@@ -618,9 +618,9 @@ local function FirstFlagged (WantCategory, IsInterrupt, RequireBinding)
     if type(SpellID) == "number" and SpellID ~= 0 and On == true and Spells[SpellID]
       and CategoryOf(SpellID) == WantCategory then
       local Ready;
-      if IsInterrupt then Ready = MDBX.IsInterruptReady(SpellID);
-      else Ready = MDBX.IsSpellReady(SpellID); end
-      if Ready and (not RequireBinding or MDBX.ResolveBinding(SpellID)) then
+      if IsInterrupt then Ready = MDCB.IsInterruptReady(SpellID);
+      else Ready = MDCB.IsSpellReady(SpellID); end
+      if Ready and (not RequireBinding or MDCB.ResolveBinding(SpellID)) then
         if not Best or SpellID < Best then Best = SpellID; end
       end
     end
@@ -628,12 +628,12 @@ local function FirstFlagged (WantCategory, IsInterrupt, RequireBinding)
   return Best;
 end
 
-function MDBX.GetInterruptSpellID ()
+function MDCB.GetInterruptSpellID ()
   return FirstFlagged("interrupt", true);
 end
 
-function MDBX.GetDefensiveSpellID ()
-  local Id = MDBX.GetDefensiveCandidate and MDBX.GetDefensiveCandidate();
+function MDCB.GetDefensiveSpellID ()
+  local Id = MDCB.GetDefensiveCandidate and MDCB.GetDefensiveCandidate();
   return Id;
 end
 
@@ -686,7 +686,7 @@ local function BestFlaggedItem (WantConsumable)
       if ItemID and Spells[SpellID] then
         local IsConsumable = IsConsumableItem(ItemID);
         if (WantConsumable and IsConsumable) or (not WantConsumable and not IsConsumable) then
-          if MDBX.IsSpellReady(SpellID) then
+          if MDCB.IsSpellReady(SpellID) then
             if not Best or SpellID < Best then Best = SpellID; end
           end
         end
@@ -696,11 +696,11 @@ local function BestFlaggedItem (WantConsumable)
   return Best;
 end
 
-function MDBX.GetConsumableSpellID ()
+function MDCB.GetConsumableSpellID ()
   return BestFlaggedItem(true);
 end
 
-function MDBX.GetTrinketSpellID ()
+function MDCB.GetTrinketSpellID ()
   return BestFlaggedItem(false);
 end
 
@@ -709,17 +709,17 @@ end
 -- tables (v1.3.5 — exact category, no item/exclusion guesswork).
 -- v3.0.0: when MaxDps names no bound offensive, the curated per-spec
 -- `offensive` gap-fill list supplies the first ready+bound entry (see
--- MDBX.GetOffensiveCandidate, defined next to the defensive candidate below
+-- MDCB.GetOffensiveCandidate, defined next to the defensive candidate below
 -- because it reuses the scoped ExtraSpellID helper). The whole path stays
 -- inside MaxDps's own `enableCooldowns` switch.
-function MDBX.GetOffensiveSpellID ()
-  return MDBX.GetOffensiveCandidate();
+function MDCB.GetOffensiveSpellID ()
+  return MDCB.GetOffensiveCandidate();
 end
 
 -- Back-compat alias: C# mirrors and old chat macros may still call the old
 -- cooldown name. Same bucket as offensive.
-function MDBX.GetCooldownSpellID ()
-  return MDBX.GetOffensiveSpellID();
+function MDCB.GetCooldownSpellID ()
+  return MDCB.GetOffensiveSpellID();
 end
 
 --- ======= READINESS GATE (v1.1.0 slots; v1.3.0 zero-taint rewrite) =======
@@ -891,7 +891,7 @@ end
 --- Returns true when the spell may be encoded into a slot.
 --- v1.3.0: SpellID arrives from scrubbed scans (proven plain numbers) —
 --- no entry guard needed; type check is pure Lua on our own data.
-function MDBX.IsSpellReady (SpellID)
+function MDCB.IsSpellReady (SpellID)
   if type(SpellID) ~= "number" or SpellID == 0 then return false; end
   -- A1.3: readiness is re-read once per Bridge tick, never across ticks. The
   -- scan asks for the same candidate many times (WriteSlot gate, FirstFlagged,
@@ -933,9 +933,9 @@ end
 -- payload is read). Explicit false => empty slot; nil => fail open.
 -- UnitCastingInfo's notInterruptible is secret for non-player units, so this
 -- event pair is the only safe interruptibility signal under Midnight.
-function MDBX.IsInterruptReady (SpellID)
+function MDCB.IsInterruptReady (SpellID)
   if type(SpellID) ~= "number" or SpellID == 0 then return false; end
-  if not MDBX.IsSpellReady(SpellID) then return false; end
+  if not MDCB.IsSpellReady(SpellID) then return false; end
   -- Target presence uses UNIT TOKENS (strings, never secret): no target
   -- ⇒ no interrupt (same TargetState logic the bridge already applies;
   -- duplicated here so the slot encodes EMPTY instead of a kick into
@@ -961,8 +961,8 @@ end
 --- "not interruptible" was already vetoed by IsInterruptReady. A client with
 --- no sensor events at all fails OPEN to the ordinary verdict, so this can
 --- only ever DEMOTE when the sensor gives a definite state.
-function MDBX.IsInterruptPinReady (SpellID)
-  if not MDBX.IsInterruptReady(SpellID) then return false; end
+function MDCB.IsInterruptPinReady (SpellID)
+  if not MDCB.IsInterruptReady(SpellID) then return false; end
   if not SensorEvents then return true; end
   return TargetCasting and TargetCastInterruptible ~= false;
 end
@@ -970,7 +970,7 @@ end
 --- ======= SPELL VARIANTS (protocol Ext2 / v3.0.0) =======
 -- One curated ability can be known to the client under several ids: the
 -- base spell (FindBaseSpellByID), the talent override (FindSpellOverrideByID
--- / GetOverrideSpell) and the curated alias map (MDBX.SpellAliases, emitted
+-- / GetOverrideSpell) and the curated alias map (MDCB.SpellAliases, emitted
 -- by the companion's generator). Readiness and binding must therefore match
 -- ANY of them; the slot encodes whichever id the player actually knows.
 --
@@ -1014,13 +1014,13 @@ local function KnownSpell (SpellID)
 end
 
 --[[*
-  * @function MDBX.SpellVariants
+  * @function MDCB.SpellVariants
   * @desc Every plain-number id this ability may be known under, de-duplicated
   *       (the input first, then base / override / alias expansions).
   * @param SpellID number
   * @return table array of ids (empty for a non-positive input)
   *]]
-function MDBX.SpellVariants (SpellID)
+function MDCB.SpellVariants (SpellID)
   if type(SpellID) ~= "number" or SpellID <= 0 then return {}; end
   -- A1.3: one expansion per spell per Bridge tick. Callers only iterate the
   -- returned array (HotKeyBinding, FindSpellOnActionBar, TextureBinding,
@@ -1030,7 +1030,7 @@ function MDBX.SpellVariants (SpellID)
     local Hit = Memo[SpellID];
     if Hit ~= nil then return Hit; end
   end
-  local Aliases = MDBX.SpellAliases;
+  local Aliases = MDCB.SpellAliases;
   local Out, Seen, Queue = {}, {}, { SpellID };
   local Head = 1;
   local function Add (Id)
@@ -1070,8 +1070,8 @@ end
 -- The variant the player actually knows (first known in SpellVariants order).
 -- No known variant / unknown API -> the listed id (fail open; the caller
 -- still gates on readiness + binding).
-function MDBX.ActiveVariant (SpellID)
-  local Variants = MDBX.SpellVariants(SpellID);
+function MDCB.ActiveVariant (SpellID)
+  local Variants = MDCB.SpellVariants(SpellID);
   for i = 1, #Variants do
     if KnownSpell(Variants[i]) == true then return Variants[i]; end
   end
@@ -1079,10 +1079,10 @@ function MDBX.ActiveVariant (SpellID)
 end
 
 --[[*
-  * @function MDBX.IsSpellKnownVariant
+  * @function MDCB.IsSpellKnownVariant
   * @desc true/false/nil for diagnostics (nil = the client API is absent).
   *]]
-function MDBX.IsSpellKnownVariant (SpellID)
+function MDCB.IsSpellKnownVariant (SpellID)
   return KnownSpell(SpellID);
 end
 
@@ -1091,7 +1091,7 @@ end
 -- SpellFrame.lua shortens raw bindings for display (SHIFT- -> S-,
 -- NUMPAD -> N, BUTTON4 -> MB4, ...). HotKey/bindText reads come back
 -- shortened, so expand back to the raw form ParseBinding expects.
-function MDBX.ExpandHotKey (Text)
+function MDCB.ExpandHotKey (Text)
   if type(Text) ~= "string" or Text == "" then return nil; end
   if string.byte(Text) == 226 then return nil; end  -- range glyph etc.
   local Key = strupper(strtrim(Text));
@@ -1140,7 +1140,7 @@ function MDBX.ExpandHotKey (Text)
         else Expanded = Expanded .. "ALT-"; end
       end
       local Trial = Expanded .. strsub(Key, Cut + 1);
-      if MDBX.ParseBinding(Trial) then return Trial; end
+      if MDCB.ParseBinding(Trial) then return Trial; end
     end
   end
   -- Expand ShortenKeybind tokens back to raw. Raw full names (BUTTON4,
@@ -1213,7 +1213,7 @@ local function HotKeyBinding (SpellID)
   if not MaxDps or not MaxDps.Spells then return nil; end
   -- v3: the MaxDps overlay may carry the ability under any variant id (a
   -- base spell / talent override / curated alias), so scan every variant.
-  local Variants = MDBX.SpellVariants(SpellID);
+  local Variants = MDCB.SpellVariants(SpellID);
   local OkRead, Result = pcall(function ()
     if type(dropsecretaccess) == "function" then dropsecretaccess(); end
     for v = 1, #Variants do
@@ -1229,7 +1229,7 @@ local function HotKeyBinding (SpellID)
           if HotKey and HotKey.GetText then
             local Text = HotKey:GetText();
             if type(Text) == "string" and Text ~= "" and string.byte(Text) ~= 226 then
-              local VirtualKey, Modifiers = MDBX.ParseBinding(MDBX.ExpandHotKey(Text));
+              local VirtualKey, Modifiers = MDCB.ParseBinding(MDCB.ExpandHotKey(Text));
               if VirtualKey then return { VK = VirtualKey, Mods = Modifiers }; end
               -- Parse miss (e.g. exotic ElvUI token): keep scanning buttons
               -- instead of aborting — a later button may carry plain text.
@@ -1252,7 +1252,7 @@ end
 -- scrubbed scans (already plain); re-check cheaply (pure Lua, our data).
 local function FindSpellOnActionBar (SpellID)
   if type(SpellID) ~= "number" or SpellID == 0 then return nil; end
-  local Variants = MDBX.SpellVariants(SpellID);
+  local Variants = MDCB.SpellVariants(SpellID);
   local VariantSet = {};
   for i = 1, #Variants do VariantSet[Variants[i]] = true; end
   local OkScan, Found = pcall(function ()
@@ -1302,8 +1302,8 @@ end
 local function GetKeybindForSpell (SpellID)
   local Slot = FindSpellOnActionBar(SpellID);
   if not Slot then return nil; end
-  if type(MDBX.SlotCommand) ~= "function" then return nil; end
-  local Command = MDBX.SlotCommand(Slot);
+  if type(MDCB.SlotCommand) ~= "function" then return nil; end
+  local Command = MDCB.SlotCommand(Slot);
   if not Command then return nil; end
   return GetBindingKey(Command);
 end
@@ -1313,8 +1313,8 @@ local function SpellFrameBinding (SpellID)
   if not Frame or not Frame.IsVisible or not Frame:IsVisible() then return nil; end
   -- Both sides arrive from scrubbed scans (proven plain); pure-Lua compare.
   if type(SpellID) ~= "number" then return nil; end
-  local Main = MDBX.GetMainSpellID();
-  local Variants = MDBX.SpellVariants(SpellID);
+  local Main = MDCB.GetMainSpellID();
+  local Variants = MDCB.SpellVariants(SpellID);
   local IsMain = false;
   for i = 1, #Variants do
     if Variants[i] == Main then IsMain = true; break; end
@@ -1323,14 +1323,14 @@ local function SpellFrameBinding (SpellID)
   if not Frame.bindText or not Frame.bindText.GetText then return nil; end
   local Ok, Text = pcall(Frame.bindText.GetText, Frame.bindText);
   if not Ok then return nil; end
-  return MDBX.ParseBinding(MDBX.ExpandHotKey(Text));
+  return MDCB.ParseBinding(MDCB.ExpandHotKey(Text));
 end
 
 local function TextureBinding (SpellID)
   -- SpellID arrives from scrubbed scans (proven plain, pure-Lua check).
   if type(SpellID) ~= "number" or SpellID == 0 then return nil; end
   -- v3: the mapped texture may belong to any variant of the ability.
-  local Variants = MDBX.SpellVariants(SpellID);
+  local Variants = MDCB.SpellVariants(SpellID);
   for i = 1, #Variants do
     local Id = Variants[i];
     local Texture = nil;
@@ -1343,7 +1343,7 @@ local function TextureBinding (SpellID)
       if Ok then Texture = Tex; end
     end
     if Texture then
-      local VirtualKey, Modifiers = MDBX.ParseBinding(MDBX.BindingForTexture(Texture));
+      local VirtualKey, Modifiers = MDCB.ParseBinding(MDCB.BindingForTexture(Texture));
       if VirtualKey then return VirtualKey, Modifiers; end
     end
   end
@@ -1363,14 +1363,14 @@ local function ResolveBindingUncached (SpellID)
   VirtualKey, Modifiers = SpellFrameBinding(SpellID);
   if VirtualKey then return VirtualKey, Modifiers; end
 
-  VirtualKey, Modifiers = MDBX.ParseBinding(GetKeybindForSpell(SpellID));
+  VirtualKey, Modifiers = MDCB.ParseBinding(GetKeybindForSpell(SpellID));
   if VirtualKey then return VirtualKey, Modifiers; end
 
   return TextureBinding(SpellID);
 end
 
 -- Results are cached per spellID; the cache is wiped by bar updates
--- (via MDBX.InvalidateBindings) and by MaxDps:Fetch/category hooks.
+-- (via MDCB.InvalidateBindings) and by MaxDps:Fetch/category hooks.
 -- SpellIDs arrive from scrubbed scans (proven plain); keys are our own
 -- plain data. Pure-Lua type check only.
 -- A1.1 DECISION (no Miss TTL added): a cached Miss above depends only on the
@@ -1380,19 +1380,19 @@ end
 -- binding (WriteSlot, FirstFlagged, WalkCurated, ExtraCandidates), so a Miss
 -- can never be caused by "not ready" and SPELL_UPDATE_COOLDOWN therefore only
 -- bumps _BindRevision (see Bars.lua) instead of wiping this cache.
-function MDBX.ResolveBinding (SpellID)
+function MDCB.ResolveBinding (SpellID)
   if type(SpellID) ~= "number" or SpellID == 0 then return nil, 0; end
-  MDBX._BindCache = MDBX._BindCache or {};
-  local Cached = MDBX._BindCache[SpellID];
+  MDCB._BindCache = MDCB._BindCache or {};
+  local Cached = MDCB._BindCache[SpellID];
   if Cached then
     if Cached.Miss then return nil, 0; end
     return Cached.VK, Cached.Mods;
   end
   local VirtualKey, Modifiers = ResolveBindingUncached(SpellID);
   if VirtualKey then
-    MDBX._BindCache[SpellID] = { VK = VirtualKey, Mods = Modifiers or 0 };
+    MDCB._BindCache[SpellID] = { VK = VirtualKey, Mods = Modifiers or 0 };
   else
-    MDBX._BindCache[SpellID] = { Miss = true };
+    MDCB._BindCache[SpellID] = { Miss = true };
   end
   return VirtualKey, Modifiers or 0;
 end
@@ -1415,7 +1415,7 @@ end
 
 -- Resets the tracked cast state (PLAYER_ENTERING_WORLD / reload). Events can
 -- be missed across a loading screen, and a cast cannot span one.
-function MDBX.ResetSensors ()
+function MDCB.ResetSensors ()
   PlayerCasting, PlayerChanneling = false, false;
   TargetCasting, TargetCastInterruptible = false, nil;
   PlayerCastSince, TargetCastSince = nil, nil;
@@ -1468,13 +1468,13 @@ end
 -- leaves, and a hidden breaker (ADDON_ACTION_BLOCKED) can fire even outside
 -- the lockdown window. This frame tracks all three signals on plain booleans
 -- and disables the probe for the session after two blocked calls. Idempotent:
--- reuses the frame if one already exists (MDBX._ProbeEvents).
+-- reuses the frame if one already exists (MDCB._ProbeEvents).
 local function ClearMeleeCache ()
   MeleeCache.val, MeleeCache.guid, MeleeCache.at = nil, nil, 0;
 end
 
 local function EnsureProbeEvents ()
-  if MDBX._ProbeEvents then return MDBX._ProbeEvents; end
+  if MDCB._ProbeEvents then return MDCB._ProbeEvents; end
   if type(CreateFrame) ~= "function" then return nil; end
   local Frame = CreateFrame("Frame");
   if type(Frame) ~= "table" or type(Frame.RegisterEvent) ~= "function" then
@@ -1527,11 +1527,11 @@ local function EnsureProbeEvents ()
       end
     end
   end);
-  MDBX._ProbeEvents = Frame;
+  MDCB._ProbeEvents = Frame;
   return Frame;
 end
 
-function MDBX.InitSensors ()
+function MDCB.InitSensors ()
   if SensorEvents then return; end
   SensorEvents = true;
 
@@ -1610,15 +1610,15 @@ local function HealthPct (Unit)
   return Pct;
 end
 
-function MDBX.GetPlayerHpPct ()
+function MDCB.GetPlayerHpPct ()
   return HealthPct("player");
 end
 
-function MDBX.GetTargetHpPct ()
+function MDCB.GetTargetHpPct ()
   return HealthPct("target");
 end
 
-function MDBX.GetCastState ()
+function MDCB.GetCastState ()
   -- 0 none, 1 casting, 2 channeling, 15 unknown
   if not SensorEvents then return 15; end
   if (PlayerCasting or PlayerChanneling) and CastStale(PlayerCastSince) then
@@ -1673,7 +1673,7 @@ local function TargetGuid ()
   return nil;
 end
 
-function MDBX.ProbeTargetMelee ()
+function MDCB.ProbeTargetMelee ()
   if not ProbeSafe() then return nil; end;   -- no API touch, no cache read
   local Now = SafeNow();
   local Guid = TargetGuid();
@@ -1700,7 +1700,7 @@ end
 -- target cast flags:
 --   bit0 casting, bit1 cast state unknown, bit2 interruptible,
 --   bit3 not interruptible.
-function MDBX.GetTargetContext ()
+function MDCB.GetTargetContext ()
   -- Target presence first: without a target the cast latch is meaningless,
   -- and a stale "casting" bit from the previous target must not gate reflect
   -- or kick decisions onto nothing.
@@ -1715,7 +1715,7 @@ function MDBX.GetTargetContext ()
 
   local Melee = 2;   -- unknown unless the shared event-gated probe answers
   if HasTarget then
-    local Probe = MDBX.ProbeTargetMelee();
+    local Probe = MDCB.ProbeTargetMelee();
     if Probe ~= nil then Melee = Probe; end
   end
 
@@ -1753,7 +1753,7 @@ end
 -- Per-slot range probe: 0 unknown, 1 in range, 2 out of range.
 -- Uses MaxDps's own helper (the same call upstream uses) through a pcall;
 -- a secret return scrubs to nil and stays UNKNOWN.
-function MDBX.GetSlotRange (SpellID)
+function MDCB.GetSlotRange (SpellID)
   if type(SpellID) ~= "number" or SpellID == 0 then return 0; end
   local MaxDps = MaxDpsEngine();
   if not MaxDps or type(MaxDps.IsSpellInRange) ~= "function" then return 0; end
@@ -1777,7 +1777,7 @@ end
 -- the companion sees UNKNOWN instead of a silent "not active"; its policy then
 -- keeps the documented fail-open for Unknown (legacy encoders leave the bit 0
 -- and behave exactly as before).
-function MDBX.GetSlotBuff (SpellID)
+function MDCB.GetSlotBuff (SpellID)
   if type(SpellID) ~= "number" or SpellID == 0 then return nil; end
   if not (_G.AuraUtil and type(_G.AuraUtil.FindAuraBySpellID) == "function") then
     return nil;
@@ -1793,19 +1793,19 @@ function MDBX.GetSlotBuff (SpellID)
 end
 
 -- Class id + spec ordinal for protocol v5 cell 33 (see Catalog.lua).
-function MDBX.GetClassSpec ()
+function MDCB.GetClassSpec ()
   local _, classFile, specName = ClassSpec();
   if not classFile or not specName then return 0, 0; end
   local ClassId = 0;
-  if type(MDBX.ClassIds) == "table" and type(MDBX.ClassIds[classFile]) == "number" then
-    ClassId = MDBX.ClassIds[classFile];
+  if type(MDCB.ClassIds) == "table" and type(MDCB.ClassIds[classFile]) == "number" then
+    ClassId = MDCB.ClassIds[classFile];
   end
   local SpecId = 0;
   if ClassId > 0
-    and type(MDBX.SpecIds) == "table"
-    and type(MDBX.SpecIds[classFile]) == "table"
-    and type(MDBX.SpecIds[classFile][specName]) == "number" then
-    SpecId = MDBX.SpecIds[classFile][specName];
+    and type(MDCB.SpecIds) == "table"
+    and type(MDCB.SpecIds[classFile]) == "table"
+    and type(MDCB.SpecIds[classFile][specName]) == "number" then
+    SpecId = MDCB.SpecIds[classFile][specName];
   end
   return ClassId, SpecId;
 end
@@ -1820,19 +1820,19 @@ end
 -- bound alternative. ResolveBinding is cached (misses included) and
 -- invalidated on bar updates, so the extra lookups are a table hit.
 --[[*
-  * @function MDBX.ExtraCandidates
+  * @function MDCB.ExtraCandidates
   * @desc First Count DISTINCT entries of a curated extras list that are
   *       ready AND bound, each encoded as the variant the player actually
-  *       knows (base / override / alias; see MDBX.ActiveVariant).
+  *       knows (base / override / alias; see MDCB.ActiveVariant).
   * @param Kind string "mobility" | "selfHeal" | "defensive" | "cc"
   * @param Count number
   * @return table array of variant ids (may be shorter than Count)
   *]]
-function MDBX.ExtraCandidates (Kind, Count)
+function MDCB.ExtraCandidates (Kind, Count)
   Count = Count or 1;
   local _, classFile, specName = ClassSpec();
   if not classFile or not specName then return {}; end
-  local Table = MDBX.Extras and MDBX.Extras[classFile] and MDBX.Extras[classFile][specName];
+  local Table = MDCB.Extras and MDCB.Extras[classFile] and MDCB.Extras[classFile][specName];
   if type(Table) ~= "table" then return {}; end
   local List = Table[Kind];
   if type(List) ~= "table" then return {}; end
@@ -1840,10 +1840,10 @@ function MDBX.ExtraCandidates (Kind, Count)
   for i = 1, #List do
     local Entry = List[i];
     if type(Entry) == "number" and Entry > 0 then
-      local Active = MDBX.ActiveVariant(Entry);
+      local Active = MDCB.ActiveVariant(Entry);
       if type(Active) == "number" and Active > 0 and not Seen[Active] then
         -- Readiness/binding are tested on the variant that will be encoded.
-        if MDBX.IsSpellReady(Active) and MDBX.ResolveBinding and MDBX.ResolveBinding(Active) then
+        if MDCB.IsSpellReady(Active) and MDCB.ResolveBinding and MDCB.ResolveBinding(Active) then
           Seen[Active] = true;
           Out[#Out + 1] = Active;
           if #Out >= Count then return Out; end
@@ -1855,21 +1855,21 @@ function MDBX.ExtraCandidates (Kind, Count)
 end
 
 local function ExtraSpellID (Kind)
-  local Candidates = MDBX.ExtraCandidates(Kind, 1);
+  local Candidates = MDCB.ExtraCandidates(Kind, 1);
   return Candidates[1];
 end
 
-function MDBX.GetMobilitySpellID ()
+function MDCB.GetMobilitySpellID ()
   return ExtraSpellID("mobility");
 end
 
-function MDBX.GetSelfHealSpellID ()
+function MDCB.GetSelfHealSpellID ()
   return ExtraSpellID("selfHeal");
 end
 
 -- The second distinct SelfHeal candidate (protocol Ext2 cells 36-38).
-function MDBX.GetSelfHeal2SpellID ()
-  local Candidates = MDBX.ExtraCandidates("selfHeal", 2);
+function MDCB.GetSelfHeal2SpellID ()
+  local Candidates = MDCB.ExtraCandidates("selfHeal", 2);
   return Candidates[2];
 end
 
@@ -1884,8 +1884,8 @@ end
 -- final authority on whether the candidate may actually fire. No wire change:
 -- the CC id simply rides the existing slot-6 id cells, and the companion
 -- recognises it by curated CC membership.
-function MDBX.GetCrowdControlCandidate ()
-  if MDBX.Toggles and MDBX.Toggles.IsCC and not MDBX.Toggles.IsCC() then return nil; end
+function MDCB.GetCrowdControlCandidate ()
+  if MDCB.Toggles and MDCB.Toggles.IsCC and not MDCB.Toggles.IsCC() then return nil; end
   return ExtraSpellID("cc");
 end
 
@@ -1894,7 +1894,7 @@ end
 --- UnitClassification returns a plain string and UnitLevel a plain number for
 --- the target; both are pcall-contained and ANY failure/unknown fails OPEN
 --- (not a boss → include the candidate).
-function MDBX.IsBossTarget ()
+function MDCB.IsBossTarget ()
   if type(UnitClassification) == "function" then
     local OkC, Class = pcall(UnitClassification, "target");
     if OkC and Class == "worldboss" then return true; end
@@ -1926,11 +1926,11 @@ local NEVER_AUTOMATIC = {
   [20484] = true,   -- Rebirth
 };
 
-function MDBX.IsNeverAutomatic (SpellID)
+function MDCB.IsNeverAutomatic (SpellID)
   if type(SpellID) ~= "number" or SpellID <= 0 then return false; end
   if NEVER_AUTOMATIC[SpellID] then return true; end
-  if MDBX.SpellVariants then
-    local Ok, Variants = pcall(MDBX.SpellVariants, SpellID);
+  if MDCB.SpellVariants then
+    local Ok, Variants = pcall(MDCB.SpellVariants, SpellID);
     if Ok and type(Variants) == "table" then
       for i = 1, #Variants do
         if NEVER_AUTOMATIC[Variants[i]] then return true; end
@@ -1947,18 +1947,18 @@ end
 local function WalkCurated (List, Count, Seen, SkipBoss)
   local Out = {};
   if type(List) ~= "table" then return Out; end
-  if SkipBoss and MDBX.IsBossTarget and MDBX.IsBossTarget() then return Out; end
+  if SkipBoss and MDCB.IsBossTarget and MDCB.IsBossTarget() then return Out; end
   for i = 1, #List do
     local Entry = List[i];
     if type(Entry) == "number" and Entry > 0 then
-      local Active = MDBX.ActiveVariant(Entry);
+      local Active = MDCB.ActiveVariant(Entry);
       if type(Active) == "number" and Active > 0 and not Seen[Active]
-        and not MDBX.IsNeverAutomatic(Active) then
-        local OkReady, IsReady = pcall(MDBX.IsSpellReady, Active);
+        and not MDCB.IsNeverAutomatic(Active) then
+        local OkReady, IsReady = pcall(MDCB.IsSpellReady, Active);
         local Ready = (OkReady and IsReady == true);
         local Bound = false;
-        if MDBX.ResolveBinding then
-          local OkBind, VK = pcall(MDBX.ResolveBinding, Active);
+        if MDCB.ResolveBinding then
+          local OkBind, VK = pcall(MDCB.ResolveBinding, Active);
           Bound = (OkBind and VK ~= nil);
         end
         if Ready and Bound then
@@ -1976,7 +1976,7 @@ end
 -- 7 mobility, 8 self-heal). Cap is hard-limited to 4 so the wire and the
 -- `/mdb status` count stay bounded. Catalog priority for the defensive slot
 -- is major > minor > utility, with MaxDps's own flagged candidate on top.
-function MDBX.RotationCandidates (Slot, Count)
+function MDCB.RotationCandidates (Slot, Count)
   Count = tonumber(Count) or 4;
   if Count > 4 then Count = 4 end;
   if Count < 1 then return {}; end
@@ -2001,13 +2001,13 @@ function MDBX.RotationCandidates (Slot, Count)
 
   if Slot == 3 then
     local Flagged = FirstFlagged("defensive", false, true);
-    if Flagged and not MDBX.IsNeverAutomatic(Flagged) then
+    if Flagged and not MDCB.IsNeverAutomatic(Flagged) then
       Seen[Flagged] = true;
       Out[1] = Flagged;
     end
     local _, classFile, specName = ClassSpec();
-    local Table = classFile and specName and MDBX.Extras
-      and MDBX.Extras[classFile] and MDBX.Extras[classFile][specName];
+    local Table = classFile and specName and MDCB.Extras
+      and MDCB.Extras[classFile] and MDCB.Extras[classFile][specName];
     if type(Table) == "table" then
       Append(Table.defensiveMajor);
       Append(Table.defensiveMinor);
@@ -2018,16 +2018,16 @@ function MDBX.RotationCandidates (Slot, Count)
     -- unconditional); the pool here is the CC fall-through list. The addon CC
     -- toggle gates it (restrict-only, missing = ON) and boss targets are
     -- skipped (immune to the curated CC; unknown fails open/include).
-    if not (MDBX.Toggles and MDBX.Toggles.IsCC and not MDBX.Toggles.IsCC()) then
+    if not (MDCB.Toggles and MDCB.Toggles.IsCC and not MDCB.Toggles.IsCC()) then
       local _, classFile, specName = ClassSpec();
-      local Table = classFile and specName and MDBX.Extras
-        and MDBX.Extras[classFile] and MDBX.Extras[classFile][specName];
+      local Table = classFile and specName and MDCB.Extras
+        and MDCB.Extras[classFile] and MDCB.Extras[classFile][specName];
       if type(Table) == "table" then Append(Table.cc, true); end
     end
   elseif Slot == 7 or Slot == 8 then
     local _, classFile, specName = ClassSpec();
-    local Table = classFile and specName and MDBX.Extras
-      and MDBX.Extras[classFile] and MDBX.Extras[classFile][specName];
+    local Table = classFile and specName and MDCB.Extras
+      and MDCB.Extras[classFile] and MDCB.Extras[classFile][specName];
     if type(Table) == "table" then
       Append(Slot == 7 and Table.mobility or Table.selfHeal);
     end
@@ -2039,12 +2039,12 @@ end
 --- Defensive urgency with the v3.5 HP-curve fallback. When the plain HP read
 -- is secret/unreadable (Midnight combat) but the Ext2 HP curve is live, the
 -- slot still offers a conservative Orange so the catalog minor gap-fill is in
--- the pool; otherwise an unreadable HP stays UNKNOWN. MDBX.GetDefensiveUrgency
+-- the pool; otherwise an unreadable HP stays UNKNOWN. MDCB.GetDefensiveUrgency
 -- itself is untouched so its documented secret-HP = UNKNOWN contract holds.
-function MDBX.GetDefensiveUrgencyFallback (SpellID)
-  local U = MDBX.GetDefensiveUrgency(SpellID);
+function MDCB.GetDefensiveUrgencyFallback (SpellID)
+  local U = MDCB.GetDefensiveUrgency(SpellID);
   if U ~= URGENCY_UNKNOWN then return U; end
-  if MDBX.HpCurve then return URGENCY_ORANGE; end
+  if MDCB.HpCurve then return URGENCY_ORANGE; end
   return URGENCY_UNKNOWN;
 end
 
@@ -2082,7 +2082,7 @@ end
 -- Stagger fraction (UnitStagger / UnitHealthMax) through the reversed curve.
 -- Both reads are pcall-contained and scrubbed; anything not a plain number
 -- degrades to UNKNOWN (0).
-function MDBX.GetStaggerUrgency ()
+function MDCB.GetStaggerUrgency ()
   if type(UnitStagger) ~= "function" or type(UnitHealthMax) ~= "function" then
     return URGENCY_UNKNOWN;
   end
@@ -2102,12 +2102,12 @@ end
 -- the vendor's only per-spell special case; when its stagger is unreadable
 -- the vendor itself falls back to the HP curve (`if not color then color =
 -- UnitHealthPercent(...)`), so the bridge mirrors that fallback exactly.
-function MDBX.GetDefensiveUrgency (SpellID)
+function MDCB.GetDefensiveUrgency (SpellID)
   if SpellID == 119582 then
-    local Stagger = MDBX.GetStaggerUrgency();
+    local Stagger = MDCB.GetStaggerUrgency();
     if Stagger and Stagger ~= URGENCY_UNKNOWN then return Stagger; end
   end
-  local Pct = MDBX.GetPlayerHpPct();
+  local Pct = MDCB.GetPlayerHpPct();
   if type(Pct) ~= "number" then return URGENCY_UNKNOWN; end
   return UrgencyFromFraction(Pct / 100);
 end
@@ -2121,7 +2121,7 @@ end
 --    excluded) supplies the first ready+bound defensive. Below Red the
 --    companion never substitutes its own defensive for MaxDps's silence.
 -- 3. v3.3.0 Solo ladder (ADDITIVE, group behaviour unchanged): Bridge.lua
---    arms MDBX.SoloLadderBands = { minor, major, immunity } (HP pct thresholds;
+--    arms MDCB.SoloLadderBands = { minor, major, immunity } (HP pct thresholds;
 --    nil/0 band = disabled) from the in-game Solo toggle + group state, and
 --    the companion app gates the verdict by the same bands. When Solo bands
 --    are armed, a MaxDps-silent slot ALSO offers: defensiveMinor at/below the
@@ -2133,16 +2133,16 @@ end
 -- `enableDefensives` switch: muting defensive intelligence in MaxDps mutes
 -- the companion's defensive automation too. The companion's own per-ability
 -- ON/OFF and the Defensive slot toggle remain the automation controls.
-function MDBX.GetDefensiveCandidate ()
+function MDCB.GetDefensiveCandidate ()
   local MaxDps = MaxDpsEngine();
   local Enabled = MaxDps and MaxDps.db and MaxDps.db.global and MaxDps.db.global.enableDefensives;
   if not Enabled then return nil, false; end
   local Flagged = FirstFlagged("defensive", false, true);
   if Flagged then return Flagged, false; end
   -- v3.3.0 Solo ladder: HP-banded offers below the classic tiers.
-  local Bands = MDBX.SoloLadderBands;
+  local Bands = MDCB.SoloLadderBands;
   if type(Bands) == "table" then
-    local Hp = MDBX.GetPlayerHpPct();
+    local Hp = MDCB.GetPlayerHpPct();
     if type(Hp) == "number" then
       local MinorBand = tonumber(Bands.minor) or 0;
       local MajorBand = tonumber(Bands.major) or 0;
@@ -2161,7 +2161,7 @@ function MDBX.GetDefensiveCandidate ()
       end
     end
   end
-  local Urgency = MDBX.GetDefensiveUrgency(nil);
+  local Urgency = MDCB.GetDefensiveUrgency(nil);
   if Urgency == URGENCY_RED then
     local Gap = ExtraSpellID("defensive");
     if Gap then return Gap, true; end
@@ -2186,7 +2186,7 @@ end
 -- slot-flag bit is free), so the companion derives the source by id
 -- membership in the same generated Catalog.lua list (see
 -- AbilityCatalog.IsOffensiveGapFill). Documented in docs/PROTOCOL.md.
-function MDBX.GetOffensiveCandidate ()
+function MDCB.GetOffensiveCandidate ()
   local MaxDps = MaxDpsEngine();
   if not (MaxDps and MaxDps.db and MaxDps.db.global and MaxDps.db.global.enableCooldowns) then
     return nil, false;
@@ -2198,8 +2198,8 @@ function MDBX.GetOffensiveCandidate ()
   return nil, false;
 end
 
-function MDBX.GetDefensiveUrgencyNibble (SpellID)
-  local Nibble = MDBX.GetDefensiveUrgency(SpellID);
+function MDCB.GetDefensiveUrgencyNibble (SpellID)
+  local Nibble = MDCB.GetDefensiveUrgency(SpellID);
   if type(Nibble) ~= "number" or Nibble < 0 or Nibble > 4 then return 0; end
   return Nibble;
 end
@@ -2212,10 +2212,10 @@ end
 -- linear, 0.0 HP -> green (0,1,0,1), 1.0 HP -> red (1,0,0,1), so the
 -- decoder's R = hp fraction and G = 1-hp arithmetic holds. Built once,
 -- lazily; a client without C_CurveUtil simply reports the curve inactive.
-function MDBX.EnsureHpCurve ()
-  if MDBX.HpCurve then return MDBX.HpCurve; end
-  if MDBX._HpCurveTried then return nil; end
-  MDBX._HpCurveTried = true;
+function MDCB.EnsureHpCurve ()
+  if MDCB.HpCurve then return MDCB.HpCurve; end
+  if MDCB._HpCurveTried then return nil; end
+  MDCB._HpCurveTried = true;
   if not (_G.C_CurveUtil and type(_G.C_CurveUtil.CreateColorCurve) == "function") then
     return nil;
   end
@@ -2229,18 +2229,18 @@ function MDBX.EnsureHpCurve ()
     Curve:AddPoint(1.0, CreateColor(1, 0, 0, 1));
   end);
   if not OkSetup then return nil; end
-  MDBX.HpCurve = Curve;
-  return MDBX.HpCurve;
+  MDCB.HpCurve = Curve;
+  return MDCB.HpCurve;
 end
 
 --- ======= /mdb heal DIAGNOSTICS =======
 -- Per selfHeal list entry: the variant that would be encoded, whether it is
 -- known / ready / usable and the resolved key. Every probe is pcall-safe and
 -- reports "?" where the client cannot answer. Plain numbers/strings only.
-function MDBX.SelfHealDiag ()
+function MDCB.SelfHealDiag ()
   local _, classFile, specName = ClassSpec();
   if not classFile or not specName then return "no class/spec"; end
-  local Table = MDBX.Extras and MDBX.Extras[classFile] and MDBX.Extras[classFile][specName];
+  local Table = MDCB.Extras and MDCB.Extras[classFile] and MDCB.Extras[classFile][specName];
   local List = Table and Table.selfHeal;
   if type(List) ~= "table" then
     return ("%s/%s: no selfHeal list"):format(classFile, specName);
@@ -2248,18 +2248,18 @@ function MDBX.SelfHealDiag ()
   local Lines = {};
   for i = 1, #List do
     local Entry = List[i];
-    local Active = MDBX.ActiveVariant(Entry);
+    local Active = MDCB.ActiveVariant(Entry);
     local Known = "?";
-    local KnownState = MDBX.IsSpellKnownVariant(Active);
+    local KnownState = MDCB.IsSpellKnownVariant(Active);
     if KnownState == true then Known = "y" elseif KnownState == false then Known = "n"; end
     local Ready = "?";
-    local OkReady, IsReady = pcall(MDBX.IsSpellReady, Active);
+    local OkReady, IsReady = pcall(MDCB.IsSpellReady, Active);
     if OkReady then Ready = IsReady and "y" or "n"; end
     local Usable = "?";
     local OkUsable, IsUsable = pcall(UsableNow, Active);
     if OkUsable then Usable = IsUsable and "y" or "n"; end
     local Key = "-";
-    local OkBind, VK = pcall(MDBX.ResolveBinding, Active);
+    local OkBind, VK = pcall(MDCB.ResolveBinding, Active);
     if OkBind and type(VK) == "number" and VK > 0 then
       Key = ("0x%02X"):format(VK);
     end
@@ -2273,13 +2273,13 @@ function MDBX.SelfHealDiag ()
 end
 
 -- /mdb status diagnostics for the extras lists.
-function MDBX.GetExtrasDiag ()
-  local ClassId, SpecId = MDBX.GetClassSpec();
+function MDCB.GetExtrasDiag ()
+  local ClassId, SpecId = MDCB.GetClassSpec();
   local Parts = {};
   Parts[#Parts + 1] = ("cls=%d spec=%d"):format(ClassId, SpecId);
   local _, classFile, specName = ClassSpec();
-  local Table = classFile and specName and MDBX.Extras
-    and MDBX.Extras[classFile] and MDBX.Extras[classFile][specName];
+  local Table = classFile and specName and MDCB.Extras
+    and MDCB.Extras[classFile] and MDCB.Extras[classFile][specName];
   if type(Table) == "table" then
     Parts[#Parts + 1] = ("mob=%d heal=%d def=%d"):format(
       #(Table.mobility or {}), #(Table.selfHeal or {}), #(Table.defensive or {}));
@@ -2402,7 +2402,7 @@ local function KeyFoldList (Acc, List)
   return (Acc * 4099 + (Ok and N or 0)) % FRAMEKEY_MOD;
 end
 
-function MDBX.FrameKey (Ctx)
+function MDCB.FrameKey (Ctx)
   local MaxDps = MaxDpsEngine();
   if not MaxDps then return nil; end
   local _, classFile, specName = ClassSpec();
@@ -2427,8 +2427,8 @@ function MDBX.FrameKey (Ctx)
   H = KeyFold(H, Global and Global.enableCooldowns);
   H = KeyFold(H, Global and Global.enableDefensives);
 
-  local Extra = MDBX.Extras and classFile and MDBX.Extras[classFile]
-    and MDBX.Extras[classFile][specName];
+  local Extra = MDCB.Extras and classFile and MDCB.Extras[classFile]
+    and MDCB.Extras[classFile][specName];
   if Extra then
     H = KeyFoldList(H, Extra.mobility);
     H = KeyFoldList(H, Extra.selfHeal);
@@ -2442,20 +2442,20 @@ function MDBX.FrameKey (Ctx)
     H = KeyFold(H, 0);
   end
 
-  H = KeyFold(H, MDBX._BindCache);
+  H = KeyFold(H, MDCB._BindCache);
   -- NOTE (A1.2): the cache's entry COUNT is deliberately not folded. The cache
   -- is an OUTPUT of the scan: a tick that resolves new bindings grows it, so
   -- folding the count made the very next tick look dirty and rescanned for
   -- nothing. Entry identity plus _BindRevision (bumped by every wipe) is the
   -- real input; the resolved value for an id never depends on cache contents.
-  H = KeyFold(H, MDBX._BindRevision);
+  H = KeyFold(H, MDCB._BindRevision);
 
   -- HP: only the DECISION EDGES (A1.2). The raw percentage changed on every
   -- tick the player took damage, forcing a full slot rescan for no decision
   -- change; these folds flip exactly when a branch in the scan flips.
   local Hp = nil;
   do
-    local OkHp, Pct = pcall(MDBX.GetPlayerHpPct);
+    local OkHp, Pct = pcall(MDCB.GetPlayerHpPct);
     if OkHp and type(Pct) == "number" then Hp = Pct; end
   end
   if Hp ~= nil then
@@ -2468,11 +2468,11 @@ function MDBX.FrameKey (Ctx)
     H = KeyFold(H, -1);                              -- unreadable HP = UNKNOWN
   end
   do
-    local OkS, Stagger = pcall(MDBX.GetStaggerUrgency);
+    local OkS, Stagger = pcall(MDCB.GetStaggerUrgency);
     H = KeyFold(H, (OkS and type(Stagger) == "number") and Stagger or -1);
   end
 
-  local Bands = MDBX.SoloLadderBands;
+  local Bands = MDCB.SoloLadderBands;
   if type(Bands) == "table" then
     H = KeyFold(H, 1);
     H = KeyFold(H, Bands.minor);
@@ -2482,7 +2482,7 @@ function MDBX.FrameKey (Ctx)
     H = KeyFold(H, 0);
   end
 
-  local TG = MaxDpsBridgeExpDB and MaxDpsBridgeExpDB.Toggles;
+  local TG = MaxDpsCompanionBridgeDB and MaxDpsCompanionBridgeDB.Toggles;
   if type(TG) == "table" then
     H = KeyFold(H, TG.Main); H = KeyFold(H, TG.Offensive); H = KeyFold(H, TG.Defensive);
     H = KeyFold(H, TG.Consumable); H = KeyFold(H, TG.Trinket); H = KeyFold(H, TG.Interrupt);
@@ -2495,12 +2495,12 @@ function MDBX.FrameKey (Ctx)
   -- The app-pushed defaults get/set the EFFECTIVE toggle Get() returns, and
   -- Bridge's own DefPin / slot gates read that. Version covers every Set/Flip
   -- (including the app mask + veto writers) in one cheap read.
-  if MDBX.Toggles then
-    local OkE, E = pcall(MDBX.Toggles.AppEpoch);
+  if MDCB.Toggles then
+    local OkE, E = pcall(MDCB.Toggles.AppEpoch);
     H = KeyFold(H, (OkE and type(E) == "number") and E or -1);
-    local OkM, M = pcall(MDBX.Toggles.AppMask);
+    local OkM, M = pcall(MDCB.Toggles.AppMask);
     H = KeyFold(H, (OkM and type(M) == "number") and M or -1);
-    local OkV, V = pcall(MDBX.Toggles.Version);
+    local OkV, V = pcall(MDCB.Toggles.Version);
     H = KeyFold(H, (OkV and type(V) == "number") and V or -1);
   end
 
@@ -2538,15 +2538,15 @@ function MDBX.FrameKey (Ctx)
   H = KeyFold(H, _G.GetActionInfo);
   H = KeyFold(H, _G.GetBindingKey);
   H = KeyFold(H, _G.GetSpellTexture);
-  H = KeyFold(H, MDBX.BindingForTexture);
+  H = KeyFold(H, MDCB.BindingForTexture);
   H = KeyFold(H, MaxDps.IsSpellInRange);
-  H = KeyFold(H, MDBX.GetMainSpellID);
-  H = KeyFold(H, MDBX.GetOffensiveCandidate);
-  H = KeyFold(H, MDBX.GetDefensiveCandidate);
-  H = KeyFold(H, MDBX.ExtraCandidates);
-  H = KeyFold(H, MDBX.ResolveBinding);
-  H = KeyFold(H, MDBX.IsSpellReady);
-  H = KeyFold(H, MDBX.IsInterruptReady);
+  H = KeyFold(H, MDCB.GetMainSpellID);
+  H = KeyFold(H, MDCB.GetOffensiveCandidate);
+  H = KeyFold(H, MDCB.GetDefensiveCandidate);
+  H = KeyFold(H, MDCB.ExtraCandidates);
+  H = KeyFold(H, MDCB.ResolveBinding);
+  H = KeyFold(H, MDCB.IsSpellReady);
+  H = KeyFold(H, MDCB.IsInterruptReady);
 
   return H;
 end
