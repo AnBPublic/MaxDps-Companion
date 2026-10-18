@@ -80,8 +80,8 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $luac = Get-Command luac -ErrorAction SilentlyContinue
           if (-not $luac) { throw 'luac not found on PATH (leafo/gh-actions-lua installs lua + luac)' }
-          $files = @(Get-ChildItem -LiteralPath 'addon\MaxDpsBridgeExp' -Filter '*.lua' -File -Recurse)
-          if ($files.Count -eq 0) { throw 'no .lua files found under addon\MaxDpsBridgeExp' }
+          $files = @(Get-ChildItem -LiteralPath 'addon\MaxDpsCompanionBridge' -Filter '*.lua' -File -Recurse)
+          if ($files.Count -eq 0) { throw 'no .lua files found under addon\MaxDpsCompanionBridge' }
           $failed = @()
           foreach ($f in $files) {
             & $luac.Source -p $f.FullName

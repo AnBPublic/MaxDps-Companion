@@ -272,20 +272,20 @@ C_AssistedCombat = nil
 -- ================= load the addon =================
 local MDB = {}
 _G.MaxDpsBridge = MDB
-assert(loadfile("addon/MaxDpsBridge/Catalog.lua"))("MaxDpsBridge", MDB)
-assert(loadfile("addon/MaxDpsBridge/MajorCooldowns.lua"))("MaxDpsBridge", MDB)
+assert(loadfile("addon/legacy/MaxDpsBridge/Catalog.lua"))("MaxDpsBridge", MDB)
+assert(loadfile("addon/legacy/MaxDpsBridge/MajorCooldowns.lua"))("MaxDpsBridge", MDB)
 -- Workstream C emits the real MDB.SpellAliases in Catalog.lua; this worktree
 -- stubs it so the variant path is exercised before C is merged.
 MDB.SpellAliases = { [202168] = { 34428 } }
-assert(loadfile("addon/MaxDpsBridge/Keymap.lua"))("MaxDpsBridge", MDB)
-assert(loadfile("addon/MaxDpsBridge/Bars.lua"))("MaxDpsBridge", MDB)
+assert(loadfile("addon/legacy/MaxDpsBridge/Keymap.lua"))("MaxDpsBridge", MDB)
+assert(loadfile("addon/legacy/MaxDpsBridge/Bars.lua"))("MaxDpsBridge", MDB)
 -- Q1 fallback registry loads before Reader (Reader references MDB.MainFallback).
-assert(loadfile("addon/MaxDpsBridge/MainFallback.lua"))("MaxDpsBridge", MDB)
-assert(loadfile("addon/MaxDpsBridge/Reader.lua"))("MaxDpsBridge", MDB)
+assert(loadfile("addon/legacy/MaxDpsBridge/MainFallback.lua"))("MaxDpsBridge", MDB)
+assert(loadfile("addon/legacy/MaxDpsBridge/Reader.lua"))("MaxDpsBridge", MDB)
 -- 3.3.0 toggle policy loads before Bridge (Bridge builds its slash key map at
 -- load time from MDB.Toggles.Keys); pure logic, no frames.
-assert(loadfile("addon/MaxDpsBridge/Toggles.lua"))("MaxDpsBridge", MDB)
-assert(loadfile("addon/MaxDpsBridge/Bridge.lua"))("MaxDpsBridge", MDB)
+assert(loadfile("addon/legacy/MaxDpsBridge/Toggles.lua"))("MaxDpsBridge", MDB)
+assert(loadfile("addon/legacy/MaxDpsBridge/Bridge.lua"))("MaxDpsBridge", MDB)
 assert(type(MDB.IsSpellReady) == "function")
 assert(type(MDB.IsInterruptReady) == "function")
 assert(type(MDB.GetMobilitySpellID) == "function")
@@ -317,12 +317,12 @@ assert(type(Update) == "function", "OnUpdate not wired")
 -- the Reader needs are loaded; the Exp frame/overlay modules are not.
 MDBX = _G.MaxDpsBridgeExp or {}
 _G.MaxDpsBridgeExp = MDBX
-assert(loadfile("addon/MaxDpsBridgeExp/Catalog.lua"))("MaxDpsBridgeExp", MDBX)
-assert(loadfile("addon/MaxDpsBridgeExp/MajorCooldowns.lua"))("MaxDpsBridgeExp", MDBX)
-assert(loadfile("addon/MaxDpsBridgeExp/Keymap.lua"))("MaxDpsBridgeExp", MDBX)
-assert(loadfile("addon/MaxDpsBridgeExp/MainFallback.lua"))("MaxDpsBridgeExp", MDBX)
+assert(loadfile("addon/MaxDpsCompanionBridge/Catalog.lua"))("MaxDpsBridgeExp", MDBX)
+assert(loadfile("addon/MaxDpsCompanionBridge/MajorCooldowns.lua"))("MaxDpsBridgeExp", MDBX)
+assert(loadfile("addon/MaxDpsCompanionBridge/Keymap.lua"))("MaxDpsBridgeExp", MDBX)
+assert(loadfile("addon/MaxDpsCompanionBridge/MainFallback.lua"))("MaxDpsBridgeExp", MDBX)
 MDBX.SpellAliases = MDBX.SpellAliases or { [202168] = { 34428 } }
-assert(loadfile("addon/MaxDpsBridgeExp/Reader.lua"))("MaxDpsBridgeExp", MDBX)
+assert(loadfile("addon/MaxDpsCompanionBridge/Reader.lua"))("MaxDpsBridgeExp", MDBX)
 assert(type(MDBX.GetMainSpellID) == "function")
 assert(type(MDBX.GetOffensiveCandidate) == "function")
 
@@ -823,10 +823,10 @@ do
   -- stripped first, so the ADDON_ACTION_BLOCKED name-match (a string literal)
   -- counts for nothing, and the type() existence guard is not a touch.
   local Files = {
-    "addon/MaxDpsBridge/Bars.lua", "addon/MaxDpsBridge/Bridge.lua",
-    "addon/MaxDpsBridge/Catalog.lua", "addon/MaxDpsBridge/Keymap.lua",
-    "addon/MaxDpsBridge/Options.lua", "addon/MaxDpsBridge/Panel.lua",
-    "addon/MaxDpsBridge/Reader.lua", "addon/MaxDpsBridge/Toggles.lua",
+    "addon/legacy/MaxDpsBridge/Bars.lua", "addon/legacy/MaxDpsBridge/Bridge.lua",
+    "addon/legacy/MaxDpsBridge/Catalog.lua", "addon/legacy/MaxDpsBridge/Keymap.lua",
+    "addon/legacy/MaxDpsBridge/Options.lua", "addon/legacy/MaxDpsBridge/Panel.lua",
+    "addon/legacy/MaxDpsBridge/Reader.lua", "addon/legacy/MaxDpsBridge/Toggles.lua",
   }
   local Sites, Invokes = 0, 0
   for _, Path in ipairs(Files) do
@@ -2141,10 +2141,10 @@ RunMainFallbackTests()
 local function RunExt4Tests ()
   -- ---- load + boot the Exp encoder ----
   local NFramesBefore = #AllFrames
-  assert(loadfile("addon/MaxDpsBridgeExp/Bars.lua"))("MaxDpsBridgeExp", MDBX)
-  assert(loadfile("addon/MaxDpsBridgeExp/Toggles.lua"))("MaxDpsBridgeExp", MDBX)
-  assert(loadfile("addon/MaxDpsBridgeExp/HotbarWatch.lua"))("MaxDpsBridgeExp", MDBX)
-  assert(loadfile("addon/MaxDpsBridgeExp/Bridge.lua"))("MaxDpsBridgeExp", MDBX)
+  assert(loadfile("addon/MaxDpsCompanionBridge/Bars.lua"))("MaxDpsBridgeExp", MDBX)
+  assert(loadfile("addon/MaxDpsCompanionBridge/Toggles.lua"))("MaxDpsBridgeExp", MDBX)
+  assert(loadfile("addon/MaxDpsCompanionBridge/HotbarWatch.lua"))("MaxDpsBridgeExp", MDBX)
+  assert(loadfile("addon/MaxDpsCompanionBridge/Bridge.lua"))("MaxDpsBridgeExp", MDBX)
   assert(type(MDBX.HotbarWatch) == "table", "HotbarWatch module missing")
 
   local LoaderExp

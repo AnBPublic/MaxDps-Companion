@@ -14,10 +14,10 @@
          before Bridge (Bridge paints the cells from MDBX.HotbarWatch.Frame). -->
     <Script file="HotbarWatch.lua"/>
     <Script file="Bridge.lua"/>
-    <Script file="Exp/Core.lua"/>
-    <Script file="Exp/Profiles.lua"/>
-    <Script file="Exp/Overlay.lua"/>
-    <Script file="Exp/Settings.lua"/>
-    <Script file="Exp/Config.lua"/>
-    <Script file="Exp/Slash.lua"/>
+    <Script file="InGame/Core.lua"/>
+    <Script file="InGame/Profiles.lua"/>
+    <Script file="InGame/Overlay.lua"/>
+    <Script file="InGame/Settings.lua"/>
+    <Script file="InGame/Config.lua"/>
+    <Script file="InGame/Slash.lua"/>
 </Ui>

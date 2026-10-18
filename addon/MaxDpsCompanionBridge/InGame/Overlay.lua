@@ -39,7 +39,7 @@ local PILL_KEYS = {
   "TTK", "CC",
 };
 local FALLBACK_ICON = "Interface\\Icons\\INV_Misc_QuestionMark";
-local ICON_PATH = "Interface\\AddOns\\MaxDpsBridgeExp\\Exp\\Assets\\";
+local ICON_PATH = "Interface\\AddOns\\MaxDpsCompanionBridge\\InGame\\Assets\\";
 -- Per-key stock Blizzard art for the PRIMARY pill icon when the committed -64
 -- TGA is absent (Assets\ ships only a README today). This keeps every pill on
 -- real class art instead of the QuestionMark placeholder. Names are the
