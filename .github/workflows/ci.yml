@@ -105,6 +105,9 @@ jobs:
           } elseif ($code -ne 0) {
             throw "tools/ability_audit.ps1 failed with exit code $code"
           }
+          # The pwsh wrapper exits with $LASTEXITCODE, so an accepted warning
+          # would still fail the step; exit explicitly.
+          exit 0
 
   macos:
     name: macos-latest - Core + Mac build, swiftc parse
