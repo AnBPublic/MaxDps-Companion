@@ -173,6 +173,27 @@ internal sealed class RotationEngine : IDisposable
     /// <summary>Suspends input sending without tearing down the reader, for the pause hotkey.</summary>
     public volatile bool Paused;
 
+    // v4.2.0 manual party-CC hold. The UI/hotkey only raises a request; the
+    // engine loop applies it to the scheduler/legacy memory so the two threads
+    // never mutate policy state concurrently.
+    private int _ccHoldToggleRequested;
+
+    public void ToggleCcHold()
+    {
+        if (!IsRunning) return;
+        Interlocked.Exchange(ref _ccHoldToggleRequested, 1);
+    }
+
+    private PolicyMemory CcPolicyMemory =>
+        _settings.SchedulerEnabled ? _scheduler.Policy : _legacyPolicyMemory;
+
+    public bool CcHoldActive => CcPolicyMemory.ManualCcHoldActive(_clock.ElapsedMilliseconds);
+
+    public int CcHoldRemainingMs =>
+        (int)CcPolicyMemory.ManualCcHoldRemainingMs(_clock.ElapsedMilliseconds);
+
+    public bool CcBreakGuardActive => CcPolicyMemory.CcBreakGuardActive(_clock.ElapsedMilliseconds);
+
     /// <summary>
     /// The class/spec last decoded from the wire (v5 cell 33). UI-only: the
     /// Class skills screen preselects what the game reports. Null until a
@@ -442,6 +463,24 @@ internal sealed class RotationEngine : IDisposable
         _telemetryContext = null;
         _telemetryDecision = null;
         _lastCombatContext = null;
+
+        // v4.2.0: apply a UI/hotkey manual party-CC hold request on the engine
+        // thread (PolicyMemory is not shared with the UI).
+        if (Interlocked.Exchange(ref _ccHoldToggleRequested, 0) == 1)
+        {
+            var holdNow = _clock.ElapsedMilliseconds;
+            var active = _scheduler.Policy.ManualCcHoldActive(holdNow);
+            if (active)
+            {
+                _scheduler.Policy.ClearManualCcHold();
+                _legacyPolicyMemory.ClearManualCcHold();
+            }
+            else
+            {
+                _scheduler.Policy.NoteManualCcHold(holdNow, _settings.CcManualHoldMs);
+                _legacyPolicyMemory.NoteManualCcHold(holdNow, _settings.CcManualHoldMs);
+            }
+        }
         _planFreshThisTick = false;
         _ttkFeedMs = null;
         _chordNote = null;   // 4.1 A2.2 (g): per-tick informational status note
@@ -619,6 +658,14 @@ internal sealed class RotationEngine : IDisposable
                 _idle = true;
                 return;
             }
+        }
+        else
+        {
+            // v4.2.0 legacy path: still run the CC per-frame bookkeeping
+            // against the memory the legacy policy actually uses, so the
+            // stun-ineffective latch and the target-loss clears work with the
+            // scheduler off too.
+            _scheduler.ObserveCrowdControl(frame, _lastFrameMs, _legacyPolicyMemory);
         }
 
         // v4.0.4 MASTER GATE. Main OFF in the in-game overlay suspends the
@@ -1090,12 +1137,30 @@ internal sealed class RotationEngine : IDisposable
         var queueable = !focused || (frame.OnGcd && ridesGcd);
         if (!queueable)
         {
+            // The OS delivered this press; if it is a break-on-damage CC,
+            // start the attack guard now so the next rotation tick cannot
+            // immediately break it.
+            NoteCcBreakFromSpell(entry.Id, nowMs);
             TelemetryUser(nowMs, entry.Stroke, entry.Id, "native");
             return;
         }
         _userPressQueue.OnPress(new UserPress(
             entry.Stroke, entry.Id, entry.IsItem, entry.Ready, ridesGcd, nowMs));
         TelemetryUser(nowMs, entry.Stroke, entry.Id, "queued");
+    }
+
+    /// <summary>
+    /// v4.2.0: a break-on-damage CC (Blind/Gouge/Sap/Polymorph/Fear/...) was
+    /// applied by the player or the companion. Hold Main/Offensive/Interrupt
+    /// for its expected duration so the rotation cannot break it. The companion
+    /// never auto-casts these abilities; this is a guard, not a plan.
+    /// </summary>
+    private void NoteCcBreakFromSpell(int spellId, long nowMs)
+    {
+        if (!_settings.CcBreakGuardEnabled) return;
+        if (CrowdControlCatalog.FindAny(spellId) is not { BreaksOnDamage: true } entry) return;
+        _scheduler.Policy.NoteCcBreakApplied(entry.SpellId, entry.Name, nowMs, entry.BaseDurationMs);
+        _legacyPolicyMemory.NoteCcBreakApplied(entry.SpellId, entry.Name, nowMs, entry.BaseDurationMs);
     }
 
     private void TelemetryUser(long nowMs, KeyStroke stroke, int spellId, string note)
@@ -1158,6 +1223,7 @@ internal sealed class RotationEngine : IDisposable
                 // press delivered through this path is input like any other,
                 // so tell it (auto-target / auto-interact already do).
                 if (_settings.SchedulerEnabled) _scheduler.NoteExternalSend(now);
+                if (id > 0) NoteCcBreakFromSpell(id, now);
                 _userPressQueue.NoteSent(now);
                 _telemetry?.Append(TelemetryEvent.Sent(now, "user", null, action.Stroke, interval, id,
                     retry ? "retry" : "delivered"));
@@ -1507,6 +1573,8 @@ internal sealed class RotationEngine : IDisposable
             _candidateTracker.NotePressed(slot, now); // decision-layer history
             if (_settings.IntelligenceEnabled && spellId > 0 && _catalog.TryGet(spellId) is { } used)
                 _legacyPolicyMemory.NoteUse(used, now);
+            if (spellId > 0) NoteCcBreakFromSpell(spellId, now);
+            _scheduler.ArmStunProbe(spellId, now);
             var sendInterval = _lastAnyPress <= 0 ? 0 : now - _lastAnyPress; // v1.5.0 telemetry
             _lastAnyPress = now;
             _telemetry?.Append(TelemetryEvent.Sent(now, "spell", slot, stroke, sendInterval, spellId));

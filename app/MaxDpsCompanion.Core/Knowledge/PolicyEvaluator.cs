@@ -193,6 +193,78 @@ internal sealed class PolicyMemory
     private readonly Dictionary<string, (long UntilMs, DefensiveTier Tier)> _defensives = new();
     private readonly Dictionary<string, long> _offensives = new();
 
+    // v4.2.0 CC attack guard. These are companion-owned timers only; no game
+    // value is read. The effective hold is capped by the caller (10 s default)
+    // so a long PvE Sap/Polymorph cannot silence the rotation for a minute.
+    public const int DefaultCcHoldCapMs = 10_000;
+
+    private long _ccBreakUntilMs;
+    private int _ccBreakSpellId;
+    private string _ccBreakName = "";
+    private long _manualHoldUntilMs;
+
+    /// <summary>Records a break-on-damage CC application (companion send or player press).</summary>
+    public void NoteCcBreakApplied(int spellId, string name, long nowMs, int durationMs, int capMs = DefaultCcHoldCapMs)
+    {
+        if (durationMs <= 0) return;
+        var capped = Math.Clamp(durationMs, 0, Math.Max(0, capMs));
+        if (capped <= 0) return;
+        var until = nowMs + capped;
+        if (until <= _ccBreakUntilMs) return;
+        _ccBreakUntilMs = until;
+        _ccBreakSpellId = spellId;
+        _ccBreakName = name;
+    }
+
+    public bool CcBreakGuardActive(long nowMs) => nowMs < _ccBreakUntilMs;
+
+    public long CcBreakGuardRemainingMs(long nowMs) => Math.Max(0, _ccBreakUntilMs - nowMs);
+
+    public int CcBreakGuardSpellId => _ccBreakSpellId;
+
+    public string CcBreakGuardName => _ccBreakName;
+
+    /// <summary>Manual party-CC hold (the addon cannot see another player's Polymorph).</summary>
+    public void NoteManualCcHold(long nowMs, int durationMs)
+    {
+        var capped = Math.Clamp(durationMs, 0, 30_000);
+        if (capped > 0) _manualHoldUntilMs = nowMs + capped;
+    }
+
+    public bool ManualCcHoldActive(long nowMs) => nowMs < _manualHoldUntilMs;
+
+    public long ManualCcHoldRemainingMs(long nowMs) => Math.Max(0, _manualHoldUntilMs - nowMs);
+
+    public void ClearManualCcHold() => _manualHoldUntilMs = 0;
+
+    public void ClearCcGuards()
+    {
+        _ccBreakUntilMs = 0;
+        _manualHoldUntilMs = 0;
+        _ccBreakSpellId = 0;
+        _ccBreakName = "";
+    }
+
+    /// <summary>
+    /// Non-null while a break-on-damage CC or the manual party-CC hold is
+    /// active. The policy holds Main/Offensive/Interrupt with this reason.
+    /// </summary>
+    public string? DamageHoldReason(long nowMs)
+    {
+        if (nowMs < _manualHoldUntilMs)
+        {
+            var seconds = Math.Max(1, (int)Math.Ceiling((_manualHoldUntilMs - nowMs) / 1000.0));
+            return $"manual CC hold ({seconds}s); attacks held";
+        }
+        if (nowMs < _ccBreakUntilMs)
+        {
+            var seconds = Math.Max(1, (int)Math.Ceiling((_ccBreakUntilMs - nowMs) / 1000.0));
+            var name = string.IsNullOrWhiteSpace(_ccBreakName) ? "crowd control" : _ccBreakName;
+            return $"target CC'd by {name} (breaks on damage); attacks held ({seconds}s)";
+        }
+        return null;
+    }
+
     /// <summary>Records that an ability was actually sent now (engine calls this on every successful send).</summary>
     public void NoteUse(AbilityDefinition ability, long nowMs)
     {
@@ -274,12 +346,21 @@ internal sealed class PolicyMemory
                 if (nowMs >= until) (dead ??= []).Add(group);
             if (dead is not null) foreach (var group in dead) _offensives.Remove(group);
         }
+        if (_ccBreakUntilMs != 0 && nowMs >= _ccBreakUntilMs)
+        {
+            _ccBreakUntilMs = 0;
+            _ccBreakSpellId = 0;
+            _ccBreakName = "";
+        }
+        if (_manualHoldUntilMs != 0 && nowMs >= _manualHoldUntilMs)
+            _manualHoldUntilMs = 0;
     }
 
     public void Reset()
     {
         _defensives.Clear();
         _offensives.Clear();
+        ClearCcGuards();
     }
 }
 
@@ -482,6 +563,8 @@ internal static class PolicyEvaluator
         var range = ctx.SlotRange[(int)input.Slot];
         var exec = ExecutionSafety.CastHoldReason(input.Slot, input.SpellId, ctx.Cast, catalog);
         if (exec is not null) return PolicyDecision.Hold(exec);
+        if (IsDamageSlot(input.Slot) && input.Memory.DamageHoldReason(input.NowMs) is { } ccHold)
+            return PolicyDecision.Hold(ccHold);
         switch (input.Slot)
         {
             case Slot.Main:
@@ -526,6 +609,14 @@ internal static class PolicyEvaluator
         var range = ctx.SlotRange[slot];
 
         if (CrowdControlVetoes.Evaluate(input, ability, catalog) is { } cc) return cc;
+
+        // v4.2.0: a curated interrupt-fallback row in slot 6 may route to a
+        // non-Interrupt provider (Kidney Shot is a MaxDps "Main/Rotational"
+        // class-spell row). Apply the casting-only / DR / immunity veto here so
+        // the delegated path cannot bypass it.
+        if (input.Slot == Slot.Interrupt
+            && CrowdControlVetoes.InterruptFallbackVeto(input, ability, catalog) is { } ccVeto)
+            return ProviderStamp.Stamp(CandidateProviders.Interrupt, ccVeto, "CC fallback veto");
 
         var provider = CandidateProviders.For(input.Slot, ability);
         var pinput = new ProviderInput
@@ -579,7 +670,13 @@ internal static class PolicyEvaluator
             if (companionOnly || ability.Automation == AutomationContext.Manual)
                 return ProviderStamp.Stamp(provider, PolicyDecision.Skip("ability intelligence incomplete; companion never generates it"),
                     "registry: intelligence incomplete, companion never generates it");
-            return ProviderStamp.Stamp(provider, Generic(input, catalog), "registry: delegated to MaxDps gate");
+
+            var generic = Generic(input, catalog);
+            if (generic.Verdict == PolicyVerdict.Use && input.Slot == Slot.Interrupt
+                && catalog.CrowdControlFor(ctx.Class, ctx.Spec, ability.SpellId)
+                    is { AutoEligible: true } genericCc)
+                CrowdControlVetoes.NoteUsed(genericCc.Dr, input.NowMs, genericCc.BaseDurationMs);
+            return ProviderStamp.Stamp(provider, generic, "registry: delegated to MaxDps gate");
         }
 
         // ---- Hard execution-safety gate (first: nothing overrides it) ------
@@ -592,6 +689,12 @@ internal static class PolicyEvaluator
         var exec = ExecutionSafety.CastHoldReason(input.Slot, input.SpellId, ctx.Cast, catalog);
         if (exec is not null) return ProviderStamp.Stamp(provider, PolicyDecision.Hold(exec), exec);
 
+        // v4.2.0 break-on-damage CC guard. Main/Offensive/Interrupt are held
+        // while a self/player-applied Blind/Gouge/Sap/Polymorph/Fear is active
+        // (or a manual party-CC hold). Defensive/self-buff slots stay usable.
+        if (IsDamageSlot(input.Slot) && input.Memory.DamageHoldReason(input.NowMs) is { } ccHold)
+            return ProviderStamp.Stamp(provider, PolicyDecision.Hold(ccHold), ccHold);
+
         // ---- Melee-position awareness gate (AWARENESS stream) --------------
         // Hoisted before the provider so every catalogued melee ability is
         // gated identically (the providers' own Melee checks remain for the
@@ -603,8 +706,26 @@ internal static class PolicyEvaluator
         // The category branch itself lives in the explicit provider; every
         // branch, reason string and evidence list is byte-identical to the
         // inline policy it replaced.
-        return provider.Evaluate(pinput);
+        var decision = provider.Evaluate(pinput);
+
+        // Record a delegated interrupt-fallback application centrally. The
+        // provider may be MaxDpsRotation (Kidney Shot) rather than Interrupt,
+        // so recording inside the Interrupt provider alone would miss it.
+        if (decision.Verdict == PolicyVerdict.Use && input.Slot == Slot.Interrupt
+            && catalog.CrowdControlFor(ctx.Class, ctx.Spec, ability.SpellId)
+                is { AutoEligible: true } ccEntry)
+            CrowdControlVetoes.NoteUsed(ccEntry.Dr, input.NowMs, ccEntry.BaseDurationMs);
+
+        return decision;
     }
+
+    /// <summary>
+    /// Slots that can break a break-on-damage CC. Defensive/self-buff and item
+    /// slots are deliberately excluded: a heal/trinket must stay usable while
+    /// the target is blinded or polymorphed.
+    /// </summary>
+    private static bool IsDamageSlot(Slot slot) =>
+        slot is Slot.Main or Slot.Offensive or Slot.Interrupt;
 
     /// <summary>Name of the provider that owns an uncatalogued slot (generic path).</summary>
     private static CandidateSourceKind SourceForSlot(Slot slot) => slot switch

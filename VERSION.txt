@@ -1,3 +1,31 @@
+4.2.0
+Date: 2026-10-18 - "Nightblade"
+Companion 4.2.0 "Nightblade" / bridge 4.2.0-exp. CC intelligence release, NO
+wire change: protocol v5 + Ext2/Ext3/Ext4, 51 cells, every cell byte-identical.
+- CC role split: auto-eligible CC is now ONLY the single-target stun/silence
+  interrupt fallback (Kidney Shot 408, Hammer of Justice 853, Storm Bolt 107570,
+  Asphyxiate 221562, Mighty Bash 5211, Intimidation 19577, Silence 15487,
+  Solar Beam 78675). Blind, Gouge, Sap, Polymorph, Fear, Hex, Repentance and
+  every other break-on-damage CC is manual-only and can never be auto-generated
+  by the CC appendix, even with the global CC toggle ON.
+- 12.1.5 DR ladder: 20 s reset from the end of the last application (12.1.0
+  change; 12.1.5 did not change it), 100/50/25/12.5/6.25 %, PvP immune after
+  two applications, PvE minimum useful stun 1.0 s. Applied to the delegated
+  Kidney Shot path (registry Incomplete), not just the curated CC provider.
+- Interrupt/stun discipline: never stun a cast explicitly marked not
+  interruptible; never generate a blind stun; a stun sent on a confirmed cast
+  that leaves the target still casting ~800 ms later latches "stun ineffective"
+  for that target until target loss/out-of-combat.
+- Break-on-damage CC guard: after the player (Ext4 hotbar press) or the
+  companion applies Blind/Gouge/Sap/Polymorph/Fear, Main/Offensive/Interrupt
+  are held for the expected duration (cap 10 s). New manual party-CC hold
+  hotkey (Ctrl+Shift+C default) + Console "CC Hold" button holds attacks 8 s
+  for CC the addon cannot observe.
+- Rogue generated Catalog cc = { 408 } only; Shadowmeld/Druid/etc. keep their
+  own interrupt-fallback rows.
+- Docs: KNOWLEDGE/PROTOCOL/TESTING/ABILITY_RESEARCH updated with the 12.1.5
+  DR facts and the manual-only CC contract. Live retail checks remain OWED.
+
 4.1.0
 Date: 2026-10-18 - "Paragon"
 Companion 4.1.0 "Paragon" / bridge 4.1.0-exp. Audit-remediation release, NO wire

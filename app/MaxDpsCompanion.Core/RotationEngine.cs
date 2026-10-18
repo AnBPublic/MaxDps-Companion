@@ -560,6 +560,12 @@ internal sealed class RotationEngine : IDisposable
                 return;
             }
         }
+        else
+        {
+            // v4.2.0 legacy path: still run the CC per-frame bookkeeping
+            // against the memory the legacy policy actually uses.
+            _scheduler.ObserveCrowdControl(frame, _lastFrameMs, _legacyPolicyMemory);
+        }
 
         // v4.0.4 MASTER GATE. Main OFF in the in-game overlay suspends the
         // ENTIRE companion, not just the core rotation: the addon blanks every
@@ -1198,6 +1204,7 @@ internal sealed class RotationEngine : IDisposable
             _candidateTracker.NotePressed(slot, now); // decision-layer history
             if (_settings.IntelligenceEnabled && spellId > 0 && _catalog.TryGet(spellId) is { } used)
                 _legacyPolicyMemory.NoteUse(used, now);
+            _scheduler.ArmStunProbe(spellId, now);
             var sendInterval = _lastAnyPress <= 0 ? 0 : now - _lastAnyPress; // v1.5.0 telemetry
             _lastAnyPress = now;
             _telemetry?.Append(TelemetryEvent.Sent(now, "spell", slot, stroke, sendInterval, spellId));

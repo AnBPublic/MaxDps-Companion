@@ -82,24 +82,26 @@ MaxDpsBridge addon — 43-cell pixel strip (bridge 3.7.9; v5 + Ext2 layout
            The whole path stays inside MaxDps's own `enableDefensives` /
            `enableCooldowns` switches, so muting them upstream also mutes
            the gap-fill.
-           CC slot-6 reuse (v3.4.0 Option A; v3.5 CC fix): the bridge walks the
-           generated per-spec `cc` list (auto-eligible curated CC rows) and
-           writes the first ready+bound candidate into the reused Interrupt
-           slot 6 ONLY when MaxDps names no interrupt that pins — and since
-           v3.5 the pin requires the target sensor to confirm a live cast
+           CC slot-6 reuse (v3.4.0 Option A; v4.2.0 role split): the bridge
+           walks the generated per-spec `cc` list and writes the first
+           ready+bound candidate into the reused Interrupt slot 6 ONLY when
+           MaxDps names no interrupt that pins — and since v3.5 the pin
+           requires the target sensor to confirm a live cast
            (`IsInterruptPinReady`), otherwise the slot rotates the CC pool. The
            CC walk skips boss targets (`IsBossTarget`, fail-open) and is gated
            by the addon CC toggle (`IsCC`, now a `Get("CC")` delegate); the
-           companion's `CrowdControlGate` remains the authority. The provider
-           holds any Stun/Silence row unless the target is observably casting
-           (Q1 casting-only). No new slot and no new source bit — the id rides
-           the existing slot-6 cells and the companion recognises it by curated
-           CC membership at the existing `CrowdControlVetoes.Evaluate`
-           call-site. Since v3.6 every class's qualifying single-target
-           stun/silence is auto-eligible (Kidney Shot 408, Mighty Bash 5211,
-           Intimidation 19577, Solar Beam 78675, Silence 15487); Shockwave
-           (46968) is demoted to Suggest because the provider has no
-           enemy-count signal. All Stun/Silence rows stay casting-gated.
+           companion's `CrowdControlGate` remains the authority. **v4.2.0:**
+           only single-target Stun/Silence interrupt-fallback rows are
+           auto-eligible (Kidney Shot 408, Hammer of Justice 853, Storm Bolt
+           107570, Asphyxiate 221562, Mighty Bash 5211, Intimidation 19577,
+           Silence 15487, Solar Beam 78675; Ring of Peace stays the AoE
+           silence-zone exception). Blind/Gouge/Sap/Polymorph/Fear/Hex and
+           every other break-on-damage row are manual-only and are never
+           written by the bridge CC pool. No new slot and no new source bit —
+           the id rides the existing slot-6 cells and the companion recognises
+           it by curated CC membership at the existing
+           `CrowdControlVetoes.Evaluate` / `InterruptFallbackVeto` call-sites.
+           All Stun/Silence rows stay casting-gated and DR-gated.
   gates (bridge 3.3.0): Toggles.lua is the single addon-side restriction
         point. `SlotAllowed(slot, ctx)` is consulted before every WriteSlot —
         a denied slot is written empty with the valid flag clear, i.e. the
@@ -1553,6 +1555,43 @@ MaxDps-Companion/
   `lastTriedMs`, verdict `resetHint`) and never changes a verdict or an order.
 - `settings.ini` keys mirror `AppSettings` sections 1:1; adding a key means
   updating both plus the README table.
+
+## 4.2.0 "Nightblade": CC intelligence and break-on-damage guard (no wire change)
+
+2026-10-18. Research: `docs/research/CC_DR_12.1.5.md`.
+
+- **Role split:** `CrowdControlCatalog.CcRole` is `InterruptFallback`,
+  `Proactive` or `Manual`. `AutoEligible` is derived from the role, so only a
+  single-target stun/silence (plus the AoE silence-zone exceptions Solar Beam /
+  Ring of Peace) can be auto-generated. Rogue `cc = { 408 }`.
+- **12.1.5 DR ladder:** `CrowdControlDiminishing` tracks applications and the
+  expected end time per category. Window = 20 s from the last application end
+  (12.1.0 change), multipliers 1/0.5/0.25/0.125/0.0625, PvP immune after two,
+  PvE minimum useful stun 1.0 s. Kidney Shot uses the conservative 2 s base
+  (actual 2-6 s by combo points, which are not on the wire). The memory is
+  global and conservative; target loss / OOC resets it (`ResetForTarget`).
+- **Delegated path:** Kidney Shot is registry Incomplete and routes to
+  MaxDpsRotation, not Interrupt. `PolicyEvaluator.Known` applies
+  `CrowdControlVetoes.InterruptFallbackVeto` and records the DR application
+  centrally for any slot-6 curated CC row, so the delegated path cannot bypass
+  the ladder.
+- **Interrupt discipline:** casting-only; explicit `not interruptible` skips;
+  no blind stun. `ActionScheduler.ArmStunProbe` arms a stun-ineffective probe
+  when a stun is sent on a confirmed cast (scheduler sends via `NoteSent`, the
+  legacy send path calls it directly); still casting ~800 ms later sets the
+  global `CrowdControlVetoes.StunIneffective` until target loss /
+  out-of-combat. `ObserveCrowdControl` runs in both engine modes (scheduler
+  `Observe` and the legacy `else` branch), so the latch, the break-guard clear
+  and the DR reset on target loss / OOC work with the scheduler off too.
+- **Break-on-damage guard:** `PolicyMemory` holds Main/Offensive/Interrupt while
+  a manual Blind/Gouge/Sap/Polymorph/Fear (recognised through the Ext4 hotbar
+  map) or the manual party-CC hold is active. Duration from
+  `CrowdControlEntry.BaseDurationMs`, capped at 10 s. The companion never
+  auto-casts these rows. `[CrowdControl] BreakGuard=1`, `ManualHoldMs=8000`,
+  `HoldHotkey=Ctrl+Shift+C`; Console top-bar "CC Hold" + global hotkey.
+- **Limits:** party CC is unobservable (target auras are secret/display-only in
+  instances; no combat log). Existing DoTs can still tick through a manual CC.
+  The native DR tracker is not readable; DR is self-tracked and conservative.
 
 ## 4.1.0 "Paragon": shared brain, key delivery, addon hot path (no wire change)
 

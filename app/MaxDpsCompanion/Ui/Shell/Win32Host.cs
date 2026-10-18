@@ -24,6 +24,9 @@ internal sealed class Win32Host : IDisposable
     /// <summary>Same hotkey id MainForm used (0xA71 = "A71").</summary>
     public const int PauseHotkeyId = 0xA71;
 
+    /// <summary>v4.2.0 manual party-CC hold hotkey id.</summary>
+    public const int CcHoldHotkeyId = 0xA72;
+
     // Shell geometry in DIPs (WinUI layout units); scaled to physical pixels.
     public const int MinWidthDip = 520;
     public const int MinHeightDip = 560;
@@ -88,10 +91,14 @@ internal sealed class Win32Host : IDisposable
     private readonly IntPtr _subclassId = new(1);
     private bool _installed;
     private bool _hotkeyRegistered;
+    private bool _ccHotkeyRegistered;
     private bool _disposed;
 
     /// <summary>Fires on WM_HOTKEY for <see cref="PauseHotkeyId"/>. P1 keeps this as the public hookup point; engine wiring lands in P2-C.</summary>
     public event Action? PauseHotkeyPressed;
+
+    /// <summary>Fires on WM_HOTKEY for <see cref="CcHoldHotkeyId"/> (v4.2.0 manual CC hold).</summary>
+    public event Action? CcHoldHotkeyPressed;
 
     /// <summary>
     /// Last-chance message filter (e.g. the tray callback message). Returning
@@ -153,6 +160,22 @@ internal sealed class Win32Host : IDisposable
         _hotkeyRegistered = false;
     }
 
+    /// <summary>Registers the v4.2.0 manual party-CC hold hotkey.</summary>
+    public bool RegisterCcHoldHotkey(string spec)
+    {
+        UnregisterCcHoldHotkey();
+        if (!MovementGuard.TryParseHotkey(spec, out var modifiers, out var vk)) return false;
+        _ccHotkeyRegistered = Native.RegisterHotKey(_hwnd, CcHoldHotkeyId, modifiers, vk);
+        return _ccHotkeyRegistered;
+    }
+
+    public void UnregisterCcHoldHotkey()
+    {
+        if (!_ccHotkeyRegistered) return;
+        Native.UnregisterHotKey(_hwnd, CcHoldHotkeyId);
+        _ccHotkeyRegistered = false;
+    }
+
     /// <summary>DWMWA_WINDOW_CORNER_PREFERENCE = DWMWCP_ROUND (classic v3 chrome).</summary>
     public static void EnableModernCorners(IntPtr hwnd)
     {
@@ -205,6 +228,11 @@ internal sealed class Win32Host : IDisposable
                     PauseHotkeyPressed?.Invoke();
                     return IntPtr.Zero;
                 }
+                if (wParam.ToInt32() == CcHoldHotkeyId)
+                {
+                    CcHoldHotkeyPressed?.Invoke();
+                    return IntPtr.Zero;
+                }
                 break;
         }
         if (MessageFilter is { } filter && filter(msg, wParam, lParam)) return IntPtr.Zero;
@@ -242,6 +270,7 @@ internal sealed class Win32Host : IDisposable
         if (_disposed) return;
         _disposed = true;
         UnregisterPauseHotkey();
+        UnregisterCcHoldHotkey();
         if (_installed)
         {
             RemoveWindowSubclass(_hwnd, _proc, _subclassId);

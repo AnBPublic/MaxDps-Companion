@@ -17,6 +17,37 @@ by release name or date before re-investigating an old problem.
 - Wire: protocol v5 + Ext2/Ext3/Ext4 (51 cells), unchanged since 4.0.3. Any wire change is an
   architect-trigger task (`AGENTS.md`).
 
+## 2026-10-18 RELEASE 4.2.0 "NIGHTBLADE" (CC intelligence; NO wire change)
+
+Research: `docs/research/CC_DR_12.1.5.md`. Plan:
+`docs/plans/2026-10-18-rogue-cc-intelligence.md`. Identity: csproj, `Native.cs`,
+`ReleaseIdentityTests`, `app/Version.props`, Exp TOC/`VERSION.txt`/`MDBX.VERSION`
+4.2.0-exp, `MDBX.CODENAME` Nightblade.
+
+DONE
+- **CC role split:** only single-target Stun/Silence interrupt-fallback rows are
+  auto-eligible; Blind/Gouge/Sap/Polymorph/Fear/Hex/Repentance and every other
+  break-on-damage row are manual-only. Rogue generated `cc = { 408 }`.
+- **12.1.5 DR:** 20 s reset from the end of the last application, 1/0.5/0.25/
+  0.125/0.0625, PvP immune after two, PvE 1.0 s usefulness floor. Applied to
+  the delegated Kidney Shot path (registry Incomplete) as well as the curated
+  CC provider. Kidney Shot uses the conservative 2 s base.
+- **Interrupt/stun discipline:** casting-only, explicit not-interruptible skip,
+  no blind stun, and a stun-ineffective latch (still casting ~800 ms after a
+  stun on a confirmed cast) until target loss/OOC.
+- **Break-on-damage guard:** `[CrowdControl] BreakGuard=1`; manual Blind/Gouge/
+  Sap/Polymorph/Fear (Ext4 press) holds Main/Offensive/Interrupt for the
+  expected duration (cap 10 s). Manual party-CC hold: `ManualHoldMs=8000`,
+  `HoldHotkey=Ctrl+Shift+C`, Console "CC Hold" top-bar item.
+- Limits documented: party CC is unobservable, active DoTs can still break a
+  manual CC, DR is self-tracked, native DR tracker is not readable.
+- Tests: 1071 passed / 0 failed; Lua harness 409/409; `luac -p` 9 Exp root files;
+  catalog fixture + Exp Catalog regenerated.
+
+OWED (live retail 12.1.5) - Kick vs Kidney Shot fallback, second/third stun DR,
+Blind/Gouge attack guard, manual CC hold, boss/immune latch, status strings.
+Static != automated test != live.
+
 ## 2026-10-18 RELEASE 4.1.0 "PARAGON" (audit remediation; NO wire change)
 
 Spec/plan: `docs/plans/2026-10-17-paragon-audit-remediation.md` (architect-reviewed).

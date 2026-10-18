@@ -1,11 +1,12 @@
 > [!IMPORTANT]
-> **Current client: 4.1.0 "Paragon"** - the WinUI 3 Windows client
+> **Current client: 4.2.0 "Nightblade"** - the WinUI 3 Windows client
 > (`app/MaxDpsCompanion/`), the shared brain (`app/MaxDpsCompanion.Core/`) and the
 > macOS client (`app/MaxDpsCompanion.Mac/`), targeting `MaxDpsBridgeExp` +
 > `dist-exp`. **C# is the long-term base.** Frozen: the 3.7.9 WinForms
 > distribution (`dist/`, `build.ps1`), the stable bridge (`addon/MaxDpsBridge/`)
 > and the Rust port (`companion-rs/`, reference only, no Ext4). See
-> [`LEGACY.md`](LEGACY.md) and [`docs/plans/2026-10-17-paragon-audit-remediation.md`](docs/plans/2026-10-17-paragon-audit-remediation.md).
+> [`LEGACY.md`](LEGACY.md); release plans: [4.2.0 Nightblade](docs/plans/2026-10-18-rogue-cc-intelligence.md),
+> [4.1.0 Paragon](docs/plans/2026-10-17-paragon-audit-remediation.md).
 
 > [!TIP]
 > **macOS Companion — `3.7.9 "Unyielding" (mac)`:** the macOS client lives in
@@ -602,6 +603,10 @@ hold reason; `--bench-scheduler` measures it on a scripted fake clock.
 | `Window` | `ModifierInput` | 4.1.0. How a Ctrl/Alt/Shift chord is delivered: `Post` (default; PostMessage to the game window, works in the background, unchanged behaviour), `Auto` (SendInput while the game is focused, Post fallback with a status note in the background), `SendInput` (focused only; deferred in the background). Never releases a modifier you hold; defers when you hold an extra modifier. Plain keys are always posted. |
 | `Window` | `Width` / `Height` | Remembered client size (`0` = default); saved on resize-end and close, restored clamped to the working area on start. |
 | `Pause` | `Button` | Global pause hotkey (`Pause`, `F9`, …). |
+| `CrowdControl` | `Enabled` | `1` = enable the interrupt-fallback CC pool (single-target stun/silence only). Blind/Gouge/Sap/Polymorph/Fear stay manual. |
+| `CrowdControl` | `BreakGuard` | `1` = after a manual break-on-damage CC, hold Main/Offensive/Interrupt for its expected duration (cap 10 s). |
+| `CrowdControl` | `ManualHoldMs` | Manual party-CC hold duration (3000-30000, default 8000). |
+| `CrowdControl` | `HoldHotkey` | Global hotkey for the manual party-CC hold (default `Ctrl+Shift+C`). |
 | `Spells` | `spell1`…`spell8` | Which slots may fire: Main, Offensive, Defensive, Consumable, Trinket, Interrupt, Mobility, SelfHeal. Item slots default off; Mobility/SelfHeal on. |
 | `Timing` | `PollIntervalMs` / `MinKeyIntervalMs` / `KeyPressMs` | Sample rate / gap between inputs / hold length. |
 | `Targeting` | `AutoTargetEnabled`, `CombatOnly`, `TargetKey` | Press `TargetKey` when bridge reports no-target. Never a movement key. |

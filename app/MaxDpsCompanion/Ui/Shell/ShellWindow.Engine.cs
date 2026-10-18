@@ -103,6 +103,9 @@ public sealed partial class ShellWindow
     /// <summary>Re-registers the global pause hotkey (MainForm.RegisterPauseHotkey :3135-3145).</summary>
     private void RegisterPauseHotkey() => _win32.RegisterPauseHotkey(_settings.PauseHotkey);
 
+    /// <summary>v4.2.0: re-registers the manual party-CC hold hotkey.</summary>
+    private void RegisterCcHoldHotkey() => _win32.RegisterCcHoldHotkey(_settings.CcHoldHotkey);
+
     // ----- status refresh (MainForm.RefreshStatus :2890-2942) -----
 
     internal void RefreshStatus()
@@ -230,6 +233,7 @@ public sealed partial class ShellWindow
             _consoleHome.SetBridge(running ? $"Bridge: {status.State}" : "Bridge: stopped");
             _consoleHome.SetNow(action, why);
             _consoleHome.SetPaused(_engine.Paused);
+            _consoleHome.SetCcHold(_engine.CcHoldActive, _engine.CcHoldRemainingMs);
             if (_consoleLastStatus != _statusMessage)
             {
                 _consoleLastStatus = _statusMessage;
@@ -337,6 +341,20 @@ public sealed partial class ShellWindow
         _engine.Paused = !_engine.Paused;
     }
 
+    /// <summary>v4.2.0: global manual CC-hold hotkey (party CC the addon cannot see).</summary>
+    private void ToggleCcHoldHotkey()
+    {
+        _engine?.ToggleCcHold();
+        SetStatus("CC hold toggled (manual party-CC hold).", ControlTheme.Accent);
+    }
+
+    /// <summary>v4.2.0: console button for the manual party-CC hold.</summary>
+    internal void ToggleCcHoldFromConsole()
+    {
+        _engine?.ToggleCcHold();
+        SetStatus("CC hold toggled (manual party-CC hold).", ControlTheme.Accent);
+    }
+
     /// <summary>Console/Exp pause button (MainForm.TogglePauseFromConsole :1045-1055).</summary>
     internal void TogglePauseFromConsole()
     {
@@ -369,6 +387,7 @@ public sealed partial class ShellWindow
         ApplyToSettings();
         SaveSettings();
         RegisterPauseHotkey();
+        RegisterCcHoldHotkey();
     }
 
     /// <summary>MainForm SaveSoon :573-577: coalesce rapid edits (text fields).</summary>

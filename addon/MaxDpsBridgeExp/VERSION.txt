@@ -1,3 +1,19 @@
+4.2.0-exp
+date: 2026-10-18 "Nightblade"
+git: v4.2.0-exp (local build, not yet published)
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED - v5 core 35 + Ext2 40 + Ext3 43 + Ext4 51 (51-cell strip).
+v4.2.0-exp: Companion 4.2.0 "Nightblade". CC intelligence release, NO wire change.
+          Slot-6 auto CC is now only the single-target stun/silence interrupt
+          fallback (Kidney Shot, Storm Bolt, Mighty Bash, Intimidation,
+          Silence, Solar Beam, ...); Blind/Gouge/Sap/Polymorph/Fear and every
+          other break-on-damage CC is manual-only. The companion applies the
+          12.1.5 DR ladder (20 s window, 50/25/12.5/6.25 %, PvP immune after
+          two) to the delegated Kidney Shot path, never stuns a non-interruptible
+          cast or a target with a fresh ineffective-stun latch, and holds
+          Main/Offensive/Interrupt after a manual break-on-damage CC or the
+          manual party-CC hold. Rogue Catalog cc = { 408 } only.
+
 4.1.0-exp
 date: 2026-10-18 "Paragon"
 git: v4.1.0-exp (local build, not yet published)

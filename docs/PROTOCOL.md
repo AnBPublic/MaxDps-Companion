@@ -327,6 +327,17 @@ open instead of holding the rotation behind a dead bit.
   therefore key on "a cast is live / explicitly interruptible", never on
   which spell it is — an explicit, documented limitation.
 
+  **v4.2.0 slot-6 CC semantics (no wire change):** the crowd-control pool
+  reuses the Interrupt slot (cells 20-27 + the slot-6 tri-state range and the
+  cast-state facts above) exactly as before. What changed is which curated
+  rows the bridge is allowed to write there: only the single-target
+  stun/silence interrupt fallback from the generated per-spec `cc` list
+  (`cc = { 408 }` for every rogue spec). Blind/Gouge/Sap/Polymorph/Fear and
+  every other break-on-damage row are manual-only and are never encoded into
+  the slot by the companion. The companion still applies the casting-only and
+  DR gates on its side, so an old bridge that writes a wider `cc` list cannot
+  make the companion auto-cast manual CC.
+
 ### Range tri-state (cells 30-31)
 
 Two bits per slot: `0` unknown, `1` in range, `2` out of range, `3` reserved.

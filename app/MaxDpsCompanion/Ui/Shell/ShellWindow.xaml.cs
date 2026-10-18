@@ -68,6 +68,8 @@ public sealed partial class ShellWindow : Window
         // WM_HOTKEY = the global pause toggle (MainForm.WndProc :3232-3234).
         _win32.PauseHotkeyPressed += TogglePauseHotkey;
         _win32.RegisterPauseHotkey(_settings.PauseHotkey);
+        _win32.CcHoldHotkeyPressed += ToggleCcHoldHotkey;
+        _win32.RegisterCcHoldHotkey(_settings.CcHoldHotkey);
 
         if (AppWindow.Presenter is OverlappedPresenter presenter)
         {

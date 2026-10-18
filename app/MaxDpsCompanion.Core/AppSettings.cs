@@ -229,6 +229,20 @@ internal sealed class AppSettings
     // missing key = ON); that cross-surface wiring is OWED live.
     public bool CrowdControlEnabled { get; set; } = false;
 
+    // v4.2.0 break-on-damage CC guard. When the companion (or the player, via
+    // the Ext4 hotbar map) applies Blind/Gouge/Sap/Polymorph/Fear, Main /
+    // Offensive / Interrupt are held for the expected duration (capped at 10 s).
+    // The companion never auto-casts these abilities; this setting only keeps
+    // the rotation from breaking a CC the player already applied.
+    public bool CcBreakGuardEnabled { get; set; } = true;
+
+    // Manual party-CC hold (the addon cannot see another player's Polymorph).
+    // Pressing the hotkey/button suspends attacks for this many milliseconds.
+    public int CcManualHoldMs { get; set; } = 8000;
+
+    // Global hotkey (Win32 RegisterHotKey grammar) for the manual CC hold.
+    public string CcHoldHotkey { get; set; } = "Ctrl+Shift+C";
+
     // [Rotation] — companion-side restrict-only presets (Stream 3). Defaults are
     // the historical behaviour. Burst holds major offensives/consumable/trinket
     // until the TTK estimate is valid (a boss-like target); AoE conserves
@@ -475,6 +489,9 @@ internal sealed class AppSettings
             case ("timetokill", "historydurfactor"): TimeToKillHistoryDurFactor = Math.Clamp(ParseDouble(value, TimeToKillHistoryDurFactor), 0.0, 1.0); break;
             case ("timetokill", "warmupsec"): TimeToKillWarmupSec = Math.Clamp(ParseDouble(value, TimeToKillWarmupSec), 0.0, 10.0); break;
             case ("crowdcontrol", "enabled"): CrowdControlEnabled = ParseBool(value, CrowdControlEnabled); break;
+            case ("crowdcontrol", "breakguard"): CcBreakGuardEnabled = ParseBool(value, CcBreakGuardEnabled); break;
+            case ("crowdcontrol", "manualholdms"): CcManualHoldMs = Math.Clamp(ParseInt(value, CcManualHoldMs), 3000, 30000); break;
+            case ("crowdcontrol", "holdhotkey"): CcHoldHotkey = string.IsNullOrWhiteSpace(value) ? CcHoldHotkey : value.Trim(); break;
             case ("rotation", "mode"): ModePreset = ParseRotationPreset(value); break;
             case ("rotation", "targets"): TargetMode = ParseTargetPreset(value); break;
             case ("solo", "enabled"): SoloEnabled = ParseBool(value, SoloEnabled); break;
@@ -611,11 +628,17 @@ internal sealed class AppSettings
             .AppendLine("; while the target TTK is unknown (0 = off / legacy fail-open; clamp 0..10).")
             .AppendLine($"WarmupSec={TimeToKillWarmupSec.ToString(CultureInfo.InvariantCulture)}")
             .AppendLine()
-            .AppendLine("; Crowd-control appendix (opt-in, default off). ON makes curated")
-            .AppendLine("; auto-eligible CC rows fire only on a confirmed target and never")
-            .AppendLine("; chains the same DR category; the addon toggle can only restrict.")
+            .AppendLine("; Crowd-control appendix (opt-in). ON enables only the interrupt-fallback")
+            .AppendLine("; stuns/silences (Kidney Shot, Storm Bolt, ...) on a live cast; Blind/")
+            .AppendLine("; Gouge/Sap/Polymorph/Fear stay manual. DR is self-tracked (12.1.5 rules).")
+            .AppendLine("; BreakGuard: hold attacks after a manual break-on-damage CC.")
+            .AppendLine("; ManualHoldMs: manual party-CC hold duration (3000..30000).")
+            .AppendLine("; HoldHotkey: global hotkey for the manual party-CC hold.")
             .AppendLine("[CrowdControl]")
             .AppendLine($"Enabled={(CrowdControlEnabled ? 1 : 0)}")
+            .AppendLine($"BreakGuard={(CcBreakGuardEnabled ? 1 : 0)}")
+            .AppendLine($"ManualHoldMs={CcManualHoldMs}")
+            .AppendLine($"HoldHotkey={CcHoldHotkey}")
             .AppendLine()
             .AppendLine("; Companion-side restrict-only presets. Full/SingleTarget = historical")
             .AppendLine("; behaviour. Burst holds majors/consumable/trinket until a boss TTK is")

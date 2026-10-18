@@ -601,6 +601,36 @@ Live checks - each needs a retail run and stays OWED until then:
     in the background; numpad/punctuation/F13-F20 binds fire; `--probe`; `build-mac.sh` runs `selftest.swift`.
 13. **CI:** the first GitHub Actions run is green on both jobs (UI-timing tests may flake).
 
+### 3o. 4.2.0 "Nightblade" CC intelligence (live 12.1.5 retail, OWED)
+
+Offline (done, see HANDOVER): build 0/0, `dotnet test` 1071 passed, harness 409,
+`luac -p`, catalog fixture/Exp Catalog regenerated. Live checks:
+
+1. **Kick wins.** Target casting, Kick bound+ready: only Kick fires; Kidney Shot
+   must not be pressed in the same cast.
+2. **Stun fallback.** Put Kick on cooldown, keep the target casting: Kidney Shot
+   fires. Second cast inside 20 s: at most a 50% stun (1 s from the 2 s base).
+   Third cast inside 20 s: held with a DR/immune reason.
+3. **PvP DR.** In a duel/arena, stun the same player twice inside 20 s. The
+   third Kidney Shot must not be generated (DR 2/2 immune).
+4. **Blind/Gouge guard.** Manually Blind a dummy, then watch Main/Offensive/
+   Interrupt: no rotation attack is sent for ~8 s (Gouge ~4 s), status shows
+   "target CC'd by Blind ... attacks held". A manually pressed attack still
+   goes through (your press always wins).
+5. **Manual party CC hold.** Press `Ctrl+Shift+C` (or Console "CC Hold") while
+   a party member Polymorphs a mob: attacks hold for 8 s; status shows
+   "manual CC hold". Press again to cancel.
+6. **Boss / immune.** On a worldboss or an inherently stun-immune elite, the
+   auto CC pool must not offer Kidney Shot; if a stun is attempted and the cast
+   continues ~800 ms, a second auto stun must not fire until target loss.
+7. **Uninterruptible cast.** An explicitly not-interruptible cast must not
+   produce Kick or Kidney Shot.
+8. **No auto Blind/Gouge/Sap.** With `[CrowdControl] Enabled=1`, the companion
+   never presses those abilities itself; `/mdbx` slot 6 offers Kidney Shot only
+   for a rogue.
+9. **Telemetry/replay** (optional): record a fight with a stun/Blind and replay;
+   0 verdict mismatches.
+
 ## 4. macOS client (live retail, OWED)
 
 Everything in this section needs a real client on a Mac. Static/offline

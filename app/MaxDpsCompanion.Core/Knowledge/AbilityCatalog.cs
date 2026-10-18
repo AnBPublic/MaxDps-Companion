@@ -611,10 +611,15 @@ internal sealed class AbilityCatalog
     public int[] CrowdControlGapFill(string? className, string? specName)
     {
         if (className is null || specName is null) return [];
-        var ids = new List<int>();
-        foreach (var entry in CrowdControlCatalog.For(className, specName))
-            if (entry.AutoEligible) ids.Add(entry.SpellId);
-        return ids.ToArray();
+        // Priority, not source order: the interrupt fallback must offer the
+        // cheapest single-target stun first (Kidney Shot before Blind/Gouge,
+        // which are no longer auto-eligible at all).
+        return CrowdControlCatalog.For(className, specName)
+            .Where(entry => entry.AutoEligible)
+            .OrderBy(entry => entry.Priority)
+            .ThenBy(entry => entry.SpellId)
+            .Select(entry => entry.SpellId)
+            .ToArray();
     }
 
     private static int TierRank(DefensiveTier tier) => tier switch
