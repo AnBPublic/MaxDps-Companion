@@ -162,9 +162,15 @@ internal sealed class MacBlockScanner : IBlockScanner
         // Shrink the stream to exactly the strip (+2 pt tap margin) so every
         // later tick reads a few KB instead of the band. Never a blocking
         // reconfigure on the tick: queue it for the supervisor.
+        // WIDTH = Ext4 (51), not Ext3 (43): the sampler requests 51 cells, and
+        // its "covered" test needs `relX + 51*cellSize <= region`. A 43-cell
+        // region crops the Ext4 block AND fails that test on every tick, which
+        // turns into a permanent region request and empty frames (the mirror
+        // never publishes). The region is the widest frame we decode; a 43/40/
+        // 35-cell addon simply leaves the tail as background.
         var margin = 2;
         stream.RequestRegion(xPt - margin, yPt - margin,
-            cellPt * PixelProtocol.CellCountExt3 + margin * 2, cellPt + margin * 2);
+            cellPt * PixelProtocol.CellCountExt4 + margin * 2, cellPt + margin * 2);
         if (onSupervisor) stream.ApplyPendingRegion();
         _rung = 0;                          // next loss starts cheap again
         _lastHitMs = Environment.TickCount64;
@@ -183,8 +189,23 @@ internal sealed class MacBlockScanner : IBlockScanner
     }
 
     /// <summary>
+    /// v5-family window widths, widest first: Ext4 (51), Ext3 (43), Ext2 (40)
+    /// and the v5 core (35) — the same ladder the Windows BlockLocator uses.
+    /// PixelSampler.CaptureWidths stops at Ext3 (it is the locator's own list),
+    /// so the host keeps its own copy here; the acceptance rule must be able
+    /// to verify the 51-cell frame it now samples.
+    /// </summary>
+    private static readonly int[] V5WindowWidths =
+    {
+        PixelProtocol.CellCountExt4,
+        PixelProtocol.CellCountExt3,
+        PixelProtocol.CellCountExt2,
+        PixelProtocol.CellCount,
+    };
+
+    /// <summary>
     /// Strict acceptance: a candidate counts only when a width from the v5
-    /// family (43/40/35) decodes or the calibrate pattern classifies, in the
+    /// family (51/43/40/35) decodes or the calibrate pattern classifies, in the
     /// integer-grid window and in the fractional-step variants the sampler
     /// uses. Identical acceptance to the Windows BlockLocator port.
     /// </summary>
@@ -215,7 +236,7 @@ internal sealed class MacBlockScanner : IBlockScanner
             return cells;
         }
 
-        foreach (var width in PixelSampler.CaptureWidths)
+        foreach (var width in V5WindowWidths)
         {
             var window = ReadWindow(width);
             if (PixelProtocol.Decode(window, _profile) is not null) return true;

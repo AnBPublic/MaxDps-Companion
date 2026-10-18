@@ -100,12 +100,14 @@ The macOS client must not cost the game frames. Concretely:
   (`SCContentFilter(desktopIndependentWindow:)`), never a screen recording.
 * **Bounded region**: the stream is configured with a `sourceRect` that starts
   as a small locate band (1024×128 pt at the window's top-left corner) and
-  **shrinks to the discovered strip rect** (43 cells × cellSize + margin —
-  for the default 8 px cells that is ~352×16 pt ≈ 22 KB per frame). "As small
-  as possible, as big as necessary."
+  **shrinks to the discovered strip rect** (51 cells × cellSize + margin — the
+  Ext4 frame width, so the hotbar-map cells stay readable; for the default
+  8 px cells that is ~412×20 pt ≈ 33 KB per frame). "As small as possible, as
+  big as necessary."
 * **No capture call on the tick path.** The window server pushes frames
   asynchronously; the engine's sample is a seqlock read of the newest frame
-  (no syscall, no lock, no allocation). `queueDepth = 2`, so a busy consumer
+  (no syscall, no lock, no frame copy — only the small per-cell colour array
+  the shared sampler builds). `queueDepth = 2`, so a busy consumer
   drops frames instead of back-pressuring capture — the game is never blocked.
 * **Window-relative, screen-agnostic**: every coordinate is relative to the WoW
   window, so the same strip position works on the 1080p desktop monitor and on
@@ -183,7 +185,7 @@ Settings live in `~/Library/Application Support/MaxDpsCompanion/settings.ini`
 | `capture-backend=... NOT granted` | grant Screen Recording, then Start again |
 | `locate=null` | is the Exp bridge loaded (`/mdbx status`)? is `MaxDpsBridge` (stable) disabled? — the Exp bridge is inert while the stable one is loaded |
 | decode works but nothing fires | Accessibility grant; `IsForeground` for mouse slots; watch the status line's "why" |
-| stutter / fps loss | run `--bench-capture`: steady-state region should be ~20-30 KB/frame; our CPU should stay near 1 % of one core |
+| stutter / fps loss | run `--bench-capture`: steady-state region should be ~30-40 KB/frame; our CPU should stay near 1 % of one core |
 | a frame decodes only sometimes | check the repair count in `--probe`; a high count means the display's ICC profile is distorting the strip |
 
 ## Status / owed

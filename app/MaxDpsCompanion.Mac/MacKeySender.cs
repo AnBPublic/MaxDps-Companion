@@ -90,9 +90,9 @@ internal sealed class MacKeySender : IKeySender
         if (IsMouse(stroke.VirtualKey))
         {
             // Mouse strokes are HID-only: the engine gates them on focus and
-            // SendMouse re-checks the frontmost pid at send time.
-            SendMouse(stroke, Flags(stroke), holdMilliseconds);
-            return true;
+            // SendMouse re-checks the frontmost pid at send time. Report the
+            // real outcome: a stroke dropped by that re-check is NOT a send.
+            return SendMouse(stroke, Flags(stroke), holdMilliseconds);
         }
         if (expectedProcessId == 0)
         {
@@ -185,18 +185,24 @@ internal sealed class MacKeySender : IKeySender
         finally { CFRelease(ev); }
     }
 
-    private void SendMouse(Keys.KeyRef stroke, ulong flags, int holdMilliseconds)
+    /// <summary>
+    /// Posts one global mouse/wheel stroke. Returns true ONLY when an event was
+    /// actually posted: a stroke dropped by the frontmost re-check, an unknown
+    /// mouse code or a failed CGEventCreate must not be reported as sent (the
+    /// engine records a successful send and forgets the slot for its cooldown).
+    /// </summary>
+    private bool SendMouse(Keys.KeyRef stroke, ulong flags, int holdMilliseconds)
     {
         // Mouse events are global (no per-process route the game reads), so the
         // focus requirement is re-checked HERE, at send time: the engine's
         // cached foreground flag can be up to 250 ms stale, and a click that
         // lands in another app is worse than a skipped action.
-        if (TargetPid > 0 && !MacCaptureStream.GameIsFrontmost(TargetPid)) return;
+        if (TargetPid > 0 && !MacCaptureStream.GameIsFrontmost(TargetPid)) return false;
 
         switch (stroke.Vk)
         {
-            case 0x07: Scroll(1); return;   // WheelUp
-            case 0x0B: Scroll(-1); return;  // WheelDown
+            case 0x07: return Scroll(1);    // WheelUp
+            case 0x0B: return Scroll(-1);   // WheelDown
         }
         int type, button;
         switch (stroke.Vk)
@@ -206,7 +212,7 @@ internal sealed class MacKeySender : IKeySender
             case 0x04: type = kCGEventOtherMouseDown; button = 2; break;  // middle
             case 0x05: type = kCGEventOtherMouseDown; button = 3; break;  // X1 (MB4)
             case 0x06: type = kCGEventOtherMouseDown; button = 4; break;  // X2 (MB5)
-            default: return; // fail-closed
+            default: return false; // fail-closed
         }
 
         // A CGEvents mouse event carries its own cursor location; posting at
@@ -221,10 +227,11 @@ internal sealed class MacKeySender : IKeySender
             if (stroke.Alt) modDowns.Add(FlagEvent(0x3A, true));
             foreach (var e in modDowns) if (e != IntPtr.Zero) CGEventPost(kCGHIDEventTap, e);
 
+            var posted = false;
             var down = CGEventCreateMouseEvent(IntPtr.Zero, type, at, button);
             if (down != IntPtr.Zero)
             {
-                try { CGEventPost(kCGHIDEventTap, down); }
+                try { CGEventPost(kCGHIDEventTap, down); posted = true; }
                 finally { CFRelease(down); }
             }
             if (holdMilliseconds > 0) Thread.Sleep(holdMilliseconds);
@@ -234,6 +241,7 @@ internal sealed class MacKeySender : IKeySender
                 try { CGEventPost(kCGHIDEventTap, up); }
                 finally { CFRelease(up); }
             }
+            return posted;
         }
         finally
         {
@@ -264,12 +272,12 @@ internal sealed class MacKeySender : IKeySender
         finally { CFRelease(e); }
     }
 
-    private static void Scroll(int lines)
+    private static bool Scroll(int lines)
     {
         // units=1 (line), wheelCount=1
         var e = CGEventCreateScrollWheelEvent1(IntPtr.Zero, 1, 1, lines);
-        if (e == IntPtr.Zero) return;
-        try { CGEventPost(kCGHIDEventTap, e); }
+        if (e == IntPtr.Zero) return false;
+        try { CGEventPost(kCGHIDEventTap, e); return true; }
         finally { CFRelease(e); }
     }
 }

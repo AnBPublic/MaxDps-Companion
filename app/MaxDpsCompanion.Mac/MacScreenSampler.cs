@@ -71,8 +71,13 @@ internal sealed class MacScreenSampler : IScreenSampler
     /// <summary>True while samples come from the SCK stream (probe/diagnostics).</summary>
     public bool UsingStream => _stream is { Running: true };
 
+    // Ext4 (v4.0.3): capture the widest frame the protocol understands (51
+    // cells) so the additive hotbar-map cells are readable, exactly like the
+    // Windows sampler. PixelSampler.CaptureWidths is the LOCATOR ladder
+    // (43/40/35) and deliberately does not carry Ext4 - using its [0] here
+    // pinned the Mac to 43 cells and made Ext4 unreachable on this host.
     public Color[] Sample(Point origin, int cellSize) =>
-        SampleCells(origin, cellSize, PixelSampler.CaptureWidths[0]);
+        SampleCells(origin, cellSize, PixelProtocol.CellCountExt4);
 
     public Color[] SampleV1(Point origin, int cellSize) =>
         SampleCells(origin, cellSize, 8);
@@ -94,7 +99,13 @@ internal sealed class MacScreenSampler : IScreenSampler
         }
 
         // macOS colour-pipeline repair (no-op when the frame decodes as-is).
-        if (cellCount == PixelProtocol.CellCountExt3)
+        // Gate on the WIDEST DECODABLE FRAME, not on one exact width: the
+        // extensions are additive (cells 0-42 are the Ext3 frame, 43-50 the
+        // Ext4 block, each gated on its own presence bit), so any width >=
+        // Ext3 can carry the Ext3 mirror and needs the same repair. An exact
+        // `== CellCountExt3` test silently disabled BOTH once Sample() grew to
+        // 51 cells.
+        if (cellCount >= PixelProtocol.CellCountExt3)
         {
             LastRepairCells = 0;
             if (MacPixelRepair.Repair(cells, _profile, cellCount) is { } repaired)
