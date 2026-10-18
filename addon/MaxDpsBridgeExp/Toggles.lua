@@ -78,13 +78,25 @@ local SLOT_KEY = {
 
 -- Case-insensitive lookup so "/mdb selfheal off" and Panel callbacks can use
 -- the slash spellings; the canonical spelling is always what is stored.
+-- A1.6: the canonical AND lowercase spellings are precomputed into one direct
+-- map, so the hot path (SlotAllowed -> Get -> Canon, 8 slots x several keys x
+-- every tick) never calls string.lower(); only an unusual spelling pays for
+-- one lower() allocation.
 local KEY_BY_LOWER = {};
-for i = 1, #KEYS do KEY_BY_LOWER[KEYS[i]:lower()] = KEYS[i]; end
+local CANON = {};
+for i = 1, #KEYS do
+  local K = KEYS[i];
+  KEY_BY_LOWER[K:lower()] = K;
+  CANON[K] = K;
+  CANON[K:lower()] = K;
+end
 -- The CC appendix key (Ext3 bit 13) is resolvable by the same Canon path as
 -- the 13 canonical keys, but is NOT added to KEYS: Keys() stays 13 (frozen
 -- toggle-count semantics / harness). It still needs LocalGet/Get/Set/Flip and
--- the EffectiveMask walk to see it, so register the lowercase spelling only.
+-- the EffectiveMask walk to see it, so register both spellings here.
 KEY_BY_LOWER["cc"] = "CC";
+CANON["CC"] = "CC";
+CANON["cc"] = "CC";
 
 local LABELS = {
   Main = "Main",
@@ -125,7 +137,22 @@ local SHORT_LABELS = {
 
 local function Canon (Key)
   if type(Key) ~= "string" then return nil; end
+  local Direct = CANON[Key];
+  if Direct ~= nil then return Direct; end;
   return KEY_BY_LOWER[Key:lower()];
+end
+
+-- A1.6: cached SavedVariables table. Every accessor used to reach the global
+-- several times per call (Get -> LocalSet + LocalGet, 8 slots x several keys
+-- per tick). Bridge calls MDBX.Toggles.RefreshDatabase() once at ADDON_LOADED
+-- (after MergeDefaults), and any writer that has to CREATE the table refreshes
+-- the cache itself. Until then the helpers fall back to the global, so no path
+-- can observe a stale nil.
+local CachedDB = nil;
+local function SavedDB ()
+  local D = CachedDB;
+  if D ~= nil then return D; end
+  return _G.MaxDpsBridgeExpDB;
 end
 
 -- ---- App-pushed mask defaults (v3.5 / Ext3) -----------------------------
@@ -148,7 +175,7 @@ local BIT_BY_KEY = {
 local ALL_MASK = 0x3FFF;
 
 local function GetAppEpoch ()
-  local DB = _G.MaxDpsBridgeExpDB;
+  local DB = SavedDB();
   if type(DB) ~= "table" then return 0; end
   local E = DB.AppEpoch;
   if type(E) ~= "number" or E < 0 or E > 15 then return 0; end
@@ -156,7 +183,7 @@ local function GetAppEpoch ()
 end
 
 local function GetAppMask ()
-  local DB = _G.MaxDpsBridgeExpDB;
+  local DB = SavedDB();
   if type(DB) ~= "table" then return ALL_MASK; end
   local M = DB.AppMask;
   if type(M) ~= "number" or M < 0 or M > ALL_MASK then return ALL_MASK; end
@@ -164,7 +191,7 @@ local function GetAppMask ()
 end
 
 local function GetAppBlocked ()
-  local DB = _G.MaxDpsBridgeExpDB;
+  local DB = SavedDB();
   if type(DB) ~= "table" then return 0; end
   local B = DB.AppBlocked;
   if type(B) ~= "number" or B < 0 or B > 15 then return 0; end
@@ -174,7 +201,7 @@ end
 local function LocalGet (Key)
   local C = Canon(Key);
   if not C then return true; end
-  local DB = _G.MaxDpsBridgeExpDB;
+  local DB = SavedDB();
   if type(DB) ~= "table" then return true; end
   local Toggles = DB.Toggles;
   if type(Toggles) ~= "table" then return true; end
@@ -190,7 +217,7 @@ local function AppControlled () return GetAppEpoch() ~= 0; end
 local function LocalSet (Key)
   local C = Canon(Key);
   if not C then return false; end
-  local DB = _G.MaxDpsBridgeExpDB;
+  local DB = SavedDB();
   if type(DB) ~= "table" then return false; end
   local Toggles = DB.Toggles;
   if type(Toggles) ~= "table" then return false; end
@@ -220,8 +247,8 @@ end
 local function Set (Key, On)
   local C = Canon(Key);
   if not C then return Get(Key); end
-  local DB = _G.MaxDpsBridgeExpDB;
-  if type(DB) ~= "table" then DB = {}; _G.MaxDpsBridgeExpDB = DB; end
+  local DB = SavedDB();
+  if type(DB) ~= "table" then DB = {}; CachedDB = DB; _G.MaxDpsBridgeExpDB = DB; end
   local Toggles = DB.Toggles;
   if type(Toggles) ~= "table" then Toggles = {}; DB.Toggles = Toggles; end
   local Value = (On ~= false);
@@ -254,7 +281,7 @@ end
 local function GetVeto (Group)
   local C = CanonVeto(Group);
   if not C then return true; end
-  local DB = _G.MaxDpsBridgeExpDB;
+  local DB = SavedDB();
   if type(DB) ~= "table" then return true; end
   local Veto = DB.Veto;
   if type(Veto) ~= "table" then return true; end
@@ -266,8 +293,8 @@ end
 local function SetVeto (Group, On)
   local C = CanonVeto(Group);
   if not C then return GetVeto(Group); end
-  local DB = _G.MaxDpsBridgeExpDB;
-  if type(DB) ~= "table" then DB = {}; _G.MaxDpsBridgeExpDB = DB; end
+  local DB = SavedDB();
+  if type(DB) ~= "table" then DB = {}; CachedDB = DB; _G.MaxDpsBridgeExpDB = DB; end
   local Veto = DB.Veto;
   if type(Veto) ~= "table" then Veto = {}; DB.Veto = Veto; end
   local Value = (On ~= false);
@@ -321,8 +348,10 @@ end
 -- ctx = { InCombat = boolean|nil, HpPct = number|nil, Grouped = boolean|nil }.
 -- Unknown ctx fields fail open (allow). Never throws; an internal error is
 -- treated as "allow" so a gate bug can never silently mute the rotation.
-local function SlotAllowed (Slot, Ctx)
-  local Ok, Allowed = pcall(function ()
+-- A1.4: the gate body is a FILE-SCOPE function now — it used to be a closure
+-- allocated on every one of the 8 slot calls per tick. The pcall wrapper is
+-- the only per-call frame left.
+local function SlotAllowedCore (Slot, Ctx)
     if type(Slot) ~= "number" then return true; end
     Slot = math.floor(Slot);
     local Key = SLOT_KEY[Slot];
@@ -398,7 +427,10 @@ local function SlotAllowed (Slot, Ctx)
 
     MDBX._LastBlank[Slot] = nil;
     return true;
-  end);
+end
+
+local function SlotAllowed (Slot, Ctx)
+  local Ok, Allowed = pcall(SlotAllowedCore, Slot, Ctx);
   if Ok then return Allowed; end
   MDBX._LastBlank = MDBX._LastBlank or {};
   return true;   -- fail open on any gate error
@@ -419,8 +451,8 @@ end
 --- Store the app mask/epoch pushed by the companion. Everything is clamped
 -- to its wire range; the reserved bit stays 0. Returns the stored triple.
 local function SetAppMask (Mask, Epoch, Blocked)
-  local DB = _G.MaxDpsBridgeExpDB;
-  if type(DB) ~= "table" then DB = {}; _G.MaxDpsBridgeExpDB = DB; end
+  local DB = SavedDB();
+  if type(DB) ~= "table" then DB = {}; CachedDB = DB; _G.MaxDpsBridgeExpDB = DB; end
   DB.AppMask = ClampN(Mask, 0, ALL_MASK, ALL_MASK);
   DB.AppEpoch = ClampN(Epoch, 0, 15, 0);
   DB.AppBlocked = ClampN(Blocked, 0, 15, 0);
@@ -429,8 +461,8 @@ local function SetAppMask (Mask, Epoch, Blocked)
 end
 
 local function SetAppBlocked (Nibble)
-  local DB = _G.MaxDpsBridgeExpDB;
-  if type(DB) ~= "table" then DB = {}; _G.MaxDpsBridgeExpDB = DB; end
+  local DB = SavedDB();
+  if type(DB) ~= "table" then DB = {}; CachedDB = DB; _G.MaxDpsBridgeExpDB = DB; end
   DB.AppBlocked = ClampN(Nibble, 0, 15, 0);
   BumpVersion();
   return DB.AppBlocked;
@@ -441,10 +473,17 @@ end
 -- the companion/panel sees the in-game truth, not the app's pushed mask. The
 -- companion reads bit 9 (OOC) for its out-of-combat hold, so an in-game OOC
 -- OFF must clear this bit immediately even while the app epoch is live.
+-- A1.6: the key/bit pairs are precomputed once (the walk runs every frame);
+-- pairs() over a hash table also allocated an iterator state each call.
+local BIT_LIST = {};
+for i = 1, #KEYS do BIT_LIST[#BIT_LIST + 1] = { Key = KEYS[i], Bit = BIT_BY_KEY[KEYS[i]] }; end
+BIT_LIST[#BIT_LIST + 1] = { Key = "CC", Bit = 13 };
+
 local function EffectiveMask ()
   local M = 0;
-  for Key, Bit in pairs(BIT_BY_KEY) do
-    if Get(Key) then M = bit.bor(M, bit.lshift(1, Bit)); end
+  for i = 1, #BIT_LIST do
+    local Row = BIT_LIST[i];
+    if Get(Row.Key) then M = bit.bor(M, bit.lshift(1, Row.Bit)); end
   end
   return M;
 end
@@ -490,6 +529,13 @@ MDBX.Toggles = {
   SetVeto = SetVeto,
   VetoKeys = VetoKeys,
   Version = function () return VersionCounter; end,
+  -- A1.6: re-point the cached SavedVariables table. Called once from the
+  -- bridge's ADDON_LOADED (after the DB exists and MergeDefaults ran); a
+  -- writer that has to create a brand-new DB table refreshes it itself.
+  RefreshDatabase = function ()
+    CachedDB = _G.MaxDpsBridgeExpDB;
+    return CachedDB;
+  end,
 };
 
 -- Convenience getters for Bridge.lua's non-slot gates (AutoTarget /
@@ -520,8 +566,8 @@ function MDBX.Toggles.IsCC ()
 end
 
 function MDBX.Toggles.SetCC (On)
-  local DB = _G.MaxDpsBridgeExpDB;
-  if type(DB) ~= "table" then DB = {}; _G.MaxDpsBridgeExpDB = DB; end
+  local DB = SavedDB();
+  if type(DB) ~= "table" then DB = {}; CachedDB = DB; _G.MaxDpsBridgeExpDB = DB; end
   local Toggles = DB.Toggles;
   if type(Toggles) ~= "table" then Toggles = {}; DB.Toggles = Toggles; end
   local Value = (On ~= false);

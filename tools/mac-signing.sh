@@ -15,6 +15,20 @@
 #
 # Usage:  tools/mac-signing.sh <app-bundle>       # signs, prints identity
 #         tools/mac-signing.sh --identity         # prints the SHA-1 hash
+#
+# RELEASE SIGNING (separate, manual; NOT done by this script):
+#   The local identity above is for development only — it is not trusted by
+#   Gatekeeper and cannot be notarized. A distributable build uses an Apple
+#   Developer ID (add --entitlements <file> only if a runtime component needs
+#   JIT/unsigned memory; the .NET runtime ships signed):
+#     codesign --force --deep --options runtime \
+#       --sign "Developer ID Application: <Team Name> (<TEAMID>)" \
+#       "dist-mac/MaxDPS Companion.app"
+#     xcrun notarytool submit <zip-or-dmg> --keychain-profile maxdps-notary --wait
+#     xcrun stapler staple "dist-mac/MaxDPS Companion.app"
+#   Hardened runtime (--options runtime) is REQUIRED for notarization.
+#   Notarization itself stays OWED until it is run on a Mac with the Developer
+#   ID in the keychain. See app/MaxDpsCompanion.Mac/README.md.
 set -eu
 
 IDENTITY_NAME="MaxDPS Companion Local"

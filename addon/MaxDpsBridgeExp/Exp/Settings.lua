@@ -410,7 +410,10 @@ function S.RefreshDebug ()
   Lines[#Lines + 1] = ("effective mask: 0x%04X"):format(Mask);
   Lines[#Lines + 1] = ("app epoch: %s"):format(tostring(Epoch));
   Lines[#Lines + 1] = ("blocked nibble: %s"):format(tostring(Blocked));
-  Lines[#Lines + 1] = ("addon version: %s"):format(tostring(MDBX.VERSION));
+  local Version = tostring(MDBX.VERSION);
+  local Codename = tostring(MDBX.CODENAME or "");
+  if Codename ~= "" then Version = Version .. " (" .. Codename .. ")"; end;
+  Lines[#Lines + 1] = ("addon version: %s"):format(Version);
   Lines[#Lines + 1] = ("companion seen: %s"):format((type(Epoch) == "number" and Epoch ~= 0) and "yes" or "no");
   Lines[#Lines + 1] = ("console lines: %d"):format(#MDBX.Console.Lines);
   S.DebugText:SetText(table.concat(Lines, "\n"));

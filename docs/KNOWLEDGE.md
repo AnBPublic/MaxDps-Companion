@@ -626,7 +626,23 @@ See `docs/research/ABILITY_RESEARCH.md` §4 and its v2.1 addendum:
   There is no "save the kick for the dangerous cast" logic.
 - **Immune targets** are not observable (no flag in any safe API); a press
   the game rejects is handled by failure recovery (escalating suppression),
-  not by knowledge.
+  not by knowledge. v4.2.0 adds an estimated stun-ineffective latch: a stun
+  sent on a confirmed cast that leaves the target still casting ~800 ms later
+  is never auto-stunned again until target loss / out of combat.
+- **Crowd-control DR** is self-tracked, not game truth. The companion models
+  the 12.1.5 ladder (20 s reset from the end of the last application, halving
+  to 1/16, PvP immune after two) from its own (and the player's recognised)
+  applications. Other players' stuns are invisible, so the companion uses the
+  conservative PvP two-application cap on every target. See
+  `docs/research/CC_DR_12.1.5.md`.
+- **Another player's Polymorph/Blind** is unobservable: target auras are
+  secret/display-only in instances and the combat log is gone. The break-on-
+  damage guard covers the companion's own casts and the player's Ext4 hotbar
+  presses; the manual CC-hold hotkey/button is the fallback for party CC.
+- **Break-on-damage CC** (Blind, Gouge, Sap, Polymorph, Fear, Hex, Repentance)
+  is manual-only in 4.2.0. Holding the rotation stops new attacks, but bleeds,
+  poisons and other damage-over-time ticks already on the target can still
+  break the effect; the companion cannot see those debuffs.
 - **Movement / position** (XYZ, facing, ground effects) is not observable;
   gap closers only fire when the target is confirmed out of melee and the
   ability is confirmed in range, and escape/repositioning utilities are

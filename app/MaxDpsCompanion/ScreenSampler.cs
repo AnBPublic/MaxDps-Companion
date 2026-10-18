@@ -65,70 +65,44 @@ internal sealed class ScreenSampler : IDisposable
         PixelProtocol.CellCount,
     };
 
-    /// <summary>
-    /// Ext3 (v3.5) mirror for the toggle-sync consumer: the in-game 14-bit
-    /// toggle mask, its 4-bit epoch and 4-bit blocked nibble, decoded from the
-    /// most recent capture. Null for a 40-cell Ext2 or 35-cell core addon
-    /// (cell 28 B bit2 clear), a missing/torn block, or before the first
-    /// decode. <see cref="Ext3MirrorPresent"/> is the raw presence bit, so a
-    /// consumer can tell "block advertised but failed checksum" from "no Ext3".
-    /// </summary>
-    public Ext3Block? Ext3Mirror { get; private set; }
-
-    /// <summary>True when the last capture's cell 28 B bit2 advertised an Ext3 block (even if its checksum failed).</summary>
-    public bool Ext3MirrorPresent { get; private set; }
-
-    public Color[] Sample(Point origin, int cellSize) =>
-        Sample(origin, cellSize, profile: null);
+    // 4.1 A2.3: the sampler no longer decodes the captured frame a second time.
+    // It used to fill Ext3Mirror / Ext3MirrorPresent here and NOTHING in the
+    // Windows app ever read them (the engine decodes the returned cells once
+    // and now owns the mirror via ToggleMirror). One capture = one decode.
 
     /// <summary>
-    /// Profile-aware capture: decodes the frame once and refreshes the Ext3
-    /// mirror (mask/epoch/blocked) so the toggle-sync consumer can read the
-    /// in-game toggle state. The 2-arg overload uses the legacy nibble scale;
-    /// a learned-profile consumer should pass <paramref name="profile"/>.
+    /// 4.1 A2.12: what the last capture produced (sampled / minimized / black).
     /// </summary>
-    public Color[] Sample(Point origin, int cellSize, ColorProfile? profile)
+    public CaptureOutcome LastOutcome { get; private set; } = CaptureOutcome.Sampled;
+
+    /// <summary>
+    /// Minimized-window probe seam (defaults to IsIconic). Checked BEFORE the
+    /// BitBlt: a minimized client cannot be captured and the copy would only
+    /// burn a full-width blit for a black frame.
+    /// </summary>
+    public Func<IntPtr, bool> IsMinimizedProbe { get; set; } = Native.IsIconic;
+
+    /// <summary>True once a capture surface (screen DC) has been acquired. Diagnostics/tests only.</summary>
+    internal bool HasSurface => _screenDc != IntPtr.Zero;
+
+    public Color[] Sample(Point origin, int cellSize) => Sample(origin, cellSize, IntPtr.Zero);
+
+    /// <summary>
+    /// Captures the strip for <paramref name="window"/>: skips the blit when the
+    /// window is minimized and classifies an all-black capture as occluded.
+    /// </summary>
+    public Color[] Sample(Point origin, int cellSize, IntPtr window)
     {
+        if (window != IntPtr.Zero && IsMinimizedProbe(window))
+        {
+            LastOutcome = CaptureOutcome.Minimized;
+            return new Color[PixelProtocol.CellCountExt4];
+        }
+
         var cells = SampleCells(origin, cellSize, (x, y) => ReadPixel(x, y));
-        UpdateExt3Mirror(cells, profile);
+        LastOutcome = CaptureDiagnostics.IsBlackFrame(cells) ? CaptureOutcome.Black : CaptureOutcome.Sampled;
         return cells;
     }
-
-    /// <summary>
-    /// Samples a full client-area bitmap reader (used by the calibrate-pattern
-    /// learner) with the same per-cell rule.
-    /// </summary>
-    public static Color[] SampleRegion(Func<int, int, Color> read, int blockX, int blockY, int cellSize)
-    {
-        var colors = new Color[PixelProtocol.CellCountExt4];
-        for (var i = 0; i < PixelProtocol.CellCountExt4; i++)
-            colors[i] = SampleCell((x, y) => read(blockX + x, blockY + y), i, cellSize);
-        return colors;
-    }
-
-    /// <summary>
-    /// Decodes the captured frame and refreshes the Ext3 mirror. Best-effort:
-    /// a null/profile-less decode leaves both Ext3 mirror fields cleared rather
-    /// than reporting a stale block.
-    /// </summary>
-    private void UpdateExt3Mirror(Color[] cells, ColorProfile? profile)
-    {
-        var frame = PixelProtocol.Decode(cells, profile);
-        Ext3Mirror = frame?.Ext3;
-        Ext3MirrorPresent = frame?.Ext3Present ?? false;
-    }
-
-    public static Color[] SampleRegionV1(Func<int, int, Color> read, int blockX, int blockY, int cellSize)
-    {
-        var colors = new Color[PixelProtocol.CellCountV1];
-        for (var i = 0; i < PixelProtocol.CellCountV1; i++)
-            colors[i] = SampleCell((x, y) => read(blockX + x, blockY + y), i, cellSize);
-        return colors;
-    }
-
-    /// <summary>v1-width capture (8 cells) for the stale-addon fallback.</summary>
-    public Color[] SampleV1(Point origin, int cellSize) =>
-        SampleCells(origin, cellSize, PixelProtocol.CellCountV1, (x, y) => ReadPixel(x, y));
 
     private Color[] SampleCells(Point origin, int cellSize, Func<int, int, Color> read) =>
         // Ext4 (v4.0.3): capture the full 51-cell frame in one BitBlt so the
@@ -181,8 +155,7 @@ internal sealed class ScreenSampler : IDisposable
     public void Reset()
     {
         ReleaseSurface();
-        Ext3Mirror = null;
-        Ext3MirrorPresent = false;
+        LastOutcome = CaptureOutcome.Sampled;
         if (_screenDc != IntPtr.Zero)
         {
             Native.ReleaseDC(IntPtr.Zero, _screenDc);
@@ -192,26 +165,6 @@ internal sealed class ScreenSampler : IDisposable
 
     private Color SampleCellInstance(Func<int, int, Color> read, int cell, int cellSize) =>
         cellSize < MedianMinCellSize ? CentrePixel(read, cell, cellSize) : MedianSample(read, cell, cellSize);
-
-    private static Color SampleCell(Func<int, int, Color> read, int cell, int cellSize) =>
-        cellSize < MedianMinCellSize ? CentrePixel(read, cell, cellSize) : MedianSampleStatic(read, cell, cellSize);
-
-    /// <summary>Allocating variant for the static region paths (learner).</summary>
-    private static Color MedianSampleStatic(Func<int, int, Color> read, int cell, int cellSize)
-    {
-        var cx = cell * cellSize + cellSize / 2;
-        var cy = cellSize / 2;
-        var t0 = read(cx, cy);
-        var t1 = read(Math.Max(cell * cellSize, cx - 1), cy);
-        var t2 = read(Math.Min(cell * cellSize + cellSize - 1, cx + 1), cy);
-        var t3 = read(cx, Math.Max(0, cy - 1));
-        var t4 = read(cx, Math.Min(cellSize - 1, cy + 1));
-        var r = new[] { t0.R, t1.R, t2.R, t3.R, t4.R };
-        var g = new[] { t0.G, t1.G, t2.G, t3.G, t4.G };
-        var b = new[] { t0.B, t1.B, t2.B, t3.B, t4.B };
-        Array.Sort(r); Array.Sort(g); Array.Sort(b);
-        return Color.FromArgb(r[2], g[2], b[2]);
-    }
 
     private Color MedianSample(Func<int, int, Color> read, int cell, int cellSize)
     {

@@ -38,5 +38,8 @@ internal static class DesignTokens
     public const float MicroSize = 8F;
 }
 
-/// <summary>Semantic status tones; never used as the only signal (glyph/text accompanies).</summary>
-internal enum StatusTone { Neutral, Success, Warning, Danger, Info, Muted }
+/// <summary>
+/// Semantic status tones; never used as the only signal (glyph/text accompanies).
+/// Wave B: declared ONCE in MaxDpsCompanion.Core (StatusTone.cs) and consumed
+/// here through the project reference - the duplicate declaration moved there.
+/// </summary>

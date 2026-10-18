@@ -225,7 +225,7 @@ function MDBX.Diag ()
       if OkInfo and ActionType == "spell" then SlotHit = SlotHit + 1; end
     end
     return ("diag spells=%d withHotKey=%d e.g.%s bars={%s} spellSlots=%d/180 proto=%d")
-      :format(Count, WithHotKey, HotKeyText, table.concat(BarHit, ","), SlotHit, 2);
+      :format(Count, WithHotKey, HotKeyText, table.concat(BarHit, ","), SlotHit, 5);
   end);
   if OkDiag and type(Msg) == "string" then DiagPrint(Msg);
   else DiagPrint("diag failed (taint-contained, no state touched)"); end
@@ -443,19 +443,49 @@ end
 -- lookups per 50 ms tick, all allocating Lua garbage inside the game's
 -- frame budget (GC pressure = WoW frametime spikes). Bridge.Update now
 -- calls MDBX.BeginTick() once; the first getter computes, the rest reuse.
-local Tick = { Gen = 0, Flags = nil, FlagsOwner = nil, Items = nil, Class = nil, ClassFile = nil, Spec = nil, SpecID = nil };
+--
+-- 4.1.0 (A1.3) extends the SAME table with the three per-tick helper memos the
+-- slot scan hammers: SpellVariants (each evaluation probes 3 client APIs per
+-- variant), KnownSpell (2 probes) and IsSpellReady (cooldown + usable). They
+-- are gated by Tick.Active: Bridge brackets its scan with BeginTick/EndTick,
+-- and a caller OUTSIDE that window (tests, /mdb heal, HotbarWatch's own
+-- bracket) always observes live readiness — a memo can never serve a stale
+-- answer to a direct call.
+local Tick = {
+  Gen = 0, Flags = nil, FlagsOwner = nil, Items = nil,
+  Class = nil, ClassFile = nil, Spec = nil, SpecID = nil,
+  Active = false,
+  Variants = {}, Known = {}, Ready = {}, Pools = {},
+};
+
+-- Sentinel for "the probe answered nil" inside the Known memo (nil cannot be
+-- stored as a table value).
+local NIL_MEMO = {};
 
 function MDBX.BeginTick ()
   Tick.Gen = Tick.Gen + 1;
   Tick.Flags, Tick.FlagsOwner, Tick.Items = nil, nil, nil;
   Tick.Class, Tick.ClassFile, Tick.Spec, Tick.SpecID = nil, nil, nil, nil;
+  Tick.Active = true;
+  -- Reuse the memo tables (no per-tick allocation); clearing the fields keeps
+  -- the GC flat, which is the whole point of the memo.
+  wipe(Tick.Variants);
+  wipe(Tick.Known);
+  wipe(Tick.Ready);
+  wipe(Tick.Pools);
+end
+
+function MDBX.EndTick ()
+  Tick.Active = false;
 end
 
 local function ScrubbedFlags ()
   local MaxDps = MaxDpsEngine();
   if not MaxDps then return nil, nil; end
-  -- Per-tick memo (see Tick above).
-  if Tick.FlagsOwner == MaxDps and Tick.Flags ~= nil then
+  -- Per-tick memo (see Tick above). Gated on Tick.Active like the A1.3 memos:
+  -- a direct call between BeginTick/EndTick (e.g. a /mdb diagnostic) must not
+  -- be served a table captured in an earlier tick.
+  if Tick.Active and Tick.FlagsOwner == MaxDps and Tick.Flags ~= nil then
     return Tick.Flags, MaxDps;
   end
   local Flags = MaxDps.Flags;
@@ -485,8 +515,9 @@ local function ClassSpec ()
   local MaxDps = MaxDpsEngine();
   if not MaxDps then return nil; end
   -- Per-tick memo (see Tick above): resolved once per update, not once per
-  -- candidate spell (CategoryOf calls this for every flagged spell).
-  if Tick.Class == MaxDps then return MaxDps, Tick.ClassFile, Tick.Spec, Tick.SpecID; end
+  -- candidate spell (CategoryOf calls this for every flagged spell). Gated on
+  -- Tick.Active so a direct call outside the tick window reads live.
+  if Tick.Active and Tick.Class == MaxDps then return MaxDps, Tick.ClassFile, Tick.Spec, Tick.SpecID; end
   if type(UnitClass) ~= "function" then return nil; end
   local OkC, _, classFile = pcall(UnitClass, "player");
   if not OkC or not classFile then return nil; end
@@ -613,7 +644,9 @@ end
 -- raw MaxDps tables), so keys are proven non-secret — plain compares.
 local function ItemSpellIDs ()
   local MaxDps = MaxDpsEngine();
-  if Tick.Items ~= nil then return Tick.Items; end
+  -- Gated on Tick.Active (like the other Tick memos): between ticks the table
+  -- is rebuilt from live upstream state instead of being served stale.
+  if Tick.Active and Tick.Items ~= nil then return Tick.Items; end
   local Out = {};
   if MaxDps and MaxDps.ItemSpells then
     local CleanItems;
@@ -860,8 +893,18 @@ end
 --- no entry guard needed; type check is pure Lua on our own data.
 function MDBX.IsSpellReady (SpellID)
   if type(SpellID) ~= "number" or SpellID == 0 then return false; end
-  if not CooldownReady(SpellID) then return false; end
-  return UsableNow(SpellID);
+  -- A1.3: readiness is re-read once per Bridge tick, never across ticks. The
+  -- scan asks for the same candidate many times (WriteSlot gate, FirstFlagged,
+  -- WalkCurated, Extras), which used to mean 4-6 cooldown probes per slot.
+  if not Tick.Active then
+    if not CooldownReady(SpellID) then return false; end
+    return UsableNow(SpellID);
+  end
+  local Hit = Tick.Ready[SpellID];
+  if Hit ~= nil then return Hit; end
+  local Ready = CooldownReady(SpellID) and UsableNow(SpellID);
+  Tick.Ready[SpellID] = Ready;
+  return Ready;
 end
 
 --- Interrupt slots need a live, interruptible cast on the target — the
@@ -933,7 +976,7 @@ end
 --
 -- Every API call is pcall-contained and every return scrubbed: a secret or
 -- failed probe simply contributes nothing (never a compare, never a throw).
-local function KnownSpell (SpellID)
+local function KnownSpellUncached (SpellID)
   -- true / false / nil (UNKNOWN when neither API answers). Callers fail open
   -- on nil: an unobservable id is treated as eligible, never as absent.
   if type(SpellID) ~= "number" or SpellID <= 0 then return false; end
@@ -956,6 +999,20 @@ local function KnownSpell (SpellID)
   return nil;
 end
 
+-- A1.3: one client probe per spell per Bridge tick (see Tick above).
+local function KnownSpell (SpellID)
+  if type(SpellID) ~= "number" or SpellID <= 0 then return false; end
+  if not Tick.Active then return KnownSpellUncached(SpellID); end
+  local Hit = Tick.Known[SpellID];
+  if Hit ~= nil then
+    if Hit == NIL_MEMO then return nil; end
+    return Hit;
+  end
+  local Result = KnownSpellUncached(SpellID);
+  if Result == nil then Tick.Known[SpellID] = NIL_MEMO; else Tick.Known[SpellID] = Result; end
+  return Result;
+end
+
 --[[*
   * @function MDBX.SpellVariants
   * @desc Every plain-number id this ability may be known under, de-duplicated
@@ -965,6 +1022,14 @@ end
   *]]
 function MDBX.SpellVariants (SpellID)
   if type(SpellID) ~= "number" or SpellID <= 0 then return {}; end
+  -- A1.3: one expansion per spell per Bridge tick. Callers only iterate the
+  -- returned array (HotKeyBinding, FindSpellOnActionBar, TextureBinding,
+  -- ActiveVariant, IsNeverAutomatic), so sharing it is safe.
+  local Memo = Tick.Active and Tick.Variants or nil;
+  if Memo then
+    local Hit = Memo[SpellID];
+    if Hit ~= nil then return Hit; end
+  end
   local Aliases = MDBX.SpellAliases;
   local Out, Seen, Queue = {}, {}, { SpellID };
   local Head = 1;
@@ -998,6 +1063,7 @@ function MDBX.SpellVariants (SpellID)
     Add(Probe(OverFn, Id));
     Add(Probe(GetOvFn, Id));
   end
+  if Memo then Memo[SpellID] = Out; end
   return Out;
 end
 
@@ -1228,30 +1294,16 @@ local function FindSpellOnActionBar (SpellID)
 end
 
 -- Mirrors SpellFrame.lua GetKeybindForSpell: slot -> binding command.
+-- 4.1.0 (A1.11): the slot -> command table lives in Keymap.lua and is shared
+-- with HotbarWatch.lua, cited against the documented Blizzard layout
+-- (warcraft.wiki.gg/wiki/Action_slot). Slots 073-144 are bonus/stance/vehicle
+-- slots with no ACTIONBUTTON-family command, so they return nil here and the
+-- callers fall through to the Bars texture map.
 local function GetKeybindForSpell (SpellID)
   local Slot = FindSpellOnActionBar(SpellID);
   if not Slot then return nil; end
-  local Button = ((Slot - 1) % 12) + 1;
-  local Command = nil;
-  if Slot <= 12 then
-    Command = "ACTIONBUTTON" .. Button;
-  elseif Slot <= 24 then
-    Command = "MULTIACTIONBAR1BUTTON" .. Button;
-  elseif Slot <= 36 then
-    Command = "MULTIACTIONBAR3BUTTON" .. Button;
-  elseif Slot <= 48 then
-    Command = "MULTIACTIONBAR4BUTTON" .. Button;
-  elseif Slot <= 60 then
-    Command = "MULTIACTIONBAR2BUTTON" .. Button;
-  elseif Slot <= 72 then
-    Command = "MULTIACTIONBAR1BUTTON" .. Button;
-  elseif Slot <= 156 then
-    Command = "MULTIACTIONBAR5BUTTON" .. Button;
-  elseif Slot <= 168 then
-    Command = "MULTIACTIONBAR6BUTTON" .. Button;
-  elseif Slot <= 180 then
-    Command = "MULTIACTIONBAR7BUTTON" .. Button;
-  end
+  if type(MDBX.SlotCommand) ~= "function" then return nil; end
+  local Command = MDBX.SlotCommand(Slot);
   if not Command then return nil; end
   return GetBindingKey(Command);
 end
@@ -1321,6 +1373,13 @@ end
 -- (via MDBX.InvalidateBindings) and by MaxDps:Fetch/category hooks.
 -- SpellIDs arrive from scrubbed scans (proven plain); keys are our own
 -- plain data. Pure-Lua type check only.
+-- A1.1 DECISION (no Miss TTL added): a cached Miss above depends only on the
+-- four binding sources — overlay HotKey text, the SpellFrame bindText, the
+-- action-bar scan and the Bars texture map. Cooldown state is read ONLY by
+-- IsSpellReady, and every call site gates readiness BEFORE resolving a
+-- binding (WriteSlot, FirstFlagged, WalkCurated, ExtraCandidates), so a Miss
+-- can never be caused by "not ready" and SPELL_UPDATE_COOLDOWN therefore only
+-- bumps _BindRevision (see Bars.lua) instead of wiping this cache.
 function MDBX.ResolveBinding (SpellID)
   if type(SpellID) ~= "number" or SpellID == 0 then return nil, 0; end
   MDBX._BindCache = MDBX._BindCache or {};
@@ -1895,11 +1954,12 @@ local function WalkCurated (List, Count, Seen, SkipBoss)
       local Active = MDBX.ActiveVariant(Entry);
       if type(Active) == "number" and Active > 0 and not Seen[Active]
         and not MDBX.IsNeverAutomatic(Active) then
-        local Ready = false;
-        pcall(function () Ready = MDBX.IsSpellReady(Active) == true; end);
+        local OkReady, IsReady = pcall(MDBX.IsSpellReady, Active);
+        local Ready = (OkReady and IsReady == true);
         local Bound = false;
         if MDBX.ResolveBinding then
-          pcall(function () Bound = MDBX.ResolveBinding(Active) ~= nil; end);
+          local OkBind, VK = pcall(MDBX.ResolveBinding, Active);
+          Bound = (OkBind and VK ~= nil);
         end
         if Ready and Bound then
           Seen[Active] = true;
@@ -1920,6 +1980,15 @@ function MDBX.RotationCandidates (Slot, Count)
   Count = tonumber(Count) or 4;
   if Count > 4 then Count = 4 end;
   if Count < 1 then return {}; end
+  -- A1.3: Bridge asks for slots 3/6/7/8 inside one tick and the defensive
+  -- path re-walks the same lists; memoise per (slot, count) for that tick
+  -- only. Callers only read the array.
+  local MemoKey = nil;
+  if Tick.Active and type(Slot) == "number" then
+    MemoKey = Slot * 8 + Count;
+    local Hit = Tick.Pools[MemoKey];
+    if Hit ~= nil then return Hit; end
+  end
   local Out, Seen = {}, {};
   local function Append (List, SkipBoss)
     if #Out >= Count then return; end
@@ -1963,6 +2032,7 @@ function MDBX.RotationCandidates (Slot, Count)
       Append(Slot == 7 and Table.mobility or Table.selfHeal);
     end
   end
+  if MemoKey then Tick.Pools[MemoKey] = Out; end
   return Out;
 end
 
@@ -2219,136 +2289,264 @@ function MDBX.GetExtrasDiag ()
   return table.concat(Parts, " ");
 end
 
---- ======= PERFORMANCE: SLOT-INTENT CHANGE KEY (Stream 2, bridge 3.4.0) =======
+--- ======= PERFORMANCE: SLOT-INTENT CHANGE KEY (Stream 2, 3.4.0; A1.2 4.1.0) ===
 -- Bridge.Update caches the encoded slot candidates and recomputes that scan
--- only when this key changes (see Bridge.lua PERF block). The key is built
--- from cheap, pcall-contained reads ONLY:
---   * scalar suggestion values (MaxDps.Spell),
---   * order-independent numeric hashes / counts of the flagged sets,
---   * table + function identities and list shapes (binding / readiness /
---     variant resolvers, per-spec curated lists),
---   * the binding revision and the toggle table.
--- It NEVER copies or scrubs an upstream table, never runs a secret compare
--- outside pcall, and never allocates more than the returned string. Sensor
--- cells (vitals, cast, target, range, aura, class/spec, urgency, HP curve)
--- are recomputed every tick regardless, so only the candidate scan is skipped.
--- Returns nil when the key cannot be computed safely; Bridge then falls back
--- to a full recompute (fail-open, identical behaviour).
-function MDBX.FrameKey ()
-  local function KeyIdent (V)
-    if type(issecretvalue) == "function" then
-      local OkSecret, Secret = pcall(issecretvalue, V);
-      if OkSecret and Secret then return "secret"; end
+-- only when this key changes (see Bridge.lua PERF block). 4.1.0 replaced the
+-- per-tick STRING build (25+ substrings + tostring() on every function) with a
+-- numeric fold, and replaced the RAW player HP with the exact DECISION EDGES
+-- the scan branches on, so HP drift inside a band no longer forces a rescan:
+--   * UrgencyFromFraction (HP<=30 Red, <50 Orange, <100 Yellow, 100 White),
+--   * the Solo emergency test (Toggles EMERGENCY_HP = 35, i.e. "Hp > 35"),
+--   * the Solo ladder bands 75/50/30 (armed only while SoloLadderBands is set),
+--   * the stagger stage (GetStaggerUrgency, 0-4).
+-- It also adds the inputs FrameKey was MISSING (the stale-cache bug): the
+-- Ctx.InCombat / Ctx.Grouped booleans Bridge passes to Toggles.SlotAllowed (the
+-- OOC master and the Solo gate both branch on them), and the app toggle
+-- mask/epoch. Crossing 50 % still repins the Defensive slot independently
+-- (Bridge's DefPin -> RotationTick invalidation is unchanged).
+-- It NEVER copies or scrubs an upstream table, never does arithmetic on a value
+-- the secret check did not clear, and allocates nothing per call: the key is a
+-- plain number. Returns nil when the key cannot be computed safely; Bridge
+-- then falls back to a full recompute (fail-open, identical behaviour).
+
+local FRAMEKEY_MOD = 4294967291;   -- prime < 2^32: Acc*4099 stays an exact int
+local ID_SECRET, ID_NIL, ID_FALSE, ID_TRUE = 1, 2, 3, 4;
+
+-- Object identity -> small integer, so tables/functions hash without the
+-- tostring() allocation the old key relied on. Weak keys: a collected object
+-- simply loses its id, and a new object always gets a fresh one.
+local IdentIds = setmetatable({}, { __mode = "k" });
+local NextIdent = 0;
+
+--[[* @function KeyFold
+  * @desc Fold one value of any type into the numeric accumulator.
+  *]]
+local function KeyFold (Acc, Value)
+  local T = type(Value);
+  if T == "boolean" then
+    return (Acc * 4099 + (Value and ID_TRUE or ID_FALSE)) % FRAMEKEY_MOD;
+  end
+  if T == "nil" then
+    return (Acc * 4099 + ID_NIL) % FRAMEKEY_MOD;
+  end
+  -- A SECRET value must hash to a FIXED sentinel: two different hidden values
+  -- have to produce the same key, or the cached slot scan would be defeated on
+  -- every tick. The old KeyIdent's issecretvalue branch is KEPT: the plan made
+  -- removing it conditional on proving tostring(secret) stable, and the
+  -- offline model deliberately throws in __tostring, so nothing here can prove
+  -- it. pcall-contained like the rest of this file.
+  if type(issecretvalue) == "function" then
+    local OkS, IsSecret = pcall(issecretvalue, Value);
+    if OkS and IsSecret then return (Acc * 4099 + ID_SECRET) % FRAMEKEY_MOD; end
+  end
+  if T == "number" then
+    local N = math.floor(Value);              -- ids / counts / pct are integral
+    if N ~= N or N < 0 then N = 0; end        -- NaN / negative guard
+    return (Acc * 4099 + (N % 4294967296)) % FRAMEKEY_MOD;
+  end
+  if T == "string" then
+    local A = Acc;
+    for i = 1, #Value do A = (A * 4099 + string.byte(Value, i)) % FRAMEKEY_MOD; end
+    return A;
+  end
+  if T == "table" or T == "function" or T == "userdata" or T == "thread" then
+    -- Identity, not contents: a replaced table/function is a different
+    -- resolver. (tostring() used to allocate "table: 0x..." per call.)
+    local Id = IdentIds[Value];
+    if Id == nil then
+      NextIdent = NextIdent + 1;
+      Id = NextIdent + 16;
+      IdentIds[Value] = Id;
     end
-    local Ok, S = pcall(tostring, V);
-    if Ok then return S; end
-    return type(V);
+    return (Acc * 4099 + Id) % FRAMEKEY_MOD;
   end
-  local function KeyCount (T)
-    if type(T) ~= "table" then return -1; end
-    local N = 0;
-    local Ok = pcall(function () for _ in pairs(T) do N = N + 1; end end);
-    if not Ok then return -1; end
-    return N;
-  end
-  -- Sum of numeric keys whose value is boolean true. A secret value is not a
-  -- boolean and the compare is `==` against a boolean, which never invokes a
-  -- number/table metamethod; the whole loop is pcall-contained anyway.
-  local function KeyHash (T)
-    if type(T) ~= "table" then return -1; end
-    local Sum = 0;
-    local Ok = pcall(function ()
-      for K, V in pairs(T) do
-        if type(K) == "number" and type(V) == "boolean" and V == true then Sum = Sum + K; end
-      end
-    end);
-    if not Ok then return -1; end
-    return Sum;
-  end
-  local function KeyList (List)
-    if type(List) ~= "table" then return "nil"; end
-    local Ok, N = pcall(function () return #List; end);
-    return KeyIdent(List) .. "#" .. (Ok and N or -1);
-  end
+  return (Acc * 4099 + ID_NIL) % FRAMEKEY_MOD;
+end
 
+-- pcall cores (file-scope, so no closure is allocated per fold). A table with
+-- a hostile __pairs / secret numeric key throws; the fold then degrades to a
+-- fixed sentinel exactly like the old per-call closures did.
+local function CountCore (T)
+  local N = 0;
+  for _ in pairs(T) do N = N + 1; end
+  return N;
+end
+
+local function TrueNumericKeySumCore (T)
+  local Sum = 0;
+  for K, V in pairs(T) do
+    if type(K) == "number" and type(V) == "boolean" and V == true then Sum = Sum + K; end
+  end
+  return Sum;
+end
+
+local function LengthCore (List) return #List; end
+
+local function KeyFoldCount (Acc, T)
+  if type(T) ~= "table" then return (Acc * 4099 + 1) % FRAMEKEY_MOD; end
+  local Ok, N = pcall(CountCore, T);
+  return (Acc * 4099 + (Ok and N or 0)) % FRAMEKEY_MOD;
+end
+
+local function KeyFoldFlagHash (Acc, T)
+  if type(T) ~= "table" then return (Acc * 4099 + 1) % FRAMEKEY_MOD; end
+  local Ok, Sum = pcall(TrueNumericKeySumCore, T);
+  if not Ok or type(Sum) ~= "number" then Sum = 0; end
+  return (Acc * 4099 + (Sum % 4294967296)) % FRAMEKEY_MOD;
+end
+
+local function KeyFoldList (Acc, List)
+  if type(List) ~= "table" then return KeyFold(Acc, List); end
+  local Ok, N = pcall(LengthCore, List);
+  Acc = KeyFold(Acc, List);                 -- identity
+  return (Acc * 4099 + (Ok and N or 0)) % FRAMEKEY_MOD;
+end
+
+function MDBX.FrameKey (Ctx)
   local MaxDps = MaxDpsEngine();
-  if not MaxDps then return nil; end;
+  if not MaxDps then return nil; end
   local _, classFile, specName = ClassSpec();
-  local Parts = {};
-  local function P (Label, Value) Parts[#Parts + 1] = Label .. "=" .. Value; end
 
-  P("spell", KeyIdent(MaxDps.Spell));
-  P("glow", KeyIdent(MaxDps.SpellsGlowing) .. "#" .. KeyCount(MaxDps.SpellsGlowing));
-  P("spells", KeyIdent(MaxDps.Spells) .. "#" .. KeyCount(MaxDps.Spells));
-  P("flags", KeyCount(MaxDps.Flags) .. "@" .. KeyHash(MaxDps.Flags));
-  P("items", KeyIdent(MaxDps.ItemSpells) .. "#" .. KeyCount(MaxDps.ItemSpells));
-  P("cls", KeyIdent(classFile));
-  P("spec", KeyIdent(specName));
+  local H = 2166136261;
+  H = KeyFold(H, MaxDps.Spell);
+  H = KeyFold(H, MaxDps.SpellsGlowing); H = KeyFoldCount(H, MaxDps.SpellsGlowing);
+  H = KeyFold(H, MaxDps.Spells);        H = KeyFoldCount(H, MaxDps.Spells);
+  H = KeyFoldCount(H, MaxDps.Flags);    H = KeyFoldFlagHash(H, MaxDps.Flags);
+  H = KeyFold(H, MaxDps.ItemSpells);    H = KeyFoldCount(H, MaxDps.ItemSpells);
+  H = KeyFold(H, classFile);
+  H = KeyFold(H, specName);
 
   local CDs = MaxDps.classCooldowns and classFile and MaxDps.classCooldowns[classFile]
     and MaxDps.classCooldowns[classFile][specName];
-  P("def", KeyList(CDs and CDs.defensive));
-  P("off", KeyList(CDs and CDs.offensive));
+  H = KeyFoldList(H, CDs and CDs.defensive);
+  H = KeyFoldList(H, CDs and CDs.offensive);
   local Ints = MaxDps.classInterrupts and classFile and MaxDps.classInterrupts[classFile]
     and MaxDps.classInterrupts[classFile][specName];
-  P("int", KeyList(Ints));
+  H = KeyFoldList(H, Ints);
   local Global = MaxDps.db and MaxDps.db.global;
-  P("cdOn", KeyIdent(Global and Global.enableCooldowns));
-  P("defOn", KeyIdent(Global and Global.enableDefensives));
+  H = KeyFold(H, Global and Global.enableCooldowns);
+  H = KeyFold(H, Global and Global.enableDefensives);
 
   local Extra = MDBX.Extras and classFile and MDBX.Extras[classFile]
     and MDBX.Extras[classFile][specName];
-  P("x", Extra and (KeyList(Extra.mobility) .. KeyList(Extra.selfHeal)
-    .. KeyList(Extra.offensive) .. KeyList(Extra.defensive)
-    .. KeyList(Extra.defensiveMajor) .. KeyList(Extra.defensiveMinor)
-    .. KeyList(Extra.immunity) .. KeyList(Extra.cc)) or "nil");
-
-  P("bind", KeyIdent(MDBX._BindCache) .. "#" .. KeyCount(MDBX._BindCache)
-    .. "@" .. KeyIdent(MDBX._BindRevision));
-  do
-    local OkHp, Hp = pcall(MDBX.GetPlayerHpPct);
-    P("hp", OkHp and KeyIdent(Hp) or "?");
+  if Extra then
+    H = KeyFoldList(H, Extra.mobility);
+    H = KeyFoldList(H, Extra.selfHeal);
+    H = KeyFoldList(H, Extra.offensive);
+    H = KeyFoldList(H, Extra.defensive);
+    H = KeyFoldList(H, Extra.defensiveMajor);
+    H = KeyFoldList(H, Extra.defensiveMinor);
+    H = KeyFoldList(H, Extra.immunity);
+    H = KeyFoldList(H, Extra.cc);
+  else
+    H = KeyFold(H, 0);
   end
+
+  H = KeyFold(H, MDBX._BindCache);
+  -- NOTE (A1.2): the cache's entry COUNT is deliberately not folded. The cache
+  -- is an OUTPUT of the scan: a tick that resolves new bindings grows it, so
+  -- folding the count made the very next tick look dirty and rescanned for
+  -- nothing. Entry identity plus _BindRevision (bumped by every wipe) is the
+  -- real input; the resolved value for an id never depends on cache contents.
+  H = KeyFold(H, MDBX._BindRevision);
+
+  -- HP: only the DECISION EDGES (A1.2). The raw percentage changed on every
+  -- tick the player took damage, forcing a full slot rescan for no decision
+  -- change; these folds flip exactly when a branch in the scan flips.
+  local Hp = nil;
+  do
+    local OkHp, Pct = pcall(MDBX.GetPlayerHpPct);
+    if OkHp and type(Pct) == "number" then Hp = Pct; end
+  end
+  if Hp ~= nil then
+    H = KeyFold(H, UrgencyFromFraction(Hp / 100));   -- 30 / 50 / 100 edges
+    H = KeyFold(H, (Hp <= 35) and 1 or 0);           -- EMERGENCY_HP (Toggles)
+    H = KeyFold(H, (Hp <= 75) and 1 or 0);           -- Solo minor band
+    H = KeyFold(H, (Hp <= 50) and 1 or 0);           -- Solo major band
+    H = KeyFold(H, (Hp <= 30) and 1 or 0);           -- Solo immunity band
+  else
+    H = KeyFold(H, -1);                              -- unreadable HP = UNKNOWN
+  end
+  do
+    local OkS, Stagger = pcall(MDBX.GetStaggerUrgency);
+    H = KeyFold(H, (OkS and type(Stagger) == "number") and Stagger or -1);
+  end
+
   local Bands = MDBX.SoloLadderBands;
   if type(Bands) == "table" then
-    P("solo", KeyIdent(Bands.minor) .. "," .. KeyIdent(Bands.major)
-      .. "," .. KeyIdent(Bands.immunity));
+    H = KeyFold(H, 1);
+    H = KeyFold(H, Bands.minor);
+    H = KeyFold(H, Bands.major);
+    H = KeyFold(H, Bands.immunity);
   else
-    P("solo", "nil");
+    H = KeyFold(H, 0);
   end
+
   local TG = MaxDpsBridgeExpDB and MaxDpsBridgeExpDB.Toggles;
   if type(TG) == "table" then
-    P("tg", KeyIdent(TG.Main) .. KeyIdent(TG.Offensive) .. KeyIdent(TG.Defensive)
-      .. KeyIdent(TG.Consumable) .. KeyIdent(TG.Trinket) .. KeyIdent(TG.Interrupt)
-      .. KeyIdent(TG.Mobility) .. KeyIdent(TG.SelfHeal) .. KeyIdent(TG.Solo)
-      .. KeyIdent(TG.OOC) .. KeyIdent(TG.AutoTarget) .. KeyIdent(TG.AutoInteract)
-      .. KeyIdent(TG.TTK));
+    H = KeyFold(H, TG.Main); H = KeyFold(H, TG.Offensive); H = KeyFold(H, TG.Defensive);
+    H = KeyFold(H, TG.Consumable); H = KeyFold(H, TG.Trinket); H = KeyFold(H, TG.Interrupt);
+    H = KeyFold(H, TG.Mobility); H = KeyFold(H, TG.SelfHeal); H = KeyFold(H, TG.Solo);
+    H = KeyFold(H, TG.OOC); H = KeyFold(H, TG.AutoTarget); H = KeyFold(H, TG.AutoInteract);
+    H = KeyFold(H, TG.TTK);
   else
-    P("tg", "nil");
+    H = KeyFold(H, -1);
   end
-  P("f", table.concat({
-    KeyIdent(_G.C_Spell and _G.C_Spell.GetSpellCooldown),
-    KeyIdent(_G.C_Spell and _G.C_Spell.GetSpellCooldownDuration),
-    KeyIdent(_G.C_Spell and _G.C_Spell.GetSpellCharges),
-    KeyIdent(_G.C_Spell and _G.C_Spell.IsSpellUsable),
-    KeyIdent(_G.C_SpellBook),
-    KeyIdent(_G.IsPlayerSpell),
-    KeyIdent(_G.FindBaseSpellByID),
-    KeyIdent(_G.FindSpellOverrideByID),
-    KeyIdent(_G.GetOverrideSpell),
-    KeyIdent(_G.GetMacroSpell),
-    KeyIdent(_G.GetActionInfo),
-    KeyIdent(_G.GetBindingKey),
-    KeyIdent(_G.GetSpellTexture),
-    KeyIdent(MDBX.BindingForTexture),
-    KeyIdent(MaxDps.IsSpellInRange),
-    KeyIdent(MDBX.GetMainSpellID),
-    KeyIdent(MDBX.GetOffensiveCandidate),
-    KeyIdent(MDBX.GetDefensiveCandidate),
-    KeyIdent(MDBX.ExtraCandidates),
-    KeyIdent(MDBX.ResolveBinding),
-    KeyIdent(MDBX.IsSpellReady),
-    KeyIdent(MDBX.IsInterruptReady),
-  }, ","));
-  return table.concat(Parts, "|");
+  -- The app-pushed defaults get/set the EFFECTIVE toggle Get() returns, and
+  -- Bridge's own DefPin / slot gates read that. Version covers every Set/Flip
+  -- (including the app mask + veto writers) in one cheap read.
+  if MDBX.Toggles then
+    local OkE, E = pcall(MDBX.Toggles.AppEpoch);
+    H = KeyFold(H, (OkE and type(E) == "number") and E or -1);
+    local OkM, M = pcall(MDBX.Toggles.AppMask);
+    H = KeyFold(H, (OkM and type(M) == "number") and M or -1);
+    local OkV, V = pcall(MDBX.Toggles.Version);
+    H = KeyFold(H, (OkV and type(V) == "number") and V or -1);
+  end
+
+  -- Ctx (A1.2): the SAME table Bridge passes to Toggles.SlotAllowed. A direct
+  -- caller without one reads the two APIs itself, so the key can never go
+  -- blind to combat/group state.
+  local InCombat, Grouped = nil, nil;
+  if type(Ctx) == "table" then
+    InCombat, Grouped = Ctx.InCombat, Ctx.Grouped;
+  else
+    if type(UnitAffectingCombat) == "function" then
+      local OkC, V = pcall(UnitAffectingCombat, "player");
+      if OkC then InCombat = (V == true); end
+    end
+    if type(IsInGroup) == "function" then
+      local OkG, V = pcall(IsInGroup);
+      if OkG then Grouped = (V == true); end
+    end
+  end
+  H = KeyFold(H, InCombat);
+  H = KeyFold(H, Grouped);
+
+  -- Resolver identities: a replaced client API or bridge helper changes the
+  -- candidate scan even when every table above is identical.
+  H = KeyFold(H, _G.C_Spell and _G.C_Spell.GetSpellCooldown);
+  H = KeyFold(H, _G.C_Spell and _G.C_Spell.GetSpellCooldownDuration);
+  H = KeyFold(H, _G.C_Spell and _G.C_Spell.GetSpellCharges);
+  H = KeyFold(H, _G.C_Spell and _G.C_Spell.IsSpellUsable);
+  H = KeyFold(H, _G.C_SpellBook);
+  H = KeyFold(H, _G.IsPlayerSpell);
+  H = KeyFold(H, _G.FindBaseSpellByID);
+  H = KeyFold(H, _G.FindSpellOverrideByID);
+  H = KeyFold(H, _G.GetOverrideSpell);
+  H = KeyFold(H, _G.GetMacroSpell);
+  H = KeyFold(H, _G.GetActionInfo);
+  H = KeyFold(H, _G.GetBindingKey);
+  H = KeyFold(H, _G.GetSpellTexture);
+  H = KeyFold(H, MDBX.BindingForTexture);
+  H = KeyFold(H, MaxDps.IsSpellInRange);
+  H = KeyFold(H, MDBX.GetMainSpellID);
+  H = KeyFold(H, MDBX.GetOffensiveCandidate);
+  H = KeyFold(H, MDBX.GetDefensiveCandidate);
+  H = KeyFold(H, MDBX.ExtraCandidates);
+  H = KeyFold(H, MDBX.ResolveBinding);
+  H = KeyFold(H, MDBX.IsSpellReady);
+  H = KeyFold(H, MDBX.IsInterruptReady);
+
+  return H;
 end

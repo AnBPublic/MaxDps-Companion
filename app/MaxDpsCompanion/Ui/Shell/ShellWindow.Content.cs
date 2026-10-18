@@ -149,6 +149,7 @@ public sealed partial class ShellWindow
         // MainForm.BuildConsoleHome :1023-1035.
         _consoleHome = new ConsoleHomeView();
         _consoleHome.PauseRequested += TogglePauseFromConsole;
+        _consoleHome.CcHoldRequested += ToggleCcHoldFromConsole;
         _consoleHome.FolderRequested += OpenAppFolder;
         _consoleHome.ConsoleToggleRequested += ToggleConsoleHome;
         _consoleHome.BindsRequested += () => ShowAdvancedTab(0);

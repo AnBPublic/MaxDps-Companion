@@ -33,7 +33,7 @@ internal static class AppVersionInfo
 
     /// <summary>
     /// Release codename from the AssemblyMetadata "Codename" attribute.
-    /// Falls back to "Unyielding" when the attribute is absent, so the title
+    /// Falls back to "Nightblade" when the attribute is absent, so the title
     /// can never render a bare "v3.7.9 ".
     /// </summary>
     public static string Codename
@@ -48,10 +48,10 @@ internal static class AppVersionInfo
         }
     }
 
-    private const string CodenameFallback = "Unyielding";
+    private const string CodenameFallback = "Nightblade";
 
     /// <summary>
-    /// Full display form used by the title bar: "v3.7.9 Unyielding". Never
+    /// Full display form used by the title bar: "v4.2.0 Nightblade". Never
     /// contains a build hash/time — those live in <see cref="BuildVersion"/>.
     /// </summary>
     public static string DisplayVersion => $"v{AppVersion} {Codename}";

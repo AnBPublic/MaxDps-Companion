@@ -522,9 +522,20 @@ internal sealed class InterruptCandidateProvider : ICandidateProvider
         var input = p.Input;
         if (PolicyEvaluator.InterruptVetoes(input) is { } veto)
             return D(veto, VetoEvidence(p));
+
+        // v4.2.0: a delegated CC row (Kidney Shot, Storm Bolt, ...) follows the
+        // same casting-only / DR / immunity rules as the curated CC provider.
+        // Without this, Kidney Shot bypasses the DR ladder because its registry
+        // status is Incomplete.
+        if (CrowdControlVetoes.InterruptFallbackVeto(input, p.Ability, p.Catalog) is { } ccVeto)
+            return D(ccVeto, "CC fallback veto");
+
         if (p.Range == TriState.No) return D(PolicyDecision.Unavailable("target out of ability range"), "target out of ability range");
         if (p.Range == TriState.Unknown && p.Ability.Unknown != UnknownPolicy.Use)
             return D(PolicyDecision.Uncertain("ability range unknown"), "ability range unknown");
+
+        // The DR application is recorded centrally in PolicyEvaluator.Known so
+        // the delegated path also covers providers other than Interrupt.
         return D(PolicyDecision.Use($"interrupt ({p.Ability.InterruptKind}): live interruptible cast, in range or range unknown"),
             "observed interruptible cast", $"kind {p.Ability.InterruptKind}");
     }
@@ -727,7 +738,9 @@ internal sealed class CrowdControlCandidateProvider : ICandidateProvider
             if (ccPolicy.OverrideOf(ability.SpellId) == false)
                 return D(PolicyDecision.Hold("user policy disabled"), "user policy");
         }
-
+        // v4.2.0: the global CC toggle is the opt-in for interrupt-fallback
+        // rows only. Break-on-damage CC is manual by role and is rejected by
+        // the AutoEligible check below; it can never be resurrected here.
         var entry = p.Catalog.CrowdControlFor(ctx.Class, ctx.Spec, ability.SpellId);
         if (entry is null || !entry.AutoEligible)
             return D(PolicyDecision.Hold("not a curated automatic crowd-control row"), "not curated CC");
@@ -767,15 +780,28 @@ internal sealed class CrowdControlCandidateProvider : ICandidateProvider
             return D(PolicyDecision.Hold($"casting-only crowd control {entry.Name}; no target cast observed"),
                 "casting-only: no target cast observed");
 
-        // Conservative same-category anti-chain memory (self-only, fail open).
-        if (entry.Dr != CcDrCategory.Unknown
-            && CrowdControlVetoes.Memory is { } memory
-            && memory.IsDiminished(entry.Dr, input.NowMs))
+        // 12.1.5 DR ladder (self-only, fail open). The conservative PvP rule is
+        // used for every target because the wire has no target-is-player bit:
+        // after two applications, a third stun is never generated.
+        if (entry.Dr == CcDrCategory.Stun && CrowdControlVetoes.StunIneffective)
             return D(PolicyDecision.Hold(
-                    $"same DR category ({entry.Dr}) used recently; not auto-chaining"),
-                $"DR memory: {entry.Dr} within window");
+                    "stun was ineffective on this target; not re-stunning (target may be immune)"),
+                "stun ineffective latch");
+        if (entry.Dr != CcDrCategory.Unknown && entry.BaseDurationMs > 0
+            && CrowdControlVetoes.Memory is { } memory)
+        {
+            var dr = memory.Evaluate(entry.Dr, input.NowMs, entry.BaseDurationMs, pvp: true);
+            if (dr.Immune)
+                return D(PolicyDecision.Hold(
+                        $"target immune to {entry.Kind} (DR {dr.Applications}/{CrowdControlDiminishing.PvpImmuneAfter})"),
+                    $"DR immune: {entry.Dr} {dr.Applications}/{CrowdControlDiminishing.PvpImmuneAfter}");
+            if (entry.Dr == CcDrCategory.Stun && dr.TooWeak(memory.MinimumUsefulMs))
+                return D(PolicyDecision.Hold(
+                        $"stun DR too deep ({dr.ExpectedDurationMs} ms < {memory.MinimumUsefulMs} ms)"),
+                    $"DR too weak: {dr.ExpectedDurationMs} ms");
+        }
 
-        CrowdControlVetoes.NoteUsed(entry.Dr, input.NowMs);
+        CrowdControlVetoes.NoteUsed(entry.Dr, input.NowMs, entry.BaseDurationMs);
         return D(PolicyDecision.Use(
                 $"{Describe(entry)} ({entry.Kind}/{entry.Dr}); target confirmed"),
             $"{entry.Kind} ({entry.Dr})", entry.IsAoe ? "AoE CC in combat" : "single-target CC");

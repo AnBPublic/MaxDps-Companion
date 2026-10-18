@@ -36,6 +36,47 @@ identity your grants survive rebuilds — with an ad-hoc signature they would be
 lost on every rebuild (which silently looks like "the companion stopped
 working").
 
+Before the app build the script also compiles and runs
+`native/selftest.swift` against the fresh dylib (synthetic strip: capture,
+43-cell pixel check, per-sample read cost). A compile error fails the build; a
+runtime `FAIL` normally means the *terminal* has no Screen Recording grant —
+grant it and re-run, or set `SELFTEST=0`. The bundle version comes from
+`app/Version.props` (never hardcoded).
+
+### Signing & notarization
+
+| Path | Identity | Used for |
+| :--- | :--- | :--- |
+| local dev | `MaxDPS Companion Local` (self-signed, `tools/mac-signing.sh`) | your own machine; TCC grants survive rebuilds |
+| release | `Developer ID Application: <Team> (<TEAMID>)` + hardened runtime | anything you hand to someone else; must be notarized |
+
+Release steps (manual, on a Mac with the Developer ID in the keychain):
+
+```sh
+# 1. Hardened runtime + Developer ID (notarization rejects otherwise).
+#    Add --entitlements <file> only if a runtime component needs JIT/unsigned
+#    memory (the .NET runtime ships signed; no file is committed for this).
+codesign --force --deep --options runtime \
+  --sign "Developer ID Application: <Team Name> (<TEAMID>)" \
+  "dist-mac/MaxDPS Companion.app"
+
+# 2. Notarize the zipped bundle and staple the ticket
+ditto -c -k --keepParent "dist-mac/MaxDPS Companion.app" dist-mac/MaxDPS-Companion.zip
+xcrun notarytool submit dist-mac/MaxDPS-Companion.zip \
+  --keychain-profile maxdps-notary --wait
+xcrun stapler staple "dist-mac/MaxDPS Companion.app"
+
+# 3. Verify what Gatekeeper will see
+spctl -a -vvv -t exec "dist-mac/MaxDPS Companion.app"
+```
+
+`notarytool` needs an app-specific password (or API key) stored once:
+`xcrun notarytool store-credentials maxdps-notary --apple-id <id> --team-id <TEAMID>`.
+The entitlements file is only required if a runtime component is unsigned
+(the .NET runtime ships signed); create it empty if `codesign` asks for it.
+**Notarization is OWED** until it is actually run — a local ad-hoc/self-signed
+build proves nothing about Gatekeeper.
+
 ## Permissions (required, both are per-app)
 
 | Permission | Needed for | Where |
@@ -45,8 +86,11 @@ working").
 
 The app prompts once via the OS when a capture is first attempted. `--probe`
 never prompts. Without Screen Recording the stream cannot start (the app says
-so; the capture backend reports `NOT granted`). Without Accessibility the
-rotation holds every send.
+so; the capture backend reports `NOT granted`) and **Start is refused** — the
+status line shows the missing grant and the engine is never started
+(`--run` exits with code 2). Without Accessibility the rotation still starts
+and holds every send until granted (system input is delivered per-process;
+without the grant the events are dropped by TCC).
 
 ## Capture design (performance contract)
 
@@ -56,12 +100,14 @@ The macOS client must not cost the game frames. Concretely:
   (`SCContentFilter(desktopIndependentWindow:)`), never a screen recording.
 * **Bounded region**: the stream is configured with a `sourceRect` that starts
   as a small locate band (1024×128 pt at the window's top-left corner) and
-  **shrinks to the discovered strip rect** (43 cells × cellSize + margin —
-  for the default 8 px cells that is ~352×16 pt ≈ 22 KB per frame). "As small
-  as possible, as big as necessary."
+  **shrinks to the discovered strip rect** (51 cells × cellSize + margin — the
+  Ext4 frame width, so the hotbar-map cells stay readable; for the default
+  8 px cells that is ~412×20 pt ≈ 33 KB per frame). "As small as possible, as
+  big as necessary."
 * **No capture call on the tick path.** The window server pushes frames
   asynchronously; the engine's sample is a seqlock read of the newest frame
-  (no syscall, no lock, no allocation). `queueDepth = 2`, so a busy consumer
+  (no syscall, no lock, no frame copy — only the small per-cell colour array
+  the shared sampler builds). `queueDepth = 2`, so a busy consumer
   drops frames instead of back-pressuring capture — the game is never blocked.
 * **Window-relative, screen-agnostic**: every coordinate is relative to the WoW
   window, so the same strip position works on the 1080p desktop monitor and on
@@ -107,7 +153,10 @@ display that needs it is visible rather than silent.
 
 * Keyboard: **`CGEventPostToPid`** — the stroke goes into the game's own event
   stream. The game needs no focus and strokes can never leak into another app
-  (the macOS counterpart of the Windows `PostMessage` route).
+  (the macOS counterpart of the Windows `PostMessage` route). There is **no
+  global fallback**: a keyboard stroke with no target pid is dropped, and a VK
+  the Mac cannot map is reported once per key (`unmapped VK n`) instead of
+  being silently skipped.
 * Mouse / wheel: global HID events (there is no per-process equivalent the game
   reads correctly), so the engine's foreground gate stays mandatory for them —
   identical to the Windows hybrid.
@@ -120,7 +169,7 @@ display that needs it is visible rather than silent.
 
 | Flag | What it does |
 | :--- | :--- |
-| *(none)* / `--ui` | opens the Avalonia window (Start/Pause/Stop, Launch Game, Open Folder, status) |
+| *(none)* / `--ui` | opens the Avalonia window (Start/Pause/Stop, Launch Game, Open Folder, a minimal settings block for the pause / target / interact key — saved to `settings.ini` on "Save settings" and on close, status) |
 | `--probe` | read-only report → `~/Library/Application Support/MaxDpsCompanion/probe.txt`: process/window/scale, capture backend, permissions, stream stats, locate + decode result |
 | `--locate` | strip sweep only |
 | `--run` | headless rotation loop (Ctrl+C stops) |
@@ -136,7 +185,7 @@ Settings live in `~/Library/Application Support/MaxDpsCompanion/settings.ini`
 | `capture-backend=... NOT granted` | grant Screen Recording, then Start again |
 | `locate=null` | is the Exp bridge loaded (`/mdbx status`)? is `MaxDpsBridge` (stable) disabled? — the Exp bridge is inert while the stable one is loaded |
 | decode works but nothing fires | Accessibility grant; `IsForeground` for mouse slots; watch the status line's "why" |
-| stutter / fps loss | run `--bench-capture`: steady-state region should be ~20-30 KB/frame; our CPU should stay near 1 % of one core |
+| stutter / fps loss | run `--bench-capture`: steady-state region should be ~30-40 KB/frame; our CPU should stay near 1 % of one core |
 | a frame decodes only sometimes | check the repair count in `--probe`; a high count means the display's ICC profile is distorting the strip |
 
 ## Status / owed

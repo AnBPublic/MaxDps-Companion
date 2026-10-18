@@ -77,6 +77,16 @@ internal sealed class AppSettings
     // the engine; mouse/interact input has always required the foreground.)
     public bool AllowBackgroundKeys { get; set; } = true;
 
+    /// <summary>
+    /// [Window] ModifierInput (4.1 A2.2): how a stroke carrying Ctrl/Alt/Shift
+    /// is delivered. Default <see cref="ModifierInputMode.Post"/> = today's
+    /// exact behaviour (WM_KEYDOWN to the game window, no focus needed).
+    /// Auto = SendInput while the game is foreground, Post + note otherwise;
+    /// SendInput = force it while foreground, hold with a note otherwise.
+    /// A stroke WITHOUT modifiers always keeps the per-window Post route.
+    /// </summary>
+    public ModifierInputMode ModifierInput { get; set; } = ModifierInputMode.Post;
+
     /// <summary>Saved client size (0 = use the built-in default). Written on resize/close.</summary>
     public int WindowWidth { get; set; }
     public int WindowHeight { get; set; }
@@ -134,6 +144,14 @@ internal sealed class AppSettings
     // gated by the overlay's AutoInteract mirror bit. Default key F.
     public bool InteractEnabled { get; set; } = false;
     public string InteractKey { get; set; } = "F";
+
+    // [UserQueue] — v4.0.3 hotbar press queue (protocol Ext4). The companion
+    // watches the player's own keybound action-bar strokes and queues a press
+    // into the current GCD window instead of letting the rotation overwrite
+    // it. Background=1 also delivers while the game window is NOT focused
+    // (typing in other apps can then trigger bound keys — off by default).
+    public bool UserQueueEnabled { get; set; } = true;
+    public bool UserQueueBackground { get; set; } = false;
 
     // [Scheduler] — deterministic action scheduler (v1.6.0). ON by default:
     // owns send order + pacing (link-loss gate on a frozen heartbeat,
@@ -211,6 +229,20 @@ internal sealed class AppSettings
     // missing key = ON); that cross-surface wiring is OWED live.
     public bool CrowdControlEnabled { get; set; } = false;
 
+    // v4.2.0 break-on-damage CC guard. When the companion (or the player, via
+    // the Ext4 hotbar map) applies Blind/Gouge/Sap/Polymorph/Fear, Main /
+    // Offensive / Interrupt are held for the expected duration (capped at 10 s).
+    // The companion never auto-casts these abilities; this setting only keeps
+    // the rotation from breaking a CC the player already applied.
+    public bool CcBreakGuardEnabled { get; set; } = true;
+
+    // Manual party-CC hold (the addon cannot see another player's Polymorph).
+    // Pressing the hotkey/button suspends attacks for this many milliseconds.
+    public int CcManualHoldMs { get; set; } = 8000;
+
+    // Global hotkey (Win32 RegisterHotKey grammar) for the manual CC hold.
+    public string CcHoldHotkey { get; set; } = "Ctrl+Shift+C";
+
     // [Rotation] — companion-side restrict-only presets (Stream 3). Defaults are
     // the historical behaviour. Burst holds major offensives/consumable/trinket
     // until the TTK estimate is valid (a boss-like target); AoE conserves
@@ -285,7 +317,9 @@ internal sealed class AppSettings
 
     // [Color] — display-chain profile learned from `/mdb calibrate`.
     // Absent section = legacy behaviour (fixed magenta test, shared ramp).
-    public ColorProfile Color { get; } = new();
+    // 4.1 A2.10: the REFERENCE is replaced (new immutable instance) by the UI
+    // instead of mutating shared fields, and the engine reads it once per tick.
+    public ColorProfile Color { get; set; } = new();
 
     // [Launch] — Battle.net override for the Launch Game button.
     // Empty = auto-detect. The launcher's remembered account signs in;
@@ -402,6 +436,7 @@ internal sealed class AppSettings
             case ("bridge", "offsety"): OffsetY = ParseInt(value, OffsetY); break;
             case ("window", "processname"): ProcessName = value; break;
             case ("window", "allowbackgroundkeys"): AllowBackgroundKeys = ParseBool(value, AllowBackgroundKeys); break;
+            case ("window", "modifierinput"): ModifierInput = ModifierInputSetting.Parse(value); break;
             case ("window", "width"): WindowWidth = Math.Clamp(ParseInt(value, WindowWidth), 0, 8000); break;
             case ("window", "height"): WindowHeight = Math.Clamp(ParseInt(value, WindowHeight), 0, 8000); break;
             case ("window", "layout"): WindowLayout = value.Trim(); break;
@@ -436,6 +471,8 @@ internal sealed class AppSettings
             case ("targeting", "targetkey"): TargetKey = string.IsNullOrWhiteSpace(value) ? TargetKey : value.Trim(); break;
             case ("interact", "interactenabled"): InteractEnabled = ParseBool(value, InteractEnabled); break;
             case ("interact", "interactkey"): InteractKey = string.IsNullOrWhiteSpace(value) ? InteractKey : value.Trim(); break;
+            case ("userqueue", "enabled"): UserQueueEnabled = ParseBool(value, UserQueueEnabled); break;
+            case ("userqueue", "background"): UserQueueBackground = ParseBool(value, UserQueueBackground); break;
             case ("scheduler", "enabled"): SchedulerEnabled = ParseBool(value, SchedulerEnabled); break;
             case ("scheduler", "heartbeattimeoutms"): SchedulerHeartbeatTimeoutMs = Math.Clamp(ParseInt(value, SchedulerHeartbeatTimeoutMs), 100, 5000); break;
             case ("scheduler", "repeatsuppressms"): SchedulerRepeatSuppressMs = Math.Clamp(ParseInt(value, SchedulerRepeatSuppressMs), 100, 5000); break;
@@ -452,6 +489,9 @@ internal sealed class AppSettings
             case ("timetokill", "historydurfactor"): TimeToKillHistoryDurFactor = Math.Clamp(ParseDouble(value, TimeToKillHistoryDurFactor), 0.0, 1.0); break;
             case ("timetokill", "warmupsec"): TimeToKillWarmupSec = Math.Clamp(ParseDouble(value, TimeToKillWarmupSec), 0.0, 10.0); break;
             case ("crowdcontrol", "enabled"): CrowdControlEnabled = ParseBool(value, CrowdControlEnabled); break;
+            case ("crowdcontrol", "breakguard"): CcBreakGuardEnabled = ParseBool(value, CcBreakGuardEnabled); break;
+            case ("crowdcontrol", "manualholdms"): CcManualHoldMs = Math.Clamp(ParseInt(value, CcManualHoldMs), 3000, 30000); break;
+            case ("crowdcontrol", "holdhotkey"): CcHoldHotkey = string.IsNullOrWhiteSpace(value) ? CcHoldHotkey : value.Trim(); break;
             case ("rotation", "mode"): ModePreset = ParseRotationPreset(value); break;
             case ("rotation", "targets"): TargetMode = ParseTargetPreset(value); break;
             case ("solo", "enabled"): SoloEnabled = ParseBool(value, SoloEnabled); break;
@@ -497,6 +537,11 @@ internal sealed class AppSettings
             .AppendLine("[Window]")
             .AppendLine($"ProcessName={ProcessName}")
             .AppendLine($"AllowBackgroundKeys={(AllowBackgroundKeys ? 1 : 0)}")
+            .AppendLine("; ModifierInput: how a stroke carrying Ctrl/Alt/Shift reaches the game.")
+            .AppendLine("; Post = post window messages only (default, background-safe);")
+            .AppendLine("; Auto = SendInput while the game is focused, Post + note in the background;")
+            .AppendLine("; SendInput = force SendInput for chords and hold with a note when unfocused.")
+            .AppendLine($"ModifierInput={ModifierInputSetting.Format(ModifierInput)}")
             .AppendLine("; Saved client size (0 = default); written on resize/close.")
             .AppendLine($"Width={WindowWidth}")
             .AppendLine($"Height={WindowHeight}")
@@ -537,6 +582,13 @@ internal sealed class AppSettings
             .AppendLine($"InteractEnabled={(InteractEnabled ? 1 : 0)}")
             .AppendLine($"InteractKey={InteractKey}")
             .AppendLine()
+            .AppendLine("; v4.0.3: recognise your own keybound action-bar presses (Ext4 map) and")
+            .AppendLine("; queue them into the current GCD window. Background=1 also delivers")
+            .AppendLine("; while the game window is not focused.")
+            .AppendLine("[UserQueue]")
+            .AppendLine($"Enabled={(UserQueueEnabled ? 1 : 0)}")
+            .AppendLine($"Background={(UserQueueBackground ? 1 : 0)}")
+            .AppendLine()
             .AppendLine("; Deterministic action scheduler (default on). 0 = legacy MaxDps")
             .AppendLine("; priority loop; [Intelligence] may then reorder it.")
             .AppendLine("; HeartbeatTimeoutMs: frozen heartbeat => link lost => nothing fires.")
@@ -576,11 +628,17 @@ internal sealed class AppSettings
             .AppendLine("; while the target TTK is unknown (0 = off / legacy fail-open; clamp 0..10).")
             .AppendLine($"WarmupSec={TimeToKillWarmupSec.ToString(CultureInfo.InvariantCulture)}")
             .AppendLine()
-            .AppendLine("; Crowd-control appendix (opt-in, default off). ON makes curated")
-            .AppendLine("; auto-eligible CC rows fire only on a confirmed target and never")
-            .AppendLine("; chains the same DR category; the addon toggle can only restrict.")
+            .AppendLine("; Crowd-control appendix (opt-in). ON enables only the interrupt-fallback")
+            .AppendLine("; stuns/silences (Kidney Shot, Storm Bolt, ...) on a live cast; Blind/")
+            .AppendLine("; Gouge/Sap/Polymorph/Fear stay manual. DR is self-tracked (12.1.5 rules).")
+            .AppendLine("; BreakGuard: hold attacks after a manual break-on-damage CC.")
+            .AppendLine("; ManualHoldMs: manual party-CC hold duration (3000..30000).")
+            .AppendLine("; HoldHotkey: global hotkey for the manual party-CC hold.")
             .AppendLine("[CrowdControl]")
             .AppendLine($"Enabled={(CrowdControlEnabled ? 1 : 0)}")
+            .AppendLine($"BreakGuard={(CcBreakGuardEnabled ? 1 : 0)}")
+            .AppendLine($"ManualHoldMs={CcManualHoldMs}")
+            .AppendLine($"HoldHotkey={CcHoldHotkey}")
             .AppendLine()
             .AppendLine("; Companion-side restrict-only presets. Full/SingleTarget = historical")
             .AppendLine("; behaviour. Burst holds majors/consumable/trinket until a boss TTK is")

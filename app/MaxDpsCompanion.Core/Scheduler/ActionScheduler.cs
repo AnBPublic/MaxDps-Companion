@@ -173,6 +173,14 @@ internal sealed class ActionScheduler
     private bool _lastInCombat;
     private bool _lastOnGcd;
 
+    // v4.2.0 CC intelligence: the last observed target cast state, plus the
+    // "stun ineffective" probe. A stun sent on a confirmed cast that leaves the
+    // target still casting ~800 ms later is treated as ineffective (the game's
+    // immune flag is unobservable). Cleared on target loss / out of combat.
+    private TriState _lastObservedTargetCasting = TriState.Unknown;
+    private long _stunAttemptMs;
+    private int _stunAttemptSpellId;
+
     /// <summary>Failed-action rejections detected (diagnostics; telemetry reads the plan).</summary>
     public int RejectionsDetected { get; private set; }
 
@@ -199,6 +207,64 @@ internal sealed class ActionScheduler
             _lastHeartbeat = frame.Heartbeat;
             _heartbeatChangedAt = nowMs;
         }
+
+        ObserveCrowdControl(frame, nowMs);
+    }
+
+    /// <summary>
+    /// v4.2.0 per-frame crowd-control bookkeeping. Called automatically by
+    /// <see cref="Observe"/> (scheduler mode) and directly by the engines with
+    /// the legacy <see cref="PolicyMemory"/> when the scheduler is off, so the
+    /// stun-ineffective latch, the break guard clearing and the DR reset work
+    /// in both modes. Target gone / combat over clears everything: no CC state
+    /// may be carried to a different creature.
+    /// </summary>
+    public void ObserveCrowdControl(BridgeFrame frame, long nowMs, PolicyMemory? memory = null)
+    {
+        var guardMemory = memory ?? _policyMemory;
+        _lastObservedTargetCasting = frame.TargetCasting;
+
+        if (!frame.HasTarget || !frame.InCombat)
+        {
+            guardMemory.ClearCcGuards();
+            CrowdControlVetoes.ResetForTarget();
+            _stunAttemptMs = 0;
+            _stunAttemptSpellId = 0;
+            return;
+        }
+
+        if (_stunAttemptMs > 0)
+        {
+            if (frame.TargetCasting == TriState.No)
+            {
+                // The cast stopped after the stun: it worked.
+                _stunAttemptMs = 0;
+                _stunAttemptSpellId = 0;
+            }
+            else if (nowMs - _stunAttemptMs >= 800)
+            {
+                // Still casting after the stun had time to land. Most likely an
+                // immune target; never auto-stun it again on this target.
+                CrowdControlVetoes.NoteStunIneffective();
+                _stunAttemptMs = 0;
+                _stunAttemptSpellId = 0;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Arms the stun-ineffective probe for a stun sent on a confirmed cast.
+    /// Scheduler sends call this from <see cref="NoteSent"/>; the legacy path
+    /// calls it directly after its own send so the latch also works with the
+    /// scheduler disabled.
+    /// </summary>
+    public void ArmStunProbe(int spellId, long nowMs)
+    {
+        if (spellId <= 0 || _lastObservedTargetCasting != TriState.Yes) return;
+        if (CrowdControlCatalog.FindAny(spellId) is not { Dr: CcDrCategory.Stun, AutoEligible: true })
+            return;
+        _stunAttemptMs = nowMs;
+        _stunAttemptSpellId = spellId;
     }
 
     /// <summary>True when the addon heartbeat has been frozen past the timeout.</summary>
@@ -252,6 +318,18 @@ internal sealed class ActionScheduler
         if (spellId > 0 && _catalogForNotes?.TryGet(spellId) is { } ability)
             _policyMemory.NoteUse(ability, nowMs);
         if (slot == Slot.Trinket) _policyMemory.NoteTrinketUse(nowMs);
+
+        if (spellId > 0 && CrowdControlCatalog.FindAny(spellId) is { } cc)
+        {
+            // A break-on-damage CC sent by the companion starts the attack
+            // guard (manual player presses are noted by the engine).
+            if (cc.BreaksOnDamage)
+                _policyMemory.NoteCcBreakApplied(cc.SpellId, cc.Name, nowMs, cc.BaseDurationMs);
+
+            // If this was an automatic stun on a confirmed cast, arm the
+            // ineffective probe. The next Observe frames decide.
+            ArmStunProbe(spellId, nowMs);
+        }
     }
 
     /// <summary>
@@ -293,6 +371,7 @@ internal sealed class ActionScheduler
         _heartbeatSeen = false;
         _lastHeartbeat = 0;
         _heartbeatChangedAt = 0;
+        CrowdControlVetoes.ResetForTarget();
         _hasSent = false;
         _lastSentAt = 0;
         _lastSentSlot = default;
@@ -318,6 +397,9 @@ internal sealed class ActionScheduler
         _lastState = default;
         _lastHasTarget = false;
         _lastInCombat = false;
+        _lastObservedTargetCasting = TriState.Unknown;
+        _stunAttemptMs = 0;
+        _stunAttemptSpellId = 0;
         _lastOnGcd = false;
     }
 

@@ -28,6 +28,7 @@ internal sealed class ConsoleHomeView : UserControl
     private const double PresetStripHeight = 54;
 
     private readonly ConsoleNavItem _pause = new("Pause");
+    private readonly ConsoleNavItem _ccHold = new("CC Hold");
     private readonly ConsoleNavItem _folder = new("Folder");
     private readonly ConsoleNavItem _console = new("Console");
     private readonly ConsoleNavItem _binds = new("Binds");
@@ -121,6 +122,7 @@ internal sealed class ConsoleHomeView : UserControl
     // ----- events (wired by ShellWindow; old ConsoleHome :414-421) -----
 
     public event Action? PauseRequested;
+    public event Action? CcHoldRequested;
     public event Action? FolderRequested;
     public event Action? ConsoleToggleRequested;
     public event Action? BindsRequested;
@@ -146,6 +148,16 @@ internal sealed class ConsoleHomeView : UserControl
         _paused = paused;
         _pause.Text = paused ? "Resume" : "Pause";
         _pause.Emphasised = paused;
+    }
+
+    /// <summary>v4.2.0 manual party-CC hold indicator (value-only).</summary>
+    public void SetCcHold(bool active, int remainingMs)
+    {
+        var text = active
+            ? $"CC Hold {Math.Max(1, (int)Math.Ceiling(remainingMs / 1000.0))}s"
+            : "CC Hold";
+        if (_ccHold.Text != text) _ccHold.Text = text;
+        _ccHold.Emphasised = active;
     }
 
     public void SetSpec(string? className, string? specName)
@@ -231,6 +243,7 @@ internal sealed class ConsoleHomeView : UserControl
         var flow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
         _pause.Emphasised = true;
         _pause.Click += (_, _) => PauseRequested?.Invoke();
+        _ccHold.Click += (_, _) => CcHoldRequested?.Invoke();
         _folder.Click += (_, _) => FolderRequested?.Invoke();
         _console.Active = true;
         _console.Click += (_, _) => ConsoleToggleRequested?.Invoke();
@@ -239,6 +252,7 @@ internal sealed class ConsoleHomeView : UserControl
         _rotation.Click += (_, _) => RotationRequested?.Invoke();
         _debug.Click += (_, _) => DebugRequested?.Invoke();
         flow.Children.Add(_pause);
+        flow.Children.Add(_ccHold);
         flow.Children.Add(_folder);
         flow.Children.Add(_console);
         flow.Children.Add(_binds);

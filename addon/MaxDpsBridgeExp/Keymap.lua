@@ -84,6 +84,65 @@ for i = 0, 9 do VK["NUMPAD" .. i] = 0x60 + i; end
 for i = 1, 24 do VK["F" .. i] = 0x70 + (i - 1); end
 
 --[[*
+  * @function MDBX.SlotCommand
+  * @desc Action slot (1-180) -> Blizzard binding command, or nil.
+  * @param Slot number
+  * @return string|nil
+  *]]
+-- SHARED SLOT -> COMMAND TABLE (A1.11). Reader.lua (GetKeybindForSpell) and
+-- HotbarWatch.lua (BuildSlotBinding) both call this, so the two hot paths can
+-- never drift apart again.
+--
+-- Cited layout: warcraft.wiki.gg/wiki/Action_slot, table "Action bar name |
+-- Action button names | slots" (checked 2026-10-17 against 12.1.x, and
+-- corroborated by warcraft.wiki.gg/wiki/Action_Bar):
+--   Action Bar 1 (page 1)        ActionButton[1-12]          001-012
+--   Action Bar 1 (page 2)        ActionButton[1-12]          013-024
+--   Action Bar 4                 MultiBarRightButton[1-12]   025-036  MAB3
+--   Action Bar 5                 MultiBarLeftButton[1-12]    037-048  MAB4
+--   Action Bar 3                 MultiBarBottomRightButton   049-060  MAB2
+--   Action Bar 2                 MultiBarBottomLeftButton    061-072  MAB1
+--   bonus / stance / vehicle slots (paged onto the main bar buttons)
+--                                                          073-144  (none)
+--   Action Bar 6                 MultiBar5Button[1-12]       145-156  MAB5
+--   Action Bar 7                 MultiBar6Button[1-12]       157-168  MAB6
+--   Action Bar 8                 MultiBar7Button[1-12]       169-180  MAB7
+--
+-- 4.1.0 fixes versus the old inline tables: slots 13-24 are Action Bar 1 PAGE
+-- TWO (the same physical ACTIONBUTTON keys), not MULTIACTIONBAR1; 073-144 have
+-- no ACTIONBUTTON-family command at all (mapping them to MULTIACTIONBAR5 made
+-- the bridge resolve a key that presses a DIFFERENT slot); 145-156 are the real
+-- MultiBar5 block. The documented-correct rows 25-36/37-48/49-60/61-72 and
+-- 157-168/169-180 are unchanged. Bonus/stance slots fall through to the Bars
+-- texture map (identity) and the ACTIONBUTTON entry (stroke) instead.
+local SlotCommands = {
+  { To = 24,  Command = "ACTIONBUTTON" },          -- bars 1-2 share buttons
+  { To = 36,  Command = "MULTIACTIONBAR3BUTTON" },
+  { To = 48,  Command = "MULTIACTIONBAR4BUTTON" },
+  { To = 60,  Command = "MULTIACTIONBAR2BUTTON" },
+  { To = 72,  Command = "MULTIACTIONBAR1BUTTON" },
+  { To = 144, Command = false },                   -- bonus/stance/vehicle
+  { To = 156, Command = "MULTIACTIONBAR5BUTTON" },
+  { To = 168, Command = "MULTIACTIONBAR6BUTTON" },
+  { To = 180, Command = "MULTIACTIONBAR7BUTTON" },
+};
+
+function MDBX.SlotCommand (Slot)
+  if type(Slot) ~= "number" then return nil; end
+  Slot = math.floor(Slot);
+  if Slot < 1 or Slot > 180 then return nil; end
+  local Button = ((Slot - 1) % 12) + 1;
+  for i = 1, #SlotCommands do
+    local Row = SlotCommands[i];
+    if Slot <= Row.To then
+      if not Row.Command then return nil; end
+      return Row.Command .. Button;
+    end
+  end
+  return nil;
+end
+
+--[[*
   * @function MDBX.ParseBinding
   * @desc Translate a WoW binding string into a virtual-key code + modifier mask.
   * @param Binding string|nil e.g. "ALT-CTRL-SHIFT-F5", "SHIFT-BUTTON4"
@@ -111,10 +170,12 @@ function MDBX.ParseBinding (Binding)
 
   -- BUTTON6 and up have no SendInput equivalent; Windows only synthesises
   -- left/right/middle/X1/X2. Those need remapping in the mouse driver instead.
-  -- v1.3.3: MISS-TRANSPARENCY — a nil VK used to encode EMPTY with no trace
-  -- (the "gets stuck" symptom). MDBX.LastMissBinding records the token so
-  -- /mdb status can surface it; writers must never swallow the miss.
+  -- v1.3.3 added MISS-TRANSPARENCY; 4.1.0 (A1.4) removed the per-MISS global
+  -- write: this runs for every unmapped token on the hot path (a bound mouse
+  -- button 6+ is a permanent miss) and each write allocated/touched a global
+  -- table field the bridge never reads. Callers already see the nil VK and
+  -- encode EMPTY; /mdb status prints MDBX.LastMissBinding for any writer that
+  -- still sets it.
   local Found = VK[Key];
-  if Found == nil then MDBX.LastMissBinding = Binding; end
   return Found, Modifiers;
 end

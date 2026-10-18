@@ -22,7 +22,12 @@
 --
 -- Rebuild triggers: the Bars.lua event family (bars / bindings / spec /
 -- talents / macros / spells / cooldown resets) + PLAYER_ENTERING_WORLD + a
--- 2 s sweep. A rebuild bumps gen = (gen + 1) & 0xF and restarts the seq cycle.
+-- 2 s sweep. A rebuild bumps gen = (gen + 1) & 0xF and restarts the seq cycle
+-- ONLY when the map IDENTITY changes (which slot/key/spell/item/macro entry
+-- exists, its vk/mods/ids/count/order). Readiness is NOT identity: a cooldown
+-- flip refreshes the entries' Ready field in place (at rebuild and again at
+-- frame build) so the companion can still assemble a complete seq cycle for
+-- one gen while cooldowns tick. See Ext4Assembler: it validates gen/seq only.
 
 local addonName, MDBX = ...;
 
@@ -70,21 +75,12 @@ local function VKWatchable (VK)
   return true;
 end
 
---- ======= SLOT -> BINDING COMMAND (mirrors Reader.GetKeybindForSpell) =======
-local function SlotCommand (Slot)
-  local Button = ((Slot - 1) % 12) + 1;
-  if Slot <= 12 then return "ACTIONBUTTON" .. Button;
-  elseif Slot <= 24 then return "MULTIACTIONBAR1BUTTON" .. Button;
-  elseif Slot <= 36 then return "MULTIACTIONBAR3BUTTON" .. Button;
-  elseif Slot <= 48 then return "MULTIACTIONBAR4BUTTON" .. Button;
-  elseif Slot <= 60 then return "MULTIACTIONBAR2BUTTON" .. Button;
-  elseif Slot <= 72 then return "MULTIACTIONBAR1BUTTON" .. Button;
-  elseif Slot <= 156 then return "MULTIACTIONBAR5BUTTON" .. Button;
-  elseif Slot <= 168 then return "MULTIACTIONBAR6BUTTON" .. Button;
-  elseif Slot <= 180 then return "MULTIACTIONBAR7BUTTON" .. Button;
-  end
-  return nil;
-end
+--- ======= SLOT -> BINDING COMMAND (A1.11: SHARED with Reader) =======
+-- 4.1.0: one table, defined in Keymap.lua (loaded before this file) and
+-- cited against the documented Blizzard slot layout there. The old inline
+-- copy mapped 13-24 AND 61-72 to MULTIACTIONBAR1 and 73-156 to
+-- MULTIACTIONBAR5; 61-72 was the only confirmed row.
+local SlotCommand = MDBX.SlotCommand;
 
 --- ======= BAR-ADDON BUTTONS =======
 -- Mirrors the pattern names Bars.lua probes. The binding itself is read
@@ -134,7 +130,7 @@ local function BuildSlotBinding ()
   local Map = {};
   if type(GetBindingKey) == "function" then
     for Slot = 1, SLOT_COUNT do
-      local Command = SlotCommand(Slot);
+      local Command = SlotCommand and SlotCommand(Slot);
       if Command then
         local Ok, Binding = pcall(GetBindingKey, Command);
         if Ok and type(Binding) == "string" and Binding ~= "" then Map[Slot] = Binding; end
@@ -260,14 +256,60 @@ local Seq = 0;
 local Last = 0;
 local Hold = 0;
 local Dirty = true;
+local Pending = false;       -- a coalesced rebuild is scheduled
 local LastSweep = nil;
 local OverflowLogged = false;
 local IdCapLogged = false;
+local LastSignature = nil;   -- streamed content of the last rebuild
+
+-- A1.7: coalesced rebuild delay. A burst of bar events (or a sweep that finds
+-- nothing new) must cost at most one rebuild per window, and the rebuild must
+-- run OUTSIDE the bridge's paint tick.
+local REBUILD_DELAY = 0.25;
+
+-- Numeric fold of the map IDENTITY for one entry: which slot is bound to
+-- which key and which spell/item id it fires. Readiness (Entry.Ready) is
+-- deliberately EXCLUDED - it rides the wire per entry (idTop bit2) and is
+-- refreshed in place, so a cooldown flip must not bump gen: a gen bump resets
+-- seq and would starve the companion's Ext4Assembler, which only swaps the map
+-- after a COMPLETE seq cycle within one gen (cooldown-heavy fights flip
+-- readiness every GCD). See RefreshReady / HotbarWatch.Frame.
+-- Products stay exact in a double (Acc < 2^32, *4099 < 2^43).
+local function Mix (Acc, Value)
+  if type(Value) ~= "number" then Value = 0; end
+  if Value ~= Value or Value < 0 then Value = 0; end
+  return (Acc * 4099 + math_floor(Value)) % 4294967291;
+end
+
+local function Signature (List, Count)
+  local H = 0;
+  for i = 1, Count do
+    local E = List[i];
+    H = Mix(H, E.Slot or 0);
+    H = Mix(H, E.VK or 0);
+    H = Mix(H, E.Mods or 0);
+    H = Mix(H, E.Id or 0);
+    H = Mix(H, E.IsItem and 1 or 0);
+  end
+  return H * 33 + Count;
+end
+
+-- Re-read an entry's readiness IN PLACE. Never touches the entry's identity
+-- fields, so it can run between rebuilds without changing the signature.
+local function RefreshReady (Entry)
+  if not Entry then return; end
+  local Ready = Entry.IsItem and ItemReady(Entry.Id) or SpellReady(Entry.Id);
+  Entry.Ready = Ready == true;
+end
 
 function HotbarWatch.Rebuild ()
   local New = {};
   local Binding = BuildSlotBinding();
   local Overflow = false;
+  -- Per-rebuild readiness memo: one BeginTick/EndTick bracket so the whole
+  -- walk shares one evaluation per spell (A1.3) and never leaks a memo into
+  -- the next bridge tick.
+  if MDBX.BeginTick then MDBX.BeginTick(); end
   for Slot = 1, SLOT_COUNT do
     local Kind, Id = ActionInfo(Slot);
     local Entry = nil;
@@ -328,11 +370,22 @@ function HotbarWatch.Rebuild ()
 
   Entries = New;
   EntryCount = #New;
-  Gen = (Gen + 1) % 16;
-  Seq = 0;
-  Last = EntryCount > 0 and math_floor((EntryCount - 1) / 2) or 0;
-  Hold = 0;
+  if MDBX.EndTick then MDBX.EndTick(); end
+  -- A1.7: gen is the companion's "new map, restart the seq cycle" signal.
+  -- A sweep or readiness refresh that produced the same IDENTITY must not bump
+  -- it (the old code bumped gen on every rebuild, so the 2 s sweep threw away a
+  -- cycle the companion had already assembled). The signature covers exactly
+  -- the map identity; Ready is refreshed in place and never bumps gen.
+  local Sig = Signature(New, EntryCount);
+  if Sig ~= LastSignature then
+    LastSignature = Sig;
+    Gen = (Gen + 1) % 16;
+    Seq = 0;
+    Last = EntryCount > 0 and math_floor((EntryCount - 1) / 2) or 0;
+    Hold = 0;
+  end
   Dirty = false;
+  Pending = false;
   if Overflow and not OverflowLogged then
     OverflowLogged = true;
     Print(("hotbar map overflow: capped at %d entries"):format(MAX_ENTRIES));
@@ -340,9 +393,26 @@ function HotbarWatch.Rebuild ()
   return EntryCount;
 end
 
+-- Apply a scheduled rebuild now (the C_Timer backstop, the 2 s sweep target
+-- and the deterministic hook the offline harness drives).
+function HotbarWatch.Flush ()
+  Pending = false;
+  if not Dirty then return EntryCount; end
+  return HotbarWatch.Rebuild();
+end
+
 function HotbarWatch.MarkDirty ()
   Dirty = true;
+  if Pending then return; end
+  Pending = true;
+  if type(C_Timer) == "table" and type(C_Timer.After) == "function" then
+    C_Timer.After(REBUILD_DELAY, HotbarWatch.Flush);
+  else
+    HotbarWatch.Flush();   -- no scheduler: rebuild now (ancient client)
+  end
 end
+
+function HotbarWatch.IsDirty () return Dirty == true; end
 
 --- ======= STREAMING FRAME PROVIDER =======
 -- Returns the frame to paint this tick and advances seq at most once every
@@ -350,11 +420,10 @@ end
 local Current = { gen = 0, seq = 0, last = true, empty = true, e1 = nil, e2 = nil };
 
 function HotbarWatch.Frame ()
-  if Dirty then
-    Dirty = false;
-    HotbarWatch.Rebuild();
-  end
-  -- 2 s sweep: bars can change without an event we registered.
+  -- A1.7: NEVER rebuild inside the bridge's paint tick. Events (MarkDirty)
+  -- and the sweep below only SCHEDULE the coalesced rebuild; the C_Timer
+  -- callback runs it outside Update, so a bar burst can never cost a rebuild
+  -- mid-frame.
   local Now = nil;
   if type(GetTime) == "function" then
     local Ok, T = pcall(GetTime);
@@ -365,9 +434,12 @@ function HotbarWatch.Frame ()
       LastSweep = Now;
     elseif (Now - LastSweep) >= SWEEP_SECONDS then
       LastSweep = Now;
-      HotbarWatch.Rebuild();
+      -- Bars can change without an event we registered. Rebuild compares the
+      -- map signature, so an unchanged map keeps its gen/seq cycle.
+      HotbarWatch.MarkDirty();
     end
   end
+  if Dirty then HotbarWatch.MarkDirty(); end   -- no-op when already scheduled
 
   if EntryCount > 0 then
     if Hold < HOLD_TICKS then
@@ -384,6 +456,15 @@ function HotbarWatch.Frame ()
   Current.empty = (EntryCount == 0);
   Current.e1 = Entries[Current.seq * 2 + 1];
   Current.e2 = Entries[Current.seq * 2 + 2];
+  -- Ready is not part of the map identity (see Signature), so it is refreshed
+  -- HERE, on the two entries this frame actually streams: the ready bit the
+  -- companion reads is the readiness at paint time, not the value cached by the
+  -- last rebuild. In-place writes keep gen/seq untouched. The probes are cheap
+  -- and fail closed (SpellReady/ItemReady are pcall-contained); Bridge calls
+  -- EndTick before this runs, so IsSpellReady answers live rather than from a
+  -- scan memo.
+  RefreshReady(Current.e1);
+  RefreshReady(Current.e2);
   return Current;
 end
 
@@ -455,7 +536,14 @@ do
   Listener:RegisterEvent("SPELLS_CHANGED");
   Listener:RegisterEvent("UPDATE_MACROS");
   Listener:RegisterEvent("SPELL_UPDATE_COOLDOWN");
-  -- Just mark dirty; the next Frame() call rebuilds on the paint thread, so
-  -- a burst of events coalesces into one rebuild.
+  -- A1.8 bar-family events: vehicle / override / bonus bar swaps change the
+  -- visible slot map without ACTIONBAR_SLOT_CHANGED on every client.
+  Listener:RegisterEvent("UNIT_ENTERED_VEHICLE");
+  Listener:RegisterEvent("UNIT_EXITED_VEHICLE");
+  Listener:RegisterEvent("UPDATE_VEHICLE_ACTIONBAR");
+  Listener:RegisterEvent("UPDATE_OVERRIDE_ACTIONBAR");
+  Listener:RegisterEvent("UPDATE_BONUS_ACTIONBAR");
+  -- Just mark dirty; the coalescer schedules one rebuild outside the paint
+  -- tick, so a burst of events costs a single rebuild.
   Listener:SetScript("OnEvent", function () HotbarWatch.MarkDirty(); end);
 end

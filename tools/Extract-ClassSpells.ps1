@@ -14,7 +14,7 @@
 # so indentation cannot be trusted: this parser works on BRACE DEPTH only. It
 # stops the moment depth returns to 0 after the first `ns.classSpellData = {`.
 #
-# Output: app/MaxDpsCompanion/Knowledge/class-spells.json
+# Output: app/MaxDpsCompanion.Core/Knowledge/class-spells.json
 #
 # The vendor snapshot is READ-ONLY input. This script never writes to vendor/.
 # Run from the repository root:
@@ -24,7 +24,7 @@ $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
 $luaPath = Join-Path $root 'vendor/MaxDps/SpellData.lua'
-$outPath = Join-Path $root 'app/MaxDpsCompanion/Knowledge/class-spells.json'
+$outPath = Join-Path $root 'app/MaxDpsCompanion.Core/Knowledge/class-spells.json'
 
 if (-not (Test-Path -LiteralPath $luaPath)) {
     throw "vendor SpellData.lua not found at $luaPath"

@@ -2,21 +2,9 @@ using System.Diagnostics;
 
 namespace MaxDpsCompanion;
 
-internal readonly record struct EngineStatus(
-    string Message,
-    bool BridgeVisible,
-    BridgeState State,
-    string SlotSummary,
-    string LastKeySent,
-    string RawSample,
-    string Decision);
 
-/// <summary>
-/// Immutable, secret-safe snapshot of one action (or the current plan head)
-/// for the UI: name, reason, provider and a human-readable "why" list.
-/// Frozen v2.7 contract — the UI codes against these exact members.
-/// </summary>
-public sealed record LiveActionSnapshot(string Action, string Reason, string Provider, IReadOnlyList<string> Why);
+// Wave B: EngineStatus / LiveActionSnapshot moved to Core (EngineStatus.cs).
+// Both engines expose the one Core identity.
 
 /// <summary>
 /// Reads the addon's pixel block on a background thread and replays the encoded
@@ -386,11 +374,13 @@ internal sealed class RotationEngine : IDisposable
                 // the cadence to 10x the measured tick cost, so a slow
                 // capture path degrades latency gracefully instead of
                 // stealing frames from the game.
-                if (tickUs > 0)
-                {
-                    var dutyFloorMs = (int)Math.Ceiling(tickUs * 10 / 1000.0);
-                    if (dutyFloorMs > wait && dutyFloorMs <= 250) wait = dutyFloorMs;
-                }
+                // 4.1 A2.8 (parity with the Windows engine): the STRETCH is
+                // capped at one poll interval. The old 10x-cost target could
+                // stretch the cadence to 250 ms (7.5x the configured poll) on
+                // a slow capture path, which reads as input lag; added latency
+                // is now bounded while the guard still protects the game from
+                // a runaway tick.
+                wait = DutyCycleWait(wait, fast, tickUs);
                 _clock.Wait(wait);
             }
         }
@@ -399,7 +389,29 @@ internal sealed class RotationEngine : IDisposable
         }
     }
 
-    private void Tick()
+    /// <summary>
+    /// 4.1 A2.8 (parity with the Windows engine's inline guard): the wait that
+    /// keeps our CPU share at ~10% of one tick, with the STRETCH capped at one
+    /// poll interval (<paramref name="fast"/>) so a slow capture path can never
+    /// add more than one configured poll of input lag. Pure so the cap is
+    /// unit-tested without running the loop thread.
+    /// </summary>
+    internal static int DutyCycleWait(int wait, int fast, double tickUs)
+    {
+        if (tickUs <= 0) return wait;
+        var dutyFloorMs = (int)Math.Ceiling(tickUs * 10 / 1000.0);
+        var stretch = dutyFloorMs - wait;
+        if (stretch > 0) wait += Math.Min(stretch, Math.Max(0, fast));
+        return wait;
+    }
+
+    /// <summary>
+    /// One engine tick: capture → decode → publish → gates → send.
+    /// Internal (not private) ONLY so the test project can drive one
+    /// deterministic tick against fake IPlatform adapters; the production
+    /// <see cref="Loop"/> calls it unchanged.
+    /// </summary>
+    internal void Tick()
     {
         // Per-tick telemetry state: a fresh frame/context replaces these; a
         // hold or decode error leaves them null/None.
@@ -547,6 +559,43 @@ internal sealed class RotationEngine : IDisposable
                 _idle = true;
                 return;
             }
+        }
+        else
+        {
+            // v4.2.0 legacy path: still run the CC per-frame bookkeeping
+            // against the memory the legacy policy actually uses.
+            _scheduler.ObserveCrowdControl(frame, _lastFrameMs, _legacyPolicyMemory);
+        }
+
+        // v4.0.4 MASTER GATE. Main OFF in the in-game overlay suspends the
+        // ENTIRE companion, not just the core rotation: the addon blanks every
+        // slot without rewriting the other toggles, and this gate stops the
+        // companion-only paths that do not ride a slot (auto-target /
+        // auto-interact) too. A valid mirror is the authority; a missing mirror
+        // fails open for old addons. Turning Main back ON resumes exactly the
+        // previous per-slot policy.
+        // Mirrors the Windows engine's gate byte-for-byte (message included);
+        // the user-press queue reset there is Wave C (Core has no queue yet).
+        if (!ToggleSync.MainAllowsExecution(_mirrorValid, _mirrorMask))
+        {
+            Report("holding (addon Main off - rotation suspended)", true, frame.State, summary, "-");
+            _idle = true;
+            return;
+        }
+
+        // v4.0.3 TYPING VETO (cell 41 R bit2). While the player is typing in
+        // chat or an edit box, a posted keystroke would land in the chat frame
+        // instead of the game, so EVERY send path holds. The Windows engine
+        // applies the same veto to its queued user presses; Core's engine has
+        // no user-press queue yet (Wave C), so it is applied to the rotation /
+        // target / interact send paths here. An absent or invalid Ext3 block
+        // decodes TypingActive=false (PixelProtocol masks the flag out of the
+        // mirror), so an old addon fails OPEN, never bricked.
+        if (frame.TypingActive)
+        {
+            Report("holding (typing in game chat)", true, frame.State, summary, "-");
+            _idle = true;
+            return;
         }
 
         // 2026-09-30 FAIL-CLOSED OUT-OF-COMBAT GATE. Out of combat the
@@ -1155,6 +1204,7 @@ internal sealed class RotationEngine : IDisposable
             _candidateTracker.NotePressed(slot, now); // decision-layer history
             if (_settings.IntelligenceEnabled && spellId > 0 && _catalog.TryGet(spellId) is { } used)
                 _legacyPolicyMemory.NoteUse(used, now);
+            _scheduler.ArmStunProbe(spellId, now);
             var sendInterval = _lastAnyPress <= 0 ? 0 : now - _lastAnyPress; // v1.5.0 telemetry
             _lastAnyPress = now;
             _telemetry?.Append(TelemetryEvent.Sent(now, "spell", slot, stroke, sendInterval, spellId));

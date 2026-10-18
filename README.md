@@ -1,29 +1,12 @@
 > [!IMPORTANT]
-> **LEGACY:** The frozen 3.7.9 WinForms client (shipped in `dist/`, built by
-> `build.ps1`) and the stable bridge (`addon/MaxDpsBridge/`) are **frozen**.
-> They receive no updates except critical security fixes. The current C# client
-> (`app/MaxDpsCompanion/`) is the WinUI 3 4.0.4 "Aegis" shell.
-> The future is the Rust companion in **`companion-rs/`**, targeting
-> `MaxDpsBridgeExp` + `dist-exp`. See [`LEGACY.md`](LEGACY.md) and
-> [`docs/plans/2026-10-10-rust-companion.md`](docs/plans/2026-10-10-rust-companion.md).
-
-> [!TIP]
-> **Rust Companion (Beta) — `v3.8.0-rust-beta`:** the new Rust companion
-> (`companion-rs/` → `dist-exp/mdc-app.exe` + `mdc-cli.exe`) targets
-> **`MaxDpsBridgeExp` + `dist-exp`** and is the current experimental build
-> (supersedes `v3.8.0-rust-alpha`). Requirements: **Windows 11 x64**, WoW
-> **retail**, and the **MaxDps** + **`MaxDpsBridgeExp`** addons installed via
-> `pwsh tools/install-addon-exp.ps1`; run `mdc-app.exe` with `settings.ini`
-> beside it, then use the console transport (Start/Pause/Stop/Calibrate/OPEN GAME)
-> and the Settings / Doctor / Class Browser / Telemetry panels.
-> **Works (offline-verified):** `cargo build`/`test`/`clippy` clean, Gallant
-> parity console + real panels. **OWED (live retail, unproven):** full
-> Start → sample → decode → keypress loop, the mouse/wheel foreground gate, and
-> Calibrate against real DPI/borders. Static build ≠ automated test ≠ live E2E.
-> **Download:** [v3.8.0-rust-beta](https://github.com/AnBPublic/MaxDps-Companion/releases/tag/v3.8.0-rust-beta);
-> see [`dist-exp/README.md`](dist-exp/README.md),
-> [`docs/plans/2026-10-10-rust-companion.md`](docs/plans/2026-10-10-rust-companion.md)
-> and [`docs/plans/2026-10-10-gallant-parity.md`](docs/plans/2026-10-10-gallant-parity.md).
+> **Current client: 4.2.0 "Nightblade"** - the WinUI 3 Windows client
+> (`app/MaxDpsCompanion/`), the shared brain (`app/MaxDpsCompanion.Core/`) and the
+> macOS client (`app/MaxDpsCompanion.Mac/`), targeting `MaxDpsBridgeExp` +
+> `dist-exp`. **C# is the long-term base.** Frozen: the 3.7.9 WinForms
+> distribution (`dist/`, `build.ps1`), the stable bridge (`addon/MaxDpsBridge/`)
+> and the Rust port (`companion-rs/`, reference only, no Ext4). See
+> [`LEGACY.md`](LEGACY.md); release plans: [4.2.0 Nightblade](docs/plans/2026-10-18-rogue-cc-intelligence.md),
+> [4.1.0 Paragon](docs/plans/2026-10-17-paragon-audit-remediation.md).
 
 > [!TIP]
 > **macOS Companion — `3.7.9 "Unyielding" (mac)`:** the macOS client lives in
@@ -617,8 +600,13 @@ hold reason; `--bench-scheduler` measures it on a scripted fake clock.
 | `Bridge` | `CellSize`, `OffsetX`, `OffsetY` | Strip geometry; match `/mdb status`. |
 | `Window` | `ProcessName` | Game process without `.exe` (`Wow`). |
 | `Window` | `AllowBackgroundKeys` | `1` = spell keys send while in background (mouse/interact always need focus). |
+| `Window` | `ModifierInput` | 4.1.0. How a Ctrl/Alt/Shift chord is delivered: `Post` (default; PostMessage to the game window, works in the background, unchanged behaviour), `Auto` (SendInput while the game is focused, Post fallback with a status note in the background), `SendInput` (focused only; deferred in the background). Never releases a modifier you hold; defers when you hold an extra modifier. Plain keys are always posted. |
 | `Window` | `Width` / `Height` | Remembered client size (`0` = default); saved on resize-end and close, restored clamped to the working area on start. |
 | `Pause` | `Button` | Global pause hotkey (`Pause`, `F9`, …). |
+| `CrowdControl` | `Enabled` | `1` = enable the interrupt-fallback CC pool (single-target stun/silence only). Blind/Gouge/Sap/Polymorph/Fear stay manual. |
+| `CrowdControl` | `BreakGuard` | `1` = after a manual break-on-damage CC, hold Main/Offensive/Interrupt for its expected duration (cap 10 s). |
+| `CrowdControl` | `ManualHoldMs` | Manual party-CC hold duration (3000-30000, default 8000). |
+| `CrowdControl` | `HoldHotkey` | Global hotkey for the manual party-CC hold (default `Ctrl+Shift+C`). |
 | `Spells` | `spell1`…`spell8` | Which slots may fire: Main, Offensive, Defensive, Consumable, Trinket, Interrupt, Mobility, SelfHeal. Item slots default off; Mobility/SelfHeal on. |
 | `Timing` | `PollIntervalMs` / `MinKeyIntervalMs` / `KeyPressMs` | Sample rate / gap between inputs / hold length. |
 | `Targeting` | `AutoTargetEnabled`, `CombatOnly`, `TargetKey` | Press `TargetKey` when bridge reports no-target. Never a movement key. |

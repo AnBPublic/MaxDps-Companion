@@ -2,7 +2,8 @@ using System.Drawing.Imaging;
 
 namespace MaxDpsCompanion;
 
-internal readonly record struct BlockLocation(int OffsetX, int OffsetY, int CellSize);
+// Wave B: BlockLocation is single-sourced in MaxDpsCompanion.Core
+// (BlockLocation.cs) and consumed here through the project reference.
 
 /// <summary>
 /// Sweeps the game's client area for the addon's magenta magic cell, then measures

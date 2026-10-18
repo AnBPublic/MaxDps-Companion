@@ -5,6 +5,18 @@ using Windows.Storage.Pickers;
 using WinRT.Interop;
 using WColor = Windows.UI.Color;
 
+// Wave B (4.1 "Paragon"): this file is the ONLY Windows file that both declares
+// and uses the Windows RotationEngine instance, and RotationEngine is the one
+// type intentionally still defined in BOTH MaxDpsCompanion.Core and this
+// assembly until Wave C merges the engines. CS0436 ("type in source conflicts
+// with the imported type ... using the type defined in source") is therefore
+// expected HERE for exactly that type, with the local (Windows, concrete
+// capture/input) copy correctly winning. The suppression is file-scoped on
+// purpose: ShadowedTypeGateTests asserts the shadow set is exactly
+// {MaxDpsCompanion.RotationEngine}, so any OTHER duplicate still fails the
+// build loudly, and this pragma disappears together with the Windows engine.
+#pragma warning disable CS0436
+
 namespace MaxDpsCompanion.Ui.Shell;
 
 /// <summary>
@@ -90,6 +102,9 @@ public sealed partial class ShellWindow
 
     /// <summary>Re-registers the global pause hotkey (MainForm.RegisterPauseHotkey :3135-3145).</summary>
     private void RegisterPauseHotkey() => _win32.RegisterPauseHotkey(_settings.PauseHotkey);
+
+    /// <summary>v4.2.0: re-registers the manual party-CC hold hotkey.</summary>
+    private void RegisterCcHoldHotkey() => _win32.RegisterCcHoldHotkey(_settings.CcHoldHotkey);
 
     // ----- status refresh (MainForm.RefreshStatus :2890-2942) -----
 
@@ -218,6 +233,7 @@ public sealed partial class ShellWindow
             _consoleHome.SetBridge(running ? $"Bridge: {status.State}" : "Bridge: stopped");
             _consoleHome.SetNow(action, why);
             _consoleHome.SetPaused(_engine.Paused);
+            _consoleHome.SetCcHold(_engine.CcHoldActive, _engine.CcHoldRemainingMs);
             if (_consoleLastStatus != _statusMessage)
             {
                 _consoleLastStatus = _statusMessage;
@@ -325,6 +341,20 @@ public sealed partial class ShellWindow
         _engine.Paused = !_engine.Paused;
     }
 
+    /// <summary>v4.2.0: global manual CC-hold hotkey (party CC the addon cannot see).</summary>
+    private void ToggleCcHoldHotkey()
+    {
+        _engine?.ToggleCcHold();
+        SetStatus("CC hold toggled (manual party-CC hold).", ControlTheme.Accent);
+    }
+
+    /// <summary>v4.2.0: console button for the manual party-CC hold.</summary>
+    internal void ToggleCcHoldFromConsole()
+    {
+        _engine?.ToggleCcHold();
+        SetStatus("CC hold toggled (manual party-CC hold).", ControlTheme.Accent);
+    }
+
     /// <summary>Console/Exp pause button (MainForm.TogglePauseFromConsole :1045-1055).</summary>
     internal void TogglePauseFromConsole()
     {
@@ -357,6 +387,7 @@ public sealed partial class ShellWindow
         ApplyToSettings();
         SaveSettings();
         RegisterPauseHotkey();
+        RegisterCcHoldHotkey();
     }
 
     /// <summary>MainForm SaveSoon :573-577: coalesce rapid edits (text fields).</summary>
@@ -684,11 +715,9 @@ public sealed partial class ShellWindow
     /// <summary>MainForm.ResetColors :2504-2513.</summary>
     internal void ResetColors()
     {
-        var profile = _settings.Color;
-        profile.MagicR = 255; profile.MagicG = 0; profile.MagicB = 255;
-        for (var i = 0; i < 3; i++) { profile.Black[i] = 0; profile.White[i] = 255; }
-        profile.Tolerance = 64;
-        profile.LearnedAt = "";
+        // 4.1 A2.10: replace the reference with a fresh profile; never mutate
+        // the instance a live engine tick may be reading.
+        _settings.Color = new ColorProfile();
         SaveSettings();
         RefreshColorStatus();
     }
@@ -853,17 +882,10 @@ public sealed partial class ShellWindow
                 return;
             }
 
-            var profile = _settings.Color;
-            profile.MagicR = learned.Profile.MagicR;
-            profile.MagicG = learned.Profile.MagicG;
-            profile.MagicB = learned.Profile.MagicB;
-            for (var i = 0; i < 3; i++)
-            {
-                profile.Black[i] = learned.Profile.Black[i];
-                profile.White[i] = learned.Profile.White[i];
-            }
-            profile.Tolerance = learned.Profile.Tolerance;
-            profile.LearnedAt = learned.Profile.LearnedAt;
+            // 4.1 A2.10: the learned profile is already a fresh instance built
+            // by ColorLearner.Build — publish it by reference instead of
+            // copying eight fields into the object an engine tick may be using.
+            _settings.Color = learned.Profile;
             SaveSettings();
             Post(RefreshColorStatus); // marshal-site parity (:2471 BeginInvoke)
             SetStatus(learned.Note + " - saved.", ControlTheme.TextPrimary);
@@ -1039,3 +1061,5 @@ public sealed partial class ShellWindow
         SetStatus($"Battle.net path: {file.Path}", ControlTheme.TextPrimary);
     }
 }
+
+#pragma warning restore CS0436

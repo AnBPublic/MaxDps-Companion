@@ -21,7 +21,16 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\app\MaxDpsCompanion\MaxDpsCompanion.csproj" />
+    <!-- Wave B: the shared brain now lives in MaxDpsCompanion.Core and this
+         project consumes it DIRECTLY (the app marks its Core reference
+         PrivateAssets="all", so Core is not visible here unless referenced).
+         The Windows app is imported under the extern alias `win` because
+         RotationEngine intentionally exists in both assemblies until Wave C:
+         unqualified names therefore mean Core (the single source), and the
+         Windows-only host types used by these tests are brought in by the
+         per-type aliases in WinHostAliases.cs. -->
+    <ProjectReference Include="..\..\app\MaxDpsCompanion\MaxDpsCompanion.csproj" Aliases="win" />
+    <ProjectReference Include="..\..\app\MaxDpsCompanion.Core\MaxDpsCompanion.Core.csproj" />
   </ItemGroup>
 
   <!-- System.Drawing (Color/Bitmap) for the pure protocol tests now that the

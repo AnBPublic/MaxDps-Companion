@@ -1,36 +1,8 @@
 namespace MaxDpsCompanion;
 
-/// <summary>
-/// Ext4 (v4.0.3) hotbar entry decoded from one 3-cell slot pair: the keystroke,
-/// the 22-bit spell/item id, and the is-item / ready bits. Pad entries (flags
-/// bit3 "valid" clear) are never surfaced as an <see cref="Ext4Entry"/>.
-/// </summary>
-internal readonly record struct Ext4Entry(KeyStroke Stroke, int Id, bool IsItem, bool Ready);
-
-/// <summary>
-/// One Ext4 frame (one strip capture): cells 43 (header: gen/seq/flags) plus
-/// the up to two entry pairs (cells 44-49). <see cref="Entries"/> holds only the
-/// non-pad entries in cell order (0-2 items); a frame whose cell-50 checksum or
-/// heartbeat failed never produces an Ext4Frame at all (the decoder returns
-/// null), so every Ext4Frame here is already integrity-checked.
-/// </summary>
-internal sealed class Ext4Frame
-{
-    /// <summary>4-bit rebuild generation (cell 43 R).</summary>
-    public required int Gen { get; init; }
-
-    /// <summary>4-bit sequence within the cycle (cell 43 G), 0..15.</summary>
-    public required int Seq { get; init; }
-
-    /// <summary>Cell 43 B bit0: the final frame of a cycle.</summary>
-    public required bool Last { get; init; }
-
-    /// <summary>Cell 43 B bit1: a seq-0 LAST frame that carries no entries.</summary>
-    public required bool Empty { get; init; }
-
-    /// <summary>Non-pad entries only, in cell order (0, 1 or 2).</summary>
-    public required IReadOnlyList<Ext4Entry> Entries { get; init; }
-}
+// Wave B: Ext4Entry / Ext4Frame moved to MaxDpsCompanion.Core (PixelProtocol.cs)
+// because the Ext4 decoder lives there now; this assembler consumes them
+// through the Core project reference.
 
 /// <summary>
 /// Why a <see cref="HotbarMap"/> is (not) usable. Mirrors the engine status

@@ -275,4 +275,28 @@ internal sealed class ToggleSync
 
     /// <summary>True when the effective value comes from the bridge echo.</summary>
     public bool EffectiveFromMirror => MirrorValid && MirrorMask.HasValue;
+
+    /// <summary>
+    /// v4.0.4 MASTER GATE: the Ext3 mirror carries the bridge's EFFECTIVE
+    /// toggle mask. Main is the master switch - while a VALID mirror says it
+    /// is OFF the companion suspends EVERY send path (rotation, auto-target,
+    /// auto-interact and the queued user presses), not just the core rotation.
+    /// Other toggles are untouched in the addon and resume exactly as they
+    /// were when Main returns ON.
+    ///
+    /// A missing/stale mirror fails OPEN so an old 40-cell addon or the
+    /// pre-first-mirror frames cannot brick the rotation; the addon itself
+    /// blanks every slot while Main is off.
+    /// </summary>
+    public static bool MainAllowsExecution(bool mirrorValid, int mirrorMask) =>
+        !mirrorValid || IsSet(mirrorMask, BitMain);
+
+    /// <summary>
+    /// Status note while the v4.0.4 master gate is off. Null when there is no
+    /// valid mirror or Main is ON.
+    /// </summary>
+    public static string? MainOffNote(bool mirrorValid, int mirrorMask) =>
+        mirrorValid && !IsSet(mirrorMask, BitMain)
+            ? "addon Main toggle is OFF - rotation suspended (/mdbx main on)"
+            : null;
 }

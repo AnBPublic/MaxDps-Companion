@@ -1,3 +1,5 @@
+extern alias win;
+
 using Xunit;
 
 namespace MaxDpsCompanion.Tests;
@@ -48,7 +50,7 @@ public class UiClassPublishTests
         Assert.False(frame.ContextValid);
         Assert.Null(CombatContext.FromFrame(frame, hpCurve: true).Class);
 
-        using var engine = new RotationEngine(new AppSettings());
+        using var engine = new win::MaxDpsCompanion.RotationEngine(new AppSettings());
         engine.PublishUiContext(frame);
 
         Assert.True(engine.TryGetLiveClass(out var cls));
@@ -61,7 +63,7 @@ public class UiClassPublishTests
     public void Ooc_Publish_Leaves_Send_Paths_Untouched_And_Still_Holding()
     {
         var frame = OocFrame("Warrior", "Arms");
-        using var engine = new RotationEngine(new AppSettings());
+        using var engine = new win::MaxDpsCompanion.RotationEngine(new AppSettings());
         engine.PublishUiContext(frame);
 
         // The fail-closed OOC gate the engine runs AFTER the publish still
@@ -80,7 +82,7 @@ public class UiClassPublishTests
     public void ContextValid_Frame_Publishes_Full_Projection()
     {
         var frame = OocFrame("Priest", "Shadow", contextValid: true);
-        using var engine = new RotationEngine(new AppSettings());
+        using var engine = new win::MaxDpsCompanion.RotationEngine(new AppSettings());
         engine.PublishUiContext(frame);
 
         Assert.True(engine.TryGetLiveClass(out var cls));
@@ -93,7 +95,7 @@ public class UiClassPublishTests
     public void No_Class_Decoded_Leaves_The_Readout_Unset()
     {
         var frame = OocFrame(className: null, specName: null);
-        using var engine = new RotationEngine(new AppSettings());
+        using var engine = new win::MaxDpsCompanion.RotationEngine(new AppSettings());
         engine.PublishUiContext(frame);
 
         Assert.False(engine.TryGetLiveClass(out _));
