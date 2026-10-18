@@ -569,6 +569,38 @@ Static != automated test != live in-game E2E: none of the above is claimed
 before a retail run.
 
 
+### 3n. 4.1.0 "Paragon" audit remediation (live 12.1 retail, OWED)
+
+Offline (done, see HANDOVER): build 0/0, `dotnet test` 1054 passed, harness 393, `luac -p`, audit clean.
+Live checks - each needs a retail run and stays OWED until then:
+
+1. **Modifier chords (you use Shift/Ctrl/Alt binds).** With `[Window] ModifierInput=Post` (default) fire a
+   Shift+key and a Ctrl+key bound ability from the rotation, game FOCUSED, then NOT focused. Repeat with
+   `Auto` and `SendInput`. Record which combination casts. Post-vs-SendInput on the same chord is the control:
+   if Post already works in both states keep the default; if Post fails only for chords, set `Auto`.
+2. **Held modifiers.** Hold Shift while a Ctrl chord is due under `Auto`/`SendInput`: it must defer with the
+   status note (never send Shift+Ctrl). Hold Shift while a Shift chord is due: Shift must stay down afterwards.
+3. **Stuck modifier.** Pause / Stop during a chord: no modifier stays down (Windows key state, in-game).
+4. **Elevated game.** Run WoW as administrator: the status line must say the window was lost / input blocked
+   instead of "sending", and the scheduler must back off (no silent no-ops).
+5. **No double press after a queued user press** (press a hotbar key during a GCD; rotation must not fire a
+   second key in the same tick).
+6. **Focus-blocked slot** with `AllowBackgroundKeys=0` and the game unfocused: an off-GCD interrupt/trinket
+   slot is still evaluated; nothing is sent while unfocused.
+7. **Occluded / minimized strip:** minimize WoW, then cover the strip with another window: the status shows
+   the minimized / "strip occluded" message, not "no pixel block", and recovers when uncovered.
+8. **Addon frametime:** compare addon CPU (`/run UpdateAddOnCPUUsage()` with CPU profiling on, or the in-game
+   AddOn profiler) for `MaxDpsBridgeExp` before (4.0.4) and after (4.1.0) in a combat dummy fight.
+9. **Ext4 map stays populated** through a cooldown-heavy fight (the hotbar queue keeps recognising presses;
+   `/mdbx hotbar`).
+10. **Bars:** stance/form bar (druid/rogue), vehicle and override bars: no wrong key is sent; slots 73-144 use
+    the texture fallback and may resolve no key (expected, record any ability that stops firing).
+11. **SavedVariables migration:** log in with a 4.0.4 `MaxDpsBridgeExpDB`; `SchemaVersion` becomes 1, a
+    previously paused bridge stays paused, a resumed one stays resumed.
+12. **Mac (on a Mac):** missing Screen Recording blocks Start with a visible message; keys reach WoW with it
+    in the background; numpad/punctuation/F13-F20 binds fire; `--probe`; `build-mac.sh` runs `selftest.swift`.
+13. **CI:** the first GitHub Actions run is green on both jobs (UI-timing tests may flake).
+
 ## 4. macOS client (live retail, OWED)
 
 Everything in this section needs a real client on a Mac. Static/offline

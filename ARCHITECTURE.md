@@ -1553,3 +1553,48 @@ MaxDps-Companion/
   `lastTriedMs`, verdict `resetHint`) and never changes a verdict or an order.
 - `settings.ini` keys mirror `AppSettings` sections 1:1; adding a key means
   updating both plus the README table.
+
+## 4.1.0 "Paragon": shared brain, key delivery, addon hot path (no wire change)
+
+2026-10-18, plan `docs/plans/2026-10-17-paragon-audit-remediation.md`.
+
+```
+app/MaxDpsCompanion.Core        shared brain (net8.0, platform-neutral, namespace MaxDpsCompanion)
+  PixelProtocol (v5 + Ext2/Ext3/Ext4), AppSettings, ToggleSync (+ MainAllowsExecution), ColorProfile,
+  Decision/Scheduler/Knowledge/Telemetry, Knowledge/*.json (embedded, single copy), IPlatform seams,
+  RotationEngine (IPlatform-based; Main master gate + typing veto; NO user-press queue yet)
+        ^ ProjectReference                                  ^ ProjectReference
+app/MaxDpsCompanion (Windows, WinUI 3)               app/MaxDpsCompanion.Mac (Avalonia + Swift SCK)
+  Native/WowWindow/ScreenSampler/KeySender/KeyDelivery   MacScreenSampler/MacKeySender/MacVkMap/...
+  RotationEngine (concrete Win32 engine, user-press queue)
+```
+
+`RotationEngine` is the one type defined in BOTH assemblies (Wave C would merge them). The
+`ShadowedTypeGateTests` allow-list is exactly that type; any other duplicated type name fails the build,
+because CS0436 would otherwise let a stale copy silently shadow Core.
+
+Key delivery (Windows, `KeyDelivery.cs` / `ChordPlanner.cs` / `SlotGate.cs`):
+
+```
+scheduler action / user press -> SlotGate (movement key, physical hold, focus) -> KeyDelivery.SendToWindow
+  ChordPlanner.Decide(ModifierInput, stroke, gameForeground, physical Shift/Ctrl/Alt)
+    plain key or Post mode            -> PostStroke   (WM_KEYDOWN/UP to the game window; every result checked;
+                                                      key-up always sent for exactly the downs that landed)
+    chord + Auto/SendInput + focused  -> SendChordViaInput (foreground re-checked in the lock; only modifiers
+                                                      the user is NOT holding are pressed/released; return
+                                                      count checked (UIPI); own-injection window recorded)
+    extra modifier held / unfocused   -> Defer (status note) or Post fallback with a note (Auto)
+  Stop()/Pause -> PanicRelease (key-up Ctrl/Shift/Alt only while our own injection is outstanding)
+RotationEngine.ScanUserKeys skips any VK inside KeyDelivery's own-injection window.
+```
+
+Addon hot path (`addon/MaxDpsBridgeExp`): a per-tick memo (`Reader.BeginTick/EndTick`) covers
+`SpellVariants`, `KnownSpell`, `IsSpellReady` and `RotationCandidates`; `FrameKey` is a numeric fold over
+the decision edges (HP 30/35/50/75, stagger stage, `InCombat`, `Grouped`, toggle epoch/mask, bind
+revision) instead of raw HP; `Bars` coalesces full cache wipes and treats `SPELL_UPDATE_COOLDOWN` as a
+revision bump only; `HotbarWatch` rebuilds on a debounce timer, never on the paint path, and bumps its
+`gen` only when the streamed content changes; `MDBX.SlotCommand` (Keymap.lua) is the single slot->binding
+command table; SavedVariables carry `SchemaVersion` (Migrate before MergeDefaults).
+
+Repo status: the C# clients are the maintained line; `companion-rs/` and `addon/MaxDpsBridge` + `dist/` are
+frozen (see `LEGACY.md`). Sections below that describe the Rust port or a "frozen C# client" are history.

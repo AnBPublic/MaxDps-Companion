@@ -1,18 +1,23 @@
-# LEGACY — frozen components
+# LEGACY - frozen components (updated for 4.1.0 "Paragon")
 
-The following are **LEGACY / FROZEN** and receive **no updates**:
+**Decision (2026-10-17): C# is the long-term base.** The earlier 2026-10-10
+declaration that the C# client is frozen and Rust is the future is **withdrawn**.
 
-- `app/MaxDpsCompanion/` — the C# WinForms client (`MaxDpsCompanion.exe`).
-- `dist/` — the legacy stable distribution.
-- `addon/MaxDpsBridge/` — the legacy *stable* bridge.
+Current (maintained):
 
-**Future rollouts target only:**
+- `app/MaxDpsCompanion/` - the WinUI 3 Windows client (4.x).
+- `app/MaxDpsCompanion.Core/` - the shared portable brain (Windows consumes it
+  as a project reference since 4.1.0; the Mac client uses it too).
+- `app/MaxDpsCompanion.Mac/` - the macOS client.
+- `addon/MaxDpsBridgeExp/` + `dist-exp/` - the current addon + distribution.
 
-- `companion-rs/` — the Rust companion (the future).
-- `addon/MaxDpsBridgeExp/` + `dist-exp/` — the current addon + distribution.
+Frozen (no updates except critical security fixes, only if explicitly requested):
 
-The old client receives no updates except critical security fixes, and only if
-explicitly requested. New work must not target the legacy paths above.
+- `addon/MaxDpsBridge/` - the legacy *stable* bridge.
+- `dist/` and `build.ps1` - the legacy 3.7.9 WinForms distribution.
+- `companion-rs/` - the Rust port. Source is kept for reference; it does not
+  decode Ext4 and is not kept in step with the C# client. Do not extend it
+  unless the user re-opens that decision.
 
-See `app/MaxDpsCompanion/LEGACY.md` and
-`docs/plans/2026-10-10-rust-companion.md`.
+The wire contract (`docs/PROTOCOL.md`) is the only thing every implementation
+must agree on; any change to it needs an architect pass (see `AGENTS.md`).
