@@ -22,7 +22,12 @@
 --
 -- Rebuild triggers: the Bars.lua event family (bars / bindings / spec /
 -- talents / macros / spells / cooldown resets) + PLAYER_ENTERING_WORLD + a
--- 2 s sweep. A rebuild bumps gen = (gen + 1) & 0xF and restarts the seq cycle.
+-- 2 s sweep. A rebuild bumps gen = (gen + 1) & 0xF and restarts the seq cycle
+-- ONLY when the map IDENTITY changes (which slot/key/spell/item/macro entry
+-- exists, its vk/mods/ids/count/order). Readiness is NOT identity: a cooldown
+-- flip refreshes the entries' Ready field in place (at rebuild and again at
+-- frame build) so the companion can still assemble a complete seq cycle for
+-- one gen while cooldowns tick. See Ext4Assembler: it validates gen/seq only.
 
 local addonName, MDBX = ...;
 
@@ -262,8 +267,14 @@ local LastSignature = nil;   -- streamed content of the last rebuild
 -- run OUTSIDE the bridge's paint tick.
 local REBUILD_DELAY = 0.25;
 
--- Numeric fold of everything that goes on the wire for one entry. Products
--- stay exact in a double (Acc < 2^32, *4099 < 2^43).
+-- Numeric fold of the map IDENTITY for one entry: which slot is bound to
+-- which key and which spell/item id it fires. Readiness (Entry.Ready) is
+-- deliberately EXCLUDED - it rides the wire per entry (idTop bit2) and is
+-- refreshed in place, so a cooldown flip must not bump gen: a gen bump resets
+-- seq and would starve the companion's Ext4Assembler, which only swaps the map
+-- after a COMPLETE seq cycle within one gen (cooldown-heavy fights flip
+-- readiness every GCD). See RefreshReady / HotbarWatch.Frame.
+-- Products stay exact in a double (Acc < 2^32, *4099 < 2^43).
 local function Mix (Acc, Value)
   if type(Value) ~= "number" then Value = 0; end
   if Value ~= Value or Value < 0 then Value = 0; end
@@ -279,9 +290,16 @@ local function Signature (List, Count)
     H = Mix(H, E.Mods or 0);
     H = Mix(H, E.Id or 0);
     H = Mix(H, E.IsItem and 1 or 0);
-    H = Mix(H, E.Ready and 1 or 0);
   end
   return H * 33 + Count;
+end
+
+-- Re-read an entry's readiness IN PLACE. Never touches the entry's identity
+-- fields, so it can run between rebuilds without changing the signature.
+local function RefreshReady (Entry)
+  if not Entry then return; end
+  local Ready = Entry.IsItem and ItemReady(Entry.Id) or SpellReady(Entry.Id);
+  Entry.Ready = Ready == true;
 end
 
 function HotbarWatch.Rebuild ()
@@ -354,10 +372,10 @@ function HotbarWatch.Rebuild ()
   EntryCount = #New;
   if MDBX.EndTick then MDBX.EndTick(); end
   -- A1.7: gen is the companion's "new map, restart the seq cycle" signal.
-  -- A sweep or readiness refresh that produced the same streamed content must
-  -- not bump it (the old code bumped gen on every rebuild, so the 2 s sweep
-  -- threw away a cycle the companion had already assembled). The signature
-  -- covers exactly what the wire carries.
+  -- A sweep or readiness refresh that produced the same IDENTITY must not bump
+  -- it (the old code bumped gen on every rebuild, so the 2 s sweep threw away a
+  -- cycle the companion had already assembled). The signature covers exactly
+  -- the map identity; Ready is refreshed in place and never bumps gen.
   local Sig = Signature(New, EntryCount);
   if Sig ~= LastSignature then
     LastSignature = Sig;
@@ -438,6 +456,15 @@ function HotbarWatch.Frame ()
   Current.empty = (EntryCount == 0);
   Current.e1 = Entries[Current.seq * 2 + 1];
   Current.e2 = Entries[Current.seq * 2 + 2];
+  -- Ready is not part of the map identity (see Signature), so it is refreshed
+  -- HERE, on the two entries this frame actually streams: the ready bit the
+  -- companion reads is the readiness at paint time, not the value cached by the
+  -- last rebuild. In-place writes keep gen/seq untouched. The probes are cheap
+  -- and fail closed (SpellReady/ItemReady are pcall-contained); Bridge calls
+  -- EndTick before this runs, so IsSpellReady answers live rather than from a
+  -- scan memo.
+  RefreshReady(Current.e1);
+  RefreshReady(Current.e2);
   return Current;
 end
 

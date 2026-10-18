@@ -2780,6 +2780,126 @@ local function RunParagonTests ()
     check("A1.12 /mdb diag reports proto=5", Line:find("proto=5", 1, true) ~= nil)
   end
 
+  -- ---- A1.13: readiness is NOT map identity (gen/seq survive a flip) ---
+  -- Reviewer P1: the signature used to fold each entry's Ready flag, so every
+  -- cooldown flip bumped gen and restarted seq at 0. The companion's Ext4
+  -- assembler only swaps the map after a COMPLETE seq cycle inside one gen, so
+  -- a cooldown-heavy fight (readiness flips every GCD) starved it. Ready still
+  -- rides the wire (entry cell 2 idTop bit2) and is now refreshed in place.
+  do
+    local SavedReadyFn = MDBX.IsSpellReady
+    local ReadyNow = true
+    -- Cell i of the Exp strip: the last 51 textures created (as in A1.5).
+    local CellsBase = TextureCount - 50;
+    local function XNib (i)
+      local c = Textures[CellsBase + i]
+      if not c then return 0 end
+      return math.floor(c[1] * 15 + 0.5)
+    end
+    MDBX.IsSpellReady = function () return ReadyNow end
+    runDeferred()
+    Actions, Binds = {}, {}
+    for i = 1, 4 do
+      Actions[i] = { "spell", 100000 + i }
+      Binds["ACTIONBUTTON" .. i] = tostring(i)
+    end
+    pcall(HW.MarkDirty); pcall(HW.Flush)
+    check("A1.13 four-entry map streamed", HW.Count() == 4)
+    local GenReady = HW.Gen()
+    for _ = 1, 3 do pcall(HW.Frame) end         -- Hold cycle: 3 ticks -> seq 1
+    local SeqReady = HW.Seq()
+    check("A1.13 seq cycle advanced before the flip", SeqReady == 1)
+
+    -- (a) Ready-only flip through a rebuild: gen and seq must not move
+    ReadyNow = false
+    pcall(HW.MarkDirty); pcall(HW.Flush)
+    check("A1.13 a Ready-only rebuild took the new readiness",
+      HW.Entries()[3] and HW.Entries()[3].Ready == false)
+    check("A1.13 a Ready flip alone does not bump gen", HW.Gen() == GenReady)
+    check("A1.13 a Ready flip alone does not reset seq", HW.Seq() == SeqReady)
+
+    -- in-place refresh at frame build: no rebuild is scheduled at all
+    ReadyNow = true
+    check("A1.13 the map is not dirty before the frame build", HW.IsDirty() == false)
+    pcall(HW.Frame)                             -- the paint tick refreshes in place
+    local Fresh = HW.Entries()
+    check("A1.13 frame build refreshes Ready in place (no rebuild)",
+      Fresh[3] and Fresh[3].Ready == true and Fresh[4] and Fresh[4].Ready == true)
+    check("A1.13 the in-place refresh keeps gen and seq",
+      HW.Gen() == GenReady and HW.Seq() == SeqReady)
+
+    -- (c) the ready bit on the WIRE follows the flip at paint time
+    pcall(UpdateExp, StripExp, 0.06)
+    local WireR = XNib(45)
+    check("A1.13 wire ready bit set while ready", bit.band(WireR, 4) == 4)
+    ReadyNow = false
+    pcall(UpdateExp, StripExp, 0.06)
+    WireR = XNib(45)
+    check("A1.13 wire ready bit clears after the flip", bit.band(WireR, 4) == 0)
+
+    -- (b) an IDENTITY change still bumps gen
+    local GenNew = HW.Gen()
+    Actions[5] = { "spell", 100005 }
+    Binds["ACTIONBUTTON5"] = "5"
+    pcall(HW.MarkDirty); pcall(HW.Flush)
+    check("A1.13 a new entry bumps gen", HW.Gen() == (GenNew + 1) % 16)
+    local GenKey = HW.Gen()
+    Binds["ACTIONBUTTON1"] = "SHIFT-1"
+    pcall(HW.MarkDirty); pcall(HW.Flush)
+    check("A1.13 a changed key bumps gen", HW.Gen() == (GenKey + 1) % 16)
+    MDBX.IsSpellReady = SavedReadyFn
+  end
+
+  -- ---- A1.14: the remaining Tick memos are gated on Tick.Active ---------
+  -- Reviewer P2: ScrubbedFlags / ClassSpec / ItemSpellIDs served their last
+  -- tick's memo to a direct call between ticks (e.g. a /mdb diagnostic).
+  do
+    local SavedSpells, SavedFlags = MaxDps.Spells, MaxDps.Flags
+    local SavedItems, SavedCons = MaxDps.ItemSpells, MaxDps.Consumables
+    local SavedInterrupts, SavedIdToSpec = MaxDps.classInterrupts, MaxDps.idtospec
+    local SavedSpecInfo = GetSpecializationInfo
+    local SavedBindCache = MDBX._BindCache
+    runDeferred()
+
+    -- (1) ScrubbedFlags + ItemSpellIDs: swapped upstream state shows at once
+    MaxDps.Flags = { [500001] = true }
+    MaxDps.Spells = { [500001] = {} }
+    MaxDps.ItemSpells = { [5002] = 500001 }   -- ItemID -> ItemSpellID
+    MaxDps.Consumables = { [5002] = true }
+    pcall(MDBX.BeginTick)
+    local C1 = MDBX.GetConsumableSpellID()
+    pcall(MDBX.EndTick)
+    check("A1.14 consumable memo warm inside the tick", C1 == 500001)
+    MaxDps.Flags = { [500003] = true }
+    MaxDps.Spells = { [500003] = {} }
+    MaxDps.ItemSpells = { [5004] = 500003 }
+    MaxDps.Consumables = { [5004] = true }
+    check("A1.14 ScrubbedFlags/ItemSpellIDs are tick-gated (outside a tick)",
+      MDBX.GetConsumableSpellID() == 500003)
+
+    -- (2) ClassSpec: a spec change between ticks shows at once
+    MaxDps.classInterrupts = { WARRIOR = { Arms = { 6552 }, Fury = { 6553 } } }
+    MaxDps.idtospec = { [71] = "Arms", [72] = "Fury" }
+    MaxDps.Flags = { [6553] = true }
+    MaxDps.Spells = { [6553] = {} }
+    Actions = { [1] = { "spell", 6553 } }
+    Binds = { ["ACTIONBUTTON1"] = "1" }
+    MDBX._BindCache = {}
+    GetSpecializationInfo = function () return 71 end
+    pcall(MDBX.BeginTick)
+    local W1 = MDBX.GetInterruptSpellID()
+    pcall(MDBX.EndTick)
+    check("A1.14 interrupt memo warm: Arms does not own Fury's kick", W1 == nil)
+    GetSpecializationInfo = function () return 72 end
+    check("A1.14 ClassSpec is tick-gated (outside a tick)", MDBX.GetInterruptSpellID() == 6553)
+
+    MaxDps.Spells, MaxDps.Flags = SavedSpells, SavedFlags
+    MaxDps.ItemSpells, MaxDps.Consumables = SavedItems, SavedCons
+    MaxDps.classInterrupts, MaxDps.idtospec = SavedInterrupts, SavedIdToSpec
+    GetSpecializationInfo = SavedSpecInfo
+    MDBX._BindCache = SavedBindCache
+  end
+
   -- restore the action-bar stubs and the clock
   GetActionInfo = function () return nil end
   GetBindingKey = function () return nil end

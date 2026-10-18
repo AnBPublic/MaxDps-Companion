@@ -482,8 +482,10 @@ end
 local function ScrubbedFlags ()
   local MaxDps = MaxDpsEngine();
   if not MaxDps then return nil, nil; end
-  -- Per-tick memo (see Tick above).
-  if Tick.FlagsOwner == MaxDps and Tick.Flags ~= nil then
+  -- Per-tick memo (see Tick above). Gated on Tick.Active like the A1.3 memos:
+  -- a direct call between BeginTick/EndTick (e.g. a /mdb diagnostic) must not
+  -- be served a table captured in an earlier tick.
+  if Tick.Active and Tick.FlagsOwner == MaxDps and Tick.Flags ~= nil then
     return Tick.Flags, MaxDps;
   end
   local Flags = MaxDps.Flags;
@@ -513,8 +515,9 @@ local function ClassSpec ()
   local MaxDps = MaxDpsEngine();
   if not MaxDps then return nil; end
   -- Per-tick memo (see Tick above): resolved once per update, not once per
-  -- candidate spell (CategoryOf calls this for every flagged spell).
-  if Tick.Class == MaxDps then return MaxDps, Tick.ClassFile, Tick.Spec, Tick.SpecID; end
+  -- candidate spell (CategoryOf calls this for every flagged spell). Gated on
+  -- Tick.Active so a direct call outside the tick window reads live.
+  if Tick.Active and Tick.Class == MaxDps then return MaxDps, Tick.ClassFile, Tick.Spec, Tick.SpecID; end
   if type(UnitClass) ~= "function" then return nil; end
   local OkC, _, classFile = pcall(UnitClass, "player");
   if not OkC or not classFile then return nil; end
@@ -641,7 +644,9 @@ end
 -- raw MaxDps tables), so keys are proven non-secret — plain compares.
 local function ItemSpellIDs ()
   local MaxDps = MaxDpsEngine();
-  if Tick.Items ~= nil then return Tick.Items; end
+  -- Gated on Tick.Active (like the other Tick memos): between ticks the table
+  -- is rebuilt from live upstream state instead of being served stale.
+  if Tick.Active and Tick.Items ~= nil then return Tick.Items; end
   local Out = {};
   if MaxDps and MaxDps.ItemSpells then
     local CleanItems;
