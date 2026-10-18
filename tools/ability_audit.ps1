@@ -8,10 +8,12 @@ plus the machine-readable coverage manifest (--ability-coverage), and ENFORCES
 the bar: violations 0, warnings 0, missing 0, stale 0. A non-clean audit is a
 failure (exit 3); it is no longer enough to print the numbers.
 
-It also checks that the committed addon catalog is byte-identical to the
-generated one (--gen-catalog=<temp> + Compare-Object). Drift is REPORTED, never
-auto-fixed: the addon file is owned by the addon workstream. Exit code 2 signals
-drift; 1 signals a failed audit run; 3 signals a non-clean audit; 0 is clean.
+It also checks that the committed addon catalog (addon/MaxDpsCompanionBridge/
+Catalog.lua) is byte-identical to the generated one (--gen-catalog=<temp> +
+Compare-Object). Drift is REPORTED, never auto-fixed: the addon file is owned by
+the addon workstream. The frozen legacy snapshot (addon/legacy/MaxDpsBridge) is
+printed for information only and never fails a run. Exit code 2 signals drift;
+1 signals a failed audit run; 3 signals a non-clean audit; 0 is clean.
 
 Run from the repository root:
   pwsh -File tools/ability_audit.ps1
@@ -29,7 +31,8 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $reportPath = Join-Path $root 'docs/research/ABILITY_REGISTRY_AUDIT.md'
 $coveragePath = Join-Path $root 'docs/research/ABILITY_COVERAGE.json'
-$addonCatalog = Join-Path $root 'addon/MaxDpsBridge/Catalog.lua'
+$addonCatalog = Join-Path $root 'addon/MaxDpsCompanionBridge/Catalog.lua'
+$legacyDir = Join-Path $root 'addon/legacy/MaxDpsBridge'
 
 function Resolve-CompanionExe {
     if (-not [string]::IsNullOrWhiteSpace($ExePath)) {
@@ -141,7 +144,7 @@ if (-not $SkipCatalogCheck) {
                 Write-Output "catalog: committed addon Catalog.lua matches the generated output"
             }
             else {
-                Write-Output "catalog: DRIFT (addon vs generated) - regenerate addon/MaxDpsBridge/Catalog.lua"
+                Write-Output "catalog: DRIFT (addon vs generated) - regenerate addon/MaxDpsCompanionBridge/Catalog.lua"
                 foreach ($line in $drift) {
                     $side = if ($line.SideIndicator -eq '<=') { 'addon     ' } else { 'generated ' }
                     Write-Output ("  {0}{1}" -f $side, $line.InputObject)
@@ -153,6 +156,11 @@ if (-not $SkipCatalogCheck) {
             Remove-Item -LiteralPath $genPath -Force -ErrorAction SilentlyContinue
         }
     }
+}
+
+# ---- 3. Legacy snapshot (informational only) --------------------------------
+if (Test-Path -LiteralPath $legacyDir) {
+    Write-Output "legacy snapshot: addon/legacy/MaxDpsBridge (frozen; informational only)"
 }
 
 exit $exitCode

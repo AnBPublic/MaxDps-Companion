@@ -73,7 +73,7 @@ if (-not (Test-Path -LiteralPath $RepoRoot)) { throw "RepoRoot not found: $RepoR
 $assetsOut  = Join-Path $RepoRoot 'addon\MaxDpsCompanionBridge\InGame\Assets'
 $fontsOut   = Join-Path $RepoRoot 'app\MaxDpsCompanion\assets\fonts'
 $pinsFile   = Join-Path $PSScriptRoot 'asset-pins.json'
-$tempRoot   = Join-Path ([System.IO.Path]::GetTempPath()) ("mdbx-assets-{0}" -f [guid]::NewGuid().ToString('N'))
+$tempRoot   = Join-Path ([System.IO.Path]::GetTempPath()) ("mdcb-assets-{0}" -f [guid]::NewGuid().ToString('N'))
 
 # --- Pinned upstream manifest -------------------------------------------------
 # SHA256 pins live in asset-pins.json (key = asset Name). Empty = unpinned.

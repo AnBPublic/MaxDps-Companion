@@ -90,9 +90,9 @@ jobs:
           Write-Host ("luac -p: {0} file(s) checked, {1} failed" -f $files.Count, $failed.Count)
           if ($failed.Count -gt 0) { throw ("luac -p failed: " + ($failed -join '; ')) }
 
-      # Exit codes: 0 clean, 2 documented stable-Catalog drift (legacy
-      # addon/MaxDpsBridge/Catalog.lua vs generated - reported, never auto-fixed),
-      # 1 failed run, 3 non-clean audit. Only 0 and 2 are accepted here.
+      # Exit codes: 0 clean (the committed addon/MaxDpsCompanionBridge/Catalog.lua
+      # must byte-match the generated output; drift is reported, never auto-fixed),
+      # 1 failed run, 3 non-clean audit. Only 0 is accepted here.
       - name: Ability audit
         shell: pwsh
         run: |
@@ -100,14 +100,9 @@ jobs:
           & ./tools/ability_audit.ps1
           $code = $LASTEXITCODE
           Write-Host "tools/ability_audit.ps1 exit code: $code"
-          if ($code -eq 2) {
-            Write-Warning 'catalog DRIFT reported (stable Catalog.lua vs generated) - accepted by policy'
-          } elseif ($code -ne 0) {
+          if ($code -ne 0) {
             throw "tools/ability_audit.ps1 failed with exit code $code"
           }
-          # The pwsh wrapper exits with $LASTEXITCODE, so an accepted warning
-          # would still fail the step; exit explicitly.
-          exit 0
 
   macos:
     name: macos-latest - Core + Mac build, swiftc parse
