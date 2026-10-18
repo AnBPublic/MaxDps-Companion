@@ -404,8 +404,11 @@ function C.RefreshDashboard ()
     end;
     if type(Mode) ~= "string" or Mode == "" then Mode = "(none)"; end;
     local Live = (type(Epoch) == "number" and Epoch ~= 0) and "live" or "waiting";
+    local Version = tostring(MDBX.VERSION);
+    local Codename = tostring(MDBX.CODENAME or "");
+    if Codename ~= "" then Version = Version .. " (" .. Codename .. ")"; end;
     StatusBody:SetText(("bridge:   %s\nversion:  %s\nprofile:  %s (%d stores)\nmask:     0x%04X")
-      :format(Live, tostring(MDBX.VERSION), tostring(Mode), Count, Mask));
+      :format(Live, Version, tostring(Mode), Count, Mask));
   end;
 end
 

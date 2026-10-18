@@ -22,6 +22,7 @@ local addonName, MDBX = ...;
 MDBX = MDBX or {};
 MDBX.ADDON = addonName or "MaxDpsBridgeExp";
 MDBX.VERSION = MDBX.VERSION or "3.7.1-exp";
+MDBX.CODENAME = MDBX.CODENAME or "Paragon";
 MDBX.PREFIX = "MDBX";
 
 --- Shared chat printer. All Exp modules and the slash surface route through

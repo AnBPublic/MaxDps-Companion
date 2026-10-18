@@ -77,6 +77,10 @@
 local addonName, MDBX = ...;
 
 MDBX.VERSION = "4.1.0-exp";
+-- Release codename, shown next to the version in /mdbx cfg (Status card) and
+-- the Debug tab. Single-sourced here; the TOC carries the same value in
+-- ## X-Codename so the AddOns list matches.
+MDBX.CODENAME = "Paragon";
 
 -- Chat print, defined FIRST: AutoCalibrate (below) and the Update watchdog
 -- both call it, and Lua resolves locals lexically -- a later `local
