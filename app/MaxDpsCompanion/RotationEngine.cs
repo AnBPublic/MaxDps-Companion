@@ -636,6 +636,22 @@ internal sealed class RotationEngine : IDisposable
             return;
         }
 
+        // 4.1.0 TYPING VETO (parity with Core's engine, cell 41 R bit2). Firing
+        // keys while the chat edit box is open is a BUG: every posted keystroke
+        // lands in the chat frame instead of the game. ONLY the hotbar scan used
+        // to veto typing, so the rotation / auto-target / auto-interact paths
+        // and a queued user press still typed into chat. Mirror Core's gate
+        // right after the master gate: hold EVERY send path, drop the queued
+        // press, and fail OPEN on an old addon (an absent/invalid Ext3 block
+        // decodes TypingActive=false, PixelProtocol masks the flag out).
+        if (frame.TypingActive)
+        {
+            _userPressQueue.Reset();
+            Report("holding (typing in game chat)", true, frame.State, summary, "-");
+            _idle = true;
+            return;
+        }
+
         // 2026-09-30 FAIL-CLOSED OUT-OF-COMBAT GATE. Out of combat the
         // companion holds unless the app's out-of-combat toggle is ON
         // (CombatOnly=false) AND the in-game bridge echoed the Ext3 OOC toggle

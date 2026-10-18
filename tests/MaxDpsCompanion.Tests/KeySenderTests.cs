@@ -61,7 +61,14 @@ public class KeySenderTests
 
         public uint MapVirtualKey(uint code) => Native.MapVirtualKey(code, Native.MAPVK_VK_TO_VSC);
 
-        public bool IsDown(byte virtualKey) => PhysicallyDown.GetValueOrDefault(virtualKey);
+        /// <summary>Every GetAsyncKeyState probe the sender made (physical state).</summary>
+        public int IsDownCalls { get; private set; }
+
+        public bool IsDown(byte virtualKey)
+        {
+            IsDownCalls++;
+            return PhysicallyDown.GetValueOrDefault(virtualKey);
+        }
 
         public void Sleep(int milliseconds) => SleptMs += milliseconds;
     }
@@ -295,6 +302,34 @@ public class KeySenderTests
         Assert.Equal(ChordRoute.Post, plan.Route);
     }
 
+    [Fact]
+    public void Post_Mode_Makes_No_Physical_State_Queries()
+    {
+        // 4.1 A2.2 (f): [Window] ModifierInput=Post is the default route and
+        // its plan ignores the physical modifier state, so the sender must not
+        // call GetAsyncKeyState at all there (the pre-review code probed
+        // Shift/Ctrl/Alt before deciding the plan in EVERY mode).
+        var backend = new FakeBackend();
+        var outcome = Sender(backend).SendToWindow(
+            backend.Target, backend.Pid, CtrlShiftAlt(0x46), holdMilliseconds: 0,
+            ModifierInputMode.Post, gameForeground: true);
+
+        Assert.True(outcome.Sent);
+        Assert.Equal(0, backend.IsDownCalls);
+    }
+
+    [Fact]
+    public void Modifier_Aware_Mode_Does_Query_The_Physical_State_For_A_Chord()
+    {
+        // Control for the test above: the SendInput route genuinely needs the
+        // three modifier probes (rule a: never press a modifier the user holds).
+        var backend = new FakeBackend { Foreground = (IntPtr)0x1234 };
+        Sender(backend).SendToWindow(backend.Target, backend.Pid, CtrlShiftAlt(0x46), 0,
+            ModifierInputMode.SendInput, gameForeground: true);
+
+        Assert.Equal(3, backend.IsDownCalls);   // Shift, Ctrl, Alt
+    }
+
     // ---------- A2.2: live SendInput chord behaviour ----------
 
     [Fact]
@@ -404,6 +439,26 @@ public class KeySenderTests
         var outcome = sender.SendToWindow(backend.Target, backend.Pid, KeyF, 0, ModifierInputMode.Post, true);
         Assert.True(outcome.Sent);
         Assert.False(sender.IsOwnInjection(0x46));
+    }
+
+    [Fact]
+    public void A_Refused_Down_Batch_Records_No_Own_Injection()
+    {
+        // UIPI / an elevated game refuses the whole down batch (0 inserted).
+        // Nothing was physically pressed, so the stroke's VKs must NOT be
+        // stamped as ours: the pre-review code stamped the window before
+        // checking sentDown and the physical scan then swallowed the user's
+        // next real press for the 30 ms grace.
+        var backend = new FakeBackend { Foreground = (IntPtr)0x1234, FailAllInput = true };
+        var now = 1000L;
+        var sender = Sender(backend, () => now);
+
+        var outcome = sender.SendToWindow(backend.Target, backend.Pid,
+            new KeyStroke(0x46, false, true, false), 0, ModifierInputMode.SendInput, gameForeground: true);
+
+        Assert.False(outcome.Sent);
+        Assert.False(sender.IsOwnInjection(0x46));   // base key
+        Assert.False(sender.IsOwnInjection(0x11));   // Ctrl
     }
 
     // ---------- A2.1/A2.2: focused send (mouse path) ----------

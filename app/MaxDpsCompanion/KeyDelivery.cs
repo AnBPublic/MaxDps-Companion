@@ -163,11 +163,18 @@ internal sealed class KeyDelivery
 
         lock (_gate)
         {
+            // 4.1 A2.2 (f): the physical modifier state (GetAsyncKeyState) is
+            // ONLY consulted for a chord that can route through SendInput.
+            // Post is the default route and its plan ignores those flags, so
+            // ModifierInput=Post must make NO physical-state queries at all;
+            // a plain (non-chord) stroke returns ChordPlan.Post() before it
+            // reads them in every mode.
+            var chord = mode != ModifierInputMode.Post && ChordPlanner.IsChord(stroke);
             var plan = ChordPlanner.Decide(
                 mode, stroke, gameForeground,
-                shiftDown: _backend.IsDown(KeySender.VkShift),
-                ctrlDown: _backend.IsDown(KeySender.VkControl),
-                altDown: _backend.IsDown(KeySender.VkMenu));
+                shiftDown: chord && _backend.IsDown(KeySender.VkShift),
+                ctrlDown: chord && _backend.IsDown(KeySender.VkControl),
+                altDown: chord && _backend.IsDown(KeySender.VkMenu));
 
             switch (plan.Route)
             {
@@ -257,6 +264,7 @@ internal sealed class KeyDelivery
         var pressedVks = new List<byte>(4);
         var start = _nowMs();
         var ok = true;
+        uint sentDown = 0;   // hoisted: the finally below reads it
         try
         {
             var down = new List<Native.INPUT>(4);
@@ -266,7 +274,7 @@ internal sealed class KeyDelivery
             down.Add(KeySender.KeyInput(stroke.VirtualKey, keyUp: false));
             pressedVks.Add(stroke.VirtualKey);
 
-            var sentDown = _backend.SendInput(down.ToArray(), Marshal.SizeOf<Native.INPUT>());
+            sentDown = _backend.SendInput(down.ToArray(), Marshal.SizeOf<Native.INPUT>());
             if (sentDown > 0) _ownModifiersDown |= modBits;   // (e): remember what may be stuck down
             if (sentDown != down.Count) ok = false;           // (c): UIPI / elevated game returns 0
             else if (holdMilliseconds > 0) _backend.Sleep(holdMilliseconds);
@@ -283,9 +291,16 @@ internal sealed class KeyDelivery
             if (released == up.Count) _ownModifiersDown &= ~modBits;
             else ok = false;
 
-            // (d) own-injection window for the physical-key scan.
-            var end = _nowMs() + OwnInjectionGraceMs;
-            foreach (var vk in pressedVks) { _ownFrom[vk] = start; _ownUntil[vk] = end; }
+            // (d) own-injection window for the physical-key scan. Stamp ONLY
+            // when the down batch actually inserted events: a refused batch
+            // (UIPI / elevated game, sentDown == 0) pressed nothing, so
+            // claiming the stroke's VKs as ours would swallow the user's next
+            // real press for the grace window.
+            if (sentDown > 0)
+            {
+                var end = _nowMs() + OwnInjectionGraceMs;
+                foreach (var vk in pressedVks) { _ownFrom[vk] = start; _ownUntil[vk] = end; }
+            }
         }
 
         return ok ? SendOutcome.Ok : SendOutcome.Lost;

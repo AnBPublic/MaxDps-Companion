@@ -374,17 +374,35 @@ internal sealed class RotationEngine : IDisposable
                 // the cadence to 10x the measured tick cost, so a slow
                 // capture path degrades latency gracefully instead of
                 // stealing frames from the game.
-                if (tickUs > 0)
-                {
-                    var dutyFloorMs = (int)Math.Ceiling(tickUs * 10 / 1000.0);
-                    if (dutyFloorMs > wait && dutyFloorMs <= 250) wait = dutyFloorMs;
-                }
+                // 4.1 A2.8 (parity with the Windows engine): the STRETCH is
+                // capped at one poll interval. The old 10x-cost target could
+                // stretch the cadence to 250 ms (7.5x the configured poll) on
+                // a slow capture path, which reads as input lag; added latency
+                // is now bounded while the guard still protects the game from
+                // a runaway tick.
+                wait = DutyCycleWait(wait, fast, tickUs);
                 _clock.Wait(wait);
             }
         }
         finally
         {
         }
+    }
+
+    /// <summary>
+    /// 4.1 A2.8 (parity with the Windows engine's inline guard): the wait that
+    /// keeps our CPU share at ~10% of one tick, with the STRETCH capped at one
+    /// poll interval (<paramref name="fast"/>) so a slow capture path can never
+    /// add more than one configured poll of input lag. Pure so the cap is
+    /// unit-tested without running the loop thread.
+    /// </summary>
+    internal static int DutyCycleWait(int wait, int fast, double tickUs)
+    {
+        if (tickUs <= 0) return wait;
+        var dutyFloorMs = (int)Math.Ceiling(tickUs * 10 / 1000.0);
+        var stretch = dutyFloorMs - wait;
+        if (stretch > 0) wait += Math.Min(stretch, Math.Max(0, fast));
+        return wait;
     }
 
     /// <summary>
