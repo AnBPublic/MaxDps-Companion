@@ -33,6 +33,9 @@ Install:
 2. Unzip the app and drag `MaxDPS Companion.app` to `/Applications`.
 3. Unzip the addon package and double-click `Install Addon.command` (or run
    `./install-addon-mac.sh --addons "/Applications/World of Warcraft/_retail_/Interface/AddOns"`).
+   If Gatekeeper blocks the `.command`, run
+   `xattr -dr com.apple.quarantine <unzipped addon folder>` first, or run the
+   shell script from Terminal.
 4. First launch: the app is **ad-hoc signed, not notarized**. Use
    **System Settings -> Privacy & Security -> Open Anyway**, or
    `xattr -dr com.apple.quarantine "/Applications/MaxDPS Companion.app"`.

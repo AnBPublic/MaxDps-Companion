@@ -32,6 +32,8 @@
 > The release app is **ad-hoc signed, not notarized**: on first launch use
 > **System Settings -> Privacy & Security -> Open Anyway** (or
 > `xattr -dr com.apple.quarantine "/Applications/MaxDPS Companion.app"`).
+> If Gatekeeper blocks the addon's `Install Addon.command`, run the same
+> `xattr` on the unzipped addon folder.
 > Build from source with `./build-mac.sh`. Capture is a **window-filtered
 > ScreenCaptureKit stream bounded to the strip rect** (no screen recording, no
 > per-tick capture call); every coordinate is window-relative. Numbers:

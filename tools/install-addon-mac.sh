@@ -19,7 +19,7 @@ DRY_RUN=0
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
 usage() {
-    sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 while [ $# -gt 0 ]; do

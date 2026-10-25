@@ -29,7 +29,7 @@ APP=""
 DO_BUILD=1
 
 usage() {
-    sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 while [ $# -gt 0 ]; do
@@ -93,7 +93,7 @@ fi
 BUNDLE_SETTINGS="$APP/Contents/MacOS/settings.ini"
 [ -f "$BUNDLE_SETTINGS" ] || fail "bundle has no settings.ini seed: $BUNDLE_SETTINGS"
 if ! cmp -s "$BUNDLE_SETTINGS" "$ROOT/settings.ini"; then
-    fail "bundle settings.ini differs from the tracked default; rebuild with dist/settings.ini seeded from settings.ini"
+    fail "bundle settings.ini differs from the tracked default; run 'cp settings.ini dist/settings.ini' and rebuild"
 fi
 
 mkdir -p "$OUT"
@@ -153,7 +153,7 @@ INFO="$OUT/BUILD-INFO-macos.txt"
     echo "notarized=no"
     echo "addon=MaxDpsCompanionBridge $ADDON_VERSION"
     echo "wire=v5 + Ext2/Ext3/Ext4 (51 cells)"
-    echo "windows_counterpart=MaxDpsCompanion.exe 4.4.0.0 (v$VERSION $CODENAME)"
+    echo "windows_counterpart=MaxDpsCompanion.exe ${VERSION}.0 (v$VERSION $CODENAME)"
     echo "parity=same source tag, Core brain, wire protocol and addon as Windows; OS-specific binaries are not byte-identical"
 } > "$INFO"
 
@@ -202,7 +202,7 @@ chmod +x "$STAGE/Install Addon.command"
 cat > "$STAGE/README-addon.txt" <<TEXT
 MaxDps Companion Bridge $VERSION "$CODENAME" - macOS package
 
-This is the SAME addon the Windows 4.4.0 companion uses (folder
+This is the SAME addon the Windows $VERSION companion uses (folder
 MaxDpsCompanionBridge, TOC version $VERSION).
 
 Install
