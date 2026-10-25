@@ -10,6 +10,9 @@ by release name or date before re-investigating an old problem.
 - **Current:** `4.4.0 "Wayfinder"` - `app/MaxDpsCompanion/` (WinUI 3 Windows client) + `app/MaxDpsCompanion.Core/`
   (shared brain, consumed by Windows since 4.1.0) + `app/MaxDpsCompanion.Mac/` +
   `addon/MaxDpsCompanionBridge/` + `dist/`. **C# is the long-term base** (decision 2026-10-17).
+- **macOS release:** `v4.4.0` Apple Silicon assets (`.app` + addon zip +
+  BUILD-INFO + checksums) built from the same tag; ad-hoc signed, not
+  notarized. Download from the `v4.4.0` release.
 - **Frozen:** `addon/legacy/MaxDpsBridge/` (legacy stable bridge), `dist-legacy/` + `build.ps1`
   (3.7.9 WinForms), and `companion-rs/` (Rust port; reference only, no Ext4). See `LEGACY.md`.
 - The legacy and companion bridge addons are mutually exclusive per character; use the
@@ -17,6 +20,45 @@ by release name or date before re-investigating an old problem.
   Deploy: `pwsh tools/publish.ps1` + `pwsh tools/install-addon.ps1` (both only on the user's go-ahead).
 - Wire: protocol v5 + Ext2/Ext3/Ext4 (51 cells), unchanged since 4.0.3. Any wire change is an
   architect-trigger task (`AGENTS.md`).
+
+## 2026-10-25 macOS 4.4.0 "WAYFINDER" RELEASE (Apple Silicon, same tag/version)
+
+Branch `release/v4.4.0-macos`. **No app, wire or addon change:** the macOS
+client was already at 4.4.0 in `app/MaxDpsCompanion.Mac`. This release makes it
+downloadable from the SAME `v4.4.0` release/tag as Windows (commit `7b8bbfa`).
+
+DONE
+- `.github/workflows/release-macos.yml`: tag-checkout build on `macos-15`
+  (arm64), `SELFTEST=0`, `MAC_SIGN_MODE=adhoc`, .NET 8, version/tag/commit
+  assertions, `codesign --verify --deep --strict`, `ditto` zip, optional
+  `gh release upload` to the existing tag.
+- `tools/package-macos.sh`: refuses a mismatched tag/`Version.props`/HEAD;
+  writes `BUILD-INFO-macos.txt` (source tag/commit, arch, signing, addon/wire,
+  Windows counterpart); signs after adding BUILD-INFO; zips the `.app` and the
+  addon; extracts and re-verifies the shipped zip; emits
+  `SHA256SUMS-macos.txt`.
+- `tools/install-addon-mac.sh` + `Install Addon.command` in the addon zip:
+  installs the same `MaxDpsCompanionBridge` 4.4.0 into the retail AddOns
+  folder; never touches other addons or SavedVariables.
+- `tools/mac-signing.sh`: `MAC_SIGN_MODE=adhoc` path for CI (no keychain
+  identity; arm64 still signed).
+- Packaging scripts come from the workflow commit, not the tag; app/Core/
+  addon/version come from the tag. BUILD-INFO records both.
+- README + Mac README: download/install, Gatekeeper first-launch override,
+  TCC re-grant after an ad-hoc rebuild, and the explicit parity claim (same
+  version/source/brain/wire/addon; not byte-identical OS binaries). CI adds
+  `bash -n` for all macOS scripts.
+
+VERIFY (to fill after the release run)
+- `gh release view v4.4.0 --json assets` lists the macOS + addon assets.
+- `codesign --verify --deep --strict` and the zip round-trip pass in the run.
+- `shasum -a 256 -c SHA256SUMS-macos.txt` passes on the downloaded files.
+
+OWED
+- First live retail run from the release asset on the MacBook Air M5: launch
+  after the Gatekeeper override, grant Screen Recording + Accessibility,
+  install the addon, then locate/decode/send. CI cannot prove capture or
+  in-game behaviour.
 
 ## 2026-10-25 RELEASE 4.4.0 "WAYFINDER" (transport rework + foreground-gated detection; NO wire change)
 

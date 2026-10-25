@@ -12,15 +12,29 @@
 > [4.1.0 Paragon](docs/plans/2026-10-17-paragon-audit-remediation.md).
 
 > [!TIP]
-> **macOS Companion — `3.7.9 "Unyielding" (mac)`:** the macOS client lives in
-> [`app/MaxDpsCompanion.Mac/`](app/MaxDpsCompanion.Mac/) (+ the portable brain
-> in `app/MaxDpsCompanion.Core/`) and targets the **MaxDps Companion Bridge** addon on retail.
-> Build with `./build-mac.sh`, install to `/Applications`, grant **Screen
-> Recording** + **Accessibility**, then Start (or run `--probe` for a
-> read-only report). Capture is a **window-filtered ScreenCaptureKit stream
-> bounded to the strip rect** (no screen recording, no per-tick capture call),
-> keystrokes go per-process via `CGEventPostToPid`, and every coordinate is
-> window-relative so it works on any monitor/resolution. Numbers:
+> **macOS Companion - `4.4.0 "Wayfinder"` (Apple Silicon):** the same release,
+> version and decision brain as the Windows client. Download
+> `MaxDpsCompanion-4.4.0-macos-arm64.zip` and
+> `MaxDpsCompanionBridge-4.4.0-addon.zip` from the
+> [v4.4.0 release](https://github.com/AnBPublic/MaxDps-Companion/releases/tag/v4.4.0),
+> drag `MaxDPS Companion.app` to `/Applications`, run `Install Addon.command`
+> from the addon package, grant **Screen Recording** + **Accessibility**, then
+> Start (or run `--probe` for a read-only report).
+>
+> Both clients are built from tag **`v4.4.0`** (commit `7b8bbfa`) and share
+> [`app/MaxDpsCompanion.Core/`](app/MaxDpsCompanion.Core/), the 51-cell
+> v5+Ext2/3/4 wire and the same `MaxDpsCompanionBridge` addon. Only the OS host
+> differs: WinUI 3 + `PostMessage` on Windows, Avalonia + ScreenCaptureKit +
+> `CGEventPostToPid` on macOS. The macOS binary is therefore **not
+> byte-identical** to the Windows one, but it is the same product build
+> (version, codename, source tag, brain, wire and addon).
+>
+> The release app is **ad-hoc signed, not notarized**: on first launch use
+> **System Settings -> Privacy & Security -> Open Anyway** (or
+> `xattr -dr com.apple.quarantine "/Applications/MaxDPS Companion.app"`).
+> Build from source with `./build-mac.sh`. Capture is a **window-filtered
+> ScreenCaptureKit stream bounded to the strip rect** (no screen recording, no
+> per-tick capture call); every coordinate is window-relative. Numbers:
 > `--bench-capture`. Full client doc:
 > [`app/MaxDpsCompanion.Mac/README.md`](app/MaxDpsCompanion.Mac/README.md);
 > live retail checks are OWED (`docs/TESTING.md` §4).

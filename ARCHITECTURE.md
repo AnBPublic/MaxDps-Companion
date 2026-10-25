@@ -888,6 +888,28 @@ Invariants: no screen-wide capture; no per-tick capture call; window-relative
 coordinates only; per-process key delivery for keyboard; the checksum is the
 only oracle that may accept a repaired frame.
 
+### macOS release packaging (v4.4.0)
+
+`v4.4.0` publishes an Apple Silicon build from the same tag as Windows:
+
+- `.github/workflows/release-macos.yml` (`workflow_dispatch`): checks out
+  `refs/tags/<tag>`, asserts `HEAD == tag^{commit}` and `Version.props` == the
+  tag version, loads `tools/package-macos.sh` / `tools/install-addon-mac.sh` /
+  `tools/mac-signing.sh` from the workflow commit, builds on `macos-15`
+  (arm64) with `SELFTEST=0`, ad-hoc signs (`MAC_SIGN_MODE=adhoc`), packages,
+  and optionally uploads to the existing release.
+- `tools/package-macos.sh`: one `.app` zip + one addon zip +
+  `BUILD-INFO-macos.txt` + `SHA256SUMS-macos.txt`; refuses a
+  tag/version/HEAD mismatch; extracts and re-verifies the shipped zip's
+  signature and executable bit before reporting success.
+- `tools/install-addon-mac.sh`: installs the same `MaxDpsCompanionBridge`
+  4.4.0 into `_retail_/Interface/AddOns`; no other addon is touched.
+
+The Windows and macOS binaries are OS-specific and not byte-identical, but
+they are built from the same tag, share `MaxDpsCompanion.Core`, the 51-cell
+v5+Ext2/3/4 wire and the same addon. Notarization remains a manual Developer
+ID step (`app/MaxDpsCompanion.Mac/README.md`).
+
 ## File map
 
 ```
@@ -1262,6 +1284,12 @@ MaxDps-Companion/
   tools/Extract-VendorAbilities.ps1  vendor Cooldowns.lua -> JSON
   tools/ability_audit.ps1  registry audit + addon Catalog.lua drift check
                            (exit 0 clean, 1 run failure, 2 drift)
+  tools/package-macos.sh    tag-locked macOS release packager (BUILD-INFO,
+                             signed .app zip, addon zip, SHA256SUMS)
+  tools/install-addon-mac.sh  macOS AddOns installer (same addon as Windows)
+  tools/mac-signing.sh      local TCC-stable identity; MAC_SIGN_MODE=adhoc for CI
+  .github/workflows/release-macos.yml  tag-checkout macOS release build
+  .github/workflows/ci.yml  offline bar (Windows + macOS Core/Mac/swiftc)
   docs/PROTOCOL.md           normative v5 + Ext2 (40-cell additive) spec
   docs/KNOWLEDGE.md          ability knowledge format + curation rules
   docs/research/ABILITY_REGISTRY.md  v2.6.0 registry reference
@@ -1278,6 +1306,7 @@ MaxDps-Companion/
   docs/research/ABILITY_RESEARCH.md  class/spec research artifact + sources
   vendor/                    pinned upstream MaxDps* snapshot (read-only)
   build.ps1 / install-addon.ps1 / settings.ini / dist\ / VERSION.txt
+  build-mac.sh / dist-mac\ (macOS source build + release staging)
 ```
 
 ## Key invariants

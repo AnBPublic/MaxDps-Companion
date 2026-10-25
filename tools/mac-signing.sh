@@ -15,6 +15,12 @@
 #
 # Usage:  tools/mac-signing.sh <app-bundle>       # signs, prints identity
 #         tools/mac-signing.sh --identity         # prints the SHA-1 hash
+#         MAC_SIGN_MODE=adhoc tools/mac-signing.sh <app-bundle>
+#
+# MAC_SIGN_MODE=adhoc skips the local identity entirely and ad-hoc signs. CI
+# uses it: creating a self-signed identity in a headless runner keychain is
+# fragile, and a runner-local identity is meaningless to anyone downloading the
+# build. arm64 requires at least an ad-hoc signature, so this is not optional.
 #
 # RELEASE SIGNING (separate, manual; NOT done by this script):
 #   The local identity above is for development only — it is not trusted by
@@ -30,6 +36,24 @@
 #   Notarization itself stays OWED until it is run on a Mac with the Developer
 #   ID in the keychain. See app/MaxDpsCompanion.Mac/README.md.
 set -eu
+
+# CI path: no keychain identity, no prompts. Sign the bundle ad-hoc and stop.
+# Every nested Mach-O must be signed on arm64; --deep covers the .NET runtime
+# dylibs and the ScreenCaptureKit helper inside the bundle.
+if [ "${MAC_SIGN_MODE:-local}" = "adhoc" ]; then
+    case "${1:-}" in
+        --identity) printf ''; exit 0 ;;
+    esac
+    app="${1:-}"
+    if [ -z "$app" ]; then
+        echo "usage: MAC_SIGN_MODE=adhoc tools/mac-signing.sh <app-bundle>" >&2
+        exit 2
+    fi
+    xattr -cr "$app" 2>/dev/null || true
+    codesign --force --deep --sign - "$app"
+    echo "mac-signing: AD-HOC signed (MAC_SIGN_MODE=adhoc)"
+    exit 0
+fi
 
 IDENTITY_NAME="MaxDPS Companion Local"
 KEYCHAIN="${HOME}/Library/Keychains/login.keychain-db"

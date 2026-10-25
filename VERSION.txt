@@ -21,6 +21,11 @@ protocol v5 + Ext2/Ext3/Ext4, 51 cells, every cell byte-identical.
   on alt-tab.
 - Addon is identity-only: TOC / VERSION.txt / MDCB.VERSION / MDCB.CODENAME
   4.4.0 "Wayfinder" - no Lua logic, Catalog or cell change.
+- macOS: the same 4.4.0 "Wayfinder" release now ships an Apple Silicon .app
+  built from this tag, plus the same MaxDpsCompanionBridge 4.4.0 addon.
+  Ad-hoc signed (not notarized); Windows and macOS share the version, Core
+  brain, 51-cell wire and addon, but the OS-specific binaries are not
+  byte-identical.
 
 4.3.0
 Date: 2026-10-18 - "Namesake"

@@ -702,6 +702,23 @@ APP="/Applications/MaxDPS Companion.app/Contents/MacOS/MaxDpsCompanion.Mac"
 | 4.11 | `--bench-capture=10` while playing | steady-state region ~20-40 KB/frame; per-sample mean well under 0.5 ms; our CPU near 1 % of one core |
 | 4.12 | Quit the app after playing | no capture session left behind (`Activity Monitor`: no SCK helper burning CPU; app gone) |
 
+### 4.0a Release asset provenance + bundle checks (offline, no game)
+
+For the `v4.4.0` macOS release, before launching:
+
+```sh
+shasum -a 256 -c SHA256SUMS-macos.txt
+codesign --verify --deep --strict "/Applications/MaxDPS Companion.app"
+lipo -info "/Applications/MaxDPS Companion.app/Contents/MacOS/libmdc_capture.dylib"
+```
+
+Expected: all checksums PASS; the signature verifies; `lipo` reports `arm64`.
+`BUILD-INFO-macos.txt` must read `version=4.4.0`, `codename=Wayfinder`,
+`source_tag=v4.4.0`, `source_commit=7b8bbfa...`, `arch=arm64`,
+`addon=MaxDpsCompanionBridge 4.4.0`. The app subtitle reads
+`v4.4.0 Wayfinder - Mac`. This proves the download is the tagged 4.4.0 build;
+it does **not** close any live retail item below.
+
 ### 4.0 Offline app-level capture check (no game needed)
 
 A synthetic window exercises the real capture path without WoW. Build a stub

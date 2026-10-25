@@ -8,6 +8,41 @@ Target: **retail Midnight 12.1** + the **MaxDps Companion Bridge** addon
 (`addon/MaxDpsCompanionBridge`, `/mcb`; legacy aliases `/mdb`, `/mdbx`). The
 frozen legacy `addon/legacy/MaxDpsBridge` is not the target of the Mac client.
 
+## Release build (download)
+
+The `v4.4.0 "Wayfinder"` GitHub release ships a macOS Apple Silicon build from
+the **same tag** as the Windows client (commit `7b8bbfa`):
+
+| Asset | Contents |
+| :--- | :--- |
+| `MaxDpsCompanion-4.4.0-macos-arm64.zip` | ad-hoc-signed `MaxDPS Companion.app` (arm64) |
+| `MaxDpsCompanionBridge-4.4.0-addon.zip` | the same addon the Windows build uses, plus `Install Addon.command` |
+| `BUILD-INFO-macos.txt` | version, tag, commit, architecture, signing mode |
+| `SHA256SUMS-macos.txt` | checksums for the app zip, addon zip and BUILD-INFO |
+
+Both clients are **4.4.0 "Wayfinder"**: same `app/MaxDpsCompanion.Core` brain,
+same 51-cell v5+Ext2/3/4 wire, same `MaxDpsCompanionBridge` addon. Only the OS
+host differs (WinUI 3 + `PostMessage` vs Avalonia + ScreenCaptureKit +
+`CGEventPostToPid`), so the executables are not byte-identical.
+
+Install:
+
+1. Download both zips from
+   <https://github.com/AnBPublic/MaxDps-Companion/releases/tag/v4.4.0> and
+   verify `shasum -a 256 -c SHA256SUMS-macos.txt`.
+2. Unzip the app and drag `MaxDPS Companion.app` to `/Applications`.
+3. Unzip the addon package and double-click `Install Addon.command` (or run
+   `./install-addon-mac.sh --addons "/Applications/World of Warcraft/_retail_/Interface/AddOns"`).
+4. First launch: the app is **ad-hoc signed, not notarized**. Use
+   **System Settings -> Privacy & Security -> Open Anyway**, or
+   `xattr -dr com.apple.quarantine "/Applications/MaxDPS Companion.app"`.
+5. Grant **Screen Recording** + **Accessibility** when prompted.
+
+TCC binds those grants to the code signature. An ad-hoc signature changes on
+every build, so a newly downloaded build may need a fresh grant; a Developer ID
++ notarized build (below) keeps a stable identity. Notarization is **OWED**
+until it is actually run with an Apple Developer ID.
+
 ```
 app/MaxDpsCompanion.Core/   portable brain (PixelProtocol, Decision,
                             Scheduler, Knowledge, Telemetry, RotationEngine)
@@ -18,7 +53,7 @@ app/MaxDpsCompanion.Mac/native/MdcCapture.swift
                             ScreenCaptureKit); built by build-mac.sh
 ```
 
-## Build & install
+## Build & install (from source)
 
 ```sh
 ./build-mac.sh                                   # arm64; RID=osx-x64 for Intel
@@ -26,6 +61,15 @@ rm -rf "/Applications/MaxDPS Companion.app"
 cp -R "dist-mac/MaxDPS Companion.app" /Applications/
 open "/Applications/MaxDPS Companion.app"
 ```
+
+The **release** path is `.github/workflows/release-macos.yml`: it checks out
+the tag, seeds `dist/settings.ini` from the tracked `settings.ini`, sets
+`MAC_SIGN_MODE=adhoc`, runs `tools/package-macos.sh`, verifies the signature
+and the zipped bundle, and (with `publish=true`) attaches the assets to that
+release. A local build keeps the stable self-signed identity so TCC grants
+survive rebuilds; the downloaded release is ad-hoc signed (see above).
+`package-macos.sh` refuses to package if the bundle's `settings.ini` is not the
+tracked default (a per-machine `dist/settings.ini` must never reach a release).
 
 `build-mac.sh` compiles `native/MdcCapture.swift` into
 `libmdc_capture.dylib`, builds Core + the host, assembles the bundle and signs
@@ -193,6 +237,12 @@ Settings live in `~/Library/Application Support/MaxDpsCompanion/settings.ini`
 Offline: Core builds 0 warnings / 0 errors; the native library builds with
 `swiftc`; the capture self-test (`native/selftest.swift`) verifies pattern
 pixels, region reconfiguration and read cost against a synthetic window.
+
+Release `4.4.0`: built from tag `v4.4.0` (same source as Windows), packaged by
+`tools/package-macos.sh`, verified as an arm64 bundle with a valid signature
+and a round-trip-unzipped executable. The published app is **ad-hoc signed and
+not notarized**; the Developer ID/notarization path is documented above and
+remains manual.
 
 **Live retail checks stay OWED until run in a real client** (see
 `docs/TESTING.md` §4): locate + decode + send in-game, focus behaviour,
