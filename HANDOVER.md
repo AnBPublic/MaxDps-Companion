@@ -62,6 +62,21 @@ VERIFY (this machine, 2026-10-25)
   `Game Running | Restart Game` with the Open Game button disabled; log fills the card.
 - Published artifact smoke (`dist\MaxDpsCompanion.exe --ui-smoke-test`): see ROLLED OUT below.
 
+ROLLED OUT (2026-10-25, primary checkout `A:\AI\GitHub\WoW-Companions\MaxDps-Companion`)
+- The running 4.3.0 instance was closed gracefully; `pwsh tools/publish.ps1` published
+  `dist\MaxDpsCompanion.exe` FileVersion **4.4.0.0**, `dist\VERSION.txt` **4.4.0 Wayfinder**,
+  `MaxDpsCompanion.pri` present, `dist\settings.ini` hash unchanged.
+- Shipped-artifact smoke: `dist\MaxDpsCompanion.exe --ui-smoke-test` **PASS**, title
+  `MaxDPS Companion v4.4.0 Wayfinder`, in-game-config shell True, snapshot 632x684; with the
+  live WoW process row 2 rendered **`Game Running | Restart Game`** (Open Game disabled) and the
+  log filled the card (126 px at that window size).
+- `pwsh tools/install-addon.ps1` installed `MaxDpsCompanionBridge` 20/20 files; TOC
+  `## Version: 4.4.0` / `X-Codename: Wayfinder`, VERSION.txt 4.4.0, `MDCB.VERSION`/`CODENAME`
+  4.4.0/Wayfinder. A `/reload` is required for the running client; live checks stay OWED.
+- A fresh 4.4.0 instance was started from `dist\` (title verified); engine left stopped.
+- GitHub: branch `release/v4.4.0-wayfinder` -> PR -> tag `v4.4.0` + release (this rollout,
+  source commit f3d6c12).
+
 OWED (live retail 12.1) - `docs/TESTING.md` §3p: Open Game disabled + `Game Running` while WoW
 is up; `Game Starting…` gap; restart confirm/kill/relaunch; Calibrate inside Details; Now only in
 Details; alt-tab pauses detection with no capture spam and resumes silently; never-established
