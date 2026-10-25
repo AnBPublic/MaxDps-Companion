@@ -62,6 +62,20 @@ OWED (live retail 12.1) - `docs/TESTING.md` §3s: arrows on every edge/corner,
 drag resize at 100/150 %, drag-to-move below the grip, caption buttons; plus
 §3p/§3q/§3r carried items.
 
+ROLLED OUT (2026-10-25, primary checkout `A:\AI\GitHub\WoW-Companions\MaxDps-Companion`)
+- PR #11 merged to `master` (`21b1888`), CI green on Windows + macOS; tag
+  `v4.5.2` pushed and the GitHub release published
+  (https://github.com/AnBPublic/MaxDps-Companion/releases/tag/v4.5.2).
+- `pwsh tools/publish.ps1`: FileVersion **4.5.2.0**, `dist\VERSION.txt`
+  **4.5.2 Voidlight**, `settings.ini` hash unchanged (the running 4.5.1 was
+  closed after the release was online).
+- Shipped smoke: `--ui-smoke-test` **PASS**, title
+  `MaxDPS Companion v4.5.2 Voidlight`; a fresh 4.5.2 instance runs from `dist\`.
+- Shipped `WM_NCHITTEST` probe (window 825x1150): left 10, right 11, top 12,
+  bottom 15, TL 13, TR 14, BL 16, BR 17, caption 2, centre 1 - the resize
+  arrows and the sizing loop are restored on the release binary.
+- Addon untouched at 4.5.0.
+
 ## 2026-10-25 RELEASE 4.5.1 "VOIDLIGHT" (live resize, wrapped log lines, readable changelog; NO wire change)
 
 Follow-up to 4.5.0. Spec: `docs/plans/2026-10-25-responsive-4.5.1.md`.
