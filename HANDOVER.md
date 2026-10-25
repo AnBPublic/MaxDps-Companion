@@ -71,6 +71,23 @@ OWED (live retail 12.1) - `docs/TESTING.md` §3r (resize with Details open,
 scroll affordance, log wrapping at 100/150 %, narrow stacking, tier chrome)
 plus §3p/§3q carried items.
 
+ROLLED OUT (2026-10-25, primary checkout `A:\AI\GitHub\WoW-Companions\MaxDps-Companion`)
+- PR #10 merged to `master` (`047fc9d`), CI green on Windows + macOS; tag
+  `v4.5.1` pushed and the GitHub release published with `### Changelog` +
+  `### Details` sections
+  (https://github.com/AnBPublic/MaxDps-Companion/releases/tag/v4.5.1).
+- `pwsh tools/publish.ps1`: `dist\MaxDpsCompanion.exe` FileVersion **4.5.1.0**,
+  `dist\VERSION.txt` **4.5.1 Voidlight**, `MaxDpsCompanion.pri` present,
+  `dist\settings.ini` hash unchanged across the publish.
+- Shipped-artifact smoke: `dist\MaxDpsCompanion.exe --ui-smoke-test` **PASS**,
+  title `MaxDPS Companion v4.5.1 Voidlight`, in-game-config shell True.
+- 4.5.0 closed after the release was online; a fresh 4.5.1 instance runs from
+  `dist\`. Live `PrintWindow` capture: window 825x1150, client **825x1150**,
+  row 0 `#1B1333`, Details expanded shows the full 4.5.1 changelog with no cut
+  text and no scroll thumb.
+- Addon untouched: `MaxDpsCompanionBridge` remains 4.5.0 (installed 20/20 in the
+  retail AddOns folder by the 4.5.0 rollout).
+
 ## 2026-10-25 RELEASE 4.5.0 "VOIDLIGHT" (Midnight palette, gradient chrome, no title-bar band; NO wire change)
 
 Spec/plan: `docs/plans/2026-10-25-midnight-ui-4.5.0.md`.
