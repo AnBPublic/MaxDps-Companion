@@ -10,6 +10,33 @@ Format: Keep a Changelog sections (`Added` / `Changed` / `Fixed` / `Removed`)
 per release, plus the identity + wire line. The complete pre-4.0 history lives
 in [`../VERSION.txt`](../VERSION.txt) and `docs/archive/HANDOVER-history.md`.
 
+## 4.5.2 Voidlight - 2026-10-25
+
+**Companion 4.5.2 "Voidlight" / bridge 4.5.0 (unchanged).** Hotfix for window
+resizing, NO wire change and NO addon change.
+
+### Fixed
+
+- **Edge and corner resizing.** The 4.5.0 chrome fix removed the system
+  non-client frame, and the XAML content is hosted in a child HWND
+  (`Microsoft.UI.Content.DesktopChildSiteBridge`) that answers `WM_NCHITTEST`
+  with `HTCLIENT` for the entire client area - so the parent subclass never saw
+  the edges and the window lost its resize cursors and drag-resize.
+  `ShellWindow` now declares the four `NonClientRegionKind` border regions
+  (`TopBorder`/`BottomBorder`/`LeftBorder`/`RightBorder`, 8 DIP each) and
+  refreshes them on every size change, handing the frame back to the system.
+  The caption is inset below the top grip (drag-to-move still works) and the
+  caption buttons' passthrough rects start below it so the top corners resize.
+
+### Details
+
+- Verified by probing `WM_NCHITTEST`: left 10 / right 11 / top 12 / bottom 15 /
+  corners 13-14-16-17 / title bar 2 / centre 1 on the running build.
+- Files: `Ui/Shell/{ShellWindow.xaml.cs,Win32Host.cs}` (grip constant made
+  public), `Ui/Foundation/ReleaseNotes.cs`, version + docs.
+- Addon stays 4.5.0; macOS stays 4.4.0 (OWED).
+- Live retail check stays OWED (`docs/TESTING.md` §3s).
+
 ## 4.5.1 Voidlight - 2026-10-25
 
 **Companion 4.5.1 "Voidlight" / bridge 4.5.0 (unchanged).** UI-only follow-up,

@@ -1,5 +1,5 @@
 > [!IMPORTANT]
-> **Current client: 4.5.1 "Voidlight"** - the WinUI 3 Windows client
+> **Current client: 4.5.2 "Voidlight"** - the WinUI 3 Windows client
 > (`app/MaxDpsCompanion/`), the shared brain (`app/MaxDpsCompanion.Core/`) and the
 > macOS client (`app/MaxDpsCompanion.Mac/`, still `4.4.0 "Wayfinder"`), targeting
 > `MaxDpsCompanionBridge` + `dist`. **C# is the long-term base.** Frozen: the
@@ -46,7 +46,7 @@
 > [`app/MaxDpsCompanion.Mac/README.md`](app/MaxDpsCompanion.Mac/README.md);
 > live retail checks are OWED (`docs/TESTING.md` §4).
 
-# MaxDPS Companion (Retail Midnight 12.1, v4.5.1 "Voidlight")
+# MaxDPS Companion (Retail Midnight 12.1, v4.5.2 "Voidlight")
 
 Pixel bridge driver for [kaminaris MaxDps](https://www.curseforge.com/wow/addons/maxdps)
 (vendor pin: MaxDps v11.3.49). No memory read, no injection, no OCR, no LLM.
@@ -63,6 +63,18 @@ Two pieces:
 The legacy `MaxDpsBridge` addon (`addon/legacy/MaxDpsBridge/`, 40-cell strip) and the
 old WinForms client (`dist-legacy/`) are **legacy/frozen**; all current work targets
 `MaxDpsCompanionBridge` + `dist`.
+
+## v4.5.2 "Voidlight" - edge and corner resizing restored (hotfix, no wire change)
+
+The 4.5.0 chrome fix removed the system non-client frame, and WinUI hosts the
+XAML content in a child HWND that answers `WM_NCHITTEST` with `HTCLIENT` for
+the whole client area - so the window had no resize cursors and could not be
+dragged at the edges. The shell now declares the four `NonClientRegionKind`
+border regions (8 DIP) and refreshes them on every size change, which hands the
+frame back to the system: arrows, edge/corner drag and the 520x560 DIP minimum
+all work again. The caption starts below the top grip (drag-to-move still
+works) and the caption buttons' passthrough starts below it, so the top corners
+resize too. No wire or addon change.
 
 ## v4.5.1 "Voidlight" - live resize, wrapped log lines, readable changelog (no wire change)
 

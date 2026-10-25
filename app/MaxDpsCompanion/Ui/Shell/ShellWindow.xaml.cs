@@ -232,14 +232,26 @@ public sealed partial class ShellWindow : Window
             return; // non-client input APIs unavailable: the rest of the shell still runs
         }
         TitleBar.SizeChanged += (_, _) => UpdateTitleBarRegions();
+        // 4.5.2: the border regions depend on the window size (all four edges),
+        // not only on the title bar, so a height-only resize must refresh them.
+        RootGrid.SizeChanged += (_, _) => UpdateTitleBarRegions();
         RootGrid.XamlRoot.Changed += (_, _) => UpdateTitleBarRegions();
         UpdateTitleBarRegions();
     }
 
     /// <summary>
-    /// Caption = the whole title bar (drag), Passthrough = the two buttons so
-    /// they keep receiving XAML pointer input. Rects are physical pixels
-    /// relative to the borderless window's top-left.
+    /// Caption = the title bar below the top grip (drag), Passthrough = the two
+    /// buttons so they keep receiving XAML pointer input, Top/Left/Bottom/Right
+    /// Border = the 8 DIP resize frame. Rectangles are physical pixels relative
+    /// to the borderless window's top-left.
+    ///
+    /// 4.5.2: the border regions are mandatory. The 4.5.0 WM_NCCALCSIZE change
+    /// removed the system frame, and the XAML content is hosted in a child HWND
+    /// (`Microsoft.UI.Content.DesktopChildSiteBridge`) that answers
+    /// WM_NCHITTEST with HTCLIENT for the whole client area - so the parent
+    /// subclass never saw the edges and the window lost its resize cursors.
+    /// Declaring the four Border regions hands the frame back to the system,
+    /// which restores the arrows and the sizing loop.
     /// </summary>
     private void UpdateTitleBarRegions()
     {
@@ -252,16 +264,37 @@ public sealed partial class ShellWindow : Window
             (int)Math.Round(r.Width * scale),
             (int)Math.Round(r.Height * scale));
 
+        var grip = Win32Host.Scale(Win32Host.EdgeGripDip, _win32.Dpi);
+        var width = (int)Math.Round(RootGrid.ActualWidth * scale);
+        var height = (int)Math.Round(RootGrid.ActualHeight * scale);
+        if (width > grip && height > grip)
+        {
+            _nonClientSource.SetRegionRects(NonClientRegionKind.TopBorder,
+                [new Windows.Graphics.RectInt32(0, 0, width, grip)]);
+            _nonClientSource.SetRegionRects(NonClientRegionKind.BottomBorder,
+                [new Windows.Graphics.RectInt32(0, height - grip, width, grip)]);
+            _nonClientSource.SetRegionRects(NonClientRegionKind.LeftBorder,
+                [new Windows.Graphics.RectInt32(0, 0, grip, height)]);
+            _nonClientSource.SetRegionRects(NonClientRegionKind.RightBorder,
+                [new Windows.Graphics.RectInt32(width - grip, 0, grip, height)]);
+        }
+
+        // Keep the top grip out of the caption so the top edge resizes instead
+        // of dragging the window.
+        var captionTop = Win32Host.EdgeGripDip;
+        var captionHeight = Math.Max(1, TitleBar.ActualHeight - captionTop);
         var caption = TitleBar.TransformToVisual(RootGrid)
-            .TransformBounds(new Rect(0, 0, TitleBar.ActualWidth, TitleBar.ActualHeight));
+            .TransformBounds(new Rect(0, captionTop, TitleBar.ActualWidth, captionHeight));
         _nonClientSource.SetRegionRects(NonClientRegionKind.Caption, [ToPhysical(caption)]);
 
         var passthrough = new List<Windows.Graphics.RectInt32>();
         foreach (var button in new[] { MinimizeButton, CloseButton })
         {
             if (button.ActualWidth <= 0 || button.ActualHeight <= 0) continue;
+            // Start below the top grip so the top-right corner still resizes.
             passthrough.Add(ToPhysical(button.TransformToVisual(RootGrid)
-                .TransformBounds(new Rect(0, 0, button.ActualWidth, button.ActualHeight))));
+                .TransformBounds(new Rect(0, captionTop, button.ActualWidth,
+                    Math.Max(1, button.ActualHeight - captionTop)))));
         }
         if (passthrough.Count > 0)
             _nonClientSource.SetRegionRects(NonClientRegionKind.Passthrough, passthrough.ToArray());

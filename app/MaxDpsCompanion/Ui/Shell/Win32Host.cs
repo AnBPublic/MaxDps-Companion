@@ -31,7 +31,8 @@ internal sealed class Win32Host : IDisposable
     public const int MinWidthDip = 520;
     public const int MinHeightDip = 560;
 
-    private const int EdgeGripDip = 8;
+    /// <summary>Grip thickness in DIP for the frame border regions (matches the WM_NCHITTEST fallback).</summary>
+    public const int EdgeGripDip = 8;
 
     private const uint WmNcHitTest = 0x0084;
     private const uint WmGetMinMaxInfo = 0x0024;

@@ -1,3 +1,15 @@
+4.5.2
+Date: 2026-10-25 - "Voidlight"
+Companion 4.5.2 "Voidlight" / bridge 4.5.0 (unchanged). Hotfix, NO wire change
+and NO addon change.
+- Fixed edge/corner resizing: the 4.5.0 chrome fix removed the non-client frame
+  and the XAML child HWND swallowed WM_NCHITTEST, so the window had no resize
+  cursors. ShellWindow now declares the four NonClientRegionKind border regions
+  (8 DIP) and refreshes them on resize; the caption is inset below the top grip
+  and the caption buttons' passthrough starts below it so corners resize.
+- Probe on the built client: left 10 / right 11 / top 12 / bottom 15 /
+  corners 13-14-16-17 / title bar 2 / centre 1.
+
 4.5.1
 Date: 2026-10-25 - "Voidlight"
 Companion 4.5.1 "Voidlight" / bridge 4.5.0 (unchanged). UI-only follow-up, NO

@@ -7,7 +7,7 @@ by release name or date before re-investigating an old problem.
 
 ## CLIENT STATUS (current)
 
-- **Current (Windows):** `4.5.1 "Voidlight"` - `app/MaxDpsCompanion/` (WinUI 3
+- **Current (Windows):** `4.5.2 "Voidlight"` - `app/MaxDpsCompanion/` (WinUI 3
   Windows client) + `app/MaxDpsCompanion.Core/` (shared brain) +
   `addon/MaxDpsCompanionBridge/` (4.5.0) + `dist/`. **C# is the long-term base**
   (decision 2026-10-17).
@@ -25,6 +25,42 @@ by release name or date before re-investigating an old problem.
   Deploy: `pwsh tools/publish.ps1` + `pwsh tools/install-addon.ps1` (both only on the user's go-ahead).
 - Wire: protocol v5 + Ext2/Ext3/Ext4 (51 cells), unchanged since 4.0.3. Any wire change is an
   architect-trigger task (`AGENTS.md`).
+
+## 2026-10-25 RELEASE 4.5.2 "VOIDLIGHT" (edge/corner resizing hotfix; NO wire change)
+
+Hotfix after the 4.5.0/4.5.1 chrome work. Branch `release/v4.5.2-resize`.
+Identity: csproj 4.5.2 (codename stays Voidlight), `ReleaseIdentityTests`,
+`ReleaseNotes`. **Addon unchanged at 4.5.0**; no wire change.
+
+DONE
+- **Root cause:** `WM_NCCALCSIZE` gives a full-window client area, and WinUI
+  hosts the XAML content in a child HWND
+  (`Microsoft.UI.Content.DesktopChildSiteBridge`) that answers `WM_NCHITTEST`
+  with `HTCLIENT` for the whole client area. The parent `Win32Host` subclass
+  therefore never saw the edges, so the window had no resize cursors and could
+  not be dragged at the borders (the 4.4.0 frame had been doing it for us).
+- **Fix:** `ShellWindow` declares the four `NonClientRegionKind` border regions
+  (`TopBorder`/`BottomBorder`/`LeftBorder`/`RightBorder`, 8 DIP from
+  `Win32Host.EdgeGripDip`) and refreshes them on `RootGrid.SizeChanged` as well
+  as on title-bar size / XAML-root changes. The caption rect is inset below the
+  top grip, and the caption-button passthrough rects start below it too, so the
+  top corners resize while drag-to-move and the buttons keep working.
+- `Win32Host.EdgeGripDip` is now public (single source for the region and the
+  `WM_NCHITTEST` fallback).
+- Docs: CHANGELOG, VERSION.txt, README, UI.md, TESTING §3s.
+
+VERIFY (this machine, 2026-10-25)
+- `dotnet build -c Release`: 0 warnings / 0 errors.
+- `dotnet test -c Release`: 1096 passed / 0 failed (ReleaseIdentity 4.5.2).
+- `--ui-smoke-test` / `--ui-smoke-test --exp`: PASS, title
+  `MaxDPS Companion v4.5.2 Voidlight`.
+- Live `WM_NCHITTEST` probe on the built client (parent): left 10, right 11,
+  top 12, bottom 15, corners 13/14/16/17, title bar 2 (caption), centre 1
+  (client). Before the fix every edge returned 1.
+
+OWED (live retail 12.1) - `docs/TESTING.md` §3s: arrows on every edge/corner,
+drag resize at 100/150 %, drag-to-move below the grip, caption buttons; plus
+§3p/§3q/§3r carried items.
 
 ## 2026-10-25 RELEASE 4.5.1 "VOIDLIGHT" (live resize, wrapped log lines, readable changelog; NO wire change)
 
