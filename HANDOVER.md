@@ -49,10 +49,19 @@ DONE
   version/source/brain/wire/addon; not byte-identical OS binaries). CI adds
   `bash -n` for all macOS scripts.
 
-VERIFY (to fill after the release run)
-- `gh release view v4.4.0 --json assets` lists the macOS + addon assets.
-- `codesign --verify --deep --strict` and the zip round-trip pass in the run.
-- `shasum -a 256 -c SHA256SUMS-macos.txt` passes on the downloaded files.
+VERIFY (2026-10-25, publish run 40197890931; release assets downloaded back
+and checked on Windows)
+- `gh release view v4.4.0 --json assets`: app zip 43,681,295 B, addon zip
+  133,712 B, BUILD-INFO 901 B, SHA256SUMS 295 B - all `state=uploaded`.
+- Build job: `.app` built on `macos-15` arm64; `codesign --verify --deep
+  --strict` OK; `ditto` zip round-trip OK; `dotnet_sdk=8.0.426`,
+  `runtime=net8.0 (self-contained)`, `source_commit=7b8bbfa`.
+- Downloaded all four assets from the release and ran
+  `sha256sum -c SHA256SUMS-macos.txt`: app/addon/BUILD-INFO all OK. The app
+  zip contains `Contents/MacOS/MaxDpsCompanion.Mac`,
+  `libmdc_capture.dylib` and `Contents/Resources/BUILD-INFO.txt`;
+  Info.plist is `4.4.0` / macOS 14.0.
+- Release notes updated with the macOS assets and the parity wording.
 
 OWED
 - First live retail run from the release asset on the MacBook Air M5: launch
