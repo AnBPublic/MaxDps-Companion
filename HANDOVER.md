@@ -99,6 +99,28 @@ theme, edge/corner resizing at 100 %/150 %, caption drag, gradient hover/press,
 label contrast, changelog copy/scroll, version surfaces, and (carried from 4.4.0)
 §3p transport/foreground checks. Static != automated test != live.
 
+ROLLED OUT (2026-10-25, primary checkout `A:\AI\GitHub\WoW-Companions\MaxDps-Companion`)
+- PR #9 merged to `master` (`754bda7`), CI green on Windows + macOS; tag
+  `v4.5.0` pushed and the GitHub release published with `### Changelog` +
+  `### Details` sections
+  (https://github.com/AnBPublic/MaxDps-Companion/releases/tag/v4.5.0).
+- `pwsh tools/publish.ps1`: `dist\MaxDpsCompanion.exe` FileVersion **4.5.0.0**,
+  `dist\VERSION.txt` **4.5.0 Voidlight**, `MaxDpsCompanion.pri` present,
+  `dist\settings.ini` hash unchanged across the publish.
+- Shipped-artifact smoke: `dist\MaxDpsCompanion.exe --ui-smoke-test` **PASS**,
+  title `MaxDPS Companion v4.5.0 Voidlight`, in-game-config shell True.
+- A fresh 4.5.0 instance was started from `dist\`. Live `PrintWindow` capture of
+  the shipped exe: window 825x1150, client **825x1150** (no non-client frame),
+  row 0 = `#1B1333` (title-bar gradient, no white band); Details expanded shows
+  the full 4.5.0 changelog with the log intact.
+- Per-machine window size: `dist\settings.ini` was sitting at the 520x560 DIP
+  minimum (Width=650/Height=702 at 125 %), where the expanded changelog only
+  fits by scrolling. The per-machine file was reset once to the designed
+  660x920 DIP (Width=825/Height=1150); nothing was committed for it.
+- `pwsh tools/install-addon.ps1` installed `MaxDpsCompanionBridge` **20/20**
+  files at TOC `## Version: 4.5.0` / `X-Codename: Voidlight`; a `/reload` is
+  required in the running client. Live checks stay OWED.
+
 ## 2026-10-25 macOS 4.4.0 "WAYFINDER" RELEASE (Apple Silicon, same tag/version)
 
 Branch `release/v4.4.0-macos`. **No app, wire or addon change:** the macOS
