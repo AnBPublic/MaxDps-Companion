@@ -10,6 +10,52 @@ Format: Keep a Changelog sections (`Added` / `Changed` / `Fixed` / `Removed`)
 per release, plus the identity + wire line. The complete pre-4.0 history lives
 in [`../VERSION.txt`](../VERSION.txt) and `docs/archive/HANDOVER-history.md`.
 
+## 4.5.1 Voidlight - 2026-10-25
+
+**Companion 4.5.1 "Voidlight" / bridge 4.5.0 (unchanged).** UI-only follow-up,
+NO wire change and NO addon change: protocol v5 + Ext2/Ext3/Ext4, 51 cells,
+every cell byte-identical.
+
+### Added
+
+- **Live resize.** The Exp Details disclosure re-clamps itself while the window
+  is resized (previously the row kept the height computed at expansion time, so
+  shrinking the window clipped the card). The disclosure's scrollbar is forced
+  visible exactly while the body cannot show everything.
+- **Responsive classic layout.** `ResponsiveColumns` (new panel) stacks the
+  two-up toggle rows below 500 DIP and the console's status/update cards below
+  560 DIP; the console body scrolls when the stacked cards need more height.
+- **Width-tier chrome.** `ChamferButton.ApplyScale` now follows the tier height
+  (42 -> 52 DIP) and padding, not just the font step, so the transport band
+  grows with a wide window.
+
+### Changed
+
+- **Log lines wrap.** `RollingLogView` renders a stamped entry as a two-column
+  grid (fixed `HH:mm:ss` column, wrapping body), so long status/spec/bridge
+  lines are fully readable at any width and continuation lines stay aligned
+  under the message instead of being ellipsized. The empty state wraps too.
+- **Changelog wraps and scrolls.** The Details body is the single scroller for
+  the in-app changelog; bullets wrap and `Earlier:` wraps, so no text is cut at
+  narrow widths.
+- **Console logs are height-capped** (status 220 / history 180 DIP) so the
+  stacked cards stay usable in a short window.
+
+### Fixed
+
+- Second console card no longer overflows past the window edge at compact
+  widths.
+- Details body no longer clips mid-line when the window is too short for the
+  full disclosure.
+
+### Details
+
+- Files: `Ui/Shell/{RollingLogView,ExpConsoleView,ConsoleHomeView}.cs`,
+  `Ui/Controls/{ChamferButton,SettingRow}.cs`, `Ui/Foundation/Layout.cs`,
+  `Ui/Foundation/ReleaseNotes.cs`, `MaxDpsCompanion.csproj`, docs + tests.
+- Addon stays 4.5.0 (identity-only release); macOS stays 4.4.0 (OWED).
+- Live retail checks stay OWED (`docs/TESTING.md` §3r).
+
 ## 4.5.0 Voidlight - 2026-10-25
 
 **Companion 4.5.0 "Voidlight" / bridge 4.5.0.** UI-only release, NO wire

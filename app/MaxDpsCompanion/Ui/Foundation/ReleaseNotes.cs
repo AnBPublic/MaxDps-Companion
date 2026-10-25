@@ -29,6 +29,16 @@ internal static class ReleaseNotes
     public static readonly IReadOnlyList<Release> All = new[]
     {
         new Release(
+            "4.5.1", "Voidlight", "2026-10-25",
+            "Live resizing, wrapped log lines and a changelog that is never cut.",
+            new[]
+            {
+                "Log lines wrap instead of being clipped, with continuation lines aligned under the message.",
+                "The Details disclosure re-clamps live while you resize, so the changelog is never cut off.",
+                "Classic toggle rows and console cards stack into one column on narrow windows.",
+                "Transport buttons, type and card padding follow the window width tier.",
+            }),
+        new Release(
             "4.5.0", "Voidlight", "2026-10-25",
             "Midnight palette, gradient surfaces and no title-bar band.",
             new[]
@@ -63,7 +73,17 @@ internal static class ReleaseNotes
     /// <summary>The release this build ships (index 0, enforced by tests).</summary>
     public static Release Current => All[0];
 
-    /// <summary>"4.4.0 Wayfinder, 4.3.0 Namesake, ..." - the one-line history tail.</summary>
-    public static string EarlierSummary =>
-        string.Join("  \u00B7  ", All.Skip(1).Select(r => r.Label));
+    /// <summary>
+    /// "4.5.0 Voidlight  ·  4.4.0 Wayfinder  ·  ..." - the one-line history tail.
+    /// Capped to the four most recent releases (plus an ellipsis) so the line
+    /// stays on one row at the default width and the Details body keeps fitting.
+    /// </summary>
+    public static string EarlierSummary
+    {
+        get
+        {
+            var text = string.Join("  \u00B7  ", All.Skip(1).Take(4).Select(r => r.Label));
+            return All.Count > 5 ? text + "  \u00B7  \u2026" : text;
+        }
+    }
 }

@@ -691,12 +691,32 @@ title `MaxDPS Companion v4.5.0 Voidlight`, `--ui-snapshot` review, plus a live
    pressing must not flatten or invert them.
 5. **Contrast.** Start/Stop labels stay legible across the whole pill at 100 %
    and 150 % Windows scaling; disabled pills keep a crisp ring with faded text.
-6. **Changelog.** Open **Details**: `WHAT'S NEW · 4.5.0 Voidlight` lists the four
-   highlights, scrolls inside its 44 DIP box, shows the `Earlier:` line, and
-   expanding Details does not move the log (fixed 176 DIP).
+6. **Changelog.** Open **Details**: `WHAT'S NEW · 4.5.1 Voidlight` lists the four
+   highlights plus the `Earlier:` line, wraps at the card width, and expanding
+   Details keeps the log readable (252 DIP wanted, re-clamped when short).
 7. **Version surfaces.** Title bar, `dist\VERSION.txt`, addon TOC
-   (`## Version: 4.5.0` / `## X-Codename: Voidlight`) and `/mcb` all report
-   4.5.0 Voidlight.
+   (`## Version: 4.5.0` / `## X-Codename: Voidlight`) and `/mcb` report the
+   companion 4.5.1 / bridge 4.5.0 pair.
+
+### 3r. 4.5.1 "Voidlight" live resize + wrapped text (live 12.1 retail, OWED)
+
+Offline (see HANDOVER/final report): build 0/0, `dotnet test`, snapshots at
+520/660/1100 DIP, live resize capture with Details open. Live checklist:
+
+1. **Resize with Details open.** Drag the window smaller and larger with the
+   disclosure open: the changelog re-clamps on every step, the log keeps a
+   readable reserve, and nothing is clipped by the card edge.
+2. **Scroll affordance.** At a short height the Details body shows the slim
+   amethyst thumb and the wheel scrolls the changelog to the `Earlier:` line;
+   at a tall height the thumb disappears and the whole changelog is visible.
+3. **Log wrapping.** A long `[spec]` / status / bridge line wraps at the card
+   width with continuation lines aligned under the message, at 520 and 660 DIP
+   and at 150 % Windows scaling.
+4. **Narrow stacking.** Below ~560 DIP the console's status/update cards stack
+   into two rows (the body scrolls), and below ~500 DIP the classic toggle rows
+   stack into one column.
+5. **Tier chrome.** Widening past 950 DIP grows the transport pills (42 -> 52
+   DIP) and type; shrinking returns to 42 without clipping the labels.
 
 ## 4. macOS client (live retail, OWED)
 

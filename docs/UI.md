@@ -45,6 +45,21 @@ there is **no** non-client resize frame band; `WS_THICKFRAME` + `WM_NCHITTEST`
 still provide edge resizing and the caption rects are window-relative. DWM runs
 in immersive dark mode and paints its outline in `#2B2244`.
 
+## 4.5.1 responsive rules (WinUI 3)
+
+- **Width tiers** (`UiScale`, unchanged): Compact <= 560, Classic <= 700,
+  Roomy <= 950, Wide above. `ApplyTier` fires on `RootGrid.SizeChanged` and
+  drives type, toggle size, button height (42 -> 52 DIP) and button padding.
+- **Toggle rows** (`ResponsiveColumns`, `StackWidth` 500): one column below
+  500 DIP, two equal columns above.
+- **Console body**: two cards side by side above 560 DIP (58/42), two equal star
+  rows below; the body scrolls when the stacked cards need more height.
+- **Exp Details**: opens at 252 DIP, re-clamped on every resize to
+  `cardInner - 164` (log keeps its reserve). The disclosure body is the only
+  scroller and shows a slim amethyst thumb while the content does not fit.
+- **Logs**: `RollingLogView` wraps every entry (fixed `HH:mm:ss` column +
+  wrapping body); classic console logs are capped at 220/180 DIP.
+
 Release notes: the Exp **Details** disclosure renders
 `Ui/Foundation/ReleaseNotes.cs` (current release highlights + earlier-version
 line) at a 244 DIP open height clamped to keep a 220 DIP log reserve; the
