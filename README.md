@@ -1,12 +1,13 @@
 > [!IMPORTANT]
-> **Current client: 4.3.0 "Namesake"** - the WinUI 3 Windows client
+> **Current client: 4.4.0 "Wayfinder"** - the WinUI 3 Windows client
 > (`app/MaxDpsCompanion/`), the shared brain (`app/MaxDpsCompanion.Core/`) and the
 > macOS client (`app/MaxDpsCompanion.Mac/`), targeting `MaxDpsCompanionBridge` +
 > `dist`. **C# is the long-term base.** Frozen: the 3.7.9 WinForms
 > distribution (`dist-legacy/`, `build.ps1`), the legacy bridge
 > (`addon/legacy/MaxDpsBridge/`) and the Rust port (`companion-rs/`, reference
 > only, no Ext4). See
-> [`LEGACY.md`](LEGACY.md); release plans: [4.3.0 Namesake](docs/plans/2026-10-18-companion-bridge-rename.md),
+> [`LEGACY.md`](LEGACY.md); release plans: [4.4.0 Wayfinder](docs/plans/2026-10-25-wayfinder-transport-foreground.md),
+> [4.3.0 Namesake](docs/plans/2026-10-18-companion-bridge-rename.md),
 > [4.2.0 Nightblade](docs/plans/2026-10-18-rogue-cc-intelligence.md),
 > [4.1.0 Paragon](docs/plans/2026-10-17-paragon-audit-remediation.md).
 
@@ -24,7 +25,7 @@
 > [`app/MaxDpsCompanion.Mac/README.md`](app/MaxDpsCompanion.Mac/README.md);
 > live retail checks are OWED (`docs/TESTING.md` §4).
 
-# MaxDPS Companion (Retail Midnight 12.1, v4.0.4 "Aegis")
+# MaxDPS Companion (Retail Midnight 12.1, v4.4.0 "Wayfinder")
 
 Pixel bridge driver for [kaminaris MaxDps](https://www.curseforge.com/wow/addons/maxdps)
 (vendor pin: MaxDps v11.3.49). No memory read, no injection, no OCR, no LLM.
@@ -41,6 +42,32 @@ Two pieces:
 The legacy `MaxDpsBridge` addon (`addon/legacy/MaxDpsBridge/`, 40-cell strip) and the
 old WinForms client (`dist-legacy/`) are **legacy/frozen**; all current work targets
 `MaxDpsCompanionBridge` + `dist`.
+
+## v4.4.0 "Wayfinder" - transport rework, foreground-gated detection, quiet bridge log (no wire change)
+
+The in-game-config **Exp** transport card is reorganized around what you
+actually press, and detection now respects the foreground:
+
+- **Row 1** stays `Start | Pause | Stop`. **Row 2** is now
+  `Open Game | Restart Game` (two buttons).
+- **Open Game** is disabled and reads **`Game Running`** while the configured
+  WoW process exists, and **`Game Starting…`** during the ~20 s launch gap after
+  a launch/restart, so a second click can never spawn a second client.
+- **Restart Game** asks for confirmation, kills the configured process (and its
+  process tree) and relaunches it through the configured Battle.net launcher.
+- **Calibrate** and the `Now: <action> — <why>` line moved into the collapsed
+  **Details** disclosure; the card shows state + log, nothing else.
+- **Detection runs only while the game window is foreground.** Alt-tabbing
+  pauses screen sampling/decoding (hard gate, independent of
+  `AllowBackgroundKeys`), the state reads `game in background` in a neutral
+  tone, and detection resumes silently on return.
+- **Quiet bridge log:** once the bridge has been seen, transient capture gaps
+  are no longer printed. An unestablished bridge (or a 5 s+ outage) warns
+  **one warning per outage (after ~5 s)** instead of spamming `no pixel block` /
+  occluded / minimized lines on every alt-tab.
+- **Addon is identity-only** (`4.4.0` / `Wayfinder` in the TOC, `VERSION.txt`,
+  `MDCB.VERSION` and `MDCB.CODENAME`): no Lua logic, Catalog or cell change.
+  The wire stays v5 + Ext2/Ext3/Ext4, 51 cells, every cell byte-identical.
 
 ## v4.0.4 "Aegis" - Main is the master switch; compact overlay (no wire change)
 
@@ -604,7 +631,7 @@ hold reason; `--bench-scheduler` measures it on a scripted fake clock.
 | :--- | :--- | :--- |
 | `Bridge` | `CellSize`, `OffsetX`, `OffsetY` | Strip geometry; match `/mdb status`. |
 | `Window` | `ProcessName` | Game process without `.exe` (`Wow`). |
-| `Window` | `AllowBackgroundKeys` | `1` = spell keys send while in background (mouse/interact always need focus). |
+| `Window` | `AllowBackgroundKeys` | `1` = spell keys send while in background (mouse/interact always need focus). Since 4.4.0 this only describes **key delivery**: screen detection is foreground-only, so a backgrounded game is never detected regardless of this key. |
 | `Window` | `ModifierInput` | 4.1.0. How a Ctrl/Alt/Shift chord is delivered: `Post` (default; PostMessage to the game window, works in the background, unchanged behaviour), `Auto` (SendInput while the game is focused, Post fallback with a status note in the background), `SendInput` (focused only; deferred in the background). Never releases a modifier you hold; defers when you hold an extra modifier. Plain keys are always posted. |
 | `Window` | `Width` / `Height` | Remembered client size (`0` = default); saved on resize-end and close, restored clamped to the working area on start. |
 | `Pause` | `Button` | Global pause hotkey (`Pause`, `F9`, …). |
@@ -663,10 +690,10 @@ ring, nothing on disk until you export, no network, no Blizzard values.
 
 ```powershell
 .\tools\install-addon.ps1      # CURRENT: copy MaxDpsCompanionBridge into Interface\AddOns (never touches legacy addons)
-.\tools\publish.ps1            # CURRENT: WinUI 3 4.3.0 "Namesake" -> dist\MaxDpsCompanion.exe
+.\tools\publish.ps1            # CURRENT: WinUI 3 4.4.0 "Wayfinder" -> dist\MaxDpsCompanion.exe
                                 #   (unpackaged, framework-dependent; keeps settings.ini + the Rust
                                 #    mdc-*.exe untouched; asserts MaxDpsCompanion.exe +
-                                #    MaxDpsCompanion.pri; writes VERSION.txt = 4.3.0 Namesake)
+                                #    MaxDpsCompanion.pri; writes VERSION.txt = 4.4.0 Wayfinder)
 .\build.ps1                     # LEGACY: publishes the frozen 3.7.9 WinForms client to dist-legacy\
 ```
 
@@ -690,7 +717,14 @@ app title bar (`ThisAssembly.Gen.cs` stamp), repo `VERSION.txt`.
 ## Safety limits
 
 - Windowed or borderless windowed; visible (not minimized/covered).
+- **Detection is foreground-only (4.4.0):** sampling/decoding runs only while
+  the game window is the foreground window; alt-tabbing pauses detection and
+  the state reads `game in background`. `AllowBackgroundKeys` does not change
+  this.
 - Keys go to the game window handle only; mouse-bound slots need focus.
+- **Restart Game terminates the configured process** (`Kill(entireProcessTree)`):
+  the client is killed, not logged out, so this session's SavedVariables can be
+  lost. The confirmation dialog states it; use it only when you mean to relaunch.
 - MaxDps is a single-spell engine: the main slot is the rotation; everything
   else is situational and policy-gated.
 - **Immune targets** cannot be detected (no immune flag in any safe API): a

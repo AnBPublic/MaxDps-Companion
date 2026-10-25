@@ -137,6 +137,49 @@ widths the list column dominates.
   height is kept. Snapshots are design artifacts, never behavioral proof; real
   DPI/live runs stay OWED.
 
+## Exp (in-game-config) shell — 4.4.0 transport
+
+The in-game-config shell (`InGameConfigMode=1`, the default since 4.3.0) is a
+WinUI 3 surface, not the classic WinForms layout described above (that section
+describes the `InGameConfigMode=0` shell). 4.4.0 reworks only its transport
+card and its detection gating; the wire is untouched.
+
+```
+Exp transport card
+  ├─ eyebrow + state word (+ state pill)
+  ├─ divider
+  ├─ Details disclosure (collapsed by default; 24 DIP / 140 DIP expanded)
+  │    ├─ details value   bridge · mask · fps (mono, 1 line)
+  │    ├─ Now value       "Now: <action> — <why>" (2 lines max, ellipsis, tooltip)
+  │    └─ ◉ Calibrate     compact ghost button (label flips to Cancel while calibrating)
+  ├─ divider
+  └─ LOG header + log
+```
+
+- **Row 1** stays `Start | Pause | Stop`. **Row 2** is `Open Game | Restart Game`.
+- `Open Game` is `IsEnabled=false` while the configured WoW process exists and
+  its label reads **`Game Running`** (lock glyph); during the 20 s launch grace
+  after a launch it reads **`Game Starting…`** (refresh glyph) and stays
+  disabled; idle it reads `Open Game` and is enabled. UIA HelpText and the
+  tooltip follow the same three states.
+- `Restart Game` is enabled only while the process runs and no restart is in
+  flight. It confirms with a dialog (`Restart WoW` / `Cancel`) that states the
+  kill loses the current session's SavedVariables, disables both buttons, kills
+  the process tree (bounded 10 s wait, companion's own process refused), then
+  relaunches through the configured Battle.net launcher.
+- The old always-visible Now row is gone from the main card; the card is state +
+  log only. Details keeps a **fixed** expanded height (140 DIP) so a wrapping
+  Now line can never re-lay out the log on a timer path; expansion uses
+  `Motion.Reveal`.
+- **Foreground-gated detection:** state reads `game in background` (secondary
+  tone, hollow pill, fps 0) and detection pauses while another window is
+  foreground; the Now line reads
+  `Now: idle — game in background - detection paused` and the bridge banner goes
+  neutral (`paused (game in background)`) instead of red. Detection resumes
+  silently when WoW returns to the foreground — no log line, no capture-spam.
+- The classic shell keeps its own `Recalibrate` button and Now row; in the Exp
+  shell `CalibrateRequested` from the details disclosure is the only entry point.
+
 ## Rules
 
 1. The UI never owns engine state and never sends input.

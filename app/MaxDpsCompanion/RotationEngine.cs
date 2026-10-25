@@ -137,6 +137,13 @@ internal sealed class RotationEngine : IDisposable
 
     private Thread? _thread;
     private volatile bool _running;
+    // 4.4.0 "Wayfinder": hard foreground gate. Sampling runs only while the
+    // game window is the foreground window; alt-tabbing pauses detection.
+    // Read by the UI from the EngineStatus snapshot (never this field).
+    private volatile bool _gameInForeground;
+    // Last reported bridge visibility. The background branch passes this value
+    // through so BridgeVisible stays LAST-KNOWN during a paused tick.
+    private bool _lastVisible;
     private long _lastAnyPress;
     private long _lastLocateAttempt = long.MinValue;
     private long _lastActiveMs = long.MinValue;
@@ -250,11 +257,20 @@ internal sealed class RotationEngine : IDisposable
 
     public bool IsRunning => _running;
 
+    /// <summary>
+    /// 4.4.0 "Wayfinder": diagnostics/test witness for the hard foreground
+    /// gate. The UI must read the flag from <see cref="EngineStatus"/> instead
+    /// (one immutable snapshot, no cross-thread tear).
+    /// </summary>
+    public bool GameInForeground => _gameInForeground;
+
     public void Start()
     {
         if (_running) return;
         _running = true;
         _lastLocateAttempt = long.MinValue;
+        _gameInForeground = false;
+        _lastVisible = false;
         // Every Start re-attaches from scratch (window handle + GDI surface),
         // so toggling the companion off/on now heals a stale attachment —
         // previously only a full app restart re-resolved it (the user's
@@ -304,6 +320,7 @@ internal sealed class RotationEngine : IDisposable
     public void Stop()
     {
         _running = false;
+        _gameInForeground = false;
         // 4.1 A2.9: CHECK the join. A timed-out join means the engine thread is
         // still running a tick, so nothing may be torn down underneath it.
         var thread = _thread;
@@ -345,7 +362,7 @@ internal sealed class RotationEngine : IDisposable
 
         if (!window.TryGetClientOrigin(out var origin, out var size))
         {
-            message = "game window has no client area";
+            message = CaptureDiagnostics.NoClientAreaMessage;
             return null;
         }
 
@@ -484,16 +501,35 @@ internal sealed class RotationEngine : IDisposable
         _planFreshThisTick = false;
         _ttkFeedMs = null;
         _chordNote = null;   // 4.1 A2.2 (g): per-tick informational status note
+        // 4.4.0: default to "not foreground" until this tick proves otherwise.
+        _gameInForeground = false;
 
         if (!_window.Refresh(_settings.ProcessName))
         {
+            _lastVisible = false;
             Report($"waiting for '{_settings.ProcessName}'", false, BridgeState.Idle, "-", "-");
+            return;
+        }
+
+        // 4.4.0 "Wayfinder" HARD foreground gate (independent of
+        // [Window] AllowBackgroundKeys, which only describes key delivery):
+        // no sampling, no decoding, no recovery while the game is not the
+        // foreground window. Reporting the pause without telemetry keeps the
+        // ring free of paused ticks, and re-stamping _lastFrameMs means the
+        // return from alt-tab is NOT treated as a stale-capture recovery.
+        _gameInForeground = _window.IsForeground;
+        if (!_gameInForeground)
+        {
+            _lastFrameMs = _clock.ElapsedMilliseconds;
+            _idle = true;
+            Report(CaptureDiagnostics.BackgroundMessage, _lastVisible, BridgeState.Idle, "-", "-",
+                recordTelemetry: false);
             return;
         }
 
         if (!_window.TryGetClientOrigin(out var origin, out var clientSize))
         {
-            Report("game window has no client area", false, BridgeState.Idle, "-", "-");
+            Report(CaptureDiagnostics.NoClientAreaMessage, false, BridgeState.Idle, "-", "-");
             return;
         }
 
@@ -569,7 +605,7 @@ internal sealed class RotationEngine : IDisposable
             {
                 RecoverAttachment();
                 _lastFrameMs = _clock.ElapsedMilliseconds;
-                Report("re-attaching to the game window", false, BridgeState.Idle, "-", "-");
+                Report(CaptureDiagnostics.ReattachMessage, false, BridgeState.Idle, "-", "-");
                 _idle = true;
                 return;
             }
@@ -582,7 +618,7 @@ internal sealed class RotationEngine : IDisposable
                 ? CaptureDiagnostics.BlackFrameMessage
                 : Relocate(origin, clientSize, profile)
                     ? "block found, re-aligned"
-                    : "no pixel block - client must be windowed or borderless";
+                    : CaptureDiagnostics.NoBlockMessage;
             Report(message, false, BridgeState.Idle, "-", WantDiagnostics ? Describe(cells) : "-");
             _idle = true;
             return;
@@ -753,7 +789,7 @@ internal sealed class RotationEngine : IDisposable
         // gone or has been re-owned by another process since Refresh.
         if (!_window.IsValid)
         {
-            Report("game window lost", true, frame.State, summary, "-");
+            Report(CaptureDiagnostics.WindowLostMessage, true, frame.State, summary, "-");
             return;
         }
         var gameHandle = _window.Handle;
@@ -1808,13 +1844,20 @@ internal sealed class RotationEngine : IDisposable
         return $"{SlotName(slot)}: {_lastDecision.Reason} ({_lastDecision.Confidence}%){demotedInt}";
     }
 
-    private void Report(string message, bool visible, BridgeState state, string summary = "-", string raw = "-")
+    private void Report(string message, bool visible, BridgeState state, string summary = "-", string raw = "-",
+        bool recordTelemetry = true)
     {
+        // 4.4.0 "Wayfinder": BridgeVisible is LAST-KNOWN. The background branch
+        // passes the previous value through unchanged, so a paused tick keeps
+        // the last real visibility (the UI must not flash "no bridge" on
+        // alt-tab). Every other report updates it.
+        _lastVisible = visible;
         // v1.5.0 telemetry: one tick event per Report (the engine's single
         // outcome funnel) + a link event only when visibility changes. No
         // frame = no candidate context, so a link-loss tick can never replay
-        // as a decision.
-        if (_telemetry is { } telemetry)
+        // as a decision. 4.4.0: paused (background) ticks pass
+        // recordTelemetry:false so the ring stays free of no-op ticks.
+        if (recordTelemetry && _telemetry is { } telemetry)
         {
             var now = _clock.ElapsedMilliseconds;
             var candidates = _telemetryContext?.Candidates
@@ -1840,7 +1883,8 @@ internal sealed class RotationEngine : IDisposable
                 _ttkFeedMs));
             telemetry.RecordLink(now, visible, message, _telemetryFault);
         }
-        StatusChanged?.Invoke(new EngineStatus(message, visible, state, summary, _lastKeySent, raw, DecisionSummary()));
+        StatusChanged?.Invoke(new EngineStatus(message, visible, state, summary, _lastKeySent, raw,
+            DecisionSummary(), _gameInForeground));
     }
 
     public void Dispose()

@@ -69,4 +69,59 @@ public class CaptureDiagnosticsTests
         Assert.Contains("occluded", CaptureDiagnostics.BlackFrameMessage);
         Assert.DoesNotContain("no pixel block", CaptureDiagnostics.BlackFrameMessage);
     }
+
+    [Fact]
+    public void Every_Transient_Capture_Status_Is_Classified()
+    {
+        Assert.True(CaptureDiagnostics.IsTransientStatus(CaptureDiagnostics.BackgroundMessage));
+        Assert.True(CaptureDiagnostics.IsTransientStatus(CaptureDiagnostics.NoBlockMessage));
+        Assert.True(CaptureDiagnostics.IsTransientStatus(CaptureDiagnostics.ReattachMessage));
+        Assert.True(CaptureDiagnostics.IsTransientStatus(CaptureDiagnostics.MinimizedMessage));
+        Assert.True(CaptureDiagnostics.IsTransientStatus(CaptureDiagnostics.BlackFrameMessage));
+        Assert.True(CaptureDiagnostics.IsTransientStatus(CaptureDiagnostics.NoClientAreaMessage));
+        Assert.True(CaptureDiagnostics.IsTransientStatus(CaptureDiagnostics.WindowLostMessage));
+        // The literal copy the engine used before the constants existed.
+        Assert.True(CaptureDiagnostics.IsTransientStatus("game window is minimized - restore it to resume"));
+    }
+
+    [Fact]
+    public void The_Capitalised_Status_Line_Is_Also_Classified()
+    {
+        // The shell logs its CAPITALISED status line, not the raw engine copy.
+        Assert.True(CaptureDiagnostics.IsTransientStatus("Game in background - detection paused"));
+        Assert.True(CaptureDiagnostics.IsTransientStatus("No pixel block - client must be windowed or borderless"));
+        Assert.True(CaptureDiagnostics.IsTransientStatus("Re-attaching to the game window"));
+        Assert.True(CaptureDiagnostics.IsTransientStatus("Game window is minimized - restore it to resume"));
+        Assert.True(CaptureDiagnostics.IsTransientStatus("Game window has no client area"));
+        Assert.True(CaptureDiagnostics.IsTransientStatus("Game window lost"));
+    }
+
+    [Fact]
+    public void Normal_Status_Presets_Are_Not_Transient()
+    {
+        Assert.False(CaptureDiagnostics.IsTransientStatus("Engine started."));
+        Assert.False(CaptureDiagnostics.IsTransientStatus("block found, re-aligned"));
+        Assert.False(CaptureDiagnostics.IsTransientStatus("holding (out of combat)"));
+        Assert.False(CaptureDiagnostics.IsTransientStatus("link lost (addon heartbeat frozen)"));
+        Assert.False(CaptureDiagnostics.IsTransientStatus(null));
+        Assert.False(CaptureDiagnostics.IsTransientStatus(""));
+        // Exact-match vocabulary: a longer sentence that merely contains a
+        // transient phrase is a real event and must still reach the log.
+        Assert.False(CaptureDiagnostics.IsTransientStatus(
+            "no pixel block - client must be windowed or borderless (retrying)"));
+    }
+
+    [Fact]
+    public void The_Paused_Status_Prefix_Is_Stripped_Before_Classifying()
+    {
+        // RefreshStatus decorates a paused engine message as "Paused - <msg>";
+        // the transient filter must still see the underlying capture state.
+        Assert.True(CaptureDiagnostics.IsTransientStatusLine(
+            "Paused - Game in background - detection paused"));
+        Assert.True(CaptureDiagnostics.IsTransientStatusLine(
+            "Paused - no pixel block - client must be windowed or borderless"));
+        Assert.False(CaptureDiagnostics.IsTransientStatusLine("Paused - holding (out of combat)"));
+        Assert.False(CaptureDiagnostics.IsTransientStatusLine("Paused."));
+        Assert.False(CaptureDiagnostics.IsTransientStatusLine(null));
+    }
 }

@@ -7,7 +7,7 @@ by release name or date before re-investigating an old problem.
 
 ## CLIENT STATUS (current)
 
-- **Current:** `app/MaxDpsCompanion/` (WinUI 3 Windows client) + `app/MaxDpsCompanion.Core/`
+- **Current:** `4.4.0 "Wayfinder"` - `app/MaxDpsCompanion/` (WinUI 3 Windows client) + `app/MaxDpsCompanion.Core/`
   (shared brain, consumed by Windows since 4.1.0) + `app/MaxDpsCompanion.Mac/` +
   `addon/MaxDpsCompanionBridge/` + `dist/`. **C# is the long-term base** (decision 2026-10-17).
 - **Frozen:** `addon/legacy/MaxDpsBridge/` (legacy stable bridge), `dist-legacy/` + `build.ps1`
@@ -17,6 +17,71 @@ by release name or date before re-investigating an old problem.
   Deploy: `pwsh tools/publish.ps1` + `pwsh tools/install-addon.ps1` (both only on the user's go-ahead).
 - Wire: protocol v5 + Ext2/Ext3/Ext4 (51 cells), unchanged since 4.0.3. Any wire change is an
   architect-trigger task (`AGENTS.md`).
+
+## 2026-10-25 RELEASE 4.4.0 "WAYFINDER" (transport rework + foreground-gated detection; NO wire change)
+
+Spec/plan: `docs/plans/2026-10-25-wayfinder-transport-foreground.md` (approved 2026-10-25).
+Branch `release/v4.4.0-wayfinder`. Identity: csproj, `app/Version.props`, `Native.cs`
+(`CodenameFallback`), `ReleaseIdentityTests`, addon TOC / `VERSION.txt` / `MDCB.VERSION` 4.4.0,
+`MDCB.CODENAME` Wayfinder. Addon change is **identity-only** (no Lua logic, no Catalog, no cell).
+
+DONE
+- **Identity/docs:** csproj `<Version>4.4.0</Version>` + `<Codename>Wayfinder</Codename>`,
+  `app/Version.props`, `Native.CodenameFallback` + XML comments, addon TOC `## Version: 4.4.0`
+  / `## X-Codename: Wayfinder`, `Bridge.lua` `MDCB.VERSION`/`MDCB.CODENAME`,
+  `InGame/Core.lua` defaults, addon + repo `VERSION.txt` 4.4.0 entries, README banner/history/
+  build text, `docs/UI.md` Exp transport, `docs/TESTING.md` §3p, `ARCHITECTURE.md` UI note.
+- **Exp transport (UI):** row 1 `Start | Pause | Stop`; row 2 `Open Game | Restart Game`.
+  `Open Game` disabled + relabelled `Game Running` while the configured WoW process exists and
+  `Game Starting…` during the 20 s launch grace; `Restart Game` confirms (session
+  SavedVariables warning), kills the process tree and relaunches through Battle.net.
+  `Calibrate` + the `Now:` line moved into the collapsed Details disclosure (fixed 140 DIP
+  expanded height); classic shell unchanged (`InGameConfigMode=0`).
+- **Foreground gate:** the Windows `RotationEngine.Tick` reports `GameInForeground`; while the
+  game is not foreground it skips sampling/decoding (`CaptureDiagnostics.BackgroundMessage`,
+  telemetry off, `_idle`), state reads `game in background` in a neutral tone, and detection
+  resumes silently. Hard gate, independent of `[Window] AllowBackgroundKeys` (key delivery only).
+- **Quiet bridge log:** `Ui/Shell/BridgeLogGate.cs` (pure, clock-injected) emits one warning
+  per outage (after ~5 s) / one per run; the old `_expBridgeHintShown` latch is gone; transient
+  capture status strings are filtered out of the Exp/classic log.
+- **Core/Mac untouched:** Core's `EngineStatus` keeps the trailing `GameInForeground = true`
+  default and the Core engine is unchanged, so the Mac build keeps its behaviour.
+- **Wire:** protocol v5 + Ext2/Ext3/Ext4, 51 cells, every cell byte-identical (no PROTOCOL.md
+  change).
+
+VERIFY (this machine, 2026-10-25)
+- `dotnet build app/MaxDpsCompanion/MaxDpsCompanion.csproj -c Release`: 0 warnings / 0 errors.
+- `dotnet test -c Release` (from `tests/MaxDpsCompanion.Tests`): 1090 passed / 0 failed
+  (+18 over 4.3.0: BridgeLogGate 7, WowWindowProcess 7, CaptureDiagnostics +4; ReleaseIdentity updated).
+- `lua tests/secret_harness.lua`: 409 passed / 0 failed.
+- `luac -p` on `addon/MaxDpsCompanionBridge/*.lua` + `InGame/*.lua`: 15 files, 0 failed.
+- `pwsh tools/ability_audit.ps1`: exit 0, violations 0 / warnings 0 / missing 0 / stale 0;
+  committed Catalog.lua matches the generated output.
+- `--ui-smoke-test --exp` on the dev build: PASS, title `MaxDPS Companion v4.4.0 Wayfinder`,
+  in-game-config shell True; the live WoW process made row 2 render
+  `Game Running | Restart Game` with the Open Game button disabled; log fills the card.
+- Published artifact smoke (`dist\MaxDpsCompanion.exe --ui-smoke-test`): see ROLLED OUT below.
+
+ROLLED OUT (2026-10-25, primary checkout `A:\AI\GitHub\WoW-Companions\MaxDps-Companion`)
+- The running 4.3.0 instance was closed gracefully; `pwsh tools/publish.ps1` published
+  `dist\MaxDpsCompanion.exe` FileVersion **4.4.0.0**, `dist\VERSION.txt` **4.4.0 Wayfinder**,
+  `MaxDpsCompanion.pri` present, `dist\settings.ini` hash unchanged.
+- Shipped-artifact smoke: `dist\MaxDpsCompanion.exe --ui-smoke-test` **PASS**, title
+  `MaxDPS Companion v4.4.0 Wayfinder`, in-game-config shell True, snapshot 632x684; with the
+  live WoW process row 2 rendered **`Game Running | Restart Game`** (Open Game disabled) and the
+  log filled the card (126 px at that window size).
+- `pwsh tools/install-addon.ps1` installed `MaxDpsCompanionBridge` 20/20 files; TOC
+  `## Version: 4.4.0` / `X-Codename: Wayfinder`, VERSION.txt 4.4.0, `MDCB.VERSION`/`CODENAME`
+  4.4.0/Wayfinder. A `/reload` is required for the running client; live checks stay OWED.
+- A fresh 4.4.0 instance was started from `dist\` (title verified); engine left stopped.
+- GitHub: branch `release/v4.4.0-wayfinder` -> PR -> tag `v4.4.0` + release (this rollout,
+  source commit f3d6c12).
+
+OWED (live retail 12.1) - `docs/TESTING.md` §3p: Open Game disabled + `Game Running` while WoW
+is up; `Game Starting…` gap; restart confirm/kill/relaunch; Calibrate inside Details; Now only in
+Details; alt-tab pauses detection with no capture spam and resumes silently; never-established
+bridge warns once after ~5 s; background state pill; `AllowBackgroundKeys` overlay note; restart
+SavedVariables warning. Static != automated test != live.
 
 ## 2026-10-18 RELEASE 4.3.0 "NAMESAKE" (Companion Bridge rename; NO wire change)
 

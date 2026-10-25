@@ -74,6 +74,7 @@ public sealed partial class ShellWindow
 
     private ChamferButton? _pauseButton;
     private ChamferButton? _expLaunchGame;
+    private ChamferButton? _expRestartGame;
     private Run? _expPillState;
     private Run? _expPillSep;
     private Run? _expPillFps;
@@ -497,16 +498,18 @@ public sealed partial class ShellWindow
 
         // Two transport rows; both rows run flush left+right with the status
         // card (brief §2): row 1 = Start (primary, 1.4fr) / Pause / Stop at
-        // 1fr each; row 2 = Open Game + Calibrate across the FULL width (52/48,
-        // Open Game is the wider pill and sits first — v4.0.2 swap).
+        // 1fr each (UNCHANGED in 4.4.0); row 2 = Open Game / Restart Game in
+        // two EQUAL columns. Calibrate moved into the Details disclosure of the
+        // status card, so it is no longer mounted here (4.4.0 "Wayfinder").
         // Uniform 10px gaps.
         var start = _start!;
         var stop = _stop!;
-        var recalibrate = _recalibrate!;
         var pause = HeroButton("Pause", ButtonRole.Ghost, ToUi(ExpTheme.Accent));
         var launch = HeroButton("Open Game", ButtonRole.Ghost, ToUi(ExpTheme.Secondary));
+        var restart = HeroButton("Restart Game", ButtonRole.Ghost, ToUi(ExpTheme.Accent));
         _pauseButton = pause;
         _expLaunchGame = launch;
+        _expRestartGame = restart;
 
         // Glyph chip + label (button-in-button); SetLabel keeps the legacy
         // combined accessible name ("▶ Start" etc. — UIA parity) while the
@@ -515,8 +518,8 @@ public sealed partial class ShellWindow
         start.SetLabel("\uE768", "Start", "\u25B6", FluentIcons);     // Fluent Play
         pause.SetLabel("\uE769", "Pause", "\u23F8", FluentIcons);     // Fluent Pause
         stop.SetLabel("\uE71A", "Stop", "\u25A0", FluentIcons);       // Fluent Stop
-        recalibrate.SetLabel("\u25C9", "Calibrate");                  // ◉
         launch.SetLabel("\u2922", "Open Game");                       // ⤢
+        restart.SetLabel("\uE72C", "Restart Game", "\u21BB", FluentIcons); // Fluent Refresh ↻
 
         start.Role = ButtonRole.Primary;
         // v4.0.2: primary Start is the success/running green, not brass; the
@@ -526,12 +529,22 @@ public sealed partial class ShellWindow
         stop.AccentColor = ToUi(ExpTheme.Danger);
         pause.Role = ButtonRole.Ghost;
         pause.AccentColor = ToUi(ExpTheme.Accent);
-        recalibrate.Role = ButtonRole.Ghost;
-        recalibrate.AccentColor = ToUi(ExpTheme.Accent);
         launch.Role = ButtonRole.Ghost;
         launch.AccentColor = ToUi(ExpTheme.Secondary);
-        foreach (var button in new[] { start, pause, stop, recalibrate, launch })
+        restart.Role = ButtonRole.Ghost;
+        restart.AccentColor = ToUi(ExpTheme.Accent);
+        foreach (var button in new[] { start, pause, stop, launch, restart })
             button.GhostSurface = ToUi(ExpTheme.Card);
+
+        // Initial transport copy/help. UpdateExpTransportState rewrites the Open
+        // Game label/glyph/help as the process appears; Restart stays disabled
+        // until a game process is observed.
+        ToolTipService.SetToolTip(launch, "Open World of Warcraft through Battle.net");
+        AutomationProperties.SetHelpText(launch, "Open World of Warcraft through Battle.net");
+        ToolTipService.SetToolTip(restart, "Close the running game and relaunch it through Battle.net");
+        AutomationProperties.SetHelpText(restart,
+            "Close the running World of Warcraft process and relaunch it through Battle.net");
+        restart.IsEnabled = false;
 
         pause.Click += (_, _) =>
         {
@@ -539,6 +552,7 @@ public sealed partial class ShellWindow
             UpdateExpReadouts(_status);
         };
         launch.Click += (_, _) => OpenGameFromExp();
+        restart.Click += (_, _) => _ = RestartGameAsync();
 
         var row1 = new Grid { ColumnSpacing = 10 };
         row1.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.4, GridUnitType.Star) });
@@ -552,12 +566,12 @@ public sealed partial class ShellWindow
         row1.Children.Add(stop);
 
         var row2 = new Grid { ColumnSpacing = 10 };
-        row2.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52, GridUnitType.Star) });
-        row2.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(48, GridUnitType.Star) });
+        row2.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row2.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         Grid.SetColumn(launch, 0);
-        Grid.SetColumn(recalibrate, 1);
+        Grid.SetColumn(restart, 1);
         row2.Children.Add(launch);
-        row2.Children.Add(recalibrate);
+        row2.Children.Add(restart);
 
         var transport = new Grid { RowSpacing = 10, Margin = new Thickness(0, 6, 0, 6) };
         transport.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -573,8 +587,16 @@ public sealed partial class ShellWindow
         // witness (bridge + mask + rate) and the single mono rolling log
         // (old ConsoleHome(minimal: true) :846-847 + UpdateExpReadouts).
         _expConsole = new ExpConsoleView();
+        // 4.4.0: Calibrate lives inside the Details disclosure now; the card
+        // raises the request and the shell owns the worker/lifecycle.
+        _expConsole.CalibrateRequested += RecalibrateFull;
         Grid.SetRow(_expConsole, 2);
         grid.Children.Add(_expConsole);
+
+        // Apply the real transport state before the first paint: the initial
+        // process probe ran in InitializeEngine, so an already-running client
+        // must show "Game Running" immediately (no 250 ms "Open Game" flash).
+        UpdateExpTransportState();
 
         // Entrance (brief §3): fade-up, staggered 0 / 80 / 160 ms across the
         // three rows (pill / transport / status card).
@@ -733,7 +755,7 @@ public sealed partial class ShellWindow
         _advancedDiagnostics.ReplayRequested += () => _ = ReplayTelemetryAsync();
         _advancedDiagnostics.LoadAuditRequested += () => _ = LoadCastAuditAsync();
         _advancedDiagnostics.BrowseRequested += () => _ = BrowseBattleNetAsync();
-        _advancedDiagnostics.LaunchRequested += LaunchGame;
+        _advancedDiagnostics.LaunchRequested += () => LaunchGame();
         _advancedDiagnostics.OpenFolderRequested += OpenAppFolder;
         _advancedDiagnostics.DoctorRefreshRequested += RefreshInstallDoctor;
         RefreshColorStatus();
@@ -1013,7 +1035,7 @@ public sealed partial class ShellWindow
 
         foreach (var row in _heroSettingRows) row.ApplyScale(scale);
         foreach (var header in _heroHeaders) header.ApplyScale(scale);
-        foreach (var button in new[] { _start, _stop, _launchGame, _recalibrate, _abilitiesEntry, _advancedEntry, _openFolder, _pauseButton, _expLaunchGame })
+        foreach (var button in new[] { _start, _stop, _launchGame, _recalibrate, _abilitiesEntry, _advancedEntry, _openFolder, _pauseButton, _expLaunchGame, _expRestartGame })
             button?.ApplyScale(scale);
         if (_stateLabel is not null) _stateLabel.FontSize = ControlTheme.Dip(Math.Max(8f, scale.BaseFont + 0.5f));
         if (_liveValue is not null) _liveValue.FontSize = ControlTheme.Dip(scale.BaseFont);

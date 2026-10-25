@@ -631,6 +631,47 @@ Offline (done, see HANDOVER): build 0/0, `dotnet test` 1071 passed, harness 409,
 9. **Telemetry/replay** (optional): record a fight with a stun/Blind and replay;
    0 verdict mismatches.
 
+### 3p. 4.4.0 "Wayfinder" transport + foreground gate (live 12.1 retail, OWED)
+
+Offline (see HANDOVER/final report): build, `dotnet test`, `luac -p`, `--ui-smoke-test`
+title `MaxDPS Companion v4.4.0 Wayfinder`. Live checklist:
+
+1. **Open Game while WoW runs.** With the client already up, `Open Game` is
+   disabled (darkened, lock glyph) and reads `Game Running`; the tooltip/UIA
+   HelpText say the same. Clicking it does nothing.
+2. **Launch gap.** Close WoW, press `Open Game`: the button switches to
+   `Game Starting…` (disabled) for the launch grace and returns to a normal
+   enabled `Open Game` only if the launch fails. No second client can be started
+   by clicking again during the gap.
+3. **Restart Game.** With WoW up, `Restart Game` asks for confirmation
+   (Restart WoW / Cancel); Cancel does nothing. Confirm: the client is killed and
+   relaunched through Battle.net, both transport buttons stay disabled for the
+   duration, and the status/log show the restart.
+4. **Calibrate lives in Details.** The main card shows no Calibrate button; open
+   **Details** and `◉ Calibrate` is there, works (pattern renders, companion
+   learns the chain) and flips to `Cancel` while calibrating.
+5. **Now lives in Details.** The main card has no always-visible `Now:` line;
+   expanding Details shows `Now: <action> — <why>` (wrap to 2 lines, tooltip
+   with the full text) and the log does not move when the text wraps.
+6. **Alt-tab pauses detection.** While WoW is foreground the strip/log update;
+   alt-tab away: state reads `game in background`, the pill goes hollow, fps 0,
+   the bridge banner reads `paused (game in background)`, and **no**
+   `no pixel block` / occluded / minimized lines appear in the log. Return to
+   the game: detection resumes silently (no log chatter).
+7. **Bridge warning, once.** With WoW foreground and the addon **not** loaded,
+   the log warns exactly once after ~5 s and does not repeat. Load the addon:
+   the warning clears. Repeat an outage (reload with the strip hidden): at most
+   one warning per outage (after ~5 s).
+8. **Background state pill.** Background vs foreground state words/pills match
+   the copy above and the status-line tone stays neutral (never danger) while
+   paused in the background.
+9. **`AllowBackgroundKeys` note.** With `[Window] AllowBackgroundKeys=1`, alt-tab
+   still pauses detection (keys-only setting); confirm the overlay/settings note
+   says detection is foreground-only.
+10. **Restart SavedVariables warning.** The restart confirmation states that the
+    kill loses the current session's SavedVariables; after a restart, values
+    written earlier in that session are gone as warned.
+
 ## 4. macOS client (live retail, OWED)
 
 Everything in this section needs a real client on a Mac. Static/offline
