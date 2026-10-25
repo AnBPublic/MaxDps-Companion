@@ -10,9 +10,10 @@ namespace MaxDpsCompanion;
 
 /// <summary>
 /// P2-B WinUI port of the PRP gradient ground (old UiControls.cs
-/// GradientCanvas :342-369). Two stacked LinearGradientBrushes reproduce the
-/// GDI+ 38 deg base and 145 deg overlay; <see cref="FlatColor"/> keeps the Exp
-/// flat-fill path. Children are added on top of both gradients.
+/// GradientCanvas :342-369). Two stacked LinearGradientBrushes paint the 4.5.0
+/// Midnight ground: a violet-to-void diagonal plus a soft aurora wash in the
+/// upper-left. <see cref="FlatColor"/> keeps a flat-fill escape hatch.
+/// Children are added on top of both gradients.
 /// </summary>
 public sealed class GradientCanvas : ContentControl
 {
@@ -31,7 +32,7 @@ public sealed class GradientCanvas : ContentControl
         Rebuild();
     }
 
-    /// <summary>Optional flat fill (Exp theme). Null keeps the classic gradient.</summary>
+    /// <summary>Optional flat fill (kept for callers that need one tone).</summary>
     public WColor? FlatColor
     {
         get => _flat;
@@ -54,24 +55,9 @@ public sealed class GradientCanvas : ContentControl
             return;
         }
 
-        _base.Fill = Gradient(38, WColor.FromArgb(0xFF, 15, 56, 76), WColor.FromArgb(0xFF, 48, 47, 19));
-        _overlay.Fill = Gradient(145, WColor.FromArgb(0x00, 8, 31, 42), WColor.FromArgb(0x96, 8, 35, 49));
+        _base.Fill = ControlTheme.Ground();
+        _overlay.Fill = ControlTheme.GroundAurora();
         _overlay.Visibility = Visibility.Visible;
-    }
-
-    private static LinearGradientBrush Gradient(double angleDeg, WColor from, WColor to)
-    {
-        var radians = angleDeg * Math.PI / 180;
-        var dx = Math.Cos(radians);
-        var dy = Math.Sin(radians); // screen space: y grows downward, GDI+ parity
-        var brush = new LinearGradientBrush
-        {
-            StartPoint = new WPoint(0.5 - dx / 2, 0.5 - dy / 2),
-            EndPoint = new WPoint(0.5 + dx / 2, 0.5 + dy / 2),
-        };
-        brush.GradientStops.Add(new GradientStop { Color = from, Offset = 0 });
-        brush.GradientStops.Add(new GradientStop { Color = to, Offset = 1 });
-        return brush;
     }
 }
 
@@ -80,9 +66,9 @@ public sealed class GradientCanvas : ContentControl
 /// :371-413); v4.0.1 double-bezel glass (design brief §1): outer shell at the
 /// card radius with a white/4 wash + white/6 hairline ring and 5 DIP bezel
 /// padding; inner core at the concentric radius (outer minus 5) with the card
-/// fill and a vertical top-edge highlight border (#16FFFFFF -> #08FFFFFF).
-/// The caller's Padding is applied INSIDE the core (the stock ContentControl
-/// template ignores Padding, so this keeps the old call sites' copy inset).
+/// fill. 4.5.0: the core fill is a vertical ramp (6 % lighter at the top,
+/// 12 % darker at the bottom) so cards read as lit from above instead of a
+/// flat slab, and the caller's Padding is applied INSIDE the core.
 /// </summary>
 public sealed class RoundedCard : ContentControl
 {
@@ -91,7 +77,7 @@ public sealed class RoundedCard : ContentControl
     private readonly Border _shell = new();
     private readonly Border _core = new();
     private readonly Grid _content = new();
-    private WColor _fillColor = WColor.FromArgb(78, 0xF4, 0xF7, 0xF9);
+    private WColor _fillColor = ControlTheme.Surface;
     private WColor _borderColor = ControlTheme.Ring;
 
     public RoundedCard()
@@ -105,7 +91,7 @@ public sealed class RoundedCard : ContentControl
         _shell.CornerRadius = new CornerRadius(DesignTokens.RadiusOuter);
         _shell.Padding = new Thickness(BezelPadding);
 
-        _core.Background = ControlTheme.Brush(_fillColor);
+        ApplyFill();
         _core.CornerRadius = new CornerRadius(DesignTokens.RadiusOuter - BezelPadding);
         _core.BorderBrush = TopEdgeHighlight();
         _core.BorderThickness = new Thickness(1);
@@ -121,7 +107,7 @@ public sealed class RoundedCard : ContentControl
     public WColor FillColor
     {
         get => _fillColor;
-        set { _fillColor = value; _core.Background = ControlTheme.Brush(value); }
+        set { _fillColor = value; ApplyFill(); }
     }
 
     /// <summary>Bezel ring colour (default white 6%); never a mid-gray keyline.</summary>
@@ -130,6 +116,12 @@ public sealed class RoundedCard : ContentControl
         get => _borderColor;
         set { _borderColor = value; _shell.BorderBrush = ControlTheme.Brush(value); }
     }
+
+    /// <summary>Vertical card ramp: 6 % lighter at the top, 12 % darker at the bottom.</summary>
+    private void ApplyFill()
+        => _core.Background = ControlTheme.Vertical(
+            ControlTheme.Lighten(_fillColor, 0.06f),
+            ControlTheme.Darken(_fillColor, 0.12f));
 
     /// <summary>Outer corner radius; the inner core stays concentric (minus the 5 DIP bezel).</summary>
     public new double CornerRadius

@@ -8,14 +8,14 @@
          resizable, no maximize; DWM rounded corners. The title bar is the drag
          region (InputNonClientPointerSource caption rects); the two buttons are
          Passthrough rects so they keep receiving XAML input. -->
-    <Grid x:Name="RootGrid" Background="{StaticResource BackgroundBrush}">
+    <Grid x:Name="RootGrid" Background="{StaticResource GroundBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="48" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <Grid x:Name="TitleBar" Grid.Row="0" Background="{StaticResource SurfaceBrush}"
-              BorderBrush="{StaticResource RingBrush}" BorderThickness="0,0,0,1">
+        <Grid x:Name="TitleBar" Grid.Row="0" Background="{StaticResource TitleBarBrush}"
+              BorderBrush="{StaticResource AccentRingBrush}" BorderThickness="0,0,0,1">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
@@ -25,7 +25,7 @@
 
             <Image x:Name="AppIcon"
                    Grid.Column="0"
-                   Width="24" Height="24"
+                   Width="22" Height="22"
                    Margin="14,0,0,0"
                    VerticalAlignment="Center"
                    Source="ms-appx:///assets/icon-256.png" />
@@ -34,8 +34,10 @@
                        Grid.Column="1"
                        Margin="10,0,8,0"
                        VerticalAlignment="Center"
+                       FontFamily="Segoe UI Variable Display, Segoe UI"
                        FontSize="{StaticResource TitleBarFontSize}"
                        FontWeight="Bold"
+                       CharacterSpacing="20"
                        Foreground="{StaticResource TextPrimaryBrush}"
                        TextTrimming="CharacterEllipsis" />
 
@@ -50,7 +52,7 @@
 
             <Button x:Name="CloseButton"
                     Grid.Column="3"
-                    Style="{StaticResource TitleBarButtonStyle}"
+                    Style="{StaticResource TitleBarCloseButtonStyle}"
                     Click="CloseButton_Click"
                     ToolTipService.ToolTip="Close"
                     AutomationProperties.Name="Close">

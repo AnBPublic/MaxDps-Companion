@@ -1,3 +1,16 @@
+4.5.0
+date: 2026-10-25 "Voidlight"
+git: v4.5.0 (release branch)
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED - v5 core 35 + Ext2 40 + Ext3 43 + Ext4 51 (51-cell strip).
+v4.5.0: Companion 4.5.0 "Voidlight". Addon identity-only bump, NO wire change.
+          Companion UI: World of Warcraft: Midnight palette (void ground,
+          amethyst accent, Sunwell gold, silver text), gradients for the window
+          ground / title bar / transport + ghost buttons / cards / status pill,
+          the white title-bar band removed (no non-client resize frame), and the
+          changelog rendered in the Exp Details disclosure. No Lua logic,
+          Catalog, cell or TOC-payload change beyond the version/codename.
+
 4.4.0
 date: 2026-10-25 "Wayfinder"
 git: v4.4.0 (release branch)

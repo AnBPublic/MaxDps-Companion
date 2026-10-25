@@ -455,8 +455,10 @@ public sealed partial class ShellWindow
 
     private void BuildExpContent()
     {
-        // Exp ground is the flat terminal token, not the classic gradient (:825).
-        BodyHost.Children.Add(new GradientCanvas { FlatColor = ToUi(ExpTheme.Bg) });
+        // 4.5.0: the Exp ground is the SAME Midnight gradient as the classic
+        // body (violet-to-void + aurora), not a flat terminal token - the app
+        // should read as one product in either shell.
+        BodyHost.Children.Add(new GradientCanvas());
 
         var grid = new Grid { Padding = new Thickness(18, 12, 18, 12) };
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -484,8 +486,10 @@ public sealed partial class ShellWindow
         AutomationProperties.SetHelpText(pillText, "Read-only running state and sample rate");
         var pill = new Border
         {
-            Background = ControlTheme.Brush(ToUi(ExpTheme.Card)),
-            BorderBrush = ControlTheme.Brush(ControlTheme.Ring),
+            Background = ControlTheme.Vertical(
+                ControlTheme.Lighten(ToUi(ExpTheme.Card), 0.06f),
+                ToUi(ExpTheme.Card)),
+            BorderBrush = ControlTheme.Brush(ControlTheme.AccentRing),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(18),
             Padding = new Thickness(14, 0, 14, 0),
@@ -522,17 +526,21 @@ public sealed partial class ShellWindow
         restart.SetLabel("\uE72C", "Restart Game", "\u21BB", FluentIcons); // Fluent Refresh ↻
 
         start.Role = ButtonRole.Primary;
-        // v4.0.2: primary Start is the success/running green, not brass; the
-        // hover/press/disabled states derive from this fill in RefreshVisual.
-        start.AccentColor = ToUi(ExpTheme.Ok);
+        // 4.0.2: primary Start is the success/running green, not the accent;
+        // 4.5.0 uses the deeper OkFill base so the gradient keeps light-text
+        // contrast at both ends.
+        start.AccentColor = ToUi(ExpTheme.OkFill);
         stop.Role = ButtonRole.Danger;
-        stop.AccentColor = ToUi(ExpTheme.Danger);
+        stop.AccentColor = ToUi(ExpTheme.DangerFill);
         pause.Role = ButtonRole.Ghost;
         pause.AccentColor = ToUi(ExpTheme.Accent);
         launch.Role = ButtonRole.Ghost;
         launch.AccentColor = ToUi(ExpTheme.Secondary);
         restart.Role = ButtonRole.Ghost;
         restart.AccentColor = ToUi(ExpTheme.Accent);
+        // Sunwell gold hairline: relaunch is the "Light" action of the pair,
+        // amethyst stays the app accent. Restrained to the ring only.
+        restart.RingColor = ControlTheme.WithAlpha(ControlTheme.Warning, 0x66);
         foreach (var button in new[] { start, pause, stop, launch, restart })
             button.GhostSurface = ToUi(ExpTheme.Card);
 

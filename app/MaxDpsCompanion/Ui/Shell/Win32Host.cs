@@ -36,6 +36,8 @@ internal sealed class Win32Host : IDisposable
     private const uint WmNcHitTest = 0x0084;
     private const uint WmGetMinMaxInfo = 0x0024;
     private const uint WmHotKey = 0x0312;
+    /// <summary>4.5.0: the message that removes the non-client resize frame.</summary>
+    private const uint WmNcCalcSize = 0x0083;
 
     private const int HtClient = 1;
     private const int HtLeft = 10;
@@ -50,7 +52,10 @@ internal sealed class Win32Host : IDisposable
     private const int DwmwaWindowCornerPreference = 33;
     private const int DwmwcpRound = 2;
     private const int DwmwaBorderColor = 34;
+    private const int DwmwaUseImmersiveDarkMode = 20;
     private const int DwmwaColorNone = unchecked((int)0xFFFFFFFE);
+    /// <summary>COLORREF 0x00BBGGRR for the Midnight keyline #2B2244.</summary>
+    private const int MidnightBorderColorRef = 0x0044222B;
 
     private delegate IntPtr SubclassProc(
         IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam, IntPtr uIdSubclass, IntPtr dwRefData);
@@ -118,7 +123,7 @@ internal sealed class Win32Host : IDisposable
             Debug.WriteLine($"SetWindowSubclass failed: {new Win32Exception(Marshal.GetLastWin32Error()).Message}");
         }
         EnableModernCorners(hwnd);
-        SuppressFrameBorder(hwnd);
+        ApplyFrameTheme(hwnd);
     }
 
     public IntPtr Handle => _hwnd;
@@ -185,7 +190,25 @@ internal sealed class Win32Host : IDisposable
         catch (EntryPointNotFoundException) { }
     }
 
-    /// <summary>Removes the Win11 frame line around the WS_THICKFRAME borderless window (DWMWA_BORDER_COLOR = none).</summary>
+    /// <summary>
+    /// 4.5.0: DWM frame theme in the app palette. The immersive dark-mode flag
+    /// stops DWM from painting any residual frame/caption surface in the light
+    /// system colour, and the border is the Midnight keyline instead of "none"
+    /// so the rounded edge still reads on a light desktop.
+    /// </summary>
+    public static void ApplyFrameTheme(IntPtr hwnd)
+    {
+        var dark = 1;
+        var border = MidnightBorderColorRef;
+        try { DwmSetWindowAttribute(hwnd, DwmwaUseImmersiveDarkMode, ref dark, sizeof(int)); }
+        catch (DllNotFoundException) { }
+        catch (EntryPointNotFoundException) { }
+        try { DwmSetWindowAttribute(hwnd, DwmwaBorderColor, ref border, sizeof(int)); }
+        catch (DllNotFoundException) { }
+        catch (EntryPointNotFoundException) { }
+    }
+
+    /// <summary>Removes the Win11 frame line around the window (kept for callers that want no outline).</summary>
     public static void SuppressFrameBorder(IntPtr hwnd)
     {
         var none = DwmwaColorNone;
@@ -198,6 +221,19 @@ internal sealed class Win32Host : IDisposable
     {
         switch (msg)
         {
+            case WmNcCalcSize:
+            {
+                // 4.5.0: no non-client frame. `SetBorderAndTitleBar(false,false)`
+                // is followed by `IsResizable = true`, which re-applies
+                // WS_THICKFRAME; the default handler then insets the client area
+                // by the resize frame and DWM paints the top edge in the light
+                // system frame colour - that was the white band above the title
+                // bar. Leaving rgrc[0] (the proposed window rect) untouched and
+                // returning 0 makes the client area the whole window. The
+                // edge-resize hit test below keeps WS_THICKFRAME's sizing loop.
+                if (wParam != IntPtr.Zero) return IntPtr.Zero;
+                break;
+            }
             case WmNcHitTest:
             {
                 // MainForm parity: let the default handler decide first; only a

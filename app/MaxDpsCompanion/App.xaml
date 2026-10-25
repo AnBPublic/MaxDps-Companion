@@ -5,6 +5,28 @@
     RequestedTheme="Dark">
     <Application.Resources>
         <ResourceDictionary>
+            <!-- 4.5.0 "Voidlight": the Midnight amethyst is the app accent.
+                 Overriding the SystemAccentColor family + the concrete
+                 Accent* brushes keeps stock WinUI controls (CheckBox,
+                 RadioButton, ComboBox, ProgressRing, scroll focus) on-palette
+                 instead of falling back to the Windows user accent (blue). -->
+            <Color x:Key="SystemAccentColor">#FFA78BFA</Color>
+            <Color x:Key="SystemAccentColorLight1">#FFBFA9FF</Color>
+            <Color x:Key="SystemAccentColorLight2">#FFD3C4FF</Color>
+            <Color x:Key="SystemAccentColorLight3">#FFE7DEFF</Color>
+            <Color x:Key="SystemAccentColorDark1">#FF8E6EF2</Color>
+            <Color x:Key="SystemAccentColorDark2">#FF7350E0</Color>
+            <Color x:Key="SystemAccentColorDark3">#FF5A38C4</Color>
+
+            <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="#FFA78BFA" />
+            <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#E6A78BFA" />
+            <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="#80A78BFA" />
+            <SolidColorBrush x:Key="AccentTextFillColorPrimaryBrush" Color="#FFC9B0FF" />
+            <SolidColorBrush x:Key="AccentTextFillColorSecondaryBrush" Color="#FFA78BFA" />
+            <SolidColorBrush x:Key="AccentTextFillColorTertiaryBrush" Color="#FF8B6FE8" />
+            <SolidColorBrush x:Key="SystemControlHighlightAccentBrush" Color="#FFA78BFA" />
+            <SolidColorBrush x:Key="SystemControlForegroundAccentBrush" Color="#FFA78BFA" />
+
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
                 <ResourceDictionary Source="ms-appx:///Ui/Theme.xaml" />

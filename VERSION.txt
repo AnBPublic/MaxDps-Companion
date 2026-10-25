@@ -1,3 +1,27 @@
+4.5.0
+Date: 2026-10-25 - "Voidlight"
+Companion 4.5.0 "Voidlight" / bridge 4.5.0. UI-only release, NO wire change:
+protocol v5 + Ext2/Ext3/Ext4, 51 cells, every cell byte-identical. Addon bump
+is identity-only (TOC / VERSION.txt / MDCB.VERSION / MDCB.CODENAME).
+- Midnight palette: void-violet ground (#0A0714), amethyst accent (#A78BFA),
+  Sunwell-gold warning/relaunch accent (#F0C05A), moonlit-silver text
+  (#F3EEFB). The classic console and the in-game-config shell share one palette.
+- Gradients replace flat fills: window ground (violet-to-void diagonal + aurora
+  wash), title bar, transport buttons (role-coloured vertical ramps), ghost
+  buttons, status pill and every card core.
+- Fixed: the white band above the title bar. SetBorderAndTitleBar(false, false)
+  + IsResizable = true keeps WS_THICKFRAME; the default WM_NCCALCSIZE handler
+  inset the client area by the ~8 DIP resize frame and DWM painted its top edge
+  in the light system frame colour. Win32Host now answers WM_NCCALCSIZE with a
+  full-window client area, keeps DWM in immersive dark mode and paints the frame
+  line in the Midnight keyline. Edge resizing is unchanged; the caption drag
+  rects are no longer offset by the frame thickness.
+- Details disclosure now carries the changelog (current release highlights +
+  the earlier-version line); docs/CHANGELOG.md is the long form and
+  ReleaseNotesTests + AGENTS.md make notes mandatory for every future release.
+- Windows only: the macOS Avalonia client stays at 4.4.0 "Wayfinder" (no
+  Midnight port yet); a macOS 4.5.0 asset is OWED.
+
 4.4.0
 Date: 2026-10-25 - "Wayfinder"
 Companion 4.4.0 "Wayfinder" / bridge 4.4.0. Transport rework, NO wire change:

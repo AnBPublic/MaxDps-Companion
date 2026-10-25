@@ -7,12 +7,17 @@ by release name or date before re-investigating an old problem.
 
 ## CLIENT STATUS (current)
 
-- **Current:** `4.4.0 "Wayfinder"` - `app/MaxDpsCompanion/` (WinUI 3 Windows client) + `app/MaxDpsCompanion.Core/`
-  (shared brain, consumed by Windows since 4.1.0) + `app/MaxDpsCompanion.Mac/` +
-  `addon/MaxDpsCompanionBridge/` + `dist/`. **C# is the long-term base** (decision 2026-10-17).
-- **macOS release:** `v4.4.0` Apple Silicon assets (`.app` + addon zip +
-  BUILD-INFO + checksums) built from the same tag; ad-hoc signed, not
-  notarized. Download from the `v4.4.0` release.
+- **Current (Windows):** `4.5.0 "Voidlight"` - `app/MaxDpsCompanion/` (WinUI 3
+  Windows client) + `app/MaxDpsCompanion.Core/` (shared brain) +
+  `addon/MaxDpsCompanionBridge/` + `dist/`. **C# is the long-term base**
+  (decision 2026-10-17).
+- **macOS:** the last published Mac build is `4.4.0 "Wayfinder"` (Apple
+  Silicon, ad-hoc signed, not notarized); the Mac client is NOT ported to the
+  4.5.0 Midnight theme yet, so `app/Version.props` (Core/Mac scaffolding) stays
+  at 4.4.0. A macOS 4.5.0 asset is **OWED**.
+- **Changelog norm (since 4.5.0):** every release adds
+  `docs/CHANGELOG.md` (newest section) + a `ReleaseNotes` entry in the same
+  commit; `ReleaseNotesTests` and `AGENTS.md` enforce it.
 - **Frozen:** `addon/legacy/MaxDpsBridge/` (legacy stable bridge), `dist-legacy/` + `build.ps1`
   (3.7.9 WinForms), and `companion-rs/` (Rust port; reference only, no Ext4). See `LEGACY.md`.
 - The legacy and companion bridge addons are mutually exclusive per character; use the
@@ -20,6 +25,79 @@ by release name or date before re-investigating an old problem.
   Deploy: `pwsh tools/publish.ps1` + `pwsh tools/install-addon.ps1` (both only on the user's go-ahead).
 - Wire: protocol v5 + Ext2/Ext3/Ext4 (51 cells), unchanged since 4.0.3. Any wire change is an
   architect-trigger task (`AGENTS.md`).
+
+## 2026-10-25 RELEASE 4.5.0 "VOIDLIGHT" (Midnight palette, gradient chrome, no title-bar band; NO wire change)
+
+Spec/plan: `docs/plans/2026-10-25-midnight-ui-4.5.0.md`.
+Branch `release/v4.5.0-voidlight`. Identity: csproj, `Native.CodenameFallback`,
+`ReleaseIdentityTests`, addon TOC / addon `VERSION.txt` / `MDCB.VERSION` /
+`MDCB.CODENAME` 4.5.0 "Voidlight". Addon change is **identity-only** (no Lua
+logic, no Catalog, no cell).
+
+DONE
+- **Root cause of the white band:** `OverlappedPresenter.SetBorderAndTitleBar(false, false)`
+  clears the caption, then `IsResizable = true` re-applies `WS_THICKFRAME`; the
+  default `WM_NCCALCSIZE` insets the client by the ~8 DIP resize frame and DWM
+  paints its top edge in the light system frame colour (`#F3F3F3` measured on
+  the 4.4.0 build; window 650x702 px, XAML root 632x684 px, 9 px of frame on
+  every side). `Win32Host` now answers `WM_NCCALCSIZE` (wParam = TRUE) by
+  returning 0 without touching `rgrc[0]`, so the client area is the whole
+  window; `WS_THICKFRAME` + `WM_NCHITTEST` keep edge resizing. DWM runs in
+  immersive dark mode with `#2B2244` as the border colour. Caption drag rects
+  are no longer offset by the frame thickness.
+- **Midnight palette** (`ControlTheme`, mirrored in `Theme.xaml`/`ExpTheme`):
+  ground `#0A0714`, surface `#141022`, elevated `#1D1735`, border `#2B2244`,
+  text `#F3EEFB`/`#B3A9CB`/`#7C7294`, accent `#A78BFA` (+ `#6D38E0` strong),
+  success `#4FD6A8`, warning (Sunwell gold) `#F0C05A`, danger `#D9455E`, info
+  `#8CB8FF`. Classic console + Exp shell share it.
+- **Gradients** (no large flat fills): shared ground (`Ground()` 110 deg violet
+  -> void -> violet + `GroundAurora()` 25 deg wash) in both shells;
+  `ShellWindow.xaml` title bar `#1B1333 -> #110C1F` with an amethyst hairline;
+  `ChamferButton.Pill()` (top +10 %, bottom -28 %, hover +6 %, press -10 %) and
+  `GhostPill()`; `RoundedCard` core (+6 %/-12 %); Exp status pill gradient;
+  console top bar gradient. `Start` uses `ExpTheme.OkFill` `#237257` and `Stop`
+  `DangerFill` `#C9405A` so the light label keeps AA contrast at the ramp's
+  midpoint; `Restart Game` keeps a Sunwell-gold ring.
+- **Stock-chrome leak fixed:** `UiClickableStyle` was declared with
+  `TargetType=controls:UiClickable`, which WinUI rejects for the internal
+  subclasses ("cannot apply a Style with TargetType ... to an object of type
+  Button"); the exception was swallowed, so every owner-drawn control carried
+  the stock grey Button fill behind it (the box around Details, the filled nav
+  items). The style now targets `Button` and each concrete subclass opts in
+  from its own constructor (`ConsoleNavItem`, `PresetChipView`,
+  `ExpDetailsToggle`, `MetricTile`, `FilterChip`).
+- **App accent:** `App.xaml` overrides `SystemAccentColor*` + the `Accent*`
+  brushes so stock WinUI controls (CheckBox, ComboBox, ProgressRing, ...) use
+  the amethyst instead of the Windows user accent (blue).
+- **Changelog in Details:** `Ui/Foundation/ReleaseNotes.cs` (newest-first
+  releases) renders the current highlights + `Earlier:` line inside the Exp
+  Details disclosure. `DetailsWanted` 244 DIP clamped so the log keeps a 220
+  DIP reserve; the detail body is the only scroller, so nothing clips
+  mid-line. `ReleaseNotesTests` (+6) pins version/codename and requires a
+  `docs/CHANGELOG.md` section per release; `AGENTS.md` records the rule.
+- Docs: `docs/CHANGELOG.md` (new), `docs/UI.md` theme section, `docs/TESTING.md`
+  §3q, README banner + 4.5.0 section, `VERSION.txt` (root + addon), plan doc.
+
+VERIFY (this machine, 2026-10-25)
+- `dotnet build app/MaxDpsCompanion/MaxDpsCompanion.csproj -c Release`: 0 warnings / 0 errors.
+- `dotnet test -c Release` (from `tests/MaxDpsCompanion.Tests`): 1096 passed / 0 failed
+  (+6 over 4.4.0: ReleaseNotesTests x6; ReleaseIdentity updated to 4.5.0 Voidlight).
+- `lua tests/secret_harness.lua`: 409 passed / 0 failed.
+- `luac -p` on `addon/MaxDpsCompanionBridge/*.lua` + `InGame/*.lua`: 15 files, 0 failed.
+- `pwsh tools/ability_audit.ps1`: exit 0, violations 0 / warnings 0 / missing 0 / stale 0;
+  committed Catalog.lua matches the generated output.
+- `--ui-smoke-test --exp` (dev build): PASS, title `MaxDPS Companion v4.5.0 Voidlight`,
+  in-game-config shell True, snapshot 825x1150, distinct grid colours 354.
+- `--ui-smoke-test` (classic): PASS, in-game-config shell False.
+- `--ui-snapshot-page=configuration`: checkboxes/accents render amethyst (no blue).
+- Live `PrintWindow` capture of the dev build: window 825x1150, client 825x1150
+  (no non-client frame), top row `#1B1333` (title-bar gradient, no white band);
+  Details expanded shows the full changelog with the log intact.
+
+OWED (live retail 12.1) - `docs/TESTING.md` §3q: no band on a light desktop
+theme, edge/corner resizing at 100 %/150 %, caption drag, gradient hover/press,
+label contrast, changelog copy/scroll, version surfaces, and (carried from 4.4.0)
+§3p transport/foreground checks. Static != automated test != live.
 
 ## 2026-10-25 macOS 4.4.0 "WAYFINDER" RELEASE (Apple Silicon, same tag/version)
 

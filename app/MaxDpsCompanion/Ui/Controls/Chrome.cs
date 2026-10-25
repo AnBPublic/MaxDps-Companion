@@ -21,7 +21,12 @@ public class UiClickable : Button
 {
     public UiClickable()
     {
-        ControlTheme.ApplyAppStyle(this, "UiClickableStyle");
+        // NOTE: the "UiClickableStyle" template is NOT applied here. WinUI
+        // resolves the element's type at this point as the Button base, so a
+        // style whose TargetType is the concrete subclass is rejected (4.5.0:
+        // the exception was swallowed and every owner-drawn control kept the
+        // stock grey Button chrome). Each concrete subclass applies the style
+        // as its first constructor statement instead.
         PointerEntered += (_, _) => SetHover(true);
         PointerExited += (_, _) =>
         {

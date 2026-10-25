@@ -102,6 +102,7 @@ internal sealed class MetricTile : UiClickable
 
     public MetricTile(string label, string value, StatusTone tone = StatusTone.Neutral, bool clickable = false)
     {
+        ControlTheme.ApplyAppStyle(this, "UiClickableStyle");
         Height = 68;
         MinWidth = 150;
         _clickable = clickable;
@@ -280,6 +281,7 @@ public sealed class FilterChip : UiClickable
 
     public FilterChip(string text, bool selected = false)
     {
+        ControlTheme.ApplyAppStyle(this, "UiClickableStyle");
         Height = 28;
         MinHeight = 28;
         Margin = new Thickness(0, 0, 6, 6);

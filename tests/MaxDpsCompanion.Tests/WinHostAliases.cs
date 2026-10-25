@@ -38,6 +38,7 @@ global using MovementGuard = win::MaxDpsCompanion.MovementGuard;
 global using Native = win::MaxDpsCompanion.Native;
 global using ParsedStrokeCache = win::MaxDpsCompanion.ParsedStrokeCache;
 global using Program = win::MaxDpsCompanion.Program;
+global using ReleaseNotes = win::MaxDpsCompanion.ReleaseNotes;
 global using ScreenSampler = win::MaxDpsCompanion.ScreenSampler;
 global using SlotGate = win::MaxDpsCompanion.SlotGate;
 global using SlotVerdict = win::MaxDpsCompanion.SlotVerdict;

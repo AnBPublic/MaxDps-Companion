@@ -672,6 +672,32 @@ title `MaxDPS Companion v4.4.0 Wayfinder`. Live checklist:
     kill loses the current session's SavedVariables; after a restart, values
     written earlier in that session are gone as warned.
 
+### 3q. 4.5.0 "Voidlight" chrome + changelog (live 12.1 retail, OWED)
+
+Offline (see HANDOVER/final report): build 0/0, `dotnet test`, `--ui-smoke-test`
+title `MaxDPS Companion v4.5.0 Voidlight`, `--ui-snapshot` review, plus a live
+`PrintWindow` capture of the shipped exe. Live checklist:
+
+1. **No title-bar band.** With the shipped `dist\MaxDpsCompanion.exe` on a light
+   desktop theme, the very top row of pixels is the title-bar gradient - no
+   white/light strip above it, no frame inset on any edge (resize the window and
+   re-check; the client area must reach the rounded corners).
+2. **Resize still works.** Drag each edge and corner: the window resizes,
+   honours the 520x560 DIP minimum, and the 8 DIP grip feels the same as 4.4.0.
+3. **Caption drag.** Dragging the title bar moves the window immediately under
+   the cursor (the caption rects are no longer offset by the old frame).
+4. **Gradients.** Ground, title bar, Start/Pause/Stop, Open Game/Restart Game,
+   the status pill and both cards show a visible top-lit ramp; hovering and
+   pressing must not flatten or invert them.
+5. **Contrast.** Start/Stop labels stay legible across the whole pill at 100 %
+   and 150 % Windows scaling; disabled pills keep a crisp ring with faded text.
+6. **Changelog.** Open **Details**: `WHAT'S NEW · 4.5.0 Voidlight` lists the four
+   highlights, scrolls inside its 44 DIP box, shows the `Earlier:` line, and
+   expanding Details does not move the log (fixed 176 DIP).
+7. **Version surfaces.** Title bar, `dist\VERSION.txt`, addon TOC
+   (`## Version: 4.5.0` / `## X-Codename: Voidlight`) and `/mcb` all report
+   4.5.0 Voidlight.
+
 ## 4. macOS client (live retail, OWED)
 
 Everything in this section needs a real client on a Mac. Static/offline

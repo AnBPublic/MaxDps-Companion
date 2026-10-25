@@ -29,6 +29,22 @@ Then the file you are changing plus its counterpart spec.
 - `settings.ini` default stays tracked; per-machine edits belong next to
   the exe in `dist\`, never committed.
 
+## Release notes (mandatory since 4.5.0 "Voidlight")
+
+Every version bump is ONE commit that also adds notes, in both places:
+
+1. `docs/CHANGELOG.md` - a new `## <version> <codename> - <date>` section at the
+   top (Added / Changed / Fixed / Removed, plus the identity + wire line and a
+   `### Details` block).
+2. `app/MaxDpsCompanion/Ui/Foundation/ReleaseNotes.cs` - a new
+   `ReleaseNotes.All[0]` entry (version, codename, date, headline, highlights).
+
+The GitHub release body repeats the changelog in a `### Changelog` section and
+keeps the identity/wire/verification text in a `### Details` section.
+`ReleaseNotesTests` fails when the in-app entry disagrees with the assembly
+version/codename or when `docs/CHANGELOG.md` has no section for an in-app
+release, so a release cannot be cut without notes.
+
 ## Architect triggers (global opencode routing)
 
 Any change touching these is an L-route task: the global `smart` router must
