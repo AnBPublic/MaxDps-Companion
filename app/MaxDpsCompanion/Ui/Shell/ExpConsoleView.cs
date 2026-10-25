@@ -19,18 +19,22 @@ namespace MaxDpsCompanion.Ui.Shell;
 /// console (MainForm.UpdateHero :3081-3109 + UpdateExpReadouts :971-1019).
 ///
 /// 4.4.0 "Wayfinder": the always-visible Now row is GONE from the card; Now
-/// lives inside Details (fixed 128 DIP expanded height so a wrapping Now can
-/// never re-lay out the log), and Calibrate moved out of the transport row
-/// into the same disclosure.
+/// lives inside Details, and Calibrate moved out of the transport row into the
+/// same disclosure.
+/// 4.5.0 "Voidlight": Details also carries the changelog. The open height is
+/// clamped so the log keeps its reserve, and only the disclosure body scrolls.
 /// </summary>
 internal sealed class ExpConsoleView : UserControl
 {
-    // Old ConsoleHome Exp constants: collapsed 24 / expanded 54. 4.4.0: the
-    // expanded height is FIXED at 140 (details + up to 2 wrapped Now lines +
-    // the 32 DIP calibrate pill + spacing), never Auto, so the timer path
-    // cannot reflow; 140 leaves headroom for the largest width tier.
+    // Old ConsoleHome Exp constants: collapsed 24 / expanded 54. 4.4.0 fixed the
+    // expanded height so the 250 ms timer path could not reflow the card.
+    // 4.5.0 keeps that contract but adds the changelog: the disclosure opens at
+    // DetailsWanted and is clamped so the log always keeps LogReserve DIP; the
+    // disclosure body scrolls when the clamp bites (small window), so nothing is
+    // ever clipped mid-line.
     private const double DetailsCollapsed = 24;
-    private const double DetailsExpanded = 140;
+    private const double DetailsWanted = 244;
+    private const double LogReserve = 220;
 
     private readonly LinkLamp _lamp = new() { DotSize = 8 };
     private readonly TextBlock _stateValue = new()
@@ -63,6 +67,13 @@ internal sealed class ExpConsoleView : UserControl
         Orientation = Orientation.Vertical,
         Spacing = 6,
         Visibility = Visibility.Collapsed,
+    };
+    private readonly ScrollViewer _detailsScroll = new()
+    {
+        VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+        VerticalScrollMode = ScrollMode.Auto,
+        HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        HorizontalScrollMode = ScrollMode.Disabled,
     };
     private readonly RollingLogView _log = new()
     {
@@ -132,6 +143,8 @@ internal sealed class ExpConsoleView : UserControl
         _detailsBody.Children.Add(_detailsValue);
         _detailsBody.Children.Add(_nowValue);
         _detailsBody.Children.Add(_calibrate);
+        _detailsBody.Children.Add(BuildChangelog());
+        _detailsScroll.Content = _detailsBody;
 
         var table = new Grid();
         table.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // 0 eyebrow
@@ -142,13 +155,13 @@ internal sealed class ExpConsoleView : UserControl
         table.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // 5 log header
         table.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // 6 log
 
-        // Eyebrow: 10px uppercase white/45, tracked (brief §3).
+        // Eyebrow: 10px uppercase, tracked (brief §3); 4.5.0 tints it amethyst.
         var header = new TextBlock
         {
             Text = "STATUS",
             FontSize = 10,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            Foreground = ControlTheme.Brush(ControlTheme.TextWhite45),
+            Foreground = ControlTheme.Brush(ControlTheme.WithAlpha(ControlTheme.Accent, 0xCC)),
             CharacterSpacing = 80,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 0, 0, 8),
@@ -171,9 +184,9 @@ internal sealed class ExpConsoleView : UserControl
         details.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         _detailsToggle.VerticalAlignment = VerticalAlignment.Center;
         Grid.SetRow(_detailsToggle, 0);
-        Grid.SetRow(_detailsBody, 1);
+        Grid.SetRow(_detailsScroll, 1);
         details.Children.Add(_detailsToggle);
-        details.Children.Add(_detailsBody);
+        details.Children.Add(_detailsScroll);
         Grid.SetRow(details, 3);
         table.Children.Add(details);
 
@@ -214,6 +227,55 @@ internal sealed class ExpConsoleView : UserControl
         };
         table.Children.Add(divider);
         Grid.SetRow(divider, row);
+    }
+
+    /// <summary>
+    /// 4.5.0: the in-app changelog. Current release's highlights plus one muted
+    /// tail line with the earlier versions. Copy comes from
+    /// <see cref="ReleaseNotes"/>; the long form lives in docs/CHANGELOG.md.
+    /// The whole block scrolls with the Details disclosure, so there is no
+    /// nested scroller and nothing clips mid-line.
+    /// </summary>
+    private static FrameworkElement BuildChangelog()
+    {
+        var current = ReleaseNotes.Current;
+        var stack = new StackPanel { Orientation = Orientation.Vertical, Spacing = 4 };
+
+        stack.Children.Add(new TextBlock
+        {
+            Text = $"WHAT'S NEW \u00b7 {current.Label}",
+            FontSize = 9.5,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            CharacterSpacing = 80,
+            Foreground = ControlTheme.Brush(ControlTheme.Accent),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Margin = new Thickness(0, 4, 0, 0),
+        });
+
+        foreach (var line in current.Highlights)
+        {
+            stack.Children.Add(new TextBlock
+            {
+                Text = "\u2022  " + line,
+                FontSize = 10.5,
+                Foreground = ControlTheme.Brush(ControlTheme.TextSecondary),
+                TextWrapping = TextWrapping.Wrap,
+            });
+        }
+
+        stack.Children.Add(new TextBlock
+        {
+            Text = "Earlier: " + ReleaseNotes.EarlierSummary,
+            FontSize = 10,
+            Foreground = ControlTheme.Brush(ControlTheme.TextMuted),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 2, 0, 0),
+        });
+
+        AutomationProperties.SetName(stack, $"Changelog for {current.Label}");
+        AutomationProperties.SetHelpText(stack,
+            "Newest first. The full release history is in docs/CHANGELOG.md");
+        return stack;
     }
 
     /// <summary>Exp test seam parity (old DetailsForTest :492).</summary>
@@ -309,7 +371,19 @@ internal sealed class ExpConsoleView : UserControl
         _detailsToggle.Expanded = _detailsExpanded;
         _detailsBody.Visibility = _detailsExpanded ? Visibility.Visible : Visibility.Collapsed;
         if (_detailsExpanded) Motion.Reveal(_detailsBody);
-        _detailsRow.Height = new GridLength(_detailsExpanded ? DetailsExpanded : DetailsCollapsed);
+        _detailsRow.Height = new GridLength(_detailsExpanded ? ExpandedHeight() : DetailsCollapsed);
+    }
+
+    /// <summary>
+    /// 4.5.0: the open disclosure asks for <see cref="DetailsWanted"/> but never
+    /// takes the log's reserve. Only the disclosure body scrolls when the clamp
+    /// bites, so no row is ever clipped mid-line.
+    /// </summary>
+    private double ExpandedHeight()
+    {
+        if (ActualHeight <= 0) return DetailsWanted;
+        var max = Math.Max(DetailsCollapsed + 60, ActualHeight - LogReserve);
+        return Math.Min(DetailsWanted, max);
     }
 
     private static WColor Exp(System.Drawing.Color color) =>
@@ -333,6 +407,7 @@ internal sealed class ExpDetailsToggle : UiClickable
 
     public ExpDetailsToggle()
     {
+        ControlTheme.ApplyAppStyle(this, "UiClickableStyle");
         _text = new TextBlock
         {
             Text = CollapsedText,
@@ -375,7 +450,7 @@ internal sealed class ExpDetailsToggle : UiClickable
         HorizontalContentAlignment = HorizontalAlignment.Left;
         ProtectedCursor = InputSystemCursor.Create(InputSystemCursorShape.Hand);
         AutomationProperties.SetName(this, "Details");
-        AutomationProperties.SetHelpText(this, "Expand the read-only bridge, mask and rate details");
+        AutomationProperties.SetHelpText(this, "Expand the read-only bridge, mask and rate details and the changelog");
         Content = row;
     }
 

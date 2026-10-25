@@ -28,6 +28,7 @@ public sealed class ChamferButton : Button
     private ButtonRole _role = ButtonRole.Ghost;
     private WColor? _accent;
     private WColor? _ghostSurface;
+    private WColor? _ring;
     private string? _leadingGlyph;
     private string? _leadingGlyphFont;
     private string? _trailingGlyph = "\u2197"; // ↗
@@ -135,6 +136,16 @@ public sealed class ChamferButton : Button
         set { _ghostSurface = value; RefreshVisual(); }
     }
 
+    /// <summary>
+    /// Optional hairline override for the ghost ring (Sunwell-gold accent on
+    /// Restart Game). Null keeps the shared white/6 ring; focus always wins.
+    /// </summary>
+    public WColor? RingColor
+    {
+        get => _ring;
+        set { _ring = value; RefreshVisual(); }
+    }
+
     /// <summary>Optional leading glyph rendered inside its own chip, left of the label.</summary>
     public string? LeadingGlyph
     {
@@ -229,15 +240,17 @@ public sealed class ChamferButton : Button
 
     private void RefreshVisual()
     {
+        // 4.5.0: the base colour is never pre-lightened - the gradient ramp
+        // owns hover/press so a pill cannot end up washed out at both stops.
         var color = BaseColor();
-        if (_pressed) color = ControlTheme.Darken(color, 0.12f);
-        else if (_hover) color = ControlTheme.Lighten(color, 0.10f);
 
         if (!IsEnabled)
         {
-            // Crisp disabled: hairline ring stays, fill drops to a quiet tint,
-            // content fades to 38% (brief §2). Never a washed-out gray slab.
-            Background = ControlTheme.Brush(ControlTheme.WithAlpha(color, 0x3D));
+            // Crisp disabled: hairline ring stays, fill is a neutral surface
+            // tint (never the role colour, which would make a stopped button
+            // look more alive than an enabled one), content fades to 38%.
+            var surface = _ghostSurface ?? ControlTheme.Surface;
+            Background = ControlTheme.Brush(ControlTheme.Blend(Microsoft.UI.Colors.White, surface, 0.035f));
             BorderBrush = ControlTheme.Brush(ControlTheme.Ring);
             BorderThickness = new Thickness(1);
             Foreground = ControlTheme.Brush(ControlTheme.TextPrimary);
@@ -245,19 +258,25 @@ public sealed class ChamferButton : Button
         else if (_role == ButtonRole.Ghost)
         {
             var surface = _ghostSurface ?? ControlTheme.Surface;
-            Background = ControlTheme.Brush(ControlTheme.Blend(Microsoft.UI.Colors.White, surface, _hover ? 0.07f : 0.035f));
-            BorderBrush = ControlTheme.Brush(_focused ? ControlTheme.Accent : ControlTheme.Ring);
+            Background = ControlTheme.GhostPill(surface, _hover);
+            BorderBrush = ControlTheme.Brush(_focused
+                ? ControlTheme.Accent
+                : _ring ?? ControlTheme.Ring);
             BorderThickness = new Thickness(_focused ? 2 : 1);
             Foreground = ControlTheme.Brush(ControlTheme.TextPrimary);
         }
         else
         {
-            Background = ControlTheme.Brush(color);
+            // 4.5.0: lit-from-above pill ramp instead of a flat fill; hover and
+            // press shift the whole ramp so the gradient never inverts.
+            var lift = _pressed ? -0.10f : _hover ? 0.06f : 0f;
+            Background = ControlTheme.Pill(color, lift);
             BorderBrush = null;
             BorderThickness = new Thickness(0);
-            var textColor = _role == ButtonRole.Primary ? ControlTheme.Background
-                : ControlTheme.TextPrimary;
-            Foreground = ControlTheme.Brush(textColor);
+            // Both primary and danger pills carry light labels: the fills are
+            // deep enough (see ExpTheme.*Fill) that white keeps AA contrast
+            // across the whole ramp.
+            Foreground = ControlTheme.Brush(ControlTheme.TextPrimary);
         }
 
         var contentOpacity = IsEnabled ? 1.0 : ControlTheme.DisabledContentOpacity;

@@ -95,7 +95,9 @@ internal sealed class ConsoleHomeView : UserControl
         // UserControl.Background does not paint, so the fill is on the root; the
         // Stretch content alignment makes the root fill the body like the legacy
         // Dock=Fill / StretchToParent contract, so nothing ghosts through.
-        var root = new Grid { Background = ControlTheme.Brush(ControlTheme.Background) };
+        // 4.5.0: the same Midnight ground ramp as GradientCanvas, opaque so the
+        // hero card underneath can never bleed through.
+        var root = new Grid { Background = ControlTheme.Ground() };
         HorizontalContentAlignment = HorizontalAlignment.Stretch;
         VerticalContentAlignment = VerticalAlignment.Stretch;
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(TopBarHeight) });
@@ -262,7 +264,9 @@ internal sealed class ConsoleHomeView : UserControl
 
         return new Border
         {
-            Background = ControlTheme.Brush(ControlTheme.ConsoleTitleBar),
+            Background = ControlTheme.Vertical(
+                ControlTheme.Lighten(ControlTheme.ConsoleTitleBar, 0.04f),
+                ControlTheme.Darken(ControlTheme.ConsoleTitleBar, 0.18f)),
             Padding = new Thickness(12, 8, 12, 8),
             Child = flow,
         };
@@ -453,6 +457,7 @@ internal sealed class ConsoleNavItem : UiClickable
 
     public ConsoleNavItem(string text)
     {
+        ControlTheme.ApplyAppStyle(this, "UiClickableStyle");
         _text = new TextBlock
         {
             FontSize = ControlTheme.Dip(DesignTokens.BodySize),
@@ -464,7 +469,7 @@ internal sealed class ConsoleNavItem : UiClickable
         {
             Height = 2,
             VerticalAlignment = VerticalAlignment.Bottom,
-            Margin = new Thickness(8, 0, 8, 0),
+            Margin = new Thickness(12, 0, 12, 4),
             Fill = ControlTheme.Brush(ControlTheme.Accent),
             Visibility = Visibility.Collapsed,
         };
@@ -511,6 +516,11 @@ internal sealed class ConsoleNavItem : UiClickable
 
     private void Refresh()
     {
+        // 4.5.0: intentional Midnight pill. The default Button chrome used to
+        // paint a grey 6% box here (UiClickableStyle never applied to the
+        // derived type); now the item owns its surface: transparent at rest,
+        // a raised wash on hover, an amethyst tint when active.
+        _background.CornerRadius = new CornerRadius(8);
         _background.Background = _active
             ? ControlTheme.Brush(ControlTheme.Tint(ControlTheme.Accent, ControlTheme.ConsoleTitleBar))
             : Hovered
@@ -533,6 +543,7 @@ internal sealed class PresetChipView : UiClickable
 
     public PresetChipView(ConsolePresetBundle bundle)
     {
+        ControlTheme.ApplyAppStyle(this, "UiClickableStyle");
         Preset = bundle.Preset;
         _text = new TextBlock
         {
@@ -543,14 +554,17 @@ internal sealed class PresetChipView : UiClickable
         };
         Height = 28;
         Margin = new Thickness(3, 0, 3, 0);
-        Padding = new Thickness(13, 0, 13, 0);
+        Padding = new Thickness(0);
         ProtectedCursor = InputSystemCursor.Create(InputSystemCursorShape.Hand);
         AutomationProperties.SetName(this, "Preset " + bundle.Name);
         AutomationProperties.SetHelpText(this, bundle.Summary);
         OwnedToolTip.SetToolTip(this, bundle.Summary);
 
+        // 4.5.0: the chip frame owns the inset (the button padding sat outside
+        // the frame, so the visible pill hugged the label).
         _frame.CornerRadius = new CornerRadius(7);
         _frame.BorderThickness = new Thickness(1);
+        _frame.Padding = new Thickness(13, 0, 13, 0);
         _frame.Child = _text;
         Content = _frame;
         Refresh();

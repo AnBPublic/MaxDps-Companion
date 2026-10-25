@@ -18,29 +18,30 @@
 
     <!-- ===================== DesignTokens: colours ===================== -->
 
-    <Color x:Key="BackgroundColor">#FF07090B</Color>
-    <Color x:Key="SurfaceColor">#FF101519</Color>
-    <Color x:Key="SurfaceElevatedColor">#FF171D23</Color>
-    <Color x:Key="SurfaceShellColor">#FF12171B</Color>
-    <Color x:Key="BorderColor">#FF232C33</Color>
-    <Color x:Key="TextPrimaryColor">#FFF4EFE6</Color>
-    <Color x:Key="TextSecondaryColor">#FFA9B4BB</Color>
-    <Color x:Key="TextMutedColor">#FF6E7A82</Color>
-    <Color x:Key="AccentColor">#FFC9A24A</Color>
-    <Color x:Key="AccentSoftColor">#FFE6C878</Color>
-    <Color x:Key="SuccessColor">#FF4FD898</Color>
-    <Color x:Key="WarningColor">#FFE8B14B</Color>
-    <Color x:Key="DangerColor">#FFE36A6F</Color>
-    <Color x:Key="InfoColor">#FF6AAEF0</Color>
-    <Color x:Key="DisabledColor">#FF49545C</Color>
+    <Color x:Key="BackgroundColor">#FF0A0714</Color>
+    <Color x:Key="SurfaceColor">#FF141022</Color>
+    <Color x:Key="SurfaceElevatedColor">#FF1D1735</Color>
+    <Color x:Key="SurfaceShellColor">#FF110C1F</Color>
+    <Color x:Key="BorderColor">#FF2B2244</Color>
+    <Color x:Key="TextPrimaryColor">#FFF3EEFB</Color>
+    <Color x:Key="TextSecondaryColor">#FFB3A9CB</Color>
+    <Color x:Key="TextMutedColor">#FF7C7294</Color>
+    <Color x:Key="AccentColor">#FFA78BFA</Color>
+    <Color x:Key="AccentSoftColor">#FFDDD0FF</Color>
+    <Color x:Key="AccentStrongColor">#FF6D38E0</Color>
+    <Color x:Key="SuccessColor">#FF4FD6A8</Color>
+    <Color x:Key="WarningColor">#FFF0C05A</Color>
+    <Color x:Key="DangerColor">#FFD9455E</Color>
+    <Color x:Key="InfoColor">#FF8CB8FF</Color>
+    <Color x:Key="DisabledColor">#FF4A4260</Color>
     <Color x:Key="HairlineColor">#1FFFFFFF</Color>
     <Color x:Key="InnerHighlightColor">#26FFFFFF</Color>
     <Color x:Key="ShadowLineColor">#59000000</Color>
-    <Color x:Key="ScrimColor">#FF07090B</Color>
+    <Color x:Key="ScrimColor">#FF0A0714</Color>
     <!-- ScrollTrack = Blend(White, Background, 0.03) from DesignTokens. -->
-    <Color x:Key="ScrollTrackColor">#FF0E1012</Color>
+    <Color x:Key="ScrollTrackColor">#FF100C1A</Color>
     <Color x:Key="ScrollThumbColor">#4DFFFFFF</Color>
-    <Color x:Key="GlowBrassColor">#14C9A24A</Color>
+    <Color x:Key="GlowVioletColor">#14A78BFA</Color>
     <Color x:Key="GlowTealColor">#10388C78</Color>
 
     <SolidColorBrush x:Key="BackgroundBrush" Color="{StaticResource BackgroundColor}" />
@@ -64,8 +65,25 @@
     <SolidColorBrush x:Key="ScrimBrush" Color="{StaticResource ScrimColor}" />
     <SolidColorBrush x:Key="ScrollTrackBrush" Color="{StaticResource ScrollTrackColor}" />
     <SolidColorBrush x:Key="ScrollThumbBrush" Color="{StaticResource ScrollThumbColor}" />
-    <SolidColorBrush x:Key="GlowBrassBrush" Color="{StaticResource GlowBrassColor}" />
+    <SolidColorBrush x:Key="GlowVioletBrush" Color="{StaticResource GlowVioletColor}" />
     <SolidColorBrush x:Key="GlowTealBrush" Color="{StaticResource GlowTealColor}" />
+
+    <!-- ===================== 4.5.0 Midnight gradients ================== -->
+    <!-- Mirrors ControlTheme.Ground()/GroundAurora()/TitleBar(). The code path
+         is authoritative; these exist so XAML can paint the same chrome. -->
+
+    <LinearGradientBrush x:Key="GroundBrush" StartPoint="0.671,0.03" EndPoint="0.329,0.97">
+        <GradientStop Color="#FF171029" Offset="0" />
+        <GradientStop Color="#FF0A0714" Offset="0.55" />
+        <GradientStop Color="#FF1A1030" Offset="1" />
+    </LinearGradientBrush>
+
+    <LinearGradientBrush x:Key="TitleBarBrush" StartPoint="0.5,0" EndPoint="0.5,1">
+        <GradientStop Color="#FF1B1333" Offset="0" />
+        <GradientStop Color="#FF110C1F" Offset="1" />
+    </LinearGradientBrush>
+
+    <SolidColorBrush x:Key="AccentRingBrush" Color="#38A78BFA" />
 
     <!-- v4.0.1 glass polish: hairline ring (white 6%), bezel wash (white 4%),
          glyph-chip fills (white 10% / black 12%) and the vertical top-edge
@@ -119,15 +137,15 @@
 
     <!-- ===================== ExpTheme (dark terminal) ================== -->
 
-    <Color x:Key="ExpBgColor">#FF0B1110</Color>
-    <Color x:Key="ExpCardColor">#FF131C1A</Color>
-    <Color x:Key="ExpBorderColor">#FF25312E</Color>
-    <Color x:Key="ExpAccentColor">#FFE8C558</Color>
-    <Color x:Key="ExpDangerColor">#FFE5604F</Color>
-    <Color x:Key="ExpOkColor">#FF4CC38A</Color>
-    <Color x:Key="ExpTextColor">#FFEDEFF0</Color>
-    <Color x:Key="ExpSecondaryColor">#FF9AA5A1</Color>
-    <Color x:Key="ExpMonoStampColor">#FF5E6B67</Color>
+    <Color x:Key="ExpBgColor">#FF0A0714</Color>
+    <Color x:Key="ExpCardColor">#FF141022</Color>
+    <Color x:Key="ExpBorderColor">#FF2B2244</Color>
+    <Color x:Key="ExpAccentColor">#FFA78BFA</Color>
+    <Color x:Key="ExpDangerColor">#FFD9455E</Color>
+    <Color x:Key="ExpOkColor">#FF4FD6A8</Color>
+    <Color x:Key="ExpTextColor">#FFF3EEFB</Color>
+    <Color x:Key="ExpSecondaryColor">#FFB3A9CB</Color>
+    <Color x:Key="ExpMonoStampColor">#FF7C7294</Color>
 
     <SolidColorBrush x:Key="ExpBgBrush" Color="{StaticResource ExpBgColor}" />
     <SolidColorBrush x:Key="ExpCardBrush" Color="{StaticResource ExpCardColor}" />
@@ -148,7 +166,8 @@
     <!-- ===================== shell-only helpers ======================== -->
 
     <!-- Title-bar buttons (MainForm TitleBarButton parity: 48x48 flat hit
-         target; hover/pressed visuals come from the default Button template). -->
+         target). 4.5.0: owner-drawn hover/press wash in Midnight amethyst so
+         the chrome never falls back to the stock grey button fill. -->
     <Style x:Key="TitleBarButtonStyle" TargetType="Button">
         <Setter Property="Width" Value="48" />
         <Setter Property="Height" Value="48" />
@@ -157,19 +176,98 @@
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+        <Setter Property="UseSystemFocusVisuals" Value="False" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Grid x:Name="Root" Background="Transparent">
+                        <Border x:Name="Wash" Margin="4" CornerRadius="8" Background="Transparent" />
+                        <ContentPresenter x:Name="Presenter"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"
+                                          Content="{TemplateBinding Content}"
+                                          ContentTemplate="{TemplateBinding ContentTemplate}" />
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal" />
+                                <VisualState x:Name="PointerOver">
+                                    <Storyboard>
+                                        <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Wash" Storyboard.TargetProperty="Background">
+                                            <DiscreteObjectKeyFrame KeyTime="0" Value="#1FA78BFA" />
+                                        </ObjectAnimationUsingKeyFrames>
+                                    </Storyboard>
+                                </VisualState>
+                                <VisualState x:Name="Pressed">
+                                    <Storyboard>
+                                        <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Wash" Storyboard.TargetProperty="Background">
+                                            <DiscreteObjectKeyFrame KeyTime="0" Value="#3DA78BFA" />
+                                        </ObjectAnimationUsingKeyFrames>
+                                    </Storyboard>
+                                </VisualState>
+                                <VisualState x:Name="Disabled">
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="Presenter"
+                                                         Storyboard.TargetProperty="Opacity"
+                                                         To="0.4" Duration="0" />
+                                    </Storyboard>
+                                </VisualState>
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Close button keeps the same geometry but washes crimson on hover. -->
+    <Style x:Key="TitleBarCloseButtonStyle" TargetType="Button" BasedOn="{StaticResource TitleBarButtonStyle}">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Grid x:Name="Root" Background="Transparent">
+                        <Border x:Name="Wash" Margin="4" CornerRadius="8" Background="Transparent" />
+                        <ContentPresenter x:Name="Presenter"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"
+                                          Content="{TemplateBinding Content}"
+                                          ContentTemplate="{TemplateBinding ContentTemplate}" />
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal" />
+                                <VisualState x:Name="PointerOver">
+                                    <Storyboard>
+                                        <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Wash" Storyboard.TargetProperty="Background">
+                                            <DiscreteObjectKeyFrame KeyTime="0" Value="#33D9455E" />
+                                        </ObjectAnimationUsingKeyFrames>
+                                    </Storyboard>
+                                </VisualState>
+                                <VisualState x:Name="Pressed">
+                                    <Storyboard>
+                                        <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Wash" Storyboard.TargetProperty="Background">
+                                            <DiscreteObjectKeyFrame KeyTime="0" Value="#66D9455E" />
+                                        </ObjectAnimationUsingKeyFrames>
+                                    </Storyboard>
+                                </VisualState>
+                                <VisualState x:Name="Disabled" />
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <!-- ============ P2-B: console palette (legacy ConsolePalette) ====== -->
 
-    <Color x:Key="IronColor">#FF1A262C</Color>
-    <Color x:Key="ConsoleTitleBarColor">#FF141E23</Color>
-    <Color x:Key="ConsolePanelColor">#FF212F36</Color>
-    <Color x:Key="ConsoleFieldColor">#FF24343C</Color>
-    <Color x:Key="KeylineColor">#FF3A4A52</Color>
-    <Color x:Key="BoneColor">#FFE9E3D3</Color>
-    <Color x:Key="TidewashColor">#FF93A5AE</Color>
-    <Color x:Key="EmberColor">#FFB23A2C</Color>
-    <Color x:Key="EmberLightColor">#FFE0684E</Color>
+    <Color x:Key="IronColor">#FF171129</Color>
+    <Color x:Key="ConsoleTitleBarColor">#FF150F26</Color>
+    <Color x:Key="ConsolePanelColor">#FF201833</Color>
+    <Color x:Key="ConsoleFieldColor">#FF251C3D</Color>
+    <Color x:Key="KeylineColor">#FF3A2F58</Color>
+    <Color x:Key="BoneColor">#FFF0EAFB</Color>
+    <Color x:Key="TidewashColor">#FFA79FBE</Color>
+    <Color x:Key="EmberColor">#FFC2455C</Color>
+    <Color x:Key="EmberLightColor">#FFEE7A8C</Color>
 
     <SolidColorBrush x:Key="IronBrush" Color="{StaticResource IronColor}" />
     <SolidColorBrush x:Key="ConsoleTitleBarBrush" Color="{StaticResource ConsoleTitleBarColor}" />
@@ -187,8 +285,13 @@
     <!-- ============ P2-B: control styles and templates ================= -->
 
     <!-- Transparent chrome for the owner-drawn clickable base (UiClickable);
-         hover/press visuals are painted by subclasses, never by the button. -->
-    <Style x:Key="UiClickableStyle" TargetType="controls:UiClickable">
+         hover/press visuals are painted by subclasses, never by the button.
+         4.5.0: TargetType is Button (NOT controls:UiClickable) on purpose -
+         WinUI cannot resolve an *internal* subclass in XAML metadata, so it
+         reports the element as its Button base and rejects a style that names
+         the subclass. A Button-targeted style applies cleanly and the concrete
+         control opts in explicitly (see each subclass constructor). -->
+    <Style x:Key="UiClickableStyle" TargetType="Button">
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="Padding" Value="0" />
@@ -198,9 +301,10 @@
         <Setter Property="UseSystemFocusVisuals" Value="False" />
         <Setter Property="Template">
             <Setter.Value>
-                <ControlTemplate TargetType="controls:UiClickable">
+                <ControlTemplate TargetType="Button">
                     <ContentPresenter Content="{TemplateBinding Content}"
                                       ContentTemplate="{TemplateBinding ContentTemplate}"
+                                      Padding="{TemplateBinding Padding}"
                                       HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                                       VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
                 </ControlTemplate>

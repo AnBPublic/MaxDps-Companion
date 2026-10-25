@@ -1,4 +1,56 @@
-# UI architecture — MaxDps Companion 3.7.9 "Unyielding" (classic)
+# UI architecture - MaxDps Companion 3.7.9 "Unyielding" (classic)
+
+> **Note (4.5.0 "Voidlight"):** the layout notes below describe the frozen
+> 3.7.9 WinForms shell. The current Windows client is WinUI 3
+> (`app/MaxDpsCompanion/Ui/`); its theme, palette and gradients are documented
+> in the next section, `ARCHITECTURE.md` and
+> `docs/plans/2026-10-25-midnight-ui-4.5.0.md`.
+
+## 4.5.0 "Voidlight" theme (WinUI 3)
+
+One palette for both shells. `Ui/Controls/ControlTheme.cs` is the code source of
+truth; `Ui/Theme.xaml` mirrors the same values for XAML. `Ui/Foundation/ExpTheme.cs`
+holds the in-game-config (Exp) tokens and derives from the same family.
+
+| Token | Hex | Role |
+| :--- | :--- | :--- |
+| `Background` | `#0A0714` | void-black ground, violet undertone |
+| `Surface` / `SurfaceElevated` | `#141022` / `#1D1735` | cards / raised rows |
+| `Border` | `#2B2244` | quiet keyline |
+| `TextPrimary` / `Secondary` / `Muted` | `#F3EEFB` / `#B3A9CB` / `#7C7294` | moonlit silver type scale |
+| `Accent` / `AccentStrong` / `AccentSoft` | `#A78BFA` / `#6D38E0` / `#DDD0FF` | amethyst (focus, ticks, eyebrows) |
+| `Success` | `#4FD6A8` | running / Start fill base (`ExpTheme.OkFill` `#2E9E75`) |
+| `Warning` | `#F0C05A` | Sunwell gold (Restart ring, warnings) |
+| `Danger` | `#D9455E` | Stop fill base (`ExpTheme.DangerFill` `#C9405A`) |
+| `Info` | `#8CB8FF` | arcane blue (spec/log info) |
+
+Gradients (all built in `ControlTheme`, no flat large surfaces):
+
+- **Ground** - `Ground()`: 110 deg `#171029 -> #0A0714 -> #1A1030`;
+  `GroundAurora()` adds a 25 deg `#3A1F73` wash in the upper-left. Both shells
+  paint it (`GradientCanvas`); `ConsoleHomeView` paints the same ramp opaquely
+  because it sits over the classic body.
+- **Title bar** - vertical `#1B1333 -> #110C1F` with a 1 px amethyst hairline
+  (`AccentRing`, 22 % alpha).
+- **Pills** - `Pill(fill, lift)`: top `Lighten(fill, 10 %)`, bottom
+  `Darken(fill, 28 %)`; hover lifts 6 %, press darkens 10 %. Ghost pills use
+  `GhostPill(surface, hover)` (surface lifted toward white at the top).
+- **Cards** - `RoundedCard` core: `Lighten(fill, 6 %) -> Darken(fill, 12 %)`
+  inside the white/4 bezel; the top-edge highlight border is unchanged.
+- **Status pill** - `Lighten(ExpTheme.Card, 6 %) -> ExpTheme.Card` with an
+  amethyst ring.
+
+Chrome geometry: `WM_NCCALCSIZE` is answered with a full-window client area, so
+there is **no** non-client resize frame band; `WS_THICKFRAME` + `WM_NCHITTEST`
+still provide edge resizing and the caption rects are window-relative. DWM runs
+in immersive dark mode and paints its outline in `#2B2244`.
+
+Release notes: the Exp **Details** disclosure renders
+`Ui/Foundation/ReleaseNotes.cs` (current release highlights + earlier-version
+line) at a 244 DIP open height clamped to keep a 220 DIP log reserve; the
+disclosure body is the only scroller, so small windows scroll instead of
+clipping. `docs/CHANGELOG.md` is the long form and `ReleaseNotesTests` keeps
+them in sync with the assembly version.
 
 The companion is one WinForms application (`MaxDpsCompanion.exe`, .NET 8,
 x64, PerMonitorV2). v3.0.0 restored a fast, fixed **classic** shell on top of

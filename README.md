@@ -1,19 +1,21 @@
 > [!IMPORTANT]
-> **Current client: 4.4.0 "Wayfinder"** - the WinUI 3 Windows client
+> **Current client: 4.5.0 "Voidlight"** - the WinUI 3 Windows client
 > (`app/MaxDpsCompanion/`), the shared brain (`app/MaxDpsCompanion.Core/`) and the
-> macOS client (`app/MaxDpsCompanion.Mac/`), targeting `MaxDpsCompanionBridge` +
-> `dist`. **C# is the long-term base.** Frozen: the 3.7.9 WinForms
-> distribution (`dist-legacy/`, `build.ps1`), the legacy bridge
+> macOS client (`app/MaxDpsCompanion.Mac/`, still `4.4.0 "Wayfinder"`), targeting
+> `MaxDpsCompanionBridge` + `dist`. **C# is the long-term base.** Frozen: the
+> 3.7.9 WinForms distribution (`dist-legacy/`, `build.ps1`), the legacy bridge
 > (`addon/legacy/MaxDpsBridge/`) and the Rust port (`companion-rs/`, reference
 > only, no Ext4). See
-> [`LEGACY.md`](LEGACY.md); release plans: [4.4.0 Wayfinder](docs/plans/2026-10-25-wayfinder-transport-foreground.md),
+> [`LEGACY.md`](LEGACY.md); changelog: [`docs/CHANGELOG.md`](docs/CHANGELOG.md);
+> release plans: [4.5.0 Voidlight](docs/plans/2026-10-25-midnight-ui-4.5.0.md),
+> [4.4.0 Wayfinder](docs/plans/2026-10-25-wayfinder-transport-foreground.md),
 > [4.3.0 Namesake](docs/plans/2026-10-18-companion-bridge-rename.md),
 > [4.2.0 Nightblade](docs/plans/2026-10-18-rogue-cc-intelligence.md),
 > [4.1.0 Paragon](docs/plans/2026-10-17-paragon-audit-remediation.md).
 
 > [!TIP]
-> **macOS Companion - `4.4.0 "Wayfinder"` (Apple Silicon):** the same release,
-> version and decision brain as the Windows client. Download
+> **macOS Companion - `4.4.0 "Wayfinder"` (Apple Silicon, latest Mac build):** the same release,
+> version and decision brain as the Windows 4.4.0 client. Download
 > `MaxDpsCompanion-4.4.0-macos-arm64.zip` and
 > `MaxDpsCompanionBridge-4.4.0-addon.zip` from the
 > [v4.4.0 release](https://github.com/AnBPublic/MaxDps-Companion/releases/tag/v4.4.0),
@@ -21,13 +23,16 @@
 > from the addon package, grant **Screen Recording** + **Accessibility**, then
 > Start (or run `--probe` for a read-only report).
 >
-> Both clients are built from tag **`v4.4.0`** (commit `7b8bbfa`) and share
+> Both 4.4.0 clients are built from tag **`v4.4.0`** (commit `7b8bbfa`) and share
 > [`app/MaxDpsCompanion.Core/`](app/MaxDpsCompanion.Core/), the 51-cell
 > v5+Ext2/3/4 wire and the same `MaxDpsCompanionBridge` addon. Only the OS host
 > differs: WinUI 3 + `PostMessage` on Windows, Avalonia + ScreenCaptureKit +
 > `CGEventPostToPid` on macOS. The macOS binary is therefore **not
 > byte-identical** to the Windows one, but it is the same product build
 > (version, codename, source tag, brain, wire and addon).
+>
+> **The macOS client has not been ported to the 4.5.0 Midnight theme yet**;
+> 4.5.0 is a Windows-only UI release. A macOS 4.5.0 asset is OWED.
 >
 > The release app is **ad-hoc signed, not notarized**: on first launch use
 > **System Settings -> Privacy & Security -> Open Anyway** (or
@@ -41,7 +46,7 @@
 > [`app/MaxDpsCompanion.Mac/README.md`](app/MaxDpsCompanion.Mac/README.md);
 > live retail checks are OWED (`docs/TESTING.md` §4).
 
-# MaxDPS Companion (Retail Midnight 12.1, v4.4.0 "Wayfinder")
+# MaxDPS Companion (Retail Midnight 12.1, v4.5.0 "Voidlight")
 
 Pixel bridge driver for [kaminaris MaxDps](https://www.curseforge.com/wow/addons/maxdps)
 (vendor pin: MaxDps v11.3.49). No memory read, no injection, no OCR, no LLM.
@@ -58,6 +63,32 @@ Two pieces:
 The legacy `MaxDpsBridge` addon (`addon/legacy/MaxDpsBridge/`, 40-cell strip) and the
 old WinForms client (`dist-legacy/`) are **legacy/frozen**; all current work targets
 `MaxDpsCompanionBridge` + `dist`.
+
+## v4.5.0 "Voidlight" - Midnight palette, gradient surfaces, no title-bar band (no wire change)
+
+A UI-only release: the Windows client is repainted in the World of Warcraft:
+Midnight palette and every large surface became a gradient. No wire, addon
+logic, engine or settings change; the addon bump is identity-only.
+
+- **New palette** - void-violet ground (`#0A0714`), amethyst accent
+  (`#A78BFA`), Sunwell-gold warning/relaunch accent (`#F0C05A`), moonlit-silver
+  text (`#F3EEFB`). The classic console and the in-game-config shell share one
+  palette again.
+- **Gradients, not flat fills** - window ground (violet-to-void diagonal with an
+  aurora wash), title bar, transport buttons (role-coloured vertical ramps),
+  ghost buttons, status pill and card cores.
+- **The white band above the title bar is gone.** It was the system's light
+  resize frame: `SetBorderAndTitleBar(false, false)` + `IsResizable = true`
+  keeps `WS_THICKFRAME`, and the default `WM_NCCALCSIZE` inset the client area by
+  it. The shell now claims a full-window client area, keeps DWM in dark mode and
+  paints the frame line in the Midnight keyline. Edge resizing is unchanged.
+- **Changelog in Details** - the Details disclosure renders the current
+  release's highlights plus the earlier-version line. `docs/CHANGELOG.md` is the
+  long form and `ReleaseNotesTests` enforces that both are updated with every
+  version bump (`AGENTS.md`, "Release notes").
+- **Restart Game** keeps a Sunwell-gold hairline (the Light action) while the app
+  accent stays amethyst; **Start/Stop** use deeper fill bases so light text keeps
+  contrast across the whole gradient.
 
 ## v4.4.0 "Wayfinder" - transport rework, foreground-gated detection, quiet bridge log (no wire change)
 

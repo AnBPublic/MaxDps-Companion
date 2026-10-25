@@ -1,0 +1,69 @@
+namespace MaxDpsCompanion;
+
+/// <summary>
+/// In-app changelog rendered by the Exp console's Details disclosure.
+///
+/// 4.5.0 "Voidlight" made this the release norm (AGENTS.md, "Release notes"):
+/// every version bump must add a <see cref="Release"/> here AND a matching
+/// section at the top of <c>docs/CHANGELOG.md</c> in the same commit.
+/// <c>ReleaseNotesTests</c> fails the build when the current entry disagrees
+/// with <see cref="Native.AppVersion"/>/<see cref="Native.Codename"/> or when
+/// the changelog document has no heading for the current version, so a release
+/// cannot ship without notes.
+/// </summary>
+internal static class ReleaseNotes
+{
+    /// <summary>One release: headline for the at-a-glance list, highlights for the current one.</summary>
+    internal sealed record Release(
+        string Version,
+        string Codename,
+        string Date,
+        string Headline,
+        string[] Highlights)
+    {
+        /// <summary>"4.5.0 Voidlight" - the label used in the app and the docs.</summary>
+        public string Label => $"{Version} {Codename}";
+    }
+
+    /// <summary>Newest first. <see cref="Current"/> is always index 0.</summary>
+    public static readonly IReadOnlyList<Release> All = new[]
+    {
+        new Release(
+            "4.5.0", "Voidlight", "2026-10-25",
+            "Midnight palette, gradient surfaces and no title-bar band.",
+            new[]
+            {
+                "Midnight palette: void-violet ground, amethyst accents, Sunwell gold, silver text.",
+                "Gradients replace flat fills on the ground, title bar, buttons, cards and pill.",
+                "The white band above the title bar is gone; edge resizing still works.",
+                "Changelog lives in Details; the full history is in docs/CHANGELOG.md.",
+            }),
+        new Release(
+            "4.4.0", "Wayfinder", "2026-10-25",
+            "Transport rework, foreground-gated detection, quiet bridge log.",
+            Array.Empty<string>()),
+        new Release(
+            "4.3.0", "Namesake", "2026-10-18",
+            "Addon renamed to MaxDps Companion Bridge; the in-game-config shell became the default.",
+            Array.Empty<string>()),
+        new Release(
+            "4.2.0", "Nightblade", "2026-10-18",
+            "CC intelligence: auto-eligible CC narrowed, 12.1.5 DR ladder, manual party-CC hold.",
+            Array.Empty<string>()),
+        new Release(
+            "4.1.0", "Paragon", "2026-10-18",
+            "Audit remediation across the addon hot path, the Windows engine and the Mac host.",
+            Array.Empty<string>()),
+        new Release(
+            "4.0.4", "Aegis", "2026-10-17",
+            "In-game Main toggle became the master switch.",
+            Array.Empty<string>()),
+    };
+
+    /// <summary>The release this build ships (index 0, enforced by tests).</summary>
+    public static Release Current => All[0];
+
+    /// <summary>"4.4.0 Wayfinder, 4.3.0 Namesake, ..." - the one-line history tail.</summary>
+    public static string EarlierSummary =>
+        string.Join("  \u00B7  ", All.Skip(1).Select(r => r.Label));
+}
