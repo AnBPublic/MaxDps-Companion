@@ -29,6 +29,15 @@ internal static class ReleaseNotes
     public static readonly IReadOnlyList<Release> All = new[]
     {
         new Release(
+            "4.5.2", "Voidlight", "2026-10-25",
+            "Edge and corner resizing works again.",
+            new[]
+            {
+                "The window declares its four border regions again, so the resize arrows and edge/corner drag are back.",
+                "The title bar keeps drag-to-move below the top grip, and the caption buttons still take clicks.",
+                "Same Midnight chrome: the frame stays invisible while the system sizes the window.",
+            }),
+        new Release(
             "4.5.1", "Voidlight", "2026-10-25",
             "Live resizing, wrapped log lines and a changelog that is never cut.",
             new[]

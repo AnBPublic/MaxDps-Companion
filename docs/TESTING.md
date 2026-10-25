@@ -718,6 +718,19 @@ Offline (see HANDOVER/final report): build 0/0, `dotnet test`, snapshots at
 5. **Tier chrome.** Widening past 950 DIP grows the transport pills (42 -> 52
    DIP) and type; shrinking returns to 42 without clipping the labels.
 
+### 3s. 4.5.2 "Voidlight" resize frame (live 12.1 retail, OWED)
+
+1. **Resize arrows.** Hover each edge and corner of the window: the cursor
+   becomes the horizontal / vertical / diagonal resize arrow (not the plain
+   pointer), including the top-left and top-right corners.
+2. **Drag resize.** Drag every edge and corner: the window follows, respects the
+   520x560 DIP minimum, and the XAML content (pill, transport, card, log) reflows
+   during the drag.
+3. **Drag-to-move.** Dragging the title bar below the top 8 DIP moves the
+   window; dragging within the top 8 DIP resizes from the top instead.
+4. **Caption buttons.** Minimize/close still receive clicks, and the 8 px above
+   them resizes the window.
+
 ## 4. macOS client (live retail, OWED)
 
 Everything in this section needs a real client on a Mac. Static/offline

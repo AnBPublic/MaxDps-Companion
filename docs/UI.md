@@ -41,9 +41,14 @@ Gradients (all built in `ControlTheme`, no flat large surfaces):
   amethyst ring.
 
 Chrome geometry: `WM_NCCALCSIZE` is answered with a full-window client area, so
-there is **no** non-client resize frame band; `WS_THICKFRAME` + `WM_NCHITTEST`
-still provide edge resizing and the caption rects are window-relative. DWM runs
-in immersive dark mode and paints its outline in `#2B2244`.
+there is **no** non-client resize frame band; DWM runs in immersive dark mode
+and paints its outline in `#2B2244`. **Resizing** is handled by the four
+`NonClientRegionKind` border regions (`TopBorder`/`BottomBorder`/`LeftBorder`/
+`RightBorder`, 8 DIP, refreshed on every `RootGrid.SizeChanged`): the XAML
+content lives in a child HWND that answers `WM_NCHITTEST` with `HTCLIENT`, so
+the parent subclass never sees the edges. The caption region starts below the
+top grip (drag-to-move) and the caption-button passthrough rects start below it
+as well, so the top corners stay resizable.
 
 ## 4.5.1 responsive rules (WinUI 3)
 
