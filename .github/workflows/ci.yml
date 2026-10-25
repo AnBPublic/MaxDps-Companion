@@ -121,6 +121,18 @@ jobs:
             app/MaxDpsCompanion.Core/MaxDpsCompanion.Core.csproj
             app/MaxDpsCompanion.Mac/MaxDpsCompanion.Mac.csproj
 
+      # The release path is shell + Swift. Parse every shell script so a typo
+      # cannot reach the tag-only release workflow (which is dispatch-driven).
+      - name: Shell syntax (macOS build + release scripts)
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n build-mac.sh \
+            tools/mac-signing.sh \
+            tools/package-macos.sh \
+            tools/install-addon-mac.sh
+          echo "bash -n: OK"
+
       - name: Build Core (Release)
         run: dotnet build app/MaxDpsCompanion.Core/MaxDpsCompanion.Core.csproj -c Release
 

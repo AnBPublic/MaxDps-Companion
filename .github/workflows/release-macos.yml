@@ -1,0 +1,181 @@
+# Build the macOS release assets for an EXISTING tag and optionally attach them
+# to that tag's GitHub release.
+#
+# Why a tag checkout: the macOS client must be the SAME version as the Windows
+# client, from the SAME source (v4.4.0 -> 7b8bbfa). The workflow file and the
+# packaging scripts come from the branch that dispatched the run; the app,
+# Core, addon and version file come from the tag. package-macos.sh refuses to
+# run if HEAD is not the tag commit or if Version.props does not match the tag.
+#
+# Signing: CI uses MAC_SIGN_MODE=adhoc. arm64 requires at least an ad-hoc
+# signature; a Developer ID + notarization is a manual step that needs Apple
+# credentials (not stored in this repo). The app is therefore not notarized:
+# Gatekeeper needs a one-time "Open Anyway" on first launch. See the README.
+#
+# Live in-game verification (capture + send in retail) stays OWED: CI builds
+# and verifies the bundle/signature/zip, it cannot run WoW.
+name: Release macOS
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to build (e.g. v4.4.0)'
+        required: true
+        default: 'v4.4.0'
+        type: string
+      publish:
+        description: 'Upload the assets to that GitHub release (otherwise artifacts only)'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-macos-${{ github.event.inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  DOTNET_NOLOGO: '1'
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1'
+  # The synthetic capture self-test needs Screen Recording, which a hosted
+  # runner does not grant. The real capture path stays OWED (see header).
+  SELFTEST: '0'
+  MAC_SIGN_MODE: adhoc
+
+jobs:
+  package:
+    name: ${{ inputs.tag }} - macOS arm64
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          fetch-depth: 0
+
+      - name: Require an Apple Silicon runner
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "arm64" || { echo "expected arm64, got $(uname -m)"; exit 1; }
+
+      # The tag predates this workflow, so the packaging scripts must come from
+      # the current workflow commit. No app/source file is taken from the branch.
+      - name: Load current packaging scripts (app source stays the tag)
+        env:
+          WORKFLOW_SHA: ${{ github.workflow_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          # Prefer the exact workflow commit; fall back to the dispatched ref if
+          # the runner refuses a by-SHA fetch.
+          git fetch origin "$WORKFLOW_SHA" --depth=1 \
+            || git fetch origin "${{ github.ref }}" --depth=1
+          git checkout FETCH_HEAD -- \
+            tools/package-macos.sh \
+            tools/install-addon-mac.sh \
+            tools/mac-signing.sh
+          # Shell entrypoints are tracked without the exec bit on Windows
+          # checkouts; set it explicitly on the macOS runner.
+          chmod +x build-mac.sh tools/package-macos.sh tools/install-addon-mac.sh tools/mac-signing.sh
+          git status --short
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Show toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swiftc --version
+          dotnet --info
+
+      - name: Verify version == tag and tag commit
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's:.*<Version>\([^<]*\)</Version>.*:\1:p' app/Version.props | head -1 | tr -d '[:space:]')
+          test -n "$version"
+          test "${TAG#v}" = "$version"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/$TAG^{commit}")"
+          echo "version=$version tag=$TAG commit=$(git rev-parse HEAD)"
+
+      # dist/settings.ini is a gitignored per-machine file. A fresh checkout
+      # only has the tracked root defaults, and build-mac.sh copies
+      # dist/settings.ini into the bundle. Seed it from the tracked default so
+      # a release build never embeds a developer's CellSize/offsets/keys.
+      - name: Seed the tracked settings.ini default
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp settings.ini dist/settings.ini
+          cmp -s settings.ini dist/settings.ini
+
+      - name: Build the .app
+        run: ./build-mac.sh
+
+      - name: Package release assets
+        env:
+          TAG: ${{ inputs.tag }}
+          PACKAGING_WORKFLOW_SHA: ${{ github.workflow_sha || github.sha }}
+          PACKAGING_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: ./tools/package-macos.sh --tag "$TAG" --out dist-mac/release --no-build
+
+      - name: Verify bundle, signature and architecture
+        run: |
+          set -euo pipefail
+          app="dist-mac/MaxDPS Companion.app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign -dv --verbose=4 "$app" 2>&1 | sed -n '1,25p'
+          file "$app/Contents/MacOS/MaxDpsCompanion.Mac"
+          file "$app/Contents/MacOS/libmdc_capture.dylib"
+          lipo -info "$app/Contents/MacOS/libmdc_capture.dylib"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist"
+          sed -n '1,30p' "$app/Contents/Resources/BUILD-INFO.txt"
+          ( cd dist-mac/release && shasum -a 256 -c SHA256SUMS-macos.txt )
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: MaxDpsCompanion-${{ inputs.tag }}-macos-arm64
+          path: dist-mac/release/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish assets to the GitHub release
+        if: ${{ inputs.publish }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release view "$TAG" >/dev/null
+          gh release upload "$TAG" \
+            dist-mac/release/MaxDpsCompanion-*.zip \
+            dist-mac/release/MaxDpsCompanionBridge-*.zip \
+            dist-mac/release/BUILD-INFO-macos.txt \
+            dist-mac/release/SHA256SUMS-macos.txt \
+            --clobber
+          gh release view "$TAG" --json assets --jq '.assets[].name'
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "## macOS build for ${{ inputs.tag }}"
+            echo
+            if [ -f dist-mac/release/BUILD-INFO-macos.txt ]; then
+              echo '```'
+              cat dist-mac/release/BUILD-INFO-macos.txt
+              echo '```'
+            else
+              echo "No BUILD-INFO produced."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
