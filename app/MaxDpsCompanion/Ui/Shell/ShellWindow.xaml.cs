@@ -291,6 +291,7 @@ public sealed partial class ShellWindow : Window
         _saveDebounce.Stop();
         _statusPump?.Stop();    // P2-C status pump
         _settingsDebounce?.Stop(); // P2-C advanced-settings debounce
+        _gamePoll?.Dispose();   // 4.4.0 process-presence timer
         _engine?.Dispose();     // MainForm.OnFormClosed :3252
         _win32.Dispose();
         _tray.Dispose();

@@ -110,6 +110,193 @@ internal sealed class WowWindow
             ? processName[..^4]
             : processName;
 
+    // ----- 4.4.0 "Wayfinder": process presence + restart helpers -----
+
+    /// <summary>
+    /// True while any process with this name exists (exact
+    /// <see cref="Process.GetProcessesByName(string)"/> match after the ".exe"
+    /// suffix is normalised away). Never throws and disposes every Process it
+    /// enumerates. Used only to drive the transport labels (Open Game /
+    /// Game Running); it does not attach to a window.
+    /// </summary>
+    internal static bool IsProcessRunning(string processName)
+    {
+        if (string.IsNullOrWhiteSpace(processName)) return false;
+        var wanted = Normalise(processName.Trim());
+        if (wanted.Length == 0) return false;
+
+        Process[] processes;
+        try
+        {
+            processes = Process.GetProcessesByName(wanted);
+        }
+        catch (Exception)
+        {
+            // Invalid name / enumeration refused: treat as "not running".
+            return false;
+        }
+
+        var found = false;
+        foreach (var process in processes)
+        {
+            using (process) found = true;
+        }
+        return found;
+    }
+
+    /// <summary>
+    /// 4.4.0 "Wayfinder": kills the running game (Restart Game). Defensive by
+    /// construction — a wrong settings.ini name must never take down the
+    /// companion or another user's session:
+    ///  * empty/whitespace is refused;
+    ///  * the companion's own PID / process name is refused;
+    ///  * only processes in OUR session are considered (SessionId is read in a
+    ///    try/catch; when it cannot be proven equal the target is skipped);
+    ///  * <c>Kill(entireProcessTree: true)</c>, expected races caught, bounded
+    ///    wait, and the remaining count is reported.
+    /// </summary>
+    internal static (int Killed, bool Ok, string Message) KillGameProcesses(string processName, int waitMs)
+    {
+        if (string.IsNullOrWhiteSpace(processName))
+            return (0, false, "refusing to kill: ProcessName is empty");
+
+        var wanted = Normalise(processName.Trim());
+        if (wanted.Length == 0)
+            return (0, false, "refusing to kill: ProcessName is empty");
+        if (waitMs < 0) waitMs = 0;
+
+        int ownPid;
+        string ownName;
+        int? ownSession;
+        using (var self = Process.GetCurrentProcess())
+        {
+            ownPid = self.Id;
+            ownName = self.ProcessName;
+            ownSession = TrySessionId(self);
+        }
+
+        if (string.Equals(wanted, ownName, StringComparison.OrdinalIgnoreCase))
+            return (0, false, $"refusing to kill: '{wanted}' is the companion itself");
+
+        Process[] processes;
+        try
+        {
+            processes = Process.GetProcessesByName(wanted);
+        }
+        catch (Exception ex)
+        {
+            return (0, false, $"could not enumerate '{wanted}': {ex.Message}");
+        }
+
+        var targets = new List<Process>();
+        var skipped = 0;
+        foreach (var process in processes)
+        {
+            var keep = false;
+            try
+            {
+                // Never our own process, even if the name matched.
+                if (process.Id == ownPid) continue;
+                // Same session only: another user's client is not ours to kill.
+                var targetSession = TrySessionId(process);
+                if (ownSession is null || targetSession is null
+                    || targetSession.Value != ownSession.Value)
+                {
+                    skipped++;
+                    continue;
+                }
+                targets.Add(process);
+                keep = true;
+            }
+            catch (Exception)
+            {
+                skipped++;
+            }
+            finally
+            {
+                if (!keep) process.Dispose();
+            }
+        }
+
+        if (targets.Count == 0 && processes.Length == 0)
+            return (0, false, $"no running process named '{wanted}'");
+
+        var killed = 0;
+        string? lastError = null;
+        foreach (var target in targets)
+        {
+            try
+            {
+                target.Kill(entireProcessTree: true);
+                killed++;
+            }
+            catch (Exception ex)
+            {
+                // Access denied / already exited: expected races, keep going.
+                lastError = ex.Message;
+            }
+        }
+
+        // Bounded wait for the tree to actually disappear, then count what is
+        // still alive (checked BEFORE the Process handle is disposed).
+        var deadline = Environment.TickCount64 + waitMs;
+        var remaining = 0;
+        foreach (var target in targets)
+        {
+            try
+            {
+                while (!target.HasExited && Environment.TickCount64 < deadline)
+                    Thread.Sleep(50);
+                if (!target.HasExited) remaining++;
+            }
+            catch (Exception)
+            {
+                // HasExited can throw for a process we no longer own.
+            }
+            finally
+            {
+                target.Dispose();
+            }
+        }
+
+        if (killed == 0)
+        {
+            // Nothing was killed. The common benign race is the user closing
+            // the game between the presence poll and this click: if the name is
+            // gone now, Restart may still relaunch it instead of aborting with
+            // a misleading "could not close" dialog.
+            if (remaining == 0 && !IsProcessRunning(wanted))
+                return (0, true, $"'{wanted}' was already closed");
+            return (0, false, Describe());
+        }
+        if (remaining == 0) return (killed, true, $"closed '{wanted}'");
+        // A killed tree that still reports a live process is a partial close:
+        // report it so the caller does not claim a clean restart.
+        if (!IsProcessRunning(wanted)) return (killed, true, $"closed '{wanted}'");
+        return (killed, false, Describe());
+
+        string Describe()
+        {
+            if (remaining > 0) return $"'{wanted}' is still running after {waitMs} ms - close it manually";
+            if (skipped > 0) return $"no killable '{wanted}' process in this session ({skipped} skipped)";
+            if (lastError is { Length: > 0 }) return $"could not close '{wanted}': {lastError}";
+            return $"no running process named '{wanted}'";
+        }
+    }
+
+    /// <summary>SessionId without throwing (access denied / exited processes).</summary>
+    private static int? TrySessionId(Process process)
+    {
+        try
+        {
+            return process.SessionId;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
     /// <summary>Default lookup: enumerate processes for the wanted name's main window.</summary>
     private static IntPtr FindMainWindow(string wanted)
     {

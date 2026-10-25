@@ -1,3 +1,16 @@
+4.4.0
+date: 2026-10-25 "Wayfinder"
+git: v4.4.0 (release branch)
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED - v5 core 35 + Ext2 40 + Ext3 43 + Ext4 51 (51-cell strip).
+v4.4.0: Companion 4.4.0 "Wayfinder". Addon identity-only bump, NO wire change.
+          Companion UI/behavior: Exp row 2 is Open Game | Restart Game (Calibrate
+          moved into the collapsed Details disclosure); Open Game is disabled and
+          labelled "Game Running" while the WoW process exists (Restart Game kills
+          and relaunches it); the Now line moved into Details; screen detection runs
+          only while the game is foreground; the log warns about the bridge at most
+          once per outage instead of spamming capture messages on alt-tab.
+
 4.3.0
 date: 2026-10-18 "Namesake"
 git: v4.3.0 (release branch)

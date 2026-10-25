@@ -55,6 +55,10 @@ public sealed partial class ShellWindow
     private StatusTone _statusMessageTone = StatusTone.Muted;
     // Last status line appended to the console home log (old _consoleLastStatus :146).
     private string _consoleLastStatus = "";
+    // 4.4.0: the message actually LOGGED last (transient statuses advance the
+    // tracker above but never reach the log, so A → transient → A must not
+    // re-log A when the foreground returns).
+    private string _consoleLastLogged = "";
 
     // Calibration worker (MainForm :2310-2312).
     private Thread? _calThread;
@@ -70,15 +74,40 @@ public sealed partial class ShellWindow
     private TelemetryRecorder? _telemetryRecorder;
 
     // Exp bridge-hint latch + S8 install-doctor throttle/witness (old :100, :178, :176).
-    private bool _expBridgeHintShown;
+    // 4.4.0 "Wayfinder": the latch became the clock-injected BridgeLogGate
+    // (background pauses never log; one warning per outage/run) and the Exp log
+    // tracker is separate from the classic console's.
+    private readonly BridgeLogGate _bridgeLogGate = new();
+    private string _expLastStatus = "";
+    private string _expLastLogged = "";
     private int _doctorTick;
     private int? _lastLocatedCellSize;
+
+    // 4.4.0 process presence + launch gap. The 1 s System.Threading.Timer only
+    // writes the volatile flag (never touches UI); the launch grace is a
+    // TickCount64 deadline so Open Game stays disabled until WoW appears.
+    private volatile bool _gameProcessRunning;
+    private long _launchGraceUntilMs;
+    // 4.4.0: a poll that started before a restart must not write its stale
+    // observation after the kill (it could re-assert "running" and clear the
+    // launch grace). The restart bumps this epoch; stale results are dropped.
+    private long _gamePollEpoch;
+    private bool _restarting;
+    private System.Threading.Timer? _gamePoll;
+    // Last Open Game transport phase (0 idle / 1 starting / 2 running) so the
+    // 250 ms pump only rewrites the label/glyph/help on an actual change.
+    private int _expOpenState = -1;
 
     private void InitializeEngine(AppSettings settings)
     {
         _engine = new RotationEngine(settings);
         _engine.StatusChanged += s => _status = s;
         _engine.LocationChanged += location => _pendingLocation = location;
+
+        // 4.4.0: initial presence is synchronous so the first painted transport
+        // state is right (no "Open Game" flash while WoW is already running).
+        _gameProcessRunning = WowWindow.IsProcessRunning(settings.ProcessName);
+        _gamePoll = new System.Threading.Timer(_ => PollGameProcess(), null, 1000, 1000);
 
         // 250 ms UI pump, exactly the WinForms _uiTimer cadence (plan §4).
         _statusPump = DispatcherQueue.CreateTimer();
@@ -99,6 +128,76 @@ public sealed partial class ShellWindow
     }
 
     private void StartStatusPump() => _statusPump?.Start();
+
+    // ----- 4.4.0 process presence / launch gap (Exp transport) -----
+
+    /// <summary>
+    /// 1 s timer callback: refreshes the cached presence flag and clears the
+    /// 20 s launch grace as soon as the process is actually observed. Timer
+    /// thread only — never touches XAML; the 250 ms pump reads the flag.
+    /// </summary>
+    private void PollGameProcess()
+    {
+        var epoch = Volatile.Read(ref _gamePollEpoch);
+        bool running;
+        try
+        {
+            running = WowWindow.IsProcessRunning(_settings.ProcessName);
+        }
+        catch (Exception)
+        {
+            return;
+        }
+        // A restart invalidated this observation while it was being taken.
+        if (epoch != Volatile.Read(ref _gamePollEpoch)) return;
+        _gameProcessRunning = running;
+        if (running) ClearLaunchGrace();
+    }
+
+    /// <summary>Open/Restart are blocked while the game runs OR during the launch gap.</summary>
+    private bool GameBlocked =>
+        _gameProcessRunning || Environment.TickCount64 < Volatile.Read(ref _launchGraceUntilMs);
+
+    /// <summary>Arms the post-launch gap (20 s from Open/Restart).</summary>
+    private void SetLaunchGrace(int ms) =>
+        Volatile.Write(ref _launchGraceUntilMs, Environment.TickCount64 + Math.Max(0, ms));
+
+    /// <summary>Clears the launch gap (process seen, launch failed, or restart ended).</summary>
+    private void ClearLaunchGrace() => Volatile.Write(ref _launchGraceUntilMs, 0);
+
+    /// <summary>
+    /// Exp transport labels/enabled state. Called from UpdateExpReadouts (every
+    /// pump tick, value-only writes) AND on click so the buttons disable
+    /// immediately, before the next 250 ms frame.
+    /// </summary>
+    private void UpdateExpTransportState()
+    {
+        if (_expLaunchGame is not null)
+        {
+            var running = _gameProcessRunning;
+            var blocked = GameBlocked;
+            var state = running ? 2 : blocked ? 1 : 0;
+            if (state != _expOpenState)
+            {
+                _expOpenState = state;
+                var (glyph, text, accessible, font, help) = running
+                    ? ("\uE72E", "Game Running", "\u25CF", FluentIcons,
+                        "World of Warcraft is already running")
+                    : blocked
+                        ? ("\uE72C", "Game Starting\u2026", "\u21BB", FluentIcons,
+                            "Waiting for World of Warcraft to start")
+                        : ("\u2922", "Open Game", "\u2922", null,
+                            "Open World of Warcraft through Battle.net");
+                _expLaunchGame.SetLabel(glyph, text, accessible, font);
+                ToolTipService.SetToolTip(_expLaunchGame, help);
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetHelpText(_expLaunchGame, help);
+            }
+            _expLaunchGame.IsEnabled = !blocked && !_restarting;
+        }
+
+        if (_expRestartGame is not null)
+            _expRestartGame.IsEnabled = _gameProcessRunning && !_restarting;
+    }
 
     /// <summary>Re-registers the global pause hotkey (MainForm.RegisterPauseHotkey :3135-3145).</summary>
     private void RegisterPauseHotkey() => _win32.RegisterPauseHotkey(_settings.PauseHotkey);
@@ -130,9 +229,12 @@ public sealed partial class ShellWindow
         else
         {
             var verb = Capitalise(status.Message);
+            // 4.4.0: a background pause is neutral, not a failure. Danger only
+            // while running, foreground, and the bridge is invisible.
             SetStatus(
                 _engine.Paused ? $"Paused - {verb}" : verb,
-                status.BridgeVisible ? ControlTheme.TextPrimary : ControlTheme.Danger);
+                status.BridgeVisible || !status.GameInForeground || !_gameProcessRunning
+                    ? ControlTheme.TextPrimary : ControlTheme.Danger);
         }
 
         PumpToggleSync();
@@ -181,9 +283,19 @@ public sealed partial class ShellWindow
         if (!_uiReady || _engine is null) return;
         var status = _status;
         var running = _engine.IsRunning;
+        var processPresent = _gameProcessRunning;
+        // 4.4.0: the foreground pause is a normal state, not a failure. The
+        // filter is computed ONCE here, before the classic/Exp fork, and the
+        // last-status trackers still advance below (A → transient → A must not
+        // re-log A). The "Paused - " prefix is a RefreshStatus decoration, so
+        // strip it before classifying the underlying engine message.
+        var background = running && processPresent && !status.GameInForeground;
+        var transient = CaptureDiagnostics.IsTransientStatusLine(_statusMessage);
 
         var (stateText, stateColor) = !running
             ? ("Stopped", ControlTheme.TextMuted)
+            : !processPresent ? ("Waiting for game", ControlTheme.TextMuted)
+            : background ? ("Game in background", ControlTheme.TextMuted)
             : _engine.Paused ? ("Paused", ControlTheme.Warning)
             : status.BridgeVisible ? ("Running", ControlTheme.Success)
             : ("No bridge / window", ControlTheme.Danger);
@@ -193,7 +305,7 @@ public sealed partial class ShellWindow
             _stateLabel.Foreground = ControlTheme.Brush(stateColor);
         }
 
-        _linkLamp.Dot = !running
+        _linkLamp.Dot = !running || background || !processPresent
             ? ControlTheme.TextMuted
             : status.BridgeVisible ? ControlTheme.Success : ControlTheme.Danger;
 
@@ -208,6 +320,19 @@ public sealed partial class ShellWindow
         var why = lastAction is { Why.Count: > 0 } ? string.Join(" \u00b7 ", lastAction.Why)
             : current is { Why.Count: > 0 } ? string.Join(" \u00b7 ", current.Why)
             : "no reasons recorded";
+        // In the background there is no live suggestion to show: say why the
+        // Now line is idle instead of leaving a stale action on screen. When
+        // the process is absent, say we are waiting for it (not "background").
+        if (background)
+        {
+            action = "idle";
+            why = CaptureDiagnostics.BackgroundMessage;
+        }
+        else if (running && !processPresent)
+        {
+            action = "idle";
+            why = $"waiting for '{_settings.ProcessName}'";
+        }
         var live = $"Now: {action} \u2014 {why}";
         if (_liveValue is not null)
         {
@@ -220,6 +345,11 @@ public sealed partial class ShellWindow
             if (_statusLine.Text != _statusMessage) _statusLine.Text = _statusMessage;
             _statusLine.Foreground = ControlTheme.Brush(ControlTheme.StatusColor(_statusMessageTone));
         }
+
+        // Classic transport keeps the same "no second instance" rule; its text
+        // never changes (Exp labels are owned by UpdateExpTransportState).
+        if (_launchGame is not null)
+            _launchGame.IsEnabled = !GameBlocked && !_restarting;
 
         // v3.5 S7: mirror the same values into the console home / Exp card.
         // Every call is value-only, so the 250 ms timer performs no layout here
@@ -237,7 +367,11 @@ public sealed partial class ShellWindow
             if (_consoleLastStatus != _statusMessage)
             {
                 _consoleLastStatus = _statusMessage;
-                _consoleHome.AppendLog(_statusMessage, ControlTheme.StatusColor(_statusMessageTone));
+                if (!transient && _consoleLastLogged != _statusMessage)
+                {
+                    _consoleLastLogged = _statusMessage;
+                    _consoleHome.AppendLog(_statusMessage, ControlTheme.StatusColor(_statusMessageTone));
+                }
             }
         }
 
@@ -247,16 +381,31 @@ public sealed partial class ShellWindow
             // Exp status card copy: a SHORT human phrase only; bridge/mask
             // jargon lives in the collapsed Details disclosure (:3089-3099).
             var (expState, expColor) = !running ? ("stopped", ToUi(ExpTheme.Secondary))
+                : background ? ("game in background", ToUi(ExpTheme.Secondary))
                 : _calibrating ? ("calibrating\u2026", ToUi(ExpTheme.Accent))
                 : _engine.Paused ? ("paused", ToUi(ExpTheme.Accent))
                 : action == "-" ? ("waiting for suggestion", ToUi(ExpTheme.Ok))
                 : (action, ToUi(ExpTheme.Ok));
             _expConsole.SetState(expState, expColor);
             _expConsole.SetNow(action, why);
-            if (_consoleLastStatus != _statusMessage)
+            if (_expLastStatus != _statusMessage)
             {
-                _consoleLastStatus = _statusMessage;
-                _expConsole.AppendLog(_statusMessage, ControlTheme.StatusColor(_statusMessageTone));
+                _expLastStatus = _statusMessage;
+                if (!transient && _expLastLogged != _statusMessage)
+                {
+                    _expLastLogged = _statusMessage;
+                    _expConsole.AppendLog(_statusMessage, ControlTheme.StatusColor(_statusMessageTone));
+                }
+            }
+
+            // 4.4.0 quiet bridge log: only the one warning the gate allows
+            // reaches the Exp log (never while the game is in the background).
+            if (_bridgeLogGate.Observe(status.BridgeVisible, running, status.GameInForeground,
+                    Environment.TickCount64))
+            {
+                _expConsole.AppendLog(
+                    $"No bridge sample decoding. {BridgeHealth.RepairHint} {BridgeHealth.CalibrateHint}",
+                    ControlTheme.Danger);
             }
         }
 
@@ -417,13 +566,14 @@ public sealed partial class ShellWindow
 
     // ----- launcher (MainForm.LaunchGame :2548-2557) -----
 
-    internal void LaunchGame()
+    internal bool LaunchGame()
     {
         ApplyToSettings();
         var path = string.IsNullOrWhiteSpace(_settings.BNetPath) ? null : _settings.BNetPath;
         var (ok, message) = Launcher(path);
         if (ok) SetStatus(message, ControlTheme.TextPrimary);
         else _ = ShowDialogAsync(AppTitle, message);
+        return ok;
     }
 
     /// <summary>Launcher seam (MainForm :3412): tests must never start the real Battle.net.</summary>
@@ -436,7 +586,68 @@ public sealed partial class ShellWindow
             _expConsole?.AppendLog(
                 "BNetPath not set - auto-detecting Battle.net (set [Launch] BNetPath in settings.ini to override).",
                 ControlTheme.TextMuted);
-        LaunchGame();
+        // Keep Open Game disabled through the Battle.net → WoW launch gap; the
+        // 1 s poll clears it the moment the process appears.
+        SetLaunchGrace(20_000);
+        UpdateExpTransportState();
+        if (LaunchGame()) return;
+        ClearLaunchGrace();
+        UpdateExpTransportState();
+    }
+
+    /// <summary>
+    /// 4.4.0 "Wayfinder" Restart Game: confirm, kill the running client (same
+    /// session only), then relaunch through the existing Battle.net path.
+    /// </summary>
+    internal async Task RestartGameAsync()
+    {
+        if (_restarting) return;
+        // Latch BEFORE the confirmation: a second click (or a queued keyboard
+        // activation) must not stack a second confirmation behind this one.
+        _restarting = true;
+        UpdateExpTransportState(); // both transport buttons disable synchronously
+        try
+        {
+            var name = _settings.ProcessName;
+            var confirmed = await ShowConfirmAsync(
+                "Restart World of Warcraft?",
+                $"The running game ('{name}') will be closed immediately and relaunched "
+                + "through Battle.net.\n\n"
+                + "Closing the client this way can lose this session's SavedVariables "
+                + "(the game may not get a chance to write them). Log back in afterwards.",
+                "Restart WoW",
+                "Cancel");
+            if (!confirmed) return;
+
+            // Invalidate any in-flight presence poll: its reading predates the
+            // kill and must not re-assert "Game Running" or clear the grace.
+            Interlocked.Increment(ref _gamePollEpoch);
+            SetStatus($"restarting game - closing {name}...", ControlTheme.Accent);
+            var (_, ok, message) = await Task.Run(() => WowWindow.KillGameProcesses(name, 10_000));
+            if (!ok && WowWindow.IsProcessRunning(name))
+            {
+                SetStatus(message, ControlTheme.Danger);
+                await ShowDialogAsync(AppTitle, message);
+                return;
+            }
+
+            // A process that vanished between the confirmation and the kill is
+            // still a valid restart: relaunch it instead of reporting an error.
+            _gameProcessRunning = false;
+            SetLaunchGrace(20_000);
+            SetStatus($"{message} - relaunching...", ControlTheme.Accent);
+            if (!LaunchGame()) ClearLaunchGrace();
+        }
+        catch (Exception ex)
+        {
+            // Never leave the shell in "restarting" with an unobserved task.
+            SetStatus($"restart failed - {ex.Message}", ControlTheme.Danger);
+        }
+        finally
+        {
+            _restarting = false;
+            UpdateExpTransportState();
+        }
     }
 
     // ----- telemetry (MainForm :2727-2832) -----
@@ -571,6 +782,17 @@ public sealed partial class ShellWindow
             {
                 (title, tone, detail) = ("Bridge health: unknown", StatusTone.Info, "");
             }
+            else if (!_gameProcessRunning)
+            {
+                // 4.4.0: no client at all is not a bridge fault; the engine is
+                // simply waiting for the configured process.
+                (title, tone, detail) = ("Bridge health: game not running", StatusTone.Info, "");
+            }
+            else if (!status.GameInForeground)
+            {
+                // 4.4.0: detection is paused, not broken. Neutral, no detail.
+                (title, tone, detail) = ("Bridge health: paused (game in background)", StatusTone.Info, "");
+            }
             else
             {
                 var sampled = ParseSampledVersion(status.Message) ?? ParseSampledVersion(status.RawSample) ?? 0;
@@ -678,12 +900,15 @@ public sealed partial class ShellWindow
         Post(() =>
         {
             _calibrating = running;
-            if (_recalibrate is not null)
+            // 4.4.0: Exp owns calibration inside the Details disclosure; the
+            // classic Recalibrate button is classic-only.
+            if (_settings.InGameConfigMode)
             {
-                if (_settings.InGameConfigMode)
-                    _recalibrate.SetLabel(running ? "\u25A0" : "\u25C9", running ? "Cancel" : "Calibrate");
-                else
-                    _recalibrate.Content = running ? "Cancel" : "Recalibrate";
+                _expConsole?.SetCalibrating(running);
+            }
+            else if (_recalibrate is not null)
+            {
+                _recalibrate.Content = running ? "Cancel" : "Recalibrate";
                 _recalibrate.IsEnabled = true;
             }
             if (_start is not null) _start.IsEnabled = !running && _engine is { IsRunning: false };
@@ -921,20 +1146,30 @@ public sealed partial class ShellWindow
         if (_engine is null) return;
         var running = _engine.IsRunning;
         var paused = running && _engine.Paused;
+        var processPresent = _gameProcessRunning;
+        // 4.4.0 hard gate: while the game is not foreground detection is
+        // paused, so the card reads "game in background" (secondary), the pill
+        // is hollow and fps is 0 — never a red failure state. When the process
+        // is absent this is "waiting for game", not "background".
+        var background = running && processPresent && !status.GameInForeground;
         var calibrating = _calibrating;
         var state = calibrating ? "Calibrating"
             : !running ? "Stopped"
+            : !processPresent ? "waiting for game"
+            : background ? "game in background"
             : paused ? "Paused"
             : "Running";
         // Sample rate = the configured poll cadence; 0 when no frames flow.
-        var fps = running && !paused && !calibrating
+        var fps = running && !paused && !calibrating && !background && processPresent
             ? (int)Math.Round(1000.0 / Math.Max(1, _settings.PollIntervalMs)) : 0;
-        var ok = running && !paused && !calibrating && status.BridgeVisible;
+        var ok = running && !paused && !calibrating && !background && processPresent && status.BridgeVisible;
         var glyph = ok ? "\u25CF" : "\u25CB"; // ● live / ○ inactive
         // v4.0.1 hierarchy: the state run carries the semantic tone; the fps
         // run stays white/45 (SetExpPill owns the separator).
         SetExpPill(glyph, state, fps, ToUi(calibrating ? ExpTheme.Accent
             : !running ? ExpTheme.Secondary
+            : !processPresent ? ExpTheme.Secondary
+            : background ? ExpTheme.Secondary
             : paused ? ExpTheme.Accent
             : status.BridgeVisible ? ExpTheme.Ok : ExpTheme.Danger));
 
@@ -950,7 +1185,11 @@ public sealed partial class ShellWindow
         }
         if (_start is not null) _start.IsEnabled = !running && !calibrating;
         if (_stop is not null) _stop.IsEnabled = running;
-        if (_recalibrate is not null) _recalibrate.IsEnabled = true;
+        // Open/Restart labels, tooltips and enabled state (4.4.0 transport).
+        UpdateExpTransportState();
+        // Calibration state lives on the Details pill in Exp mode; the classic
+        // _recalibrate button is never mounted in this shell.
+        _expConsole?.SetCalibrating(calibrating);
 
         // The mask is the single ADDON-WINS witness: it lives in the collapsed
         // Status card "Details" disclosure (bridge + mask hex + sample rate),
@@ -959,20 +1198,8 @@ public sealed partial class ShellWindow
         _expConsole?.SetDetails(
             $"bridge {(status.BridgeVisible ? "ok" : "none")} \u00B7 mask 0x{mask:X4} \u00B7 {fps} fps");
 
-        // Keep the calibration hint, but ONLY while the bridge is invisible
-        // (spec): append once per invisible transition to the single log
-        // (:1006-1018).
-        if (running && !status.BridgeVisible && !_expBridgeHintShown)
-        {
-            _expBridgeHintShown = true;
-            _expConsole?.AppendLog(
-                $"No bridge sample decoding. {BridgeHealth.RepairHint} {BridgeHealth.CalibrateHint}",
-                ControlTheme.Danger);
-        }
-        else if (status.BridgeVisible)
-        {
-            _expBridgeHintShown = false;
-        }
+        // The bridge warning moved to UpdateHero's BridgeLogGate (once per
+        // outage/run, never while the game is in the background).
     }
 
     // ----- dialogs + pickers (MainForm MessageBox / OpenFileDialog sites) -----
@@ -1014,6 +1241,41 @@ public sealed partial class ShellWindow
         {
             // A modal host that refuses to open (closing window, another modal)
             // must never take down the worker or the shell.
+        }
+        finally
+        {
+            _openDialogs--;
+            _dialogGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// 4.4.0: two-button confirmation (Restart Game). Same dialog gate as
+    /// <see cref="ShowDialogAsync"/> so the shell never opens two modals at once.
+    /// Returns true only when the primary button was chosen; any failure to
+    /// show (closing window, another modal) reads as "not confirmed".
+    /// </summary>
+    private async Task<bool> ShowConfirmAsync(string title, string message, string primary, string close)
+    {
+        if (RootGrid.XamlRoot is null) return false;
+        await _dialogGate.WaitAsync();
+        _openDialogs++;
+        try
+        {
+            var dialog = new ContentDialog
+            {
+                Title = title,
+                Content = message,
+                PrimaryButtonText = primary,
+                CloseButtonText = close,
+                DefaultButton = ContentDialogButton.Close,
+                XamlRoot = RootGrid.XamlRoot,
+            };
+            return await dialog.ShowAsync() == ContentDialogResult.Primary;
+        }
+        catch (Exception)
+        {
+            return false;
         }
         finally
         {

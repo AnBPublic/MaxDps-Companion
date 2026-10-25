@@ -11,17 +11,26 @@ namespace MaxDpsCompanion.Ui.Shell;
 /// <summary>
 /// P2-C WinUI port of the Exp (minimal) console home (old ConsoleHome.cs
 /// minimal branch :585-879): ONE status card with the short human state line,
-/// the collapsed read-only "Details" disclosure (bridge + mask + rate witness),
-/// the Now line and the single mono rolling log. No spec header, no preset
-/// strip and no update-history feed — exactly the minimal shell contract.
+/// the collapsed read-only "Details" disclosure (bridge + mask + rate witness,
+/// the Now line and the compact Calibrate action), and the single mono rolling
+/// log. No spec header, no preset strip and no update-history feed — exactly
+/// the minimal shell contract.
 /// Fed by <see cref="ShellWindow"/> from the same timer path as the classic
 /// console (MainForm.UpdateHero :3081-3109 + UpdateExpReadouts :971-1019).
+///
+/// 4.4.0 "Wayfinder": the always-visible Now row is GONE from the card; Now
+/// lives inside Details (fixed 128 DIP expanded height so a wrapping Now can
+/// never re-lay out the log), and Calibrate moved out of the transport row
+/// into the same disclosure.
 /// </summary>
 internal sealed class ExpConsoleView : UserControl
 {
-    // Old ConsoleHome Exp constants: collapsed 24 / expanded 54.
+    // Old ConsoleHome Exp constants: collapsed 24 / expanded 54. 4.4.0: the
+    // expanded height is FIXED at 140 (details + up to 2 wrapped Now lines +
+    // the 32 DIP calibrate pill + spacing), never Auto, so the timer path
+    // cannot reflow; 140 leaves headroom for the largest width tier.
     private const double DetailsCollapsed = 24;
-    private const double DetailsExpanded = 54;
+    private const double DetailsExpanded = 140;
 
     private readonly LinkLamp _lamp = new() { DotSize = 8 };
     private readonly TextBlock _stateValue = new()
@@ -40,7 +49,20 @@ internal sealed class ExpConsoleView : UserControl
         FontSize = ControlTheme.Dip(DesignTokens.BodySize - 1f),
         Foreground = ControlTheme.Brush(Exp(ExpTheme.Secondary)),
         TextWrapping = TextWrapping.Wrap,
+        TextTrimming = TextTrimming.CharacterEllipsis,
+        MaxLines = 2,
         VerticalAlignment = VerticalAlignment.Center,
+    };
+    private readonly ChamferButton _calibrate = new()
+    {
+        HorizontalAlignment = HorizontalAlignment.Left,
+        Margin = new Thickness(0, 2, 0, 0),
+    };
+    private readonly StackPanel _detailsBody = new()
+    {
+        Orientation = Orientation.Vertical,
+        Spacing = 6,
+        Visibility = Visibility.Collapsed,
     };
     private readonly RollingLogView _log = new()
     {
@@ -55,6 +77,10 @@ internal sealed class ExpConsoleView : UserControl
     private string _className = "";
     private string _specName = "";
     private bool _detailsExpanded;
+    private bool _calibrating;
+
+    /// <summary>Raised by the compact Calibrate pill inside Details.</summary>
+    public event Action? CalibrateRequested;
 
     public ExpConsoleView()
     {
@@ -65,6 +91,11 @@ internal sealed class ExpConsoleView : UserControl
         {
             FillColor = Exp(ExpTheme.Card),
             Padding = new Thickness(16, 14, 16, 14),
+            // 4.4.0: the table fills the card so the rolling log owns the space
+            // freed by moving Now/Calibrate into the Details disclosure. The
+            // RoundedCard default is Top (hero-card behaviour); the Exp console
+            // is a single full-height log surface.
+            VerticalContentAlignment = VerticalAlignment.Stretch,
         };
 
         _detailsValue = new TextBlock
@@ -73,14 +104,34 @@ internal sealed class ExpConsoleView : UserControl
             FontFamily = new MediaFontFamily("Cascadia Mono, Consolas"),
             Foreground = ControlTheme.Brush(ControlTheme.TextWhite40),
             TextTrimming = TextTrimming.CharacterEllipsis,
-            Visibility = Visibility.Collapsed,
             VerticalAlignment = VerticalAlignment.Center,
         };
+        ToolTipService.SetToolTip(_nowValue, _nowValue.Text);
         AutomationProperties.SetName(_detailsValue, "Details");
         AutomationProperties.SetName(_stateValue, "Engine state");
         AutomationProperties.SetName(_nowValue, "Current suggestion");
         AutomationProperties.SetName(_detailsToggle, "Details");
         _detailsToggle.Click += (_, _) => ToggleDetails();
+
+        // Compact disclosure action (4.4.0 brief §2): ghost fill on the Exp card
+        // surface, 32 DIP tall, accessible name from SetLabel ("◉ Calibrate").
+        _calibrate.SetLabel("\u25C9", "Calibrate");
+        // ChamferButton's own ctor owns Height/Padding/FontSize (42/label), so
+        // the compact 32 DIP disclosure size is applied AFTER construction.
+        _calibrate.Height = 32;
+        _calibrate.MinHeight = 32;
+        _calibrate.Padding = new Thickness(10, 0, 12, 0);
+        _calibrate.FontSize = ControlTheme.Dip(DesignTokens.MicroSize + 1f);
+        _calibrate.Role = ButtonRole.Ghost;
+        _calibrate.AccentColor = Exp(ExpTheme.Accent);
+        _calibrate.GhostSurface = Exp(ExpTheme.Card);
+        AutomationProperties.SetHelpText(_calibrate,
+            "Start the colour calibration pattern in game; press again to cancel");
+        _calibrate.Click += (_, _) => CalibrateRequested?.Invoke();
+
+        _detailsBody.Children.Add(_detailsValue);
+        _detailsBody.Children.Add(_nowValue);
+        _detailsBody.Children.Add(_calibrate);
 
         var table = new Grid();
         table.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // 0 eyebrow
@@ -88,10 +139,8 @@ internal sealed class ExpConsoleView : UserControl
         table.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // 2 divider
         table.RowDefinitions.Add(_detailsRow);                                    // 3 details
         table.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // 4 divider
-        table.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // 5 now
-        table.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // 6 divider
-        table.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // 7 log header
-        table.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // 8 log
+        table.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // 5 log header
+        table.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // 6 log
 
         // Eyebrow: 10px uppercase white/45, tracked (brief §3).
         var header = new TextBlock
@@ -122,18 +171,13 @@ internal sealed class ExpConsoleView : UserControl
         details.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         _detailsToggle.VerticalAlignment = VerticalAlignment.Center;
         Grid.SetRow(_detailsToggle, 0);
-        Grid.SetRow(_detailsValue, 1);
+        Grid.SetRow(_detailsBody, 1);
         details.Children.Add(_detailsToggle);
-        details.Children.Add(_detailsValue);
+        details.Children.Add(_detailsBody);
         Grid.SetRow(details, 3);
         table.Children.Add(details);
 
         AddDivider(table, 4);
-
-        Grid.SetRow(_nowValue, 5);
-        table.Children.Add(_nowValue);
-
-        AddDivider(table, 6);
 
         var logHeader = new TextBlock
         {
@@ -145,10 +189,10 @@ internal sealed class ExpConsoleView : UserControl
             VerticalAlignment = VerticalAlignment.Bottom,
             Margin = new Thickness(0, 0, 0, 4),
         };
-        Grid.SetRow(logHeader, 7);
+        Grid.SetRow(logHeader, 5);
         table.Children.Add(logHeader);
 
-        Grid.SetRow(_log, 8);
+        Grid.SetRow(_log, 6);
         table.Children.Add(_log);
 
         card.Add(table);
@@ -223,7 +267,25 @@ internal sealed class ExpConsoleView : UserControl
         var text = string.IsNullOrEmpty(action) || action == "-"
             ? "Now: idle - waiting for a MaxDps suggestion."
             : $"Now: {action} \u2014 {why}";
-        if (_nowValue.Text != text) _nowValue.Text = text;
+        if (_nowValue.Text == text) return;
+        _nowValue.Text = text;
+        // The row is capped at 2 lines; the tooltip/HelpText carry the full
+        // copy, while the stable accessible NAME stays "Current suggestion"
+        // (screen readers and the UIA contract must not see it churn).
+        ToolTipService.SetToolTip(_nowValue, text);
+        AutomationProperties.SetHelpText(_nowValue, text);
+    }
+
+    /// <summary>
+    /// 4.4.0: the details Calibrate pill doubles as Cancel while the worker
+    /// runs (label swap only; it always stays enabled so a run can be cancelled).
+    /// </summary>
+    public void SetCalibrating(bool running)
+    {
+        if (_calibrating == running) return;
+        _calibrating = running;
+        _calibrate.SetLabel(running ? "\u25A0" : "\u25C9", running ? "Cancel" : "Calibrate");
+        _calibrate.IsEnabled = true;
     }
 
     public void AppendLog(string text, WColor tone)
@@ -245,8 +307,8 @@ internal sealed class ExpConsoleView : UserControl
     {
         _detailsExpanded = !_detailsExpanded;
         _detailsToggle.Expanded = _detailsExpanded;
-        _detailsValue.Visibility = _detailsExpanded ? Visibility.Visible : Visibility.Collapsed;
-        if (_detailsExpanded) Motion.Reveal(_detailsValue);
+        _detailsBody.Visibility = _detailsExpanded ? Visibility.Visible : Visibility.Collapsed;
+        if (_detailsExpanded) Motion.Reveal(_detailsBody);
         _detailsRow.Height = new GridLength(_detailsExpanded ? DetailsExpanded : DetailsCollapsed);
     }
 

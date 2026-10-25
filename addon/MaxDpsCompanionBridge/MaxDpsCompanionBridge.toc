@@ -2,8 +2,8 @@
 ## Title: MaxDps Companion Bridge
 ## Notes: In-game-config companion bridge for MaxDps Companion. Owns its toggles (overlay-wins, SlotAllowed gate; Main is the master switch that suspends every slot without rewriting the others), a compact RICE-style insecure overlay (no profile footer), a 6-tab Settings canvas and /mcb (aliases /mdb, /mdbx). Mutually exclusive with the legacy MaxDpsBridge: if that addon is loaded this addon stays inert. No secure templates, no protected Lua. Same additive protocol v5 wire as the legacy bridge plus the Ext4 hotbar-map block (51-cell strip; version nibble stays 5).
 ## Author: AnBPublic
-## Version: 4.3.0
-## X-Codename: Namesake
+## Version: 4.4.0
+## X-Codename: Wayfinder
 ## OptionalDeps: MaxDps, GW2_UI
 ## SavedVariables: MaxDpsCompanionBridgeDB
 ## SavedVariablesPerCharacter: MaxDpsCompanionBridgeCharDB

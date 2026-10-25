@@ -702,6 +702,38 @@ ShellWindow (Ui/Shell/ShellWindow.xaml.cs; borderless OverlappedPresenter;
   pause hotkey), tray + minimize-to-tray, per-monitor DPI across monitors, a
   clean machine with only the WinAppSDK runtime, visual-parity review.
 
+### 4.4.0 transport + foreground gate
+
+- **Exp transport rows:** row 1 `Start | Pause | Stop`; row 2
+  `Open Game | Restart Game`. A 1 s `System.Threading.Timer` in
+  `ShellWindow.Engine` polls the configured process into a `volatile bool`;
+  `GameBlocked = processRunning || now < _launchGraceUntilMs` (20 s grace after
+  Open/Restart, cleared as soon as the process is observed or the launch fails)
+  drives `Open Game` disabled + `Game Running` / `Game Starting…` and gates the
+  classic `Launch Game` too. `Restart Game` confirms (SavedVariables warning),
+  kills the process tree (`WowWindow.KillGameProcesses`, bounded wait, own
+  process refused), then `LaunchGame()`.
+- **Details disclosure:** the Exp card is eyebrow/state, divider, Details,
+  divider, LOG. Details (collapsed by default; **fixed** 24 / 140 DIP so a
+  wrapping line never re-lays out the log) holds the bridge/mask/fps line, the
+  `Now:` line (2 lines + tooltip) and the compact `◉ Calibrate` button raising
+  `CalibrateRequested`; the ShellWindow routes that to `RecalibrateFull` and
+  does not mount the classic `_recalibrate` in Exp mode.
+- **Foreground gate:** Windows `RotationEngine.Tick` records
+  `_window.IsForeground` into `_gameInForeground` and, when false, reports
+  `CaptureDiagnostics.BackgroundMessage` with telemetry off and returns before
+  `TryGetClientOrigin` (no sampling/decoding, no recovery on return).
+  `_lastVisible` keeps the last-known `BridgeVisible` through a pause; the UI
+  reads foreground only from the `EngineStatus` snapshot
+  (`GameInForeground`, default `true` in Core, so the Mac host is unchanged).
+- **Log gate:** `Ui/Shell/BridgeLogGate.cs` is a pure, clock-injected state
+  machine (`Observe(visible, running, foreground, nowMs)`): not running resets,
+  background never warns, visible re-arms, and invisible+foreground returns
+  true once per outage after ~5 s (measured from engine start if the bridge
+  was never seen). `CaptureDiagnostics.IsTransientStatus` drops no-pixel-block /
+  occluded / minimized / re-attach statuses from the Exp and classic logs while
+  still updating the last-status tracker.
+
 ## companion-rs (Rust port, side-by-side) — 2026-10-10
 
 `companion-rs/` is a Cargo workspace that ports the C# companion
@@ -1084,6 +1116,7 @@ MaxDps-Companion/
                              TrayIcon, UiCliRunner (--ui-smoke-test/--ui-snapshot*/
                              --bench-ui), ShellValidation, OverlayShell,
                              RollingLogView, ConsoleHomeView, ExpConsoleView,
+                             BridgeLogGate (4.4.0 bridge-warning gate),
                              Advanced{Configuration,Diagnostics,Intelligence}View,
                              Abilities/{AbilityListView, AbilityRowView,
                              AbilityRowsPrecompute (old ClassBrowserPrecompute),
@@ -1117,7 +1150,8 @@ MaxDps-Companion/
       BridgeHealth.cs        v3.3.0 stale-addon / protocol-skew advisor
                              (4.0.0: consumed by the ShellWindow.Engine notices
                              and InstallDoctor; RepairHint/CalibrateHint also
-                             drive the Exp console warnings)
+                             drive the Exp console warnings, gated since 4.4.0
+                             by Ui/Shell/BridgeLogGate.cs)
     Decision/                legacy decision layer (v1.4.0, opt-in)
     Telemetry/               local rotation telemetry + replay (opt-in)
       CastAudit.cs           v3.3.0 suggested-vs-cast audit over recorded

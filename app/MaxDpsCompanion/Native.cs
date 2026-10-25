@@ -289,8 +289,8 @@ internal static class Native
     /// <summary>
     /// Release codename, SINGLE-SOURCED from csproj &lt;Codename&gt; via the
     /// AssemblyMetadata attribute (see the csproj). Falls back to the shipped
-    /// "Namesake" if the attribute is somehow absent (e.g. an old exe built
-    /// before the wiring), so the title can never render a bare "v4.3.0 ".
+    /// "Wayfinder" if the attribute is somehow absent (e.g. an old exe built
+    /// before the wiring), so the title can never render a bare "v4.4.0 ".
     /// </summary>
     internal static string Codename
     {
@@ -304,10 +304,10 @@ internal static class Native
         }
     }
 
-    private const string CodenameFallback = "Namesake";
+    private const string CodenameFallback = "Wayfinder";
 
     /// <summary>
-    /// Full display form used by the title bar: "v4.2.0 Nightblade" (the "v"
+    /// Full display form used by the title bar: "v4.4.0 Wayfinder" (the "v"
     /// prefix plus the single-sourced version and codename). Never contains a
     /// build hash/time — those live in the Advanced Diagnostics install doctor.
     /// </summary>

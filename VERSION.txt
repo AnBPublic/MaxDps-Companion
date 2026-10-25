@@ -1,3 +1,27 @@
+4.4.0
+Date: 2026-10-25 - "Wayfinder"
+Companion 4.4.0 "Wayfinder" / bridge 4.4.0. Transport rework, NO wire change:
+protocol v5 + Ext2/Ext3/Ext4, 51 cells, every cell byte-identical.
+- Exp transport rows: row 1 stays Start | Pause | Stop; row 2 is now
+  Open Game | Restart Game. Open Game is disabled and reads "Game Running"
+  while the configured WoW process exists, and "Game Starting…" during the
+  launch gap; Restart Game confirms, kills the running process and relaunches
+  it through the configured Battle.net launcher.
+- Calibrate and the "Now: <action> — <why>" line move into the collapsed
+  Details disclosure (details height is fixed at 140 DIP when expanded, so a
+  wrapping Now line can never re-lay out the log).
+- Screen detection runs only while the game window is the foreground window:
+  alt-tab pauses sampling/decoding. This is a hard gate, independent of
+  [Window] AllowBackgroundKeys (which still only describes key delivery). The
+  state reads "game in background" in a neutral tone and detection resumes
+  silently when the game comes back to the foreground.
+- Bridge log gate: once the bridge has been seen, transient capture gaps are
+  silent; a never-established bridge (or a 5 s+ outage) warns at most once per
+  run/outage instead of printing no-pixel-block / occluded / minimized lines
+  on alt-tab.
+- Addon is identity-only: TOC / VERSION.txt / MDCB.VERSION / MDCB.CODENAME
+  4.4.0 "Wayfinder" - no Lua logic, Catalog or cell change.
+
 4.3.0
 Date: 2026-10-18 - "Namesake"
 Companion 4.3.0 "Namesake" / bridge 4.3.0. Naming release, NO wire change:
