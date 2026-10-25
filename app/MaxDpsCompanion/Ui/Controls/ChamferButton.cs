@@ -182,10 +182,24 @@ public sealed class ChamferButton : Button
         AutomationProperties.SetName(this, announced is null ? text : $"{announced} {text}");
     }
 
-    /// <summary>Width-tier type step (D5); the owning row owns the height.</summary>
+    /// <summary>
+    /// Width-tier type step (D5). 4.5.1: the pill height follows the tier too
+    /// (42 -> 52 DIP) so the transport band grows with a wide window instead of
+    /// staying a fixed strip; the corner radii re-derive from the new height.
+    /// Buttons with a deliberate compact size (Exp Calibrate) are not scaled.
+    /// </summary>
     public void ApplyScale(UiScale scale)
     {
         FontSize = ControlTheme.Dip(Math.Max(8f, scale.BaseFont - 0.5f));
+        var height = Math.Max(42, scale.ButtonHeight);
+        if (Math.Abs(Height - height) > 0.5)
+        {
+            Height = height;
+            MinHeight = height;
+            var pad = 14 + Math.Max(0, (height - 42) * 0.45);
+            Padding = new Thickness(pad, 0, pad, 0);
+            UpdateCornerRadii();
+        }
         RefreshVisual();
     }
 

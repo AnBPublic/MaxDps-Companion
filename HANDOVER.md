@@ -7,9 +7,9 @@ by release name or date before re-investigating an old problem.
 
 ## CLIENT STATUS (current)
 
-- **Current (Windows):** `4.5.0 "Voidlight"` - `app/MaxDpsCompanion/` (WinUI 3
+- **Current (Windows):** `4.5.1 "Voidlight"` - `app/MaxDpsCompanion/` (WinUI 3
   Windows client) + `app/MaxDpsCompanion.Core/` (shared brain) +
-  `addon/MaxDpsCompanionBridge/` + `dist/`. **C# is the long-term base**
+  `addon/MaxDpsCompanionBridge/` (4.5.0) + `dist/`. **C# is the long-term base**
   (decision 2026-10-17).
 - **macOS:** the last published Mac build is `4.4.0 "Wayfinder"` (Apple
   Silicon, ad-hoc signed, not notarized); the Mac client is NOT ported to the
@@ -25,6 +25,51 @@ by release name or date before re-investigating an old problem.
   Deploy: `pwsh tools/publish.ps1` + `pwsh tools/install-addon.ps1` (both only on the user's go-ahead).
 - Wire: protocol v5 + Ext2/Ext3/Ext4 (51 cells), unchanged since 4.0.3. Any wire change is an
   architect-trigger task (`AGENTS.md`).
+
+## 2026-10-25 RELEASE 4.5.1 "VOIDLIGHT" (live resize, wrapped log lines, readable changelog; NO wire change)
+
+Follow-up to 4.5.0. Spec: `docs/plans/2026-10-25-responsive-4.5.1.md`.
+Branch `release/v4.5.1-responsive`. Identity: csproj 4.5.1 (codename stays
+Voidlight), `ReleaseIdentityTests`, `ReleaseNotes`. **Addon unchanged at 4.5.0**
+and no wire change (v5 + Ext2/3/4, 51 cells).
+
+DONE
+- **Live resize:** `ExpConsoleView` re-clamps the open Details disclosure on
+  `SizeChanged` (`ExpandedHeight()` = card inner - 164 DIP reserve, capped at
+  `DetailsWanted` 252). The disclosure body is the only scroller; a slim
+  amethyst thumb tracks extent/viewport and hides when everything fits, because
+  WinUI's own scrollbar is hover-only.
+- **Log wrapping:** `RollingLogView` renders a stamped entry as a two-column
+  grid (fixed `HH:mm:ss` column, wrapping body) so long lines are never
+  ellipsized and continuation lines align under the message. Empty state wraps.
+  Classic console logs are height-capped (220/180 DIP).
+- **Responsive classic shell:** new `ResponsiveColumns` panel; `ToggleRowPanel`
+  stacks below 500 DIP and the console body switches to two equal star rows
+  below 560 DIP (scrolls when the stacked cards need more height).
+- **Tier chrome:** `ChamferButton.ApplyScale` now follows the tier height
+  (42 -> 52 DIP) and padding, not just the type step.
+- **Changelog copy:** `EarlierSummary` caps at four releases + ellipsis so the
+  line stays on one row at the default width.
+- Docs: CHANGELOG, VERSION.txt, README, UI.md responsive rules, TESTING §3r
+  (and §3q item 6 updated), plan doc.
+
+VERIFY (this machine, 2026-10-25)
+- `dotnet build app/MaxDpsCompanion/MaxDpsCompanion.csproj -c Release`: 0 warnings / 0 errors.
+- `dotnet test -c Release`: 1096 passed / 0 failed (ReleaseIdentity now 4.5.1).
+- `lua tests/secret_harness.lua`: 409 passed / 0 failed.
+- `luac -p` addon root + `InGame/`: 15 files, 0 failed.
+- `pwsh tools/ability_audit.ps1`: exit 0, violations 0 / warnings 0 / missing 0 / stale 0.
+- `--ui-smoke-test` / `--ui-smoke-test --exp`: PASS, title
+  `MaxDPS Companion v4.5.1 Voidlight`.
+- Snapshots: classic at 660 DIP (two cards) and 520 DIP (stacked, body scrolls),
+  Exp at 520/660 DIP; long log lines wrap with a hanging indent.
+- Live resize capture (dev build): 650x700 -> 825x1150 with Details open; the
+  disclosure re-clamped each time, the thumb appeared only while cramped, and
+  the full changelog was visible at 825x1150 with no thumb.
+
+OWED (live retail 12.1) - `docs/TESTING.md` §3r (resize with Details open,
+scroll affordance, log wrapping at 100/150 %, narrow stacking, tier chrome)
+plus §3p/§3q carried items.
 
 ## 2026-10-25 RELEASE 4.5.0 "VOIDLIGHT" (Midnight palette, gradient chrome, no title-bar band; NO wire change)
 

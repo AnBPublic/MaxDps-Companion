@@ -1,5 +1,21 @@
-4.5.0
+4.5.1
 Date: 2026-10-25 - "Voidlight"
+Companion 4.5.1 "Voidlight" / bridge 4.5.0 (unchanged). UI-only follow-up, NO
+wire change and NO addon change: protocol v5 + Ext2/Ext3/Ext4, 51 cells, every
+cell byte-identical.
+- Live resize: the Exp Details disclosure re-clamps while the window is
+  resized; the disclosure scrollbar is forced visible exactly while the content
+  cannot fit.
+- Log lines wrap: RollingLogView draws a stamped entry as a fixed HH:mm:ss
+  column plus a wrapping body, so long status/spec/bridge lines are readable at
+  any width with continuation lines aligned under the message.
+- Changelog wraps and scrolls inside the Details body; no text is cut.
+- Responsive classic layout: two-up toggle rows stack below 500 DIP, the
+  console's status/update cards stack below 560 DIP, and the console body
+  scrolls when the stacked cards need more height.
+- Transport buttons and type follow the width tier (height 42 -> 52 DIP).
+
+4.5.0
 Companion 4.5.0 "Voidlight" / bridge 4.5.0. UI-only release, NO wire change:
 protocol v5 + Ext2/Ext3/Ext4, 51 cells, every cell byte-identical. Addon bump
 is identity-only (TOC / VERSION.txt / MDCB.VERSION / MDCB.CODENAME).

@@ -136,19 +136,16 @@ public sealed class SettingRow : UserControl
 
 /// <summary>
 /// One "Rotation"/"Automation" row: two <see cref="SettingRow"/>s side by side
-/// (old UiControls.cs ToggleRowPanel :648-681). In WinUI the rows are measured
-/// by the grid, so no fixed row height can clip the wrapped subtitles.
+/// (old UiControls.cs ToggleRowPanel :648-681). 4.5.1: below
+/// <see cref="ResponsiveColumns.StackWidth"/> the pair stacks into one column so
+/// a narrow window never squeezes the row copy.
 /// </summary>
 public sealed class ToggleRowPanel : UserControl
 {
-    private readonly Grid _grid = new() { ColumnSpacing = DesignTokens.SpaceS };
+    private readonly ResponsiveColumns _grid = new() { Gap = DesignTokens.SpaceS, StackWidth = 500 };
 
     public ToggleRowPanel(SettingRow left, SettingRow right)
     {
-        _grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        _grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        Grid.SetColumn(left, 0);
-        Grid.SetColumn(right, 1);
         _grid.Children.Add(left);
         _grid.Children.Add(right);
         Content = _grid;
@@ -156,7 +153,7 @@ public sealed class ToggleRowPanel : UserControl
 
     public double Gap
     {
-        get => _grid.ColumnSpacing;
-        set => _grid.ColumnSpacing = value;
+        get => _grid.Gap;
+        set => _grid.Gap = value;
     }
 }

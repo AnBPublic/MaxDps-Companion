@@ -33,8 +33,9 @@ internal sealed class ExpConsoleView : UserControl
     // disclosure body scrolls when the clamp bites (small window), so nothing is
     // ever clipped mid-line.
     private const double DetailsCollapsed = 24;
-    private const double DetailsWanted = 244;
-    private const double LogReserve = 220;
+    private const double DetailsWanted = 252;
+    /// <summary>Rows above the disclosure (~104 DIP) plus the log's 60 DIP minimum.</summary>
+    private const double LogReserve = 164;
 
     private readonly LinkLamp _lamp = new() { DotSize = 8 };
     private readonly TextBlock _stateValue = new()
@@ -74,6 +75,18 @@ internal sealed class ExpConsoleView : UserControl
         VerticalScrollMode = ScrollMode.Auto,
         HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
         HorizontalScrollMode = ScrollMode.Disabled,
+    };
+    /// <summary>4.5.1: always-visible slim thumb for the disclosure scroller (WinUI's own bar is hover-only).</summary>
+    private readonly Border _detailsThumb = new()
+    {
+        Width = 3,
+        CornerRadius = new CornerRadius(1.5),
+        Background = ControlTheme.Brush(ControlTheme.AccentRing),
+        HorizontalAlignment = HorizontalAlignment.Right,
+        VerticalAlignment = VerticalAlignment.Top,
+        Margin = new Thickness(0, 2, 2, 0),
+        Visibility = Visibility.Collapsed,
+        IsHitTestVisible = false,
     };
     private readonly RollingLogView _log = new()
     {
@@ -184,9 +197,14 @@ internal sealed class ExpConsoleView : UserControl
         details.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         _detailsToggle.VerticalAlignment = VerticalAlignment.Center;
         Grid.SetRow(_detailsToggle, 0);
-        Grid.SetRow(_detailsScroll, 1);
+        var detailsHost = new Grid();
+        detailsHost.Children.Add(_detailsScroll);
+        detailsHost.Children.Add(_detailsThumb);
+        Grid.SetRow(detailsHost, 1);
         details.Children.Add(_detailsToggle);
-        details.Children.Add(_detailsScroll);
+        details.Children.Add(detailsHost);
+        _detailsScroll.ViewChanged += (_, _) => UpdateDetailsThumb();
+        _detailsScroll.SizeChanged += (_, _) => UpdateDetailsThumb();
         Grid.SetRow(details, 3);
         table.Children.Add(details);
 
@@ -213,6 +231,11 @@ internal sealed class ExpConsoleView : UserControl
         HorizontalContentAlignment = HorizontalAlignment.Stretch;
         VerticalContentAlignment = VerticalAlignment.Stretch;
         AutomationProperties.SetName(this, "Exp console");
+
+        // 4.5.1: the disclosure height is a function of the card height, so a
+        // live window resize (or a DPI change) must re-clamp it instead of
+        // leaving the card overflowing/clipping its own content.
+        SizeChanged += (_, _) => ResizeDetails();
     }
 
     /// <summary>1px hairline divider between card sections (white 6%, brief §1).</summary>
@@ -371,19 +394,63 @@ internal sealed class ExpConsoleView : UserControl
         _detailsToggle.Expanded = _detailsExpanded;
         _detailsBody.Visibility = _detailsExpanded ? Visibility.Visible : Visibility.Collapsed;
         if (_detailsExpanded) Motion.Reveal(_detailsBody);
-        _detailsRow.Height = new GridLength(_detailsExpanded ? ExpandedHeight() : DetailsCollapsed);
+        if (_detailsExpanded) ApplyDetailsHeight();
+        else _detailsRow.Height = new GridLength(DetailsCollapsed);
     }
 
     /// <summary>
     /// 4.5.0: the open disclosure asks for <see cref="DetailsWanted"/> but never
-    /// takes the log's reserve. Only the disclosure body scrolls when the clamp
-    /// bites, so no row is ever clipped mid-line.
+    /// takes the log's reserve. 4.5.1: the Details body scrolls when the clamp
+    /// bites, the row is re-clamped live on resize, and the scrollbar is forced
+    /// visible exactly while the body cannot show everything (so a cut-off line
+    /// always announces that more content is scrollable).
     /// </summary>
     private double ExpandedHeight()
     {
         if (ActualHeight <= 0) return DetailsWanted;
-        var max = Math.Max(DetailsCollapsed + 60, ActualHeight - LogReserve);
+        var inner = ActualHeight - 38; // 2x bezel (5) + 2x card padding (14)
+        var max = Math.Max(DetailsCollapsed + 60, inner - LogReserve);
         return Math.Min(DetailsWanted, max);
+    }
+
+    /// <summary>Re-clamps the open disclosure after a resize; no-op when collapsed.</summary>
+    private void ResizeDetails()
+    {
+        if (!_detailsExpanded) return;
+        ApplyDetailsHeight();
+    }
+
+    private void ApplyDetailsHeight()
+    {
+        var height = ExpandedHeight();
+        _detailsRow.Height = new GridLength(height);
+        var cramped = height < DetailsWanted - 0.5;
+        _detailsScroll.VerticalScrollBarVisibility = cramped
+            ? ScrollBarVisibility.Visible
+            : ScrollBarVisibility.Auto;
+        // Let the new row height settle before measuring the thumb.
+        DispatcherQueue.TryEnqueue(UpdateDetailsThumb);
+    }
+
+    /// <summary>
+    /// Slim disclosure scroll indicator: WinUI's own scrollbar is hover-only, so
+    /// a cramped Details body would look truncated with no affordance. The thumb
+    /// tracks extent/viewport and hides when everything fits.
+    /// </summary>
+    private void UpdateDetailsThumb()
+    {
+        var extent = _detailsScroll.ExtentHeight;
+        var viewport = _detailsScroll.ViewportHeight;
+        var overflow = _detailsExpanded && extent > viewport + 0.5 && viewport > 0;
+        _detailsThumb.Visibility = overflow ? Visibility.Visible : Visibility.Collapsed;
+        if (!overflow) return;
+
+        var track = Math.Max(24, _detailsScroll.ActualHeight - 4);
+        var thumb = Math.Max(18, track * (viewport / extent));
+        _detailsThumb.Height = thumb;
+        var maxOffset = extent - viewport;
+        var ratio = maxOffset > 0 ? _detailsScroll.VerticalOffset / maxOffset : 0;
+        _detailsThumb.Margin = new Thickness(0, 2 + Math.Clamp(ratio, 0, 1) * (track - thumb), 2, 0);
     }
 
     private static WColor Exp(System.Drawing.Color color) =>

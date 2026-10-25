@@ -11,8 +11,13 @@ namespace MaxDpsCompanion.Ui.Shell;
 /// <summary>
 /// P2-C WinUI port of the owner-drawn rolling log (old Ui/ConsoleHome.cs
 /// RollingLog :247-346): append-only, newest line at the bottom, capacity
-/// capped, optional leading "HH:mm:ss  " stamp drawn in its own tone, optional
-/// mono body and an empty-state line.
+/// capped, optional leading "HH:mm:ss" stamp in its own tone, optional mono
+/// body and an empty-state line.
+///
+/// 4.5.1: lines WRAP instead of being clipped with an ellipsis. A stamped line
+/// is a two-column grid (fixed stamp column, wrapping body) so continuation
+/// lines stay aligned under the message and the reader can see the whole entry
+/// at any window width.
 ///
 /// Timer-safety parity: <see cref="Append"/> is called only on state
 /// transitions (status message change, spec change, preset apply, one-shot
@@ -21,6 +26,8 @@ namespace MaxDpsCompanion.Ui.Shell;
 /// </summary>
 internal sealed class RollingLogView : UserControl
 {
+    private const double StampGap = 8;
+
     private readonly ScrollViewer _viewer = new()
     {
         HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
@@ -30,10 +37,13 @@ internal sealed class RollingLogView : UserControl
         ZoomMode = ZoomMode.Disabled,
     };
     private readonly StackPanel _lines = new() { Spacing = 1 };
-    private readonly List<TextBlock> _all = new();
+    private readonly List<LogLine> _all = new();
     private readonly TextBlock _empty;
     private double _fontSize = ControlTheme.Dip(DesignTokens.MetaSize);
     private bool _emptyVisible = true;
+
+    /// <summary>One rendered entry: the root element plus the blocks that need a font-size pass.</summary>
+    private sealed record LogLine(FrameworkElement Root, TextBlock Body, TextBlock? Stamp);
 
     public RollingLogView()
     {
@@ -41,8 +51,8 @@ internal sealed class RollingLogView : UserControl
         {
             FontSize = _fontSize,
             Foreground = ControlTheme.Brush(ControlTheme.TextMuted),
-            TextWrapping = TextWrapping.NoWrap,
-            TextTrimming = TextTrimming.CharacterEllipsis,
+            TextWrapping = TextWrapping.Wrap,
+            TextTrimming = TextTrimming.None,
         };
         _lines.Children.Add(_empty);
         _viewer.Content = _lines;
@@ -78,30 +88,60 @@ internal sealed class RollingLogView : UserControl
 
     public void Append(string text, WColor tone)
     {
-        var line = new TextBlock
+        TextBlock Body(string value, WColor color)
         {
-            FontSize = _fontSize,
-            TextWrapping = TextWrapping.NoWrap,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-        };
-        if (UseMono) line.FontFamily = new MediaFontFamily("Cascadia Mono, Consolas");
+            var block = new TextBlock
+            {
+                Text = value,
+                FontSize = _fontSize,
+                Foreground = ControlTheme.Brush(color),
+                TextWrapping = TextWrapping.Wrap,
+                TextTrimming = TextTrimming.None,
+                VerticalAlignment = VerticalAlignment.Top,
+            };
+            if (UseMono) block.FontFamily = MonoFamily();
+            return block;
+        }
+
+        FrameworkElement root;
+        TextBlock body;
+        TextBlock? stampBlock = null;
 
         if (StampTone is { } stampTone && TrySplitStamp(text, out var stamp, out var rest))
         {
-            line.Inlines.Add(new Run { Text = stamp, Foreground = ControlTheme.Brush(stampTone) });
-            line.Inlines.Add(new Run { Text = rest, Foreground = ControlTheme.Brush(tone) });
+            stampBlock = new TextBlock
+            {
+                Text = stamp,
+                FontSize = _fontSize,
+                Foreground = ControlTheme.Brush(stampTone),
+                FontFamily = MonoFamily(),
+                TextWrapping = TextWrapping.NoWrap,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, 0, StampGap, 0),
+            };
+            body = Body(rest, tone);
+
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            Grid.SetColumn(stampBlock, 0);
+            Grid.SetColumn(body, 1);
+            grid.Children.Add(stampBlock);
+            grid.Children.Add(body);
+            root = grid;
         }
         else
         {
-            line.Foreground = ControlTheme.Brush(tone);
-            line.Text = text;
+            body = Body(text, tone);
+            root = body;
         }
 
         LastLine = text;
+        var line = new LogLine(root, body, stampBlock);
         _all.Add(line);
-        _lines.Children.Add(line);
+        _lines.Children.Add(root);
         // Newest line fades in (~150 ms, opacity only) once the tree has it.
-        line.Loaded += (_, _) => Motion.Reveal(line);
+        root.Loaded += (_, _) => Motion.Reveal(root);
         while (_all.Count > Math.Max(1, Capacity))
         {
             _lines.Children.RemoveAt(1); // index 0 is the empty-state block
@@ -125,8 +165,14 @@ internal sealed class RollingLogView : UserControl
     {
         _fontSize = ControlTheme.Dip(Math.Max(8f, scale.BaseFont - 2f));
         _empty.FontSize = _fontSize;
-        foreach (var line in _all) line.FontSize = _fontSize;
+        foreach (var line in _all)
+        {
+            line.Body.FontSize = _fontSize;
+            if (line.Stamp is not null) line.Stamp.FontSize = _fontSize;
+        }
     }
+
+    private static MediaFontFamily MonoFamily() => new("Cascadia Mono, Consolas");
 
     private void RefreshEmpty()
     {
@@ -150,7 +196,7 @@ internal sealed class RollingLogView : UserControl
         }
     }
 
-    /// <summary>True when the line starts with a leading "HH:mm:ss  " stamp (old :337-345).</summary>
+    /// <summary>True when the line starts with a leading "HH:mm:ss " stamp (old :337-345).</summary>
     private static bool TrySplitStamp(string text, out string stamp, out string rest)
     {
         stamp = "";

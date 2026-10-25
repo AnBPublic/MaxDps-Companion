@@ -39,8 +39,8 @@ internal sealed class ConsoleHomeView : UserControl
     private readonly RoleBadgeView _roleBadge = new();
     private readonly TextBlock _specTitle;
     private readonly TextBlock _specSummary;
-    private readonly RollingLogView _statusLog = new();
-    private readonly RollingLogView _updateLog = new();
+    private readonly RollingLogView _statusLog = new() { MinHeight = 60, MaxHeight = 220 };
+    private readonly RollingLogView _updateLog = new() { MinHeight = 60, MaxHeight = 180 };
     private readonly TextBlock _stateValue;
     private readonly TextBlock _bridgeValue;
     private readonly TextBlock _nowValue;
@@ -338,19 +338,67 @@ internal sealed class ConsoleHomeView : UserControl
 
     private FrameworkElement BuildBody()
     {
-        var grid = new Grid { ColumnSpacing = 12, Margin = new Thickness(14, 0, 14, 12) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(58, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(42, GridUnitType.Star) });
+        // 4.5.1: two cards side by side while the console is wide, stacked into
+        // two equal-height rows below 560 DIP. A Grid (not ResponsiveColumns) so
+        // the stacked cards share the body height exactly.
+        var grid = new Grid
+        {
+            ColumnSpacing = 12,
+            RowSpacing = 12,
+            Margin = new Thickness(14, 0, 14, 12),
+        };
 
         var statusCard = new RoundedCard { Padding = new Thickness(14, 12, 14, 12), Margin = new Thickness(0, 6, 0, 0) };
         statusCard.Add(BuildStatusConsole());
         var updateCard = new RoundedCard { Padding = new Thickness(14, 12, 14, 12), Margin = new Thickness(0, 6, 0, 0) };
         updateCard.Add(BuildUpdateLog());
-        Grid.SetColumn(statusCard, 0);
-        Grid.SetColumn(updateCard, 1);
         grid.Children.Add(statusCard);
         grid.Children.Add(updateCard);
-        return grid;
+
+        var stacked = false;
+        void ApplyLayout(double width)
+        {
+            var wantStacked = width < 560;
+            if (wantStacked == stacked && grid.ColumnDefinitions.Count > 0) return;
+            stacked = wantStacked;
+            grid.ColumnDefinitions.Clear();
+            grid.RowDefinitions.Clear();
+            if (stacked)
+            {
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+                grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+                Grid.SetColumn(statusCard, 0);
+                Grid.SetColumn(updateCard, 0);
+                Grid.SetRow(statusCard, 0);
+                Grid.SetRow(updateCard, 1);
+            }
+            else
+            {
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(58, GridUnitType.Star) });
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(42, GridUnitType.Star) });
+                grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+                Grid.SetRow(statusCard, 0);
+                Grid.SetRow(updateCard, 0);
+                Grid.SetColumn(statusCard, 0);
+                Grid.SetColumn(updateCard, 1);
+            }
+        }
+
+        ApplyLayout(double.PositiveInfinity);
+        grid.SizeChanged += (_, e) => ApplyLayout(e.NewSize.Width);
+
+        // 4.5.1: the console body scrolls when the stacked cards are taller than
+        // the body (small window), so the second card can never be clipped by
+        // the window edge.
+        return new ScrollViewer
+        {
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollMode = ScrollMode.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            HorizontalScrollMode = ScrollMode.Disabled,
+            Content = grid,
+        };
     }
 
     private FrameworkElement BuildStatusConsole()

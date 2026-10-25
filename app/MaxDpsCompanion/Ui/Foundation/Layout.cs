@@ -160,6 +160,72 @@ public sealed class GridPanel : Panel
 }
 
 /// <summary>
+/// Responsive side-by-side pair (4.5.1): equal columns while the container is
+/// wide, a single stacked column below <see cref="StackWidth"/>. Used by the
+/// classic toggle rows and the console cards so a narrow window never squeezes
+/// two segments into a column that cannot hold them.
+/// </summary>
+public sealed class ResponsiveColumns : Panel
+{
+    public double Gap { get; set; } = DesignTokens.SpaceS;
+
+    /// <summary>Below this width the children stack vertically.</summary>
+    public double StackWidth { get; set; } = 620;
+
+    public bool IsStacked { get; private set; }
+
+    protected override WSize MeasureOverride(WSize availableSize)
+    {
+        var width = double.IsInfinity(availableSize.Width) ? StackWidth : availableSize.Width;
+        var stacked = width < StackWidth;
+        IsStacked = stacked;
+        var count = Math.Max(1, Children.Count);
+
+        if (stacked)
+        {
+            double height = 0;
+            foreach (var child in Children)
+            {
+                child.Measure(new WSize(width, double.PositiveInfinity));
+                height += child.DesiredSize.Height;
+            }
+            return new WSize(width, height + Gap * (Children.Count - 1));
+        }
+
+        var cell = Math.Max(10, (width - Gap * (count - 1)) / count);
+        double max = 0;
+        foreach (var child in Children)
+        {
+            child.Measure(new WSize(cell, double.PositiveInfinity));
+            max = Math.Max(max, child.DesiredSize.Height);
+        }
+        return new WSize(width, max);
+    }
+
+    protected override WSize ArrangeOverride(WSize finalSize)
+    {
+        var stacked = finalSize.Width < StackWidth;
+        var count = Math.Max(1, Children.Count);
+        var cell = Math.Max(10, (finalSize.Width - Gap * (count - 1)) / count);
+
+        if (!stacked)
+        {
+            for (var i = 0; i < Children.Count; i++)
+                Children[i].Arrange(new WRect(i * (cell + Gap), 0, cell, finalSize.Height));
+            return finalSize;
+        }
+
+        double y = 0;
+        for (var i = 0; i < Children.Count; i++)
+        {
+            var height = Children[i].DesiredSize.Height;
+            Children[i].Arrange(new WRect(0, y, finalSize.Width, height));
+            y += height + Gap;
+        }
+        return finalSize;
+    }
+}
+/// <summary>
 /// Responsive asymmetric split (old Ui/Layout.cs BentoSplit): two measured
 /// columns while wide, a single stacked column when narrow. Children go into
 /// <see cref="Left"/>, <see cref="Right"/>, <see cref="Full"/>.
