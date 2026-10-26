@@ -67,6 +67,22 @@ OWED (live retail 12.1.5) - `docs/TESTING.md` §3t: flip Main off/on in the
 overlay and watch the `[toggles]` lines and the Details summary; hold reasons
 (typing, out of combat, link lost); recovery with `/mcb t Main on`.
 
+ROLLED OUT (2026-10-26, primary checkout `A:\AI\GitHub\WoW-Companions\MaxDps-Companion`)
+- PR #12 merged to `master` (`1ffe97b`), CI green on Windows + macOS; tag
+  `v4.5.3` pushed and the GitHub release published
+  (https://github.com/AnBPublic/MaxDps-Companion/releases/tag/v4.5.3).
+- `pwsh tools/publish.ps1`: FileVersion **4.5.3.0**, `dist\VERSION.txt`
+  **4.5.3 Voidlight**, `settings.ini` hash unchanged.
+- Shipped smoke: `--ui-smoke-test` **PASS**, title
+  `MaxDPS Companion v4.5.3 Voidlight`; a fresh 4.5.3 instance runs from `dist\`.
+- Live check this session: the app was running against the 12.1.5 client and
+  holding (`Holding (addon Main off - rotation suspended)`); the toggle log and
+  the `holding - Main off in game` status are the 4.5.3 wiring, verified by
+  unit tests + smoke here. The client was closed before the final capture, so
+  the in-game `[toggles]` line flip remains OWED (§3t).
+- Addon untouched at 4.5.0. **User action:** turn Main ON in the overlay or
+  `/mcb t Main on`.
+
 ## 2026-10-25 RELEASE 4.5.2 "VOIDLIGHT" (edge/corner resizing hotfix; NO wire change)
 
 Hotfix after the 4.5.0/4.5.1 chrome work. Branch `release/v4.5.2-resize`.
