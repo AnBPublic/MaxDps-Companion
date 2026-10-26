@@ -29,6 +29,16 @@ internal static class ReleaseNotes
     public static readonly IReadOnlyList<Release> All = new[]
     {
         new Release(
+            "4.5.4", "Voidlight", "2026-10-26",
+            "Stops the in-game secret-cooldown error flood (bridge 4.5.1).",
+            new[]
+            {
+                "Bridge 4.5.1 pauses Blizzard's assisted-combat icon refresh only while cooldowns are secret, on override/vehicle buttons and on any button the client names as tainted.",
+                "This stops the thousands of ActionButton.lua:847 SetCooldown 'secret values' errors logged while the companion pressed in combat.",
+                "Clean main/multi-bar buttons, C_AssistedCombat, key delivery, the strip and the wire format are unchanged.",
+                "In game: /mcb guard reports the tainted button/addon; /mcb guard off restores the stock assisted-combat refresh.",
+            }),
+        new Release(
             "4.5.3", "Voidlight", "2026-10-26",
             "The status card and log now name the toggle state and any hold.",
             new[]

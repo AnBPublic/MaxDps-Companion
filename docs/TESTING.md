@@ -749,6 +749,34 @@ Offline (see HANDOVER/final report): build 0/0, `dotnet test`, snapshots at
 5. **Recovery command.** `/mcb t Main on` flips the master switch and the
    companion resumes without a restart.
 
+### 3u. 4.5.4 "Voidlight" secret-cooldown flood guard (bridge 4.5.1, live 12.1.5, OWED)
+
+1. **Reproduce the old condition.** In a restricted/instance fight (where
+   `C_Secrets.ShouldCooldownsBeSecret()` is true) let the companion press. The
+   game must **not** log the repeating
+   `ActionButton.lua:847 SetCooldown ... Secret values are only allowed during
+   untainted execution` error, and must not log the matching
+   `ADDON_ACTION_BLOCKED ... SetAttribute` for the assisted-combat button.
+2. **Guard line.** The in-game chat/console prints one
+   `[taint] secret cooldowns are active - guarding the assisted-combat refresh`
+   and one
+   `[taint] paused the assisted-combat icon refresh on OverrideActionBarButtonN
+   (tainted by <addon>)` (the N and addon depend on the bar setup).
+3. **Rotation unchanged.** The companion still presses the same spells at the
+   same cadence; `MaxDps.Spell` / the strip stay live, and the SBA API still
+   returns suggestions. Only the Blizzard assisted-combat icon refresh on that
+   button is paused.
+4. **Diagnostics.** `/mcb guard` prints `secret=yes`, the assisted frames it
+   found, their parent buttons, the taint source when the client reports one,
+   and the loaded bar addons. With no assisted frame present it prints
+   `no assisted-combat frames on the standard bars`.
+5. **Opt-out.** `/mcb guard off` prints `[taint] guard is OFF`, the stock
+   Single-Button Assistant refresh is no longer paused, and the error may
+   return; `/mcb guard on` re-arms it.
+6. **Clean setup.** On a character/UI with no tainted bar addon the main-bar
+   assisted frame is left alone (`paused=0` while secrets are active), so the
+   stock SBA icon still updates normally.
+
 ## 4. macOS client (live retail, OWED)
 
 Everything in this section needs a real client on a Mac. Static/offline

@@ -76,7 +76,7 @@
 
 local addonName, MDCB = ...;
 
-MDCB.VERSION = "4.5.0";
+MDCB.VERSION = "4.5.1";
 -- Release codename, shown next to the version in /mcb cfg (Status card) and
 -- the Debug tab. Single-sourced here; the TOC carries the same value in
 -- ## X-Codename so the AddOns list matches.
@@ -207,6 +207,11 @@ local Defaults = {
   -- rendered ticks (the frame heartbeat) before the weighted sequence
   -- [top, next, top, next2] advances to the following one.
   RotationDwell = 3,
+  -- 4.5.1 taint guard: pause Blizzard's assisted-combat icon refresh on
+  -- override/vehicle buttons (and on any button issecurevariable names as
+  -- tainted) while cooldowns are secret. This is the SetCooldown flood guard;
+  -- `/mcb guard off` restores the stock Single-Button Assistant refresh.
+  TaintGuard = true,
   -- v3.5 app mask (Ext3). Epoch 0 = no companion defaults; a non-zero epoch
   -- means the desktop app's 14-bit mask fills in for unset in-game toggles.
   -- OVERLAY-WINS: an explicit in-game value always beats this mask.

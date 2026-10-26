@@ -1,3 +1,18 @@
+4.5.4
+Date: 2026-10-26 - "Voidlight"
+Companion 4.5.4 "Voidlight" / bridge 4.5.1 (ADDON UPDATE). Stops the in-game
+secret-cooldown error flood; NO wire change and NO rotation change.
+- Bridge 4.5.1 adds SecretGuard: while cooldowns are secret it hides Blizzard's
+  assisted-combat frame on override/vehicle/extra buttons (and on any button
+  the client names as tainted), so its 0.15 s OnUpdate stops throwing
+  ActionButton.lua:847 SetCooldown / :521 SetAttribute. Clean main bars are
+  untouched and C_AssistedCombat still feeds MaxDps.
+- The live session logged 3,619 copies on OverrideActionBarButton2, one per
+  0.15 s tick; the same session's ADDON_ACTION_BLOCKED named GW2_UI.
+- In game: /mcb guard reports the button and taint source; /mcb guard off
+  restores the stock assisted-combat refresh.
+- Harness 415 passed (6 new guard cases). Live confirmation OWED (TESTING 3u).
+
 4.5.3
 Date: 2026-10-26 - "Voidlight"
 Companion 4.5.3 "Voidlight" / bridge 4.5.0 (unchanged). Diagnostics/visibility,
