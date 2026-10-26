@@ -20,7 +20,7 @@ namespace MaxDpsCompanion.Tests;
 public class ReleaseIdentityTests
 {
     [Fact]
-    public void Release_AppVersion_Is_4_5_3()
+    public void Release_AppVersion_Is_4_5_5()
         => Assert.Equal("4.5.5", Native.AppVersion);
 
     [Fact]

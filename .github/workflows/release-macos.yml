@@ -76,13 +76,14 @@ jobs:
       - name: Load packaging scripts + shared version metadata
         env:
           WORKFLOW_SHA: ${{ github.workflow_sha || github.sha }}
+          DISPATCH_REF: ${{ github.ref }}
           TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
           # Prefer the exact workflow commit; fall back to the dispatched ref if
           # the runner refuses a by-SHA fetch.
           git fetch origin "$WORKFLOW_SHA" --depth=1 \
-            || git fetch origin "${{ github.ref }}" --depth=1
+            || git fetch origin "$DISPATCH_REF" --depth=1
           git checkout FETCH_HEAD -- \
             tools/package-macos.sh \
             tools/install-addon-mac.sh \
@@ -115,11 +116,19 @@ jobs:
               echo "overlay codename=$overlay_codename, Windows=$win_codename" >&2; exit 1; }
             # Replace only the two identity lines in the TAG's file; comments
             # and every other build property remain exactly the tag's.
+            test "$(grep -c '<Version>' app/Version.props)" = "1" || {
+              echo "tag Version.props has no unique <Version> line" >&2; exit 1; }
+            test "$(grep -c '<Codename>' app/Version.props)" = "1" || {
+              echo "tag Version.props has no unique <Codename> line" >&2; exit 1; }
             sed -i.bak \
-              -e "s:<Version>[^<]*</Version>:<Version>$overlay_version</Version>:" \
-              -e "s:<Codename>[^<]*</Codename>:<Codename>$overlay_codename</Codename>:" \
+              -e "s:^\([[:space:]]*\)<Version>[^<]*</Version>:\1<Version>$overlay_version</Version>:" \
+              -e "s:^\([[:space:]]*\)<Codename>[^<]*</Codename>:\1<Codename>$overlay_codename</Codename>:" \
               app/Version.props
             rm -f app/Version.props.bak
+            test "$(props_version app/Version.props)" = "$want" || {
+              echo "overlay did not set Version=$want" >&2; exit 1; }
+            test "$(props_codename app/Version.props)" = "$win_codename" || {
+              echo "overlay did not set Codename=$win_codename" >&2; exit 1; }
             echo "VERSION_PROPS_SOURCE=workflow:$WORKFLOW_SHA (tag file was $tag_version)" >> "$GITHUB_ENV"
             echo "shared version metadata: $tag_version -> $overlay_version $overlay_codename (overlay $WORKFLOW_SHA)"
           fi

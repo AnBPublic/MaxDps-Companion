@@ -138,6 +138,13 @@ fi
 PACKAGING_WORKFLOW_SHA=${PACKAGING_WORKFLOW_SHA:-unknown}
 PACKAGING_RUN=${PACKAGING_RUN:-local}
 VERSION_PROPS_SOURCE=${VERSION_PROPS_SOURCE:-tag}
+if [ "$VERSION_PROPS_SOURCE" = "tag" ]; then
+    SOURCE_TREE="tag-clean"
+    PARITY="same source tag, Core brain, wire protocol and addon as Windows; OS-specific binaries are not byte-identical"
+else
+    SOURCE_TREE="tag+version-overlay"
+    PARITY="tag source + Version.props identity overlay (see version_props_source); same Core brain, wire protocol and addon as Windows; OS-specific binaries are not byte-identical"
+fi
 
 INFO="$OUT/BUILD-INFO-macos.txt"
 {
@@ -152,6 +159,7 @@ INFO="$OUT/BUILD-INFO-macos.txt"
     echo "source_commit=$HEAD_COMMIT"
     echo "source_commit_short=$COMMIT_SHORT"
     echo "version_props_source=$VERSION_PROPS_SOURCE"
+    echo "source_tree=$SOURCE_TREE"
     echo "packaging_workflow_sha=$PACKAGING_WORKFLOW_SHA"
     echo "packaging_run=$PACKAGING_RUN"
     echo "built_at=$BUILT_AT"
@@ -166,7 +174,7 @@ INFO="$OUT/BUILD-INFO-macos.txt"
     echo "addon=MaxDpsCompanionBridge $ADDON_VERSION"
     echo "wire=v5 + Ext2/Ext3/Ext4 (51 cells)"
     echo "windows_counterpart=MaxDpsCompanion.exe ${VERSION}.0 (v$VERSION $CODENAME)"
-    echo "parity=same source tag, Core brain, wire protocol and addon as Windows; OS-specific binaries are not byte-identical"
+    echo "parity=$PARITY"
 } > "$INFO"
 
 # BUILD-INFO lives inside the bundle too, so a user can identify a build after
