@@ -112,6 +112,23 @@ OWED (live retail 12.1.5) - `docs/TESTING.md` §3v: no automatic
 `[taint]`/`[toggles]` chat lines; exactly one companion-log line per toggle
 switched off; `/mcb guard` still reports on demand.
 
+ROLLED OUT (2026-10-26, primary checkout `A:\AI\GitHub\WoW-Companions\MaxDps-Companion`)
+- PR #17 merged to `master` (`ca32f78`), CI green on Windows + macOS; tag
+  `v4.5.6` pushed and the GitHub release published
+  (https://github.com/AnBPublic/MaxDps-Companion/releases/tag/v4.5.6), with the
+  `MaxDpsCompanionBridge-4.5.2.zip` addon asset.
+- `pwsh tools/publish.ps1`: FileVersion **4.5.6.0**, `dist\VERSION.txt`
+  **4.5.6 Voidlight**, `settings.ini` hash unchanged.
+- `pwsh tools/install-addon.ps1`: bridge **4.5.2** (silent SecretGuard)
+  installed to `_retail_\Interface\AddOns\MaxDpsCompanionBridge`. The WoW client
+  was running at install time, so `/reload` is required to unload the old
+  4.5.1 chat-printing guard.
+- Shipped smoke: `--ui-smoke-test` **PASS**, title
+  `MaxDPS Companion v4.5.6 Voidlight`; a fresh 4.5.6 instance runs from `dist\`
+  (PID 7932).
+- Live quiet-log check is OWED (§3v); the user needs `/reload` to load the
+  silent addon.
+
 
 
 Correction release after 4.5.4 shipped. The bridge guard stops the
