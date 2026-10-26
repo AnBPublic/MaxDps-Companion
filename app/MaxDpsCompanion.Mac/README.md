@@ -10,25 +10,30 @@ frozen legacy `addon/legacy/MaxDpsBridge` is not the target of the Mac client.
 
 ## Release build (download)
 
-The `v4.4.0 "Wayfinder"` GitHub release ships a macOS Apple Silicon build from
-the **same tag** as the Windows client (commit `7b8bbfa`):
+The `v4.5.5 "Voidlight"` GitHub release ships a macOS Apple Silicon build from
+the **same tag** as the Windows client (commit `dfb9839`):
 
 | Asset | Contents |
 | :--- | :--- |
-| `MaxDpsCompanion-4.4.0-macos-arm64.zip` | ad-hoc-signed `MaxDPS Companion.app` (arm64) |
-| `MaxDpsCompanionBridge-4.4.0-addon.zip` | the same addon the Windows build uses, plus `Install Addon.command` |
+| `MaxDpsCompanion-4.5.5-macos-arm64.zip` | ad-hoc-signed `MaxDPS Companion.app` (arm64) |
+| `MaxDpsCompanionBridge-4.5.1-macos-addon.zip` | the same bridge 4.5.1 addon the Windows build uses, plus `Install Addon.command` |
 | `BUILD-INFO-macos.txt` | version, tag, commit, architecture, signing mode |
 | `SHA256SUMS-macos.txt` | checksums for the app zip, addon zip and BUILD-INFO |
 
-Both clients are **4.4.0 "Wayfinder"**: same `app/MaxDpsCompanion.Core` brain,
-same 51-cell v5+Ext2/3/4 wire, same `MaxDpsCompanionBridge` addon. Only the OS
-host differs (WinUI 3 + `PostMessage` vs Avalonia + ScreenCaptureKit +
-`CGEventPostToPid`), so the executables are not byte-identical.
+The app is **4.5.5 "Voidlight"** and the bridge is **4.5.1** (unchanged).
+They share `app/MaxDpsCompanion.Core`, the 51-cell v5+Ext2/3/4 wire and the
+same addon. The macOS host keeps its native Avalonia shell; the Windows 4.5.x
+Midnight theme, resizing and Details/Release-notes panel are not ported.
+
+The v4.5.5 tag's shared `app/Version.props` was left at 4.4.0 while the Windows
+csproj moved to 4.5.5. The release workflow corrects only the `<Version>` and
+`<Codename>` lines for the build; `BUILD-INFO-macos.txt` records
+`version_props_source`.
 
 Install:
 
 1. Download both zips from
-   <https://github.com/AnBPublic/MaxDps-Companion/releases/tag/v4.4.0> and
+   <https://github.com/AnBPublic/MaxDps-Companion/releases/tag/v4.5.5> and
    verify `shasum -a 256 -c SHA256SUMS-macos.txt`.
 2. Unzip the app and drag `MaxDPS Companion.app` to `/Applications`.
 3. Unzip the addon package and double-click `Install Addon.command` (or run
@@ -73,6 +78,12 @@ release. A local build keeps the stable self-signed identity so TCC grants
 survive rebuilds; the downloaded release is ad-hoc signed (see above).
 `package-macos.sh` refuses to package if the bundle's `settings.ini` is not the
 tracked default (a per-machine `dist/settings.ini` must never reach a release).
+
+Manual build of tag `v4.5.5`: the tag's shared `app/Version.props` still says
+4.4.0. Build from `master` (4.5.5) or apply the same two-line
+`<Version>`/`<Codename>` correction that the release workflow performs; a plain
+`./build-mac.sh` from the tag will correctly report 4.4.0 until that file is
+updated.
 
 `build-mac.sh` compiles `native/MdcCapture.swift` into
 `libmdc_capture.dylib`, builds Core + the host, assembles the bundle and signs
@@ -241,11 +252,12 @@ Offline: Core builds 0 warnings / 0 errors; the native library builds with
 `swiftc`; the capture self-test (`native/selftest.swift`) verifies pattern
 pixels, region reconfiguration and read cost against a synthetic window.
 
-Release `4.4.0`: built from tag `v4.4.0` (same source as Windows), packaged by
+Release `4.5.5`: built from tag `v4.5.5` (same source as Windows), packaged by
 `tools/package-macos.sh`, verified as an arm64 bundle with a valid signature
-and a round-trip-unzipped executable. The published app is **ad-hoc signed and
-not notarized**; the Developer ID/notarization path is documented above and
-remains manual.
+and a round-trip-unzipped executable. The shared `app/Version.props` was
+corrected from 4.4.0 to 4.5.5 for this build (Windows binary unchanged). The
+published app is **ad-hoc signed and not notarized**; the Developer
+ID/notarization path is documented above and remains manual.
 
 **Live retail checks stay OWED until run in a real client** (see
 `docs/TESTING.md` §4): locate + decode + send in-game, focus behaviour,

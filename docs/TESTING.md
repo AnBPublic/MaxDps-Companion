@@ -815,7 +815,7 @@ APP="/Applications/MaxDPS Companion.app/Contents/MacOS/MaxDpsCompanion.Mac"
 
 ### 4.0a Release asset provenance + bundle checks (offline, no game)
 
-For the `v4.4.0` macOS release, before launching:
+For the `v4.5.5` macOS release, before launching:
 
 ```sh
 shasum -a 256 -c SHA256SUMS-macos.txt
@@ -824,11 +824,12 @@ lipo -info "/Applications/MaxDPS Companion.app/Contents/MacOS/libmdc_capture.dyl
 ```
 
 Expected: all checksums PASS; the signature verifies; `lipo` reports `arm64`.
-`BUILD-INFO-macos.txt` must read `version=4.4.0`, `codename=Wayfinder`,
-`source_tag=v4.4.0`, `source_commit=7b8bbfa...`, `arch=arm64`,
-`addon=MaxDpsCompanionBridge 4.4.0`. The app subtitle reads
-`v4.4.0 Wayfinder - Mac`. This proves the download is the tagged 4.4.0 build;
-it does **not** close any live retail item below.
+`BUILD-INFO-macos.txt` must read `version=4.5.5`, `codename=Voidlight`,
+`source_tag=v4.5.5`, `source_commit=dfb9839...`, `arch=arm64`,
+`addon=MaxDpsCompanionBridge 4.5.1`, and a `version_props_source` of either
+`tag` or `workflow:<sha> (tag file was 4.4.0)`. The app subtitle reads
+`v4.5.5 Voidlight - Mac`. This proves the download is the 4.5.5 build; it does
+**not** close any live retail item below.
 
 ### 4.0 Offline app-level capture check (no game needed)
 

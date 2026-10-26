@@ -11,6 +11,9 @@ GW2_UI compatibility hotfix packaging; NO wire change and NO rotation change.
   extra-action ActionButton_UpdateCooldown call, keeps *.maxdps-backup-4.5.4,
   checks luac, is idempotent and supports -Revert. Run it after a GW2_UI update
   and /reload. The local install was patched; live confirmation OWED (TESTING 3u).
+- macOS: Apple Silicon 4.5.5 app from tag v4.5.5 (dfb9839); bridge 4.5.1,
+  existing Avalonia shell. app/Version.props corrected 4.4.0 -> 4.5.5 during
+  the macOS build (Windows binary unchanged). Live Mac capture/send OWED.
 
 4.5.4
 Date: 2026-10-26 - "Voidlight"

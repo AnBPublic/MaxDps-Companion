@@ -1,7 +1,7 @@
 > [!IMPORTANT]
 > **Current client: 4.5.5 "Voidlight"** - the WinUI 3 Windows client
 > (`app/MaxDpsCompanion/`), the shared brain (`app/MaxDpsCompanion.Core/`) and the
-> macOS client (`app/MaxDpsCompanion.Mac/`, still `4.4.0 "Wayfinder"`), targeting
+> macOS client (`app/MaxDpsCompanion.Mac/`, `4.5.5 "Voidlight"`), targeting
 > `MaxDpsCompanionBridge` + `dist`. **C# is the long-term base.** Frozen: the
 > 3.7.9 WinForms distribution (`dist-legacy/`, `build.ps1`), the legacy bridge
 > (`addon/legacy/MaxDpsBridge/`) and the Rust port (`companion-rs/`, reference
@@ -14,25 +14,31 @@
 > [4.1.0 Paragon](docs/plans/2026-10-17-paragon-audit-remediation.md).
 
 > [!TIP]
-> **macOS Companion - `4.4.0 "Wayfinder"` (Apple Silicon, latest Mac build):** the same release,
-> version and decision brain as the Windows 4.4.0 client. Download
-> `MaxDpsCompanion-4.4.0-macos-arm64.zip` and
-> `MaxDpsCompanionBridge-4.4.0-addon.zip` from the
-> [v4.4.0 release](https://github.com/AnBPublic/MaxDps-Companion/releases/tag/v4.4.0),
+> **macOS Companion - `4.5.5 "Voidlight"` (Apple Silicon, latest Mac build):** the same
+> release and decision brain as the Windows 4.5.5 client. Download
+> `MaxDpsCompanion-4.5.5-macos-arm64.zip` and
+> `MaxDpsCompanionBridge-4.5.1-macos-addon.zip` from the
+> [v4.5.5 release](https://github.com/AnBPublic/MaxDps-Companion/releases/tag/v4.5.5),
 > drag `MaxDPS Companion.app` to `/Applications`, run `Install Addon.command`
 > from the addon package, grant **Screen Recording** + **Accessibility**, then
 > Start (or run `--probe` for a read-only report).
 >
-> Both 4.4.0 clients are built from tag **`v4.4.0`** (commit `7b8bbfa`) and share
-> [`app/MaxDpsCompanion.Core/`](app/MaxDpsCompanion.Core/), the 51-cell
-> v5+Ext2/3/4 wire and the same `MaxDpsCompanionBridge` addon. Only the OS host
-> differs: WinUI 3 + `PostMessage` on Windows, Avalonia + ScreenCaptureKit +
-> `CGEventPostToPid` on macOS. The macOS binary is therefore **not
-> byte-identical** to the Windows one, but it is the same product build
-> (version, codename, source tag, brain, wire and addon).
+> The app is **4.5.5 "Voidlight"**; the bridge stays **4.5.1** (unchanged, the
+> same addon the Windows 4.5.5 build uses). Both are built from tag **`v4.5.5`**
+> (commit `dfb9839`) and share [`app/MaxDpsCompanion.Core/`](app/MaxDpsCompanion.Core/),
+> the 51-cell v5+Ext2/3/4 wire and the same `MaxDpsCompanionBridge` addon. Only
+> the OS host differs: WinUI 3 + `PostMessage` on Windows, Avalonia +
+> ScreenCaptureKit + `CGEventPostToPid` on macOS. The macOS binary is therefore
+> **not byte-identical** to the Windows one, but it is the same product version,
+> source tag, brain, wire and addon.
 >
-> **The macOS client has not been ported to the 4.5.0 Midnight theme yet**;
-> 4.5.0 is a Windows-only UI release. A macOS 4.5.0 asset is OWED.
+> **The macOS host keeps its native Avalonia shell.** The Windows 4.5.x
+> Midnight theme, resizing and Details/Release-notes panel are not ported; the
+> shared engine, protocol and addon are current.
+>
+> The v4.5.5 tag's shared `app/Version.props` was left at 4.4.0 while the
+> Windows csproj moved to 4.5.5. The macOS release corrects only those two
+> identity lines for the build; `BUILD-INFO-macos.txt` records the overlay.
 >
 > The release app is **ad-hoc signed, not notarized**: on first launch use
 > **System Settings -> Privacy & Security -> Open Anyway** (or
@@ -824,10 +830,10 @@ ring, nothing on disk until you export, no network, no Blizzard values.
 
 ```powershell
 .\tools\install-addon.ps1      # CURRENT: copy MaxDpsCompanionBridge into Interface\AddOns (never touches legacy addons)
-.\tools\publish.ps1            # CURRENT: WinUI 3 4.4.0 "Wayfinder" -> dist\MaxDpsCompanion.exe
+.\tools\publish.ps1            # CURRENT: WinUI 3 4.5.5 "Voidlight" -> dist\MaxDpsCompanion.exe
                                 #   (unpackaged, framework-dependent; keeps settings.ini + the Rust
                                 #    mdc-*.exe untouched; asserts MaxDpsCompanion.exe +
-                                #    MaxDpsCompanion.pri; writes VERSION.txt = 4.4.0 Wayfinder)
+                                #    MaxDpsCompanion.pri; writes VERSION.txt = 4.5.5 Voidlight)
 .\build.ps1                     # LEGACY: publishes the frozen 3.7.9 WinForms client to dist-legacy\
 ```
 

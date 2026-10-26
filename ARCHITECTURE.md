@@ -888,27 +888,37 @@ Invariants: no screen-wide capture; no per-tick capture call; window-relative
 coordinates only; per-process key delivery for keyboard; the checksum is the
 only oracle that may accept a repaired frame.
 
-### macOS release packaging (v4.4.0)
+### macOS release packaging (v4.5.5)
 
-`v4.4.0` publishes an Apple Silicon build from the same tag as Windows:
+`v4.5.5` publishes an Apple Silicon build from the same tag as Windows:
 
 - `.github/workflows/release-macos.yml` (`workflow_dispatch`): checks out
-  `refs/tags/<tag>`, asserts `HEAD == tag^{commit}` and `Version.props` == the
-  tag version, loads `tools/package-macos.sh` / `tools/install-addon-mac.sh` /
-  `tools/mac-signing.sh` from the workflow commit, builds on `macos-15`
+  `refs/tags/<tag>`, asserts `HEAD == tag^{commit}`, loads
+  `tools/package-macos.sh` / `tools/install-addon-mac.sh` /
+  `tools/mac-signing.sh` from the dispatch commit, and builds on `macos-15`
   (arm64) with `SELFTEST=0`, ad-hoc signs (`MAC_SIGN_MODE=adhoc`), packages,
   and optionally uploads to the existing release.
-- `tools/package-macos.sh`: one `.app` zip + one addon zip +
-  `BUILD-INFO-macos.txt` + `SHA256SUMS-macos.txt`; refuses a
-  tag/version/HEAD mismatch; extracts and re-verifies the shipped zip's
-  signature and executable bit before reporting success.
+- **Shared version correction:** the 4.5.5 tag's `app/Version.props` (Core/Mac
+  only) was stale at 4.4.0 while the Windows csproj was 4.5.5. When a tag's
+  shared version disagrees with the tag name, the workflow replaces ONLY the
+  `<Version>`/`<Codename>` lines with the dispatch commit's values, after
+  requiring them to match the tag and the Windows csproj. App/Core/addon
+  source stays the tag; `version_props_source` in BUILD-INFO records the
+  overlay.
+- `tools/package-macos.sh`: one `.app` zip +
+  `MaxDpsCompanionBridge-<addon>-macos-addon.zip` + `BUILD-INFO-macos.txt` +
+  `SHA256SUMS-macos.txt`; refuses a tag/version/HEAD mismatch; extracts and
+  re-verifies the shipped zip's signature and executable bit before reporting
+  success. The addon version is independent of the app version (4.5.5 ships
+  bridge 4.5.1).
 - `tools/install-addon-mac.sh`: installs the same `MaxDpsCompanionBridge`
-  4.4.0 into `_retail_/Interface/AddOns`; no other addon is touched.
+  4.5.1 into `_retail_/Interface/AddOns`; no other addon is touched.
 
 The Windows and macOS binaries are OS-specific and not byte-identical, but
 they are built from the same tag, share `MaxDpsCompanion.Core`, the 51-cell
-v5+Ext2/3/4 wire and the same addon. Notarization remains a manual Developer
-ID step (`app/MaxDpsCompanion.Mac/README.md`).
+v5+Ext2/3/4 wire and the same addon. The macOS host keeps its Avalonia shell
+(the Windows 4.5.x Midnight UI is not ported). Notarization remains a manual
+Developer ID step (`app/MaxDpsCompanion.Mac/README.md`).
 
 ## File map
 

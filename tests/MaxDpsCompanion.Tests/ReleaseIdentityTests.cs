@@ -1,5 +1,6 @@
 extern alias win;
 
+using System.Xml.Linq;
 using win::MaxDpsCompanion.Ui.Shell;
 using Xunit;
 
@@ -35,5 +36,44 @@ public class ReleaseIdentityTests
         Assert.Equal("MaxDPS Companion v4.5.5 Voidlight", title);
         Assert.DoesNotContain("(", title);
         Assert.DoesNotContain("[", title);
+    }
+
+    /// <summary>
+    /// 4.5.5 guard: app/Version.props is the Core/Mac version (the Windows
+    /// csproj keeps its own copy). The two drifted at the 4.5.0-4.5.5 cuts -
+    /// the macOS build still reported 4.4.0 - so this test makes the next
+    /// release fail unless both identity files move together.
+    /// </summary>
+    [Fact]
+    public void SharedVersionProps_MatchWindowsIdentity_AndCurrentRelease()
+    {
+        var (version, codename) = ReadSharedVersionProps();
+        Assert.Equal(Native.AppVersion, version);
+        Assert.Equal(Native.Codename, codename);
+        Assert.Equal(ReleaseNotes.Current.Version, version);
+        Assert.Equal(ReleaseNotes.Current.Codename, codename);
+    }
+
+    /// <summary>Walks up from the test output directory to the checkout root.</summary>
+    private static (string Version, string Codename) ReadSharedVersionProps()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null)
+        {
+            var candidate = Path.Combine(dir.FullName, "app", "Version.props");
+            if (File.Exists(candidate))
+            {
+                var propertyGroup = XDocument.Load(candidate).Root?.Element("PropertyGroup");
+                var version = propertyGroup?.Element("Version")?.Value.Trim();
+                var codename = propertyGroup?.Element("Codename")?.Value.Trim();
+                Assert.False(string.IsNullOrWhiteSpace(version), $"{candidate} has no <Version>");
+                Assert.False(string.IsNullOrWhiteSpace(codename), $"{candidate} has no <Codename>");
+                return (version!, codename!);
+            }
+            dir = dir.Parent;
+        }
+
+        throw new FileNotFoundException(
+            "app/Version.props not found above " + AppContext.BaseDirectory);
     }
 }

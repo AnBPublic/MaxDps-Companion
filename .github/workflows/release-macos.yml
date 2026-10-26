@@ -2,10 +2,13 @@
 # to that tag's GitHub release.
 #
 # Why a tag checkout: the macOS client must be the SAME version as the Windows
-# client, from the SAME source (v4.4.0 -> 7b8bbfa). The workflow file and the
-# packaging scripts come from the branch that dispatched the run; the app,
-# Core, addon and version file come from the tag. package-macos.sh refuses to
-# run if HEAD is not the tag commit or if Version.props does not match the tag.
+# client, from the SAME source (v4.5.5 -> dfb9839). The workflow file and the
+# packaging scripts come from the commit that dispatched the run; the app,
+# Core and addon come from the tag. app/Version.props normally comes from the
+# tag. If the tag's shared file is stale (the 4.5.5 tag still said 4.4.0), the
+# workflow takes ONLY the <Version>/<Codename> values from the dispatch commit,
+# requires them to match the tag and the Windows csproj, and records the
+# correction in BUILD-INFO. package-macos.sh still refuses HEAD != tag.
 #
 # Signing: CI uses MAC_SIGN_MODE=adhoc. arm64 requires at least an ad-hoc
 # signature; a Developer ID + notarization is a manual step that needs Apple
@@ -20,9 +23,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing release tag to build (e.g. v4.4.0)'
+        description: 'Existing release tag to build (e.g. v4.5.5)'
         required: true
-        default: 'v4.4.0'
+        default: 'v4.5.5'
         type: string
       publish:
         description: 'Upload the assets to that GitHub release (otherwise artifacts only)'
@@ -63,11 +66,17 @@ jobs:
           set -euo pipefail
           test "$(uname -m)" = "arm64" || { echo "expected arm64, got $(uname -m)"; exit 1; }
 
-      # The tag predates this workflow, so the packaging scripts must come from
-      # the current workflow commit. No app/source file is taken from the branch.
-      - name: Load current packaging scripts (app source stays the tag)
+      # The workflow and packaging scripts come from the dispatch commit, so a
+      # tag does not need to carry them. App/Core/addon stay the tag.
+      #
+      # v4.5.5 correction: the tag's app/Version.props (Core/Mac only) was left
+      # at 4.4.0. When the tag's shared version disagrees with the tag name,
+      # take ONLY <Version>/<Codename> from the dispatch commit's file, require
+      # them to match the tag and the Windows csproj, and record the overlay.
+      - name: Load packaging scripts + shared version metadata
         env:
           WORKFLOW_SHA: ${{ github.workflow_sha || github.sha }}
+          TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
           # Prefer the exact workflow commit; fall back to the dispatched ref if
@@ -78,9 +87,42 @@ jobs:
             tools/package-macos.sh \
             tools/install-addon-mac.sh \
             tools/mac-signing.sh
+
           # Shell entrypoints are tracked without the exec bit on Windows
           # checkouts; set it explicitly on the macOS runner.
           chmod +x build-mac.sh tools/package-macos.sh tools/install-addon-mac.sh tools/mac-signing.sh
+
+          props_version() {
+            sed -n 's:.*<Version>\([^<]*\)</Version>.*:\1:p' "$1" | head -1 | tr -d '[:space:]'
+          }
+          props_codename() {
+            sed -n 's:.*<Codename>\([^<]*\)</Codename>.*:\1:p' "$1" | head -1 | tr -d '[:space:]'
+          }
+
+          want="${TAG#v}"
+          tag_version=$(props_version app/Version.props)
+          if [ "$tag_version" = "$want" ]; then
+            echo "VERSION_PROPS_SOURCE=tag" >> "$GITHUB_ENV"
+            echo "shared version metadata: tag file $tag_version"
+          else
+            corrected=$(git show FETCH_HEAD:app/Version.props)
+            overlay_version=$(printf '%s\n' "$corrected" | sed -n 's:.*<Version>\([^<]*\)</Version>.*:\1:p' | head -1 | tr -d '[:space:]')
+            overlay_codename=$(printf '%s\n' "$corrected" | sed -n 's:.*<Codename>\([^<]*\)</Codename>.*:\1:p' | head -1 | tr -d '[:space:]')
+            win_codename=$(props_codename app/MaxDpsCompanion/MaxDpsCompanion.csproj)
+            test "$overlay_version" = "$want" || {
+              echo "dispatch Version.props=$overlay_version, tag=$want" >&2; exit 1; }
+            test "$overlay_codename" = "$win_codename" || {
+              echo "overlay codename=$overlay_codename, Windows=$win_codename" >&2; exit 1; }
+            # Replace only the two identity lines in the TAG's file; comments
+            # and every other build property remain exactly the tag's.
+            sed -i.bak \
+              -e "s:<Version>[^<]*</Version>:<Version>$overlay_version</Version>:" \
+              -e "s:<Codename>[^<]*</Codename>:<Codename>$overlay_codename</Codename>:" \
+              app/Version.props
+            rm -f app/Version.props.bak
+            echo "VERSION_PROPS_SOURCE=workflow:$WORKFLOW_SHA (tag file was $tag_version)" >> "$GITHUB_ENV"
+            echo "shared version metadata: $tag_version -> $overlay_version $overlay_codename (overlay $WORKFLOW_SHA)"
+          fi
           git status --short
 
       - name: Set up .NET 8
@@ -112,16 +154,21 @@ jobs:
           swiftc --version
           dotnet --info
 
-      - name: Verify version == tag and tag commit
+      - name: Verify shared version == tag == Windows, and tag commit
         env:
           TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
           version=$(sed -n 's:.*<Version>\([^<]*\)</Version>.*:\1:p' app/Version.props | head -1 | tr -d '[:space:]')
+          codename=$(sed -n 's:.*<Codename>\([^<]*\)</Codename>.*:\1:p' app/Version.props | head -1 | tr -d '[:space:]')
+          win_version=$(sed -n 's:.*<Version>\([^<]*\)</Version>.*:\1:p' app/MaxDpsCompanion/MaxDpsCompanion.csproj | head -1 | tr -d '[:space:]')
+          win_codename=$(sed -n 's:.*<Codename>\([^<]*\)</Codename>.*:\1:p' app/MaxDpsCompanion/MaxDpsCompanion.csproj | head -1 | tr -d '[:space:]')
           test -n "$version"
           test "${TAG#v}" = "$version"
+          test "$version" = "$win_version"
+          test "$codename" = "$win_codename"
           test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/$TAG^{commit}")"
-          echo "version=$version tag=$TAG commit=$(git rev-parse HEAD)"
+          echo "version=$version codename=$codename tag=$TAG commit=$(git rev-parse HEAD)"
 
       # dist/settings.ini is a gitignored per-machine file. A fresh checkout
       # only has the tracked root defaults, and build-mac.sh copies
@@ -176,7 +223,7 @@ jobs:
           gh release view "$TAG" >/dev/null
           gh release upload "$TAG" \
             dist-mac/release/MaxDpsCompanion-*.zip \
-            dist-mac/release/MaxDpsCompanionBridge-*.zip \
+            dist-mac/release/MaxDpsCompanionBridge-*-macos-addon.zip \
             dist-mac/release/BUILD-INFO-macos.txt \
             dist-mac/release/SHA256SUMS-macos.txt \
             --clobber

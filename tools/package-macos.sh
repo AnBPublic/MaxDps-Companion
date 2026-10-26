@@ -8,18 +8,20 @@
 # release asset can never be silently broken by packaging.
 #
 # Usage:
-#   ./tools/package-macos.sh --tag v4.4.0 --out dist-mac/release
-#   ./tools/package-macos.sh --tag v4.4.0 --out dist-mac/release --no-build
-#   MAC_SIGN_MODE=adhoc ./tools/package-macos.sh --tag v4.4.0 --no-build
+#   ./tools/package-macos.sh --tag v4.5.5 --out dist-mac/release
+#   ./tools/package-macos.sh --tag v4.5.5 --out dist-mac/release --no-build
+#   MAC_SIGN_MODE=adhoc ./tools/package-macos.sh --tag v4.5.5 --no-build
 #
 # Output:
-#   MaxDpsCompanion-<version>-macos-<arch>.zip   the signed .app bundle
-#   MaxDpsCompanionBridge-<version>-addon.zip   the matching addon + installer
-#   BUILD-INFO-macos.txt                        provenance / parity metadata
-#   SHA256SUMS-macos.txt                        checksums for the three files
+#   MaxDpsCompanion-<version>-macos-<arch>.zip          the signed .app bundle
+#   MaxDpsCompanionBridge-<addon>-macos-addon.zip       addon + installer
+#   BUILD-INFO-macos.txt                                provenance / parity
+#   SHA256SUMS-macos.txt                                checksums
 #
-# The Windows build is NOT produced here. It is the same product version and
-# the same source tag, built by the Windows toolchain.
+# The app version and the addon version are independent: an unchanged bridge
+# keeps its own version (4.5.5 ships bridge 4.5.1). The Windows build is NOT
+# produced here; it is the same product version and source tag, built by the
+# Windows toolchain.
 set -eu
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -29,7 +31,7 @@ APP=""
 DO_BUILD=1
 
 usage() {
-    sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 while [ $# -gt 0 ]; do
@@ -76,7 +78,11 @@ ADDON_SRC="$ROOT/addon/MaxDpsCompanionBridge"
 ADDON_TOC="$ADDON_SRC/MaxDpsCompanionBridge.toc"
 [ -f "$ADDON_TOC" ] || fail "addon TOC missing: $ADDON_TOC"
 ADDON_VERSION=$(sed -n 's/^## Version:[[:space:]]*//p' "$ADDON_TOC" | head -1 | tr -d '[:space:]')
-[ "$ADDON_VERSION" = "$VERSION" ] || fail "addon TOC version '$ADDON_VERSION' != product version '$VERSION'"
+[ -n "$ADDON_VERSION" ] || fail "cannot read the addon version from $ADDON_TOC"
+printf '%s\n' "$ADDON_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
+    || fail "addon TOC version '$ADDON_VERSION' is not a numeric x.y.z version"
+# The addon deliberately outlives app-only releases (4.5.5 ships bridge 4.5.1);
+# only the app version is tied to the tag.
 
 if [ "$DO_BUILD" = 1 ]; then
     echo "== building $TAG ($VERSION $CODENAME) =="
@@ -131,6 +137,7 @@ else
 fi
 PACKAGING_WORKFLOW_SHA=${PACKAGING_WORKFLOW_SHA:-unknown}
 PACKAGING_RUN=${PACKAGING_RUN:-local}
+VERSION_PROPS_SOURCE=${VERSION_PROPS_SOURCE:-tag}
 
 INFO="$OUT/BUILD-INFO-macos.txt"
 {
@@ -144,6 +151,7 @@ INFO="$OUT/BUILD-INFO-macos.txt"
     echo "source_tag=$TAG"
     echo "source_commit=$HEAD_COMMIT"
     echo "source_commit_short=$COMMIT_SHORT"
+    echo "version_props_source=$VERSION_PROPS_SOURCE"
     echo "packaging_workflow_sha=$PACKAGING_WORKFLOW_SHA"
     echo "packaging_run=$PACKAGING_RUN"
     echo "built_at=$BUILT_AT"
@@ -154,6 +162,7 @@ INFO="$OUT/BUILD-INFO-macos.txt"
     echo "runtime=$RUNTIME (self-contained)"
     echo "signing=$SIGNING"
     echo "notarized=no"
+    echo "addon_version=$ADDON_VERSION"
     echo "addon=MaxDpsCompanionBridge $ADDON_VERSION"
     echo "wire=v5 + Ext2/Ext3/Ext4 (51 cells)"
     echo "windows_counterpart=MaxDpsCompanion.exe ${VERSION}.0 (v$VERSION $CODENAME)"
@@ -187,7 +196,7 @@ rm -rf "$TMP"
 trap - EXIT INT TERM
 
 # Addon package: same folder Windows installs, plus a double-click installer.
-STAGE="$OUT/.addon-stage/MaxDpsCompanionBridge-$VERSION-addon"
+STAGE="$OUT/.addon-stage/MaxDpsCompanionBridge-$ADDON_VERSION-macos-addon"
 mkdir -p "$STAGE"
 cp -R "$ADDON_SRC" "$STAGE/"
 cp "$ROOT/tools/install-addon-mac.sh" "$STAGE/install-addon-mac.sh"
@@ -203,10 +212,10 @@ exit $status
 COMMAND
 chmod +x "$STAGE/Install Addon.command"
 cat > "$STAGE/README-addon.txt" <<TEXT
-MaxDps Companion Bridge $VERSION "$CODENAME" - macOS package
+MaxDps Companion Bridge $ADDON_VERSION - macOS package
 
-This is the SAME addon the Windows $VERSION companion uses (folder
-MaxDpsCompanionBridge, TOC version $VERSION).
+This is the SAME addon the Windows $VERSION "$CODENAME" companion uses
+(folder MaxDpsCompanionBridge, TOC version $ADDON_VERSION).
 
 Install
   1. Double-click "Install Addon.command" (Terminal opens), or run:
@@ -218,7 +227,7 @@ Install
 The companion cannot work without this addon loaded in the same client.
 TEXT
 
-ADDON_ZIP="$OUT/MaxDpsCompanionBridge-$VERSION-addon.zip"
+ADDON_ZIP="$OUT/MaxDpsCompanionBridge-$ADDON_VERSION-macos-addon.zip"
 rm -f "$ADDON_ZIP"
 ditto -c -k --sequesterRsrc --keepParent "$STAGE" "$ADDON_ZIP"
 rm -rf "$OUT/.addon-stage"
@@ -229,5 +238,5 @@ rm -rf "$OUT/.addon-stage"
     "$(basename "$INFO")" > SHA256SUMS-macos.txt )
 
 echo
-echo "package-macos: $VERSION $CODENAME ($TAG @ $COMMIT_SHORT, macOS $ARCH_LABEL)"
+echo "package-macos: $VERSION $CODENAME ($TAG @ $COMMIT_SHORT, macOS $ARCH_LABEL, addon $ADDON_VERSION, version-props $VERSION_PROPS_SOURCE)"
 ls -lh "$APP_ZIP" "$ADDON_ZIP" "$INFO" "$OUT/SHA256SUMS-macos.txt"
