@@ -53,11 +53,18 @@ DONE
   the Mac keeps the Avalonia shell; the Windows 4.5.x Midnight UI is not
   ported.
 
-VERIFY (to fill after the publish run)
-- Dry run: `codesign --verify --deep --strict`, zip round-trip, SHA-256.
-- Release assets downloaded back and `sha256sum -c` clean.
-- BUILD-INFO: version 4.5.5 / codename Voidlight / source tag v4.5.5
-  (dfb9839) / addon 4.5.1 / `version_props_source` set.
+VERIFY (2026-10-26, dry run 40330496953 + publish run 40330893217)
+- Dry run passed with `version_props_source=workflow:51ab08a... (tag file was
+  4.4.0)`, `source_tree=tag+version-overlay`, `version=4.5.5`,
+  `codename=Voidlight`, `addon=MaxDpsCompanionBridge 4.5.1`,
+  `dotnet_sdk=8.0.427`, `runtime=net8.0 (self-contained)`.
+- `codesign --verify --deep --strict` and the `ditto` zip round-trip passed;
+  Info.plist is `CFBundleVersion=4.5.5` / `4.5.5 Voidlight (mac)`.
+- Published: app 43,681,215 B; addon 139,031 B; BUILD-INFO 1,105 B;
+  SHA256SUMS 301 B. Downloaded all four Mac assets from the release and
+  `sha256sum -c` was clean.
+- Release body updated to `(Windows + macOS)`, 1120 xUnit, macOS assets +
+  install + OWED section.
 
 OWED
 - First live retail run from the release asset on the MacBook Air M5: launch
