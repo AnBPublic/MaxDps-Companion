@@ -7,9 +7,9 @@ by release name or date before re-investigating an old problem.
 
 ## CLIENT STATUS (current)
 
-- **Current (Windows):** `4.5.5 "Voidlight"` - `app/MaxDpsCompanion/` (WinUI 3
+- **Current (Windows):** `4.5.6 "Voidlight"` - `app/MaxDpsCompanion/` (WinUI 3
   Windows client) + `app/MaxDpsCompanion.Core/` (shared brain) +
-  `addon/MaxDpsCompanionBridge/` (4.5.1) + `dist/`. **C# is the long-term base**
+  `addon/MaxDpsCompanionBridge/` (4.5.2) + `dist/`. **C# is the long-term base**
   (decision 2026-10-17).
 - **macOS:** `4.5.5 "Voidlight"` (Apple Silicon, ad-hoc signed, not
   notarized); bridge 4.5.1. The Mac host keeps its Avalonia shell (the Windows
@@ -72,7 +72,47 @@ OWED
   install the 4.5.1 addon, then locate/decode/send. Live macOS capture/send
   stays OWED; CI cannot prove it.
 
-## 2026-10-26 RELEASE 4.5.5 "VOIDLIGHT" (GW2_UI taint root hotfix; bridge 4.5.1 unchanged; NO wire change)
+## 2026-10-26 RELEASE 4.5.6 "VOIDLIGHT" (quiet logs: no in-game chat, one companion line per toggle OFF; bridge 4.5.2; NO wire change)
+
+Live follow-up: the 4.5.1 `SecretGuard` printed
+`[taint] secret cooldowns are active` and similar lines to **in-game chat** on
+every zone/regen transition. The user does not want in-game logging (noise and a
+possible combat hitch); the only desired output is one **companion-app** log
+line when a toggle is switched OFF in the in-game addon. Branch
+`release/v4.5.6-quiet-logs`. Identity: csproj 4.5.6, bridge **4.5.2**, no wire
+change.
+
+DONE
+- **Bridge 4.5.2 silences `SecretGuard`.** `Scan` no longer calls any print
+  (`Log` removed; automatic `[taint]` transitions, pause/protected/failure
+  lines gone). The guard still hides the assisted-combat frame silently.
+  `Echo` is manual-only: `/mcb guard` report and `/mcb guard on|off`
+  confirmation. `TOC`/`MDCB.VERSION` 4.5.2.
+- **Companion 4.5.6 logs OFF transitions only.**
+  `ToggleStateCopy.OffDelta` replaces `Delta`; `UpdateMirrorPills` logs exactly
+  one line per mirror update that has an ON -> OFF bit:
+  `[toggles] Main switched OFF in the in-game addon - rotation suspended ...`
+  or `[toggles] Trinket switched OFF in the in-game addon`. First sight, ON-only,
+  Main-resume, mirror-loss and no-change ticks are silent.
+- Details `toggles:` summary and `holding - ...` status are unchanged; no
+  in-game print for a toggle change. No wire/rotation/key-delivery change.
+- Tests: `ToggleStateCopyTests` now 10 `OffDelta` cases; xUnit **1123**.
+
+VERIFY (this machine, 2026-10-26)
+- `dotnet build app/MaxDpsCompanion -c Release`: 0 warnings / 0 errors.
+- `dotnet test -c Release`: 1123 passed / 0 failed (10 OffDelta cases).
+- `--ui-smoke-test` / `--ui-smoke-test --exp`: PASS, title
+  `MaxDPS Companion v4.5.6 Voidlight`.
+- `luac -p` bridge files: clean (16 files).
+- `lua tests/secret_harness.lua`: 415 passed / 0 failed (guard policy unchanged).
+- The live addon was reinstalled early as 4.5.2 so the user's next `/reload`
+  stops the chat spam; the companion 4.5.6 build is the off-only log change.
+
+OWED (live retail 12.1.5) - `docs/TESTING.md` §3v: no automatic
+`[taint]`/`[toggles]` chat lines; exactly one companion-log line per toggle
+switched off; `/mcb guard` still reports on demand.
+
+
 
 Correction release after 4.5.4 shipped. The bridge guard stops the
 assisted-combat frame's tick/cascade, but the 3,619 `SetCooldown` errors came

@@ -10,6 +10,43 @@ Format: Keep a Changelog sections (`Added` / `Changed` / `Fixed` / `Removed`)
 per release, plus the identity + wire line. The complete pre-4.0 history lives
 in [`../VERSION.txt`](../VERSION.txt) and `docs/archive/HANDOVER-history.md`.
 
+## 4.5.6 Voidlight - 2026-10-26
+
+**Companion 4.5.6 "Voidlight" / bridge 4.5.2.** Quiet-logging fix, NO wire
+change and NO rotation change.
+
+### Changed
+
+- **No in-game chat logging.** Bridge 4.5.1's `SecretGuard` printed automatic
+  `[taint] secret cooldowns are active` / `paused ...` lines during normal
+  play. Bridge 4.5.2 removes every automatic print: the guard still hides the
+  assisted-combat frame, but it is silent. `/mcb guard` remains the only
+  in-game output, and only when you run it.
+- **One companion-log line per toggle switched OFF.** The companion's log used
+  to write first-sight, ON, OFF, Main-resume and mirror-loss lines. It now
+  writes exactly one line for an OFF transition:
+  `[toggles] Main switched OFF in the in-game addon - rotation suspended (turn
+  it back on: /mcb t Main on)` or
+  `[toggles] Trinket switched OFF in the in-game addon`. Multiple toggles
+  switched off in the same mirror update are one line.
+- **Details and the status card are unchanged.** The live `toggles:` summary
+  stays in Details, and a hold still reads `holding - Main off in game`.
+  Nothing prints in game for a toggle change.
+
+### Details
+
+- Addon: `SecretGuard.lua` now uses a manual-only `Echo`; all `Scan` logging is
+  gone; TOC/bridge version **4.5.2**.
+- Companion: `ToggleStateCopy.OffDelta` replaces `Delta`; `UpdateMirrorPills`
+  calls it. `OffDelta` returns null for first sight, ON-only changes, mirror
+  loss and no-change ticks.
+- Tests: `ToggleStateCopyTests` now has 10 `OffDelta` cases (no ON/first-sight
+  logging); xUnit total **1123**.
+- No wire, protocol, rotation, key-delivery or addon-message change.
+- Live chattiness check stays OWED (`docs/TESTING.md` §3v): no automatic
+  `[taint]`/`[toggles]` chat lines; exactly one companion-log line per toggle
+  switched off.
+
 ## 4.5.5 Voidlight - 2026-10-26
 
 **Companion 4.5.5 "Voidlight" / bridge 4.5.1 (unchanged).** Diagnosis

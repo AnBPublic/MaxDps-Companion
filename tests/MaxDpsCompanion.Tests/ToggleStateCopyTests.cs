@@ -3,9 +3,9 @@ using Xunit;
 namespace MaxDpsCompanion.Tests;
 
 /// <summary>
-/// 4.5.3 toggle copy: the companion names the addon-wins toggle state in the
-/// log and in Details, so a user whose in-game Main pill was OFF sees
-/// "Main OFF - rotation suspended" instead of "no presses".
+/// 4.5.6 toggle copy: Details carries the live addon-wins summary, and the
+/// companion log writes one line only when a toggle is switched OFF in the
+/// in-game addon. No in-game chat line, no ON/first-sight/mirror-loss lines.
 /// </summary>
 public class ToggleStateCopyTests
 {
@@ -42,38 +42,57 @@ public class ToggleStateCopyTests
         => Assert.Equal("addon not reporting (no toggle mirror)", ToggleStateCopy.Summary(false, 0));
 
     [Fact]
-    public void Delta_FirstValidMirrorPrintsTheSummary()
-        => Assert.Equal("Main ON · all others ON", ToggleStateCopy.Delta(false, 0, true, AllOn));
+    public void OffDelta_FirstValidMirror_IsSilent()
+        => Assert.Null(ToggleStateCopy.OffDelta(false, 0, true, AllOn));
 
     [Fact]
-    public void Delta_NoChange_IsSilent()
-        => Assert.Null(ToggleStateCopy.Delta(true, AllOn, true, AllOn));
+    public void OffDelta_NoChange_IsSilent()
+        => Assert.Null(ToggleStateCopy.OffDelta(true, AllOn, true, AllOn));
 
     [Fact]
-    public void Delta_MainOff_NamesTheMasterSwitchAndTheFix()
+    public void OffDelta_MainOff_NamesTheMasterSwitchAndTheFix()
     {
-        var text = ToggleStateCopy.Delta(true, AllOn, true, AllOn & ~(1 << ToggleSync.BitMain));
+        var text = ToggleStateCopy.OffDelta(true, AllOn, true, AllOn & ~(1 << ToggleSync.BitMain));
         Assert.NotNull(text);
-        Assert.StartsWith("Main OFF - rotation suspended", text);
+        Assert.StartsWith("Main switched OFF in the in-game addon - rotation suspended", text);
         Assert.Contains("/mcb t Main on", text);
     }
 
     [Fact]
-    public void Delta_MainOn_Resumes()
-        => Assert.Equal("Main ON - rotation resumed",
-            ToggleStateCopy.Delta(true, AllOn & ~(1 << ToggleSync.BitMain), true, AllOn));
+    public void OffDelta_MainOn_IsSilent()
+        => Assert.Null(ToggleStateCopy.OffDelta(
+            true, AllOn & ~(1 << ToggleSync.BitMain), true, AllOn));
 
     [Fact]
-    public void Delta_OtherBits_AreListed()
-        => Assert.Equal("Defensive ON, Trinket OFF",
-            ToggleStateCopy.Delta(true, AllOn & ~(1 << ToggleSync.BitDefensive),
-                true, AllOn & ~(1 << ToggleSync.BitTrinket)));
+    public void OffDelta_OtherOff_NamesTheToggle()
+        => Assert.Equal("Trinket switched OFF in the in-game addon",
+            ToggleStateCopy.OffDelta(true, AllOn, true, AllOn & ~(1 << ToggleSync.BitTrinket)));
 
     [Fact]
-    public void Delta_StillNoMirror_IsSilent()
-        => Assert.Null(ToggleStateCopy.Delta(false, 0, false, 0));
+    public void OffDelta_OtherOn_IsSilent()
+        => Assert.Null(ToggleStateCopy.OffDelta(
+            true, AllOn & ~(1 << ToggleSync.BitTrinket), true, AllOn));
 
     [Fact]
-    public void Delta_MirrorLost_IsReported()
-        => Assert.Equal("addon stopped reporting toggles", ToggleStateCopy.Delta(true, AllOn, false, AllOn));
+    public void OffDelta_MultipleOff_IsOneLine()
+        => Assert.Equal("Defensive, Trinket switched OFF in the in-game addon",
+            ToggleStateCopy.OffDelta(true, AllOn, true,
+                AllOn & ~(1 << ToggleSync.BitDefensive) & ~(1 << ToggleSync.BitTrinket)));
+
+    [Fact]
+    public void OffDelta_MainOff_AlsoListsOtherOffBits()
+    {
+        var text = ToggleStateCopy.OffDelta(true, AllOn, true,
+            AllOn & ~(1 << ToggleSync.BitMain) & ~(1 << ToggleSync.BitTrinket));
+        Assert.NotNull(text);
+        Assert.Contains("also off: Trinket", text);
+    }
+
+    [Fact]
+    public void OffDelta_StillNoMirror_IsSilent()
+        => Assert.Null(ToggleStateCopy.OffDelta(false, 0, false, 0));
+
+    [Fact]
+    public void OffDelta_MirrorLost_IsSilent()
+        => Assert.Null(ToggleStateCopy.OffDelta(true, AllOn, false, AllOn));
 }
