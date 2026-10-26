@@ -66,6 +66,23 @@ longer shipped or applied by us**. It stays in place for the live pass so the
 the addon, or the tool's `-Revert` from the 4.5.5 tag) **only after the live test
 passes**.
 
+ROLLED OUT (2026-10-26, primary checkout `A:\AI\GitHub\WoW-Companions\MaxDps-Companion`)
+- PR #18 merged to `master` (`970ff2a`); CI green on Windows + macOS. Tag
+  `v4.5.7` pushed and the GitHub release published
+  (https://github.com/AnBPublic/MaxDps-Companion/releases/tag/v4.5.7) with the
+  `MaxDpsCompanionBridge-4.5.3.zip` addon asset. The 4.5.5 GW2_UI patch tool is
+  **not** attached.
+- `pwsh tools/publish.ps1`: FileVersion **4.5.7.0**, `dist\VERSION.txt`
+  **4.5.7 Voidlight**, `settings.ini` hash unchanged.
+- `pwsh tools/install-addon.ps1`: bridge **4.5.3** installed to
+  `_retail_\Interface\AddOns\MaxDpsCompanionBridge`. WoW was running at install
+  time, so `/reload` is required.
+- Shipped smoke: `--ui-smoke-test` **PASS** in both shells, title
+  `MaxDPS Companion v4.5.7 Voidlight`; a fresh 4.5.7 instance runs from `dist\`
+  (PID 28024).
+- Live cooldown-shim check is OWED (`docs/TESTING.md` §3w); the user needs
+  `/reload` to load bridge 4.5.3.
+
 ## CLIENT STATUS (current)
 
 - **Current (Windows):** `4.5.7 "Voidlight"` - `app/MaxDpsCompanion/` (WinUI 3
