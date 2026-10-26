@@ -327,14 +327,14 @@ public sealed partial class ShellWindow
         // (MainForm's Advanced mirrors :193-206, ADDON-WINS echo semantics).
         _advancedConfig?.SetMask(valid, mask);
 
-        // 4.5.3: name the toggle state in the log and in Details. A user whose
-        // in-game Main pill was OFF saw "no presses" with only a hex mask as a
-        // witness, so every mirror transition now prints a plain-words line.
+        // 4.5.3/4.5.6: name the toggle state in Details, and log exactly one
+        // line in the COMPANION log when a toggle is switched OFF in the
+        // in-game addon. No in-game chat print; no ON/first-sight/mirror-loss
+        // lines.
         _expConsole?.SetToggles(running ? ToggleStateCopy.Summary(valid, mask) : "engine stopped");
-        if (ToggleStateCopy.Delta(previousValid, previousMask, valid, mask) is { } delta)
+        if (ToggleStateCopy.OffDelta(previousValid, previousMask, valid, mask) is { } delta)
         {
-            var tone = delta.StartsWith("Main OFF", StringComparison.Ordinal)
-                || delta.StartsWith("addon stopped reporting", StringComparison.Ordinal)
+            var tone = delta.StartsWith("Main switched OFF", StringComparison.Ordinal)
                 ? ControlTheme.Warning
                 : ControlTheme.Info;
             LogMirror($"[toggles] {delta}", tone);

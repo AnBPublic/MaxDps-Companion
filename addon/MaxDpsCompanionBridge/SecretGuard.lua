@@ -1,5 +1,5 @@
 --- ============================ HEADER ============================
--- SecretGuard (bridge 4.5.1) - stops the "Secret values are only allowed
+-- SecretGuard (bridge 4.5.2) - stops the "Secret values are only allowed
 -- during untainted execution" flood that Blizzard's assisted-combat frame
 -- produces when a UI addon has tainted an action button.
 --
@@ -57,11 +57,11 @@ local BUTTONS = {
 -- Frames this guard hid. Cleared (without forcing a Show) when secrets end or
 -- the guard is turned off; Blizzard's next UpdateState owns the restore.
 local Hidden = {};
-local Announced = {};
-local LastSecret = nil;
-local LastEnabled = nil;
 
-local function Log (Message)
+-- 4.5.6: the guard is deliberately SILENT during normal play. Automatic
+-- "[taint]" chat lines from 4.5.1 are gone (they were noise and a potential
+-- hitch in combat). Only an explicit `/mcb guard` report speaks.
+local function Echo (Message)
   if type(MDCB.Print) == "function" then
     MDCB.Print(Message);
     return;
@@ -159,29 +159,16 @@ function Guard.ShouldPause (Secret, Override, Tainted)
 end
 
 --- One sweep. Safe to call from any event/ticker; every WoW call is pcall'd.
+--- SILENT: this is the 4.5.6 contract. Only `/mcb guard` prints.
 function Guard.Scan ()
   if IsInert() then return; end;
 
-  local IsEnabled = Enabled();
-  if LastEnabled ~= IsEnabled then
-    LastEnabled = IsEnabled;
-    if not IsEnabled then Log("[taint] guard is OFF - assisted-combat refresh is not paused"); end;
-  end;
-  if not IsEnabled then
+  if not Enabled() then
     for Frame in pairs(Hidden) do Hidden[Frame] = nil; end;
     return;
   end;
 
   local Secret = SecretCooldowns();
-  if LastSecret ~= Secret then
-    LastSecret = Secret;
-    if Secret then
-      Log("[taint] secret cooldowns are active - guarding the assisted-combat refresh");
-    else
-      Log("[taint] secret cooldowns ended - assisted-combat refresh is no longer paused");
-    end;
-  end;
-
   if not Secret then
     -- Do not force-show: Blizzard re-shows the frame through its own
     -- UpdateState on the next action/slot update, which keeps the icon
@@ -192,33 +179,14 @@ function Guard.Scan ()
 
   for _, Spec in ipairs(BUTTONS) do
     for Index = 1, Spec.Count do
-      local Name = Spec.Prefix .. Index;
-      local Button = _G[Name];
+      local Button = _G[Spec.Prefix .. Index];
       local Frame = HasAssistedFrame(Button);
       if Frame then
-        local Tainted, Source = TaintOf(Button);
+        local Tainted = TaintOf(Button);
         if Guard.ShouldPause(Secret, Spec.Override, Tainted) then
-          if Frame:IsShown() then
-            if not CanHide(Frame) then
-              if not Announced[Frame] then
-                Announced[Frame] = true;
-                Log(("[taint] %s is protected; cannot pause its assisted-combat refresh - update the action-bar addon"):format(Name));
-              end;
-            else
-              local Ok = pcall(Frame.Hide, Frame);
-              if Ok then
-                Hidden[Frame] = true;
-                if not Announced[Frame] then
-                  Announced[Frame] = true;
-                  local Why = Source and ("tainted by " .. Source) or "secret cooldowns active";
-                  Log(("[taint] paused the assisted-combat icon refresh on %s (%s)")
-                    :format(Name, Why));
-                end;
-              elseif not Announced[Frame] then
-                Announced[Frame] = true;
-                Log(("[taint] could not pause the assisted-combat icon refresh on %s; update the action-bar addon"):format(Name));
-              end;
-            end;
+          if Frame:IsShown() and CanHide(Frame) then
+            local Ok = pcall(Frame.Hide, Frame);
+            if Ok then Hidden[Frame] = true; end;
           end;
         end;
       end;
@@ -237,13 +205,13 @@ end
 --- Full `/mcb guard` report: names every assisted frame, its parent button,
 --- the taint source when the client reports one, and the known bar addons.
 function Guard.Report ()
-  Log("taint guard: " .. Guard.Status());
+  Echo("taint guard: " .. Guard.Status());
   local Rate = nil;
   if type(GetCVar) == "function" then
     local Ok, Value = pcall(GetCVar, "assistedCombatIconUpdateRate");
     if Ok then Rate = Value; end;
   end;
-  Log("assistedCombatIconUpdateRate: " .. tostring(Rate or "?"));
+  Echo("assistedCombatIconUpdateRate: " .. tostring(Rate or "?"));
 
   local Seen = 0;
   for _, Spec in ipairs(BUTTONS) do
@@ -254,7 +222,7 @@ function Guard.Report ()
       if Frame then
         Seen = Seen + 1;
         local Tainted, Source = TaintOf(Button);
-        Log(("  %s: shown=%s%s%s"):format(
+        Echo(("  %s: shown=%s%s%s"):format(
           Name,
           Frame:IsShown() and "yes" or "no",
           Tainted and " tainted" or "",
@@ -262,7 +230,7 @@ function Guard.Report ()
       end;
     end;
   end;
-  if Seen == 0 then Log("  no assisted-combat frames on the standard bars"); end;
+  if Seen == 0 then Echo("  no assisted-combat frames on the standard bars"); end;
 
   local Known = {
     "GW2_UI", "ElvUI", "EllesmereUIActionBars", "MoveAny",
@@ -275,22 +243,21 @@ function Guard.Report ()
       if Ok and IsLoaded == true then Loaded[#Loaded + 1] = Name; end;
     end;
   end;
-  Log("bar addons loaded: " .. (#Loaded > 0 and table.concat(Loaded, ", ") or "none"));
-  Log("if the game still logs SetCooldown/secret errors, update the tainted bar addon or /mcb guard off.");
+  Echo("bar addons loaded: " .. (#Loaded > 0 and table.concat(Loaded, ", ") or "none"));
+  Echo("if the game still logs SetCooldown/secret errors, update the tainted bar addon or /mcb guard off.");
 end
 
 function Guard.SetEnabled (On)
   local DB = type(MDCB.EnsureDB) == "function" and MDCB.EnsureDB() or nil;
   if not DB then
-    Log("taint guard: database not ready - try again after login");
+    Echo("taint guard: database not ready - try again after login");
     return false;
   end;
   DB.TaintGuard = (On ~= false);
   if not DB.TaintGuard then
     for Frame in pairs(Hidden) do Hidden[Frame] = nil; end;
   end;
-  LastEnabled = nil;
-  Log("[taint] guard " .. (DB.TaintGuard and "on" or "off"));
+  Echo("[taint] guard " .. (DB.TaintGuard and "on" or "off"));
   return DB.TaintGuard;
 end
 

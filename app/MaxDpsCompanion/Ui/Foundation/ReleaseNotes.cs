@@ -29,6 +29,16 @@ internal static class ReleaseNotes
     public static readonly IReadOnlyList<Release> All = new[]
     {
         new Release(
+            "4.5.6", "Voidlight", "2026-10-26",
+            "Quiet logs: no in-game chat spam; one companion-log line per toggle switched off.",
+            new[]
+            {
+                "The in-game addon no longer prints the [taint] secret-cooldown guard lines to chat. Bridge 4.5.2 keeps the guard running silently.",
+                "The companion log now writes exactly one line when a toggle is switched OFF in the in-game addon: 'Main switched OFF...' or 'Trinket switched OFF...'.",
+                "No more ON, first-sight or mirror-loss log lines; Details still shows the live toggle summary and the status card still names a hold.",
+                "No wire change: /mcb guard is the only in-game output, and only when you run it.",
+            }),
+        new Release(
             "4.5.5", "Voidlight", "2026-10-26",
             "Corrects the taint diagnosis and ships the GW2_UI hotfix tool.",
             new[]

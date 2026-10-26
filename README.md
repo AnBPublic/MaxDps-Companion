@@ -1,5 +1,5 @@
 > [!IMPORTANT]
-> **Current client: 4.5.5 "Voidlight"** - the WinUI 3 Windows client
+> **Current client: 4.5.6 "Voidlight"** - the WinUI 3 Windows client
 > (`app/MaxDpsCompanion/`), the shared brain (`app/MaxDpsCompanion.Core/`) and the
 > macOS client (`app/MaxDpsCompanion.Mac/`, `4.5.5 "Voidlight"`), targeting
 > `MaxDpsCompanionBridge` + `dist`. **C# is the long-term base.** Frozen: the
@@ -52,7 +52,7 @@
 > [`app/MaxDpsCompanion.Mac/README.md`](app/MaxDpsCompanion.Mac/README.md);
 > live retail checks are OWED (`docs/TESTING.md` §4).
 
-# MaxDPS Companion (Retail Midnight 12.1.5, v4.5.5 "Voidlight")
+# MaxDPS Companion (Retail Midnight 12.1.5, v4.5.6 "Voidlight")
 
 Pixel bridge driver for [kaminaris MaxDps](https://www.curseforge.com/wow/addons/maxdps)
 (vendor pin: MaxDps v11.3.49). No memory read, no injection, no OCR, no LLM.
@@ -69,6 +69,23 @@ Two pieces:
 The legacy `MaxDpsBridge` addon (`addon/legacy/MaxDpsBridge/`, 40-cell strip) and the
 old WinForms client (`dist-legacy/`) are **legacy/frozen**; all current work targets
 `MaxDpsCompanionBridge` + `dist`.
+
+## v4.5.6 "Voidlight" - quiet logs (bridge 4.5.2, no wire change)
+
+The in-game chat is quiet again: bridge 4.5.1's automatic
+`[taint] secret cooldowns are active` / `paused ...` prints are gone. The
+bridge guard still runs, silently; `/mcb guard` is the only in-game output and
+only when you ask for it.
+
+The companion log now writes **exactly one line when a toggle is switched OFF**
+in the in-game addon:
+
+- `[toggles] Main switched OFF in the in-game addon - rotation suspended (turn it back on: /mcb t Main on)`
+- `[toggles] Trinket switched OFF in the in-game addon`
+
+No ON, first-sight, Main-resume or mirror-loss lines. Details still shows the
+live `toggles:` summary and the status card still reads
+`holding - Main off in game`. No wire or rotation change.
 
 ## v4.5.5 "Voidlight" - GW2_UI taint root hotfix, 4.5.4 diagnosis corrected
 

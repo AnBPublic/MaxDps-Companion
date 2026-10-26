@@ -733,16 +733,20 @@ Offline (see HANDOVER/final report): build 0/0, `dotnet test`, snapshots at
 
 ### 3t. 4.5.3 "Voidlight" toggle visibility + hold reasons (live 12.1.5, OWED)
 
-1. **Toggles on first sight.** Start the engine with the game foreground: the
-   log prints one `[toggles] ...` line summarising the 14 addon toggles, and
-   Details shows `toggles: ...`.
+> **4.5.6 update:** only OFF transitions are logged, and only in the companion
+> app log. There is no in-game chat line for a toggle. See §3v.
+
+1. **Toggles on first sight.** Start the engine with the game foreground:
+   Details shows `toggles: ...`. (4.5.6: no first-sight log line.)
 2. **Main off is loud.** Turn the in-game **Main** pill OFF: the status card
-   reads `holding - Main off in game` (warning tone) and the log prints
-   `[toggles] Main OFF - rotation suspended (turn it back on: /mcb t Main on)`.
-   Turn it ON again: `holding` clears and the log prints
-   `[toggles] Main ON - rotation resumed`.
-3. **Other toggles.** Toggle Trinket/Defensive in the overlay: the log prints
-   `[toggles] Trinket OFF` (or `ON`) and the Details summary updates.
+   reads `holding - Main off in game` (warning tone) and the companion log
+   prints one
+   `[toggles] Main switched OFF in the in-game addon - rotation suspended (turn
+   it back on: /mcb t Main on)`. Turn it ON again: `holding` clears; 4.5.6 does
+   not log the resume.
+3. **Other toggles.** Toggle Trinket/Defensive in the overlay: the companion log
+   prints one `[toggles] Trinket switched OFF in the in-game addon` and the
+   Details summary updates. Turning one ON is silent in 4.5.6.
 4. **Other hold reasons.** Typing in chat shows `holding - typing in game chat`;
    out of combat shows `holding - out of combat`; a frozen bridge heartbeat shows
    `holding - link lost - addon heartbeat`.
@@ -763,11 +767,9 @@ Offline (see HANDOVER/final report): build 0/0, `dotnet test`, snapshots at
    `ActionButton.lua:847 SetCooldown ... Secret values are only allowed during
    untainted execution` error, and must not log the matching
    `ADDON_ACTION_BLOCKED ... SetAttribute` for the assisted-combat button.
-2. **Guard line.** The in-game chat/console prints one
-   `[taint] secret cooldowns are active - guarding the assisted-combat refresh`
-   and one
-   `[taint] paused the assisted-combat icon refresh on OverrideActionBarButtonN
-   (tainted by <addon>)` (the N and addon depend on the bar setup).
+2. **Guard is silent.** No `[taint]` chat line appears on login, zone change,
+   combat entry or secret-cooldown value changes (bridge 4.5.2 removed the
+   automatic prints). Run `/mcb guard` if you want the state on demand.
 3. **Rotation unchanged.** The companion still presses the same spells at the
    same cadence; `MaxDps.Spell` / the strip stay live, and the SBA API still
    returns suggestions. Only the Blizzard assisted-combat icon refresh on that
@@ -776,12 +778,31 @@ Offline (see HANDOVER/final report): build 0/0, `dotnet test`, snapshots at
    found, their parent buttons, the taint source when the client reports one,
    and the loaded bar addons. With no assisted frame present it prints
    `no assisted-combat frames on the standard bars`.
-5. **Opt-out.** `/mcb guard off` prints `[taint] guard is OFF`, the stock
+5. **Opt-out.** `/mcb guard off` prints one confirmation, the stock
    Single-Button Assistant refresh is no longer paused, and the error may
    return; `/mcb guard on` re-arms it.
 6. **Clean setup.** On a character/UI with no tainted bar addon the main-bar
    assisted frame is left alone (`paused=0` while secrets are active), so the
    stock SBA icon still updates normally.
+
+### 3v. 4.5.6 "Voidlight" quiet logs (live 12.1.5, OWED)
+
+1. **No in-game chat noise.** Log in, change zones, enter/leave combat, and flip
+   toggles: the game chat must not print any `[taint]`, `[toggles]` or guard
+   line. `/mcb guard` is the only in-game output, and only when you run it.
+2. **One companion-log line per toggle OFF.** Flip **Main** OFF: exactly one
+   `[toggles] Main switched OFF in the in-game addon - rotation suspended ...`
+   line in the companion app log. Flip **Trinket** OFF: exactly one
+   `[toggles] Trinket switched OFF in the in-game addon` line. Flip either ON:
+   no line.
+3. **No first-sight / mirror-loss lines.** Start the companion with the addon
+   mirror already valid: no log line. Freeze the addon long enough to lose the
+   mirror: no `[toggles]` line (the hold/status still reports the link loss).
+4. **Batched off.** Switch two toggles off in the same mirror update (or within
+   one 250 ms tick): one line listing both, e.g.
+   `Defensive, Trinket switched OFF in the in-game addon`.
+5. **Details/status unchanged.** Details still shows the live `toggles:` summary
+   and the status card still reads `holding - Main off in game`.
 
 ## 4. macOS client (live retail, OWED)
 

@@ -1,3 +1,18 @@
+4.5.6
+Date: 2026-10-26 - "Voidlight"
+Companion 4.5.6 "Voidlight" / bridge 4.5.2. Quiet logging; NO wire change and
+NO rotation change.
+- In-game chat logging is gone. Bridge 4.5.1's SecretGuard printed automatic
+  "[taint] ..." lines during play; 4.5.2 removes every automatic print. The
+  guard still hides the assisted-combat frame, silently. /mcb guard is the only
+  in-game output, and only when you run it.
+- The companion log now writes exactly one line when a toggle is switched OFF
+  in the in-game addon: "Main switched OFF ..." or "Trinket switched OFF ...".
+  No ON, first-sight, Main-resume or mirror-loss lines.
+- Details keeps the live toggles summary; holds still read
+  "holding - Main off in game".
+- Tests 1123 (10 OffDelta cases). Live quiet-log check OWED (TESTING 3v).
+
 4.5.5
 Date: 2026-10-26 - "Voidlight"
 Companion 4.5.5 "Voidlight" / bridge 4.5.1 (unchanged). Diagnosis correction +
