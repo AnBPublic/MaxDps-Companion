@@ -447,7 +447,7 @@ collapsed candidate is re-admitted when that press is held, and `NoteAttempt`
 suppresses a non-emitted Main at `MainReprobeMs` (150 ms), not the 500 ms
 situational window. Live checks OWED (`docs/TESTING.md` §3j).
 
-## MaxDpsCompanionBridge (CURRENT; in-game-config fork, no wire change)
+## MaxDpsCompanionBridge (CURRENT; in-game-config fork, no wire change; bridge 4.5.3 / companion 4.5.7)
 
 **`addon/legacy/MaxDpsBridge` = LEGACY (frozen). `addon/MaxDpsCompanionBridge` = CURRENT.**
 The companion bridge is the legacy sources renamed `MDB→MDCB` /
@@ -472,13 +472,23 @@ addon/MaxDpsCompanionBridge/
                            SavedVariables MaxDpsCompanionBridgeDB,
                            SavedVariablesPerCharacter MaxDpsCompanionBridgeCharDB
   InGame.xml               load order (Toggles, Catalog, MajorCooldowns,
-                           Keymap, Bars, MainFallback, Reader, HotbarWatch,
-                           Bridge, Core, Profiles, Overlay, Settings, Slash)
+                           Keymap, Bars, SecretGuard, MainFallback, Reader,
+                           HotbarWatch, Bridge, Core, Profiles, Overlay, Settings,
+                           Config, Slash)
   Toggles.lua ... Reader.lua  legacy copies renamed MDB→MDCB /
                            MaxDpsBridge→MaxDpsCompanionBridge; the slash
                            commands live in `InGame/Slash.lua` (`/mcb` +
                            `/mdb`/`/mdbx` aliases) and Bridge.lua exposes
                            MDCB.HandleCommand for diagnostics
+  SecretGuard.lua          secret-cooldown guard (bridge 4.5.1 -> 4.5.3): hides
+                           Blizzard's assisted-combat frame on tainted
+                           override/extra buttons while
+                           `C_Secrets.ShouldCooldownsBeSecret()` is true, and
+                           shims `SetCooldown` on the cooldown frames
+                           (normal/charge/loss-of-control) of tainted buttons
+                           with secret args sanitized to `Clear()`/`SetCooldown(0, 0)`; taint is
+                           read from `issecurevariable` on the button and its
+                           ancestors; `/mcb guard` report incl. `shims=N`
   HotbarWatch.lua          v4.0.3 Ext4 hotbar-map streamer: keybound action-bar
                            walk (spells/items/macros, ready flag, 32-entry cap),
                            gen/seq frame cycle held ≥2 paint ticks, typing veto,
@@ -506,6 +516,52 @@ The fork owns toggles (ADDON-WINS, the same `Toggles.SlotAllowed` single
 gate); the companion in-game-config mode mirrors the Ext3 mask cells 40-42
 read-only. Offline bar: `luac -p` every file, `lua tests/secret_harness.lua`,
 `pwsh tools/ability_audit.ps1`. Live retail checks stay OWED.
+
+## SecretGuard: assisted-frame hide + cooldown shim (bridge 4.5.3, no wire change)
+
+2026-10-26. `SecretGuard.lua` is the only bridge code that touches Blizzard's
+action-bar frames, and it only ever runs while the client says cooldowns are
+secret (`C_Secrets.ShouldCooldownsBeSecret()`).
+
+- **Why.** Midnight hands addons secret cooldown values; Blizzard's own
+  `ActionButton_UpdateCooldown` -> `ApplyCooldown` -> `SetCooldown`
+  (`ActionButton.lua:847`) then throws `Secret values are only allowed during
+  untainted execution` on an action button another addon has tainted, once per
+  refresh. In the 4.5.x live sessions that was **3,686** errors. The taint
+  originates in GW2_UI: `Games/Modern/Actionbar/actionbars.lua`
+  :541/:705 `btn:SetScript("OnUpdate", nil)`, :703
+  `btn:SetParent(fmMultibar)`, :795-798 `multibar:SetScript(...)`, and
+  `Core/disableBlizzard.lua` :285-290 reparenting the Blizzard bars.
+- **Assisted-frame hide (4.5.1/4.5.2).** While secrets are active the guard hides
+  the assisted-combat frame on override/vehicle/extra buttons and on any button
+  `issecurevariable` names as tainted. WoW does not tick hidden frames, so the
+  0.15 s `OnUpdate` cascade and its `SetAttribute` block stop.
+- **Cooldown-frame shim (4.5.3).** The shared
+  `ActionBarButtonEventsFrame`/`ACTIONBAR_UPDATE_COOLDOWN` path is a second
+  route that hiding cannot cover. The guard wraps `SetCooldown` on the
+  **cooldown frames** of a tainted button - normal, charge and
+  loss-of-control - and sanitizes secret arguments to `Clear()`/`SetCooldown(0, 0)`; the call
+  then reaches Blizzard's frame with non-secret values and cannot throw.
+- **Taint detection is button + ancestor.** The guard probes
+  `issecurevariable(button, field)` and walks the parent chain (addon-created
+  parent frames included), so the GW2_UI `SetParent`/bar-`SetScript` paths are
+  detected even when the button itself carries no marker. Standard buttons are
+  shimmed **only** when the client reports the button or an ancestor tainted;
+  clean bars keep the stock cooldown swipe and are never touched.
+  `OverrideActionBarButton`/`ExtraActionButton` are covered whenever secrets
+  are active (that is the path the 4.5.5 third-party hotfix used to cover).
+- **No third-party patches.** The companion never edits another addon. The 4.5.5
+  GW2_UI taint hotfix tool is **deleted in 4.5.7** (see the 4.5.5 record). The
+  installed GW2_UI still carries the local 4.5.5 edit on this machine, but it is
+  no longer shipped or applied; restore stock GW2_UI by reinstalling/updating it
+  after the live pass.
+- **Silent / on demand.** No chat output. `/mcb guard` reports `secret=`,
+  assisted frames + parent buttons + taint source, `shims=N` and `shim=yes` per
+  shimmed button; `/mcb guard on|off` toggles it. The clean-setup report keeps
+  `paused=0` while secrets are active.
+- **No wire change.** No cell, checksum, `PROTOCOL_VERSION` (5) or
+  addon-message change; the untainted/clean path is byte-identical to 4.5.2.
+  Identity: companion **4.5.7**, bridge **4.5.3**.
 
 ## Main master switch (v4.0.4, no wire change)
 

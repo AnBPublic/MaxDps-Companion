@@ -1,7 +1,7 @@
 > [!IMPORTANT]
-> **Current client: 4.5.6 "Voidlight"** - the WinUI 3 Windows client
-> (`app/MaxDpsCompanion/`), the shared brain (`app/MaxDpsCompanion.Core/`) and the
-> macOS client (`app/MaxDpsCompanion.Mac/`, `4.5.5 "Voidlight"`), targeting
+> **Current client: 4.5.7 "Voidlight"** (bridge **4.5.3**) - the WinUI 3 Windows
+> client (`app/MaxDpsCompanion/`), the shared brain (`app/MaxDpsCompanion.Core/`)
+> and the macOS client (`app/MaxDpsCompanion.Mac/`, `4.5.5 "Voidlight"`), targeting
 > `MaxDpsCompanionBridge` + `dist`. **C# is the long-term base.** Frozen: the
 > 3.7.9 WinForms distribution (`dist-legacy/`, `build.ps1`), the legacy bridge
 > (`addon/legacy/MaxDpsBridge/`) and the Rust port (`companion-rs/`, reference
@@ -52,7 +52,7 @@
 > [`app/MaxDpsCompanion.Mac/README.md`](app/MaxDpsCompanion.Mac/README.md);
 > live retail checks are OWED (`docs/TESTING.md` §4).
 
-# MaxDPS Companion (Retail Midnight 12.1.5, v4.5.6 "Voidlight")
+# MaxDPS Companion (Retail Midnight 12.1.5, v4.5.7 "Voidlight", bridge 4.5.3)
 
 Pixel bridge driver for [kaminaris MaxDps](https://www.curseforge.com/wow/addons/maxdps)
 (vendor pin: MaxDps v11.3.49). No memory read, no injection, no OCR, no LLM.
@@ -69,6 +69,40 @@ Two pieces:
 The legacy `MaxDpsBridge` addon (`addon/legacy/MaxDpsBridge/`, 40-cell strip) and the
 old WinForms client (`dist-legacy/`) are **legacy/frozen**; all current work targets
 `MaxDpsCompanionBridge` + `dist`.
+
+## v4.5.7 "Voidlight" - secret-cooldown flood fixed inside the bridge (bridge 4.5.3, no wire change)
+
+The **3,686** `ActionButton.lua:847 SetCooldown ... Secret values are only
+allowed during untainted execution` errors are fixed by the bridge itself now,
+with **no third-party addon patched**.
+
+- **Cooldown shim.** While `C_Secrets.ShouldCooldownsBeSecret()` is true, the
+  bridge wraps `SetCooldown` on the cooldown frames of action buttons the client
+  reports as tainted - normal, charge and loss-of-control - and sanitizes secret
+  arguments to `Clear()`/`SetCooldown(0, 0)`. The client then stops rejecting Blizzard's own
+  cooldown update, which is what logged the error once per button refresh.
+- **Which buttons.** Taint is detected on the button **and its ancestors**
+  (addon-created parent frames included), so the GW2_UI reparent/unhook paths
+  that poisoned `ActionButton` (`btn:SetScript("OnUpdate", nil)`,
+  `btn:SetParent(multibar)`, the bar-level `SetScript`, the
+  `disableBlizzard` reparent) are covered from the bridge. Override and
+  extra-action buttons are **always** covered while secrets are active.
+  Buttons the client reports clean are left alone - the stock cooldown swipe
+  still runs on a clean or no-addon bar.
+- **Silent.** Nothing is printed to chat; `/mcb guard` reports on demand and now
+  includes `shims=N` (per-button `shim=yes`).
+- **No third-party patch.** The 4.5.5 GW2_UI taint hotfix tool is **removed in
+  4.5.7** (file deleted) - the companion does not modify any other addon. The
+  local GW2_UI 4.5.5 edit is still applied on this machine so the live pass
+  measures the bridge alone; reinstall/update GW2_UI to restore the stock files
+  after that pass.
+- **Out of scope (third-party, not ours):** 86x GW2_UI
+  `Button:SetPassThroughButtons` map-pin error (badAddons GW2_UI +
+  TalentTreeTweaks), 2x TalentTreeTweaks
+  `MultiBarBottomRightButton1:SetShown`, 1x APR `StepUtils`. We do not patch
+  these; report them to those addons.
+- No wire, protocol, schema, rotation or addon-message change. Live checks OWED:
+  `docs/TESTING.md` §3w.
 
 ## v4.5.6 "Voidlight" - quiet logs (bridge 4.5.2, no wire change)
 
@@ -89,6 +123,11 @@ live `toggles:` summary and the status card still reads
 
 ## v4.5.5 "Voidlight" - GW2_UI taint root hotfix, 4.5.4 diagnosis corrected
 
+> **Removed in 4.5.7:** the patch tool is no longer shipped and is not run. The
+> bridge's own cooldown shim covers the cooldown paths (see v4.5.7 above); the
+> companion does not modify third-party addons. The text below is the 4.5.5
+> record, kept for history.
+
 4.5.4's bridge guard stops the assisted-combat frame's own tick/cascade, but the
 **3,619** `SetCooldown` errors came from Blizzard's shared
 `ActionBarButtonEventsFrame`: once GW2_UI's
@@ -96,14 +135,16 @@ live `toggles:` summary and the status card still reads
 protected override bar in combat, the button stayed tainted and every
 `ACTIONBAR_UPDATE_COOLDOWN` threw until reload.
 
-- **Root fix:** `tools/patch-gw2ui-taint.ps1` (attached to the release)
-  comments out that hook and GW2_UI's extra-action
+- **Historical root fix:** `tools/patch-gw2ui-taint.ps1` (attached to the 4.5.5
+  release) comments out that hook and GW2_UI's extra-action
   `ActionButton_UpdateCooldown` call, keeps `*.maxdps-backup-4.5.4` backups,
-  verifies `luac`, is idempotent and supports `-Revert`. Run it after a
-  GW2_UI update, then `/reload`. The local install is already patched.
-- **Bridge 4.5.1 is unchanged:** it still hides the assisted-combat frame while
-  cooldowns are secret, which stops the `SetAttribute` path; it cannot
-  untaint a button, so the GW2_UI hotfix is the root fix.
+  verifies `luac`, is idempotent and supports `-Revert`. **4.5.7 no longer ships
+  or applies this tool** (file deleted); do not run it after a GW2_UI update -
+  the bridge guard covers the cooldown paths. The local GW2_UI edit from the
+  4.5.5 pass is reverted by reinstalling/updating GW2_UI.
+- **Bridge 4.5.1 was unchanged:** it hides the assisted-combat frame while
+  cooldowns are secret, which stops the `SetAttribute` path, but it could not
+  untaint a button - which is why the cooldown shim landed in bridge 4.5.3.
 - No wire, rotation or addon change in this release.
 
 ## v4.5.4 "Voidlight" - secret-cooldown error flood stopped (bridge 4.5.1, no wire change)
@@ -610,6 +651,7 @@ Legacy aliases `/mdb` and `/mdbx` work everywhere below (and `/mcb toggles`,
 | `/mcb heal` | Per curated self-heal entry: known / ready / usable / key / why (slot-8 + SelfHeal2 selection). |
 | `/mcb hpcurve on\|off` | Ext2 HP-curve cell on/off (SavedVariables, default on). |
 | `/mcb diag` | Scrubbed MaxDps internals snapshot. |
+| `/mcb guard` | Secret-cooldown guard report on demand: `secret=yes`, the assisted frames and their buttons, taint sources, `shims=N` (and `shim=yes` per shimmed button). `/mcb guard off\|on` toggles the guard. |
 | `/mcb reset` | Back to defaults (clears calibrate mode). |
 
 ## Combat intelligence (v2.0/v2.1, `[Intelligence] Enabled=1`)
@@ -847,10 +889,10 @@ ring, nothing on disk until you export, no network, no Blizzard values.
 
 ```powershell
 .\tools\install-addon.ps1      # CURRENT: copy MaxDpsCompanionBridge into Interface\AddOns (never touches legacy addons)
-.\tools\publish.ps1            # CURRENT: WinUI 3 4.5.5 "Voidlight" -> dist\MaxDpsCompanion.exe
+.\tools\publish.ps1            # CURRENT: WinUI 3 4.5.7 "Voidlight" -> dist\MaxDpsCompanion.exe
                                 #   (unpackaged, framework-dependent; keeps settings.ini + the Rust
                                 #    mdc-*.exe untouched; asserts MaxDpsCompanion.exe +
-                                #    MaxDpsCompanion.pri; writes VERSION.txt = 4.5.5 Voidlight)
+                                #    MaxDpsCompanion.pri; writes VERSION.txt = 4.5.7 Voidlight)
 .\build.ps1                     # LEGACY: publishes the frozen 3.7.9 WinForms client to dist-legacy\
 ```
 

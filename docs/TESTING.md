@@ -755,12 +755,14 @@ Offline (see HANDOVER/final report): build 0/0, `dotnet test`, snapshots at
 
 ### 3u. 4.5.4 "Voidlight" secret-cooldown flood guard (bridge 4.5.1, live 12.1.5, OWED)
 
-0. **Root fix first.** If GW2_UI is installed, run
-   `pwsh tools/patch-gw2ui-taint.ps1` once (it backs up
-   `Core/API/utils.lua` and `Games/Modern/Actionbar/extraAB_bossAB.lua` as
-   `*.maxdps-backup-4.5.4`), then `/reload`. This comments out the
-   `OverrideActionBar` hooks that taint the override buttons; the bridge guard
-   alone cannot untaint an already-poisoned button.
+0. **No third-party patch (4.5.7).** Do **not** apply the 4.5.5 GW2_UI taint
+   hotfix: that tool is deleted and the companion no longer modifies any other
+   addon. 4.5.7 answers the shared-frame route with the bridge cooldown shim
+   (§3w) - clean bars are untouched and the shim only appears on buttons the
+   client reports as tainted. If a GW2_UI-installed client still logs the flood,
+   capture `/mcb guard` and report it; restoring GW2_UI
+   (`*.maxdps-backup-4.5.4` backups from the 4.5.5 pass) is the compatibility
+   path, not a MaxDps patch.
 1. **Reproduce the old condition.** In a restricted/instance fight (where
    `C_Secrets.ShouldCooldownsBeSecret()` is true) let the companion press. The
    game must **not** log the repeating
@@ -803,6 +805,47 @@ Offline (see HANDOVER/final report): build 0/0, `dotnet test`, snapshots at
    `Defensive, Trinket switched OFF in the in-game addon`.
 5. **Details/status unchanged.** Details still shows the live `toggles:` summary
    and the status card still reads `holding - Main off in game`.
+
+### 3w. 4.5.7 "Voidlight" cooldown shim (bridge 4.5.3, live 12.1.5, OWED)
+
+Precondition: GW2_UI installed (it taints the bars), an action bar with normal,
+charge and override/extra buttons, and a fight where
+`C_Secrets.ShouldCooldownsBeSecret()` is true (restricted/instance content).
+
+1. **The error flood stops.** With the companion pressing in combat, the
+   `Blizzard_ActionBar/Shared/ActionButton.lua:847 SetCooldown ... Secret values
+   are only allowed during untainted execution` counter must **not increase**
+   while you press/cast. (4.5.5's hotfix tool is removed; this must hold on a
+   stock GW2_UI with the bridge alone. The local 4.5.5 edit may still be applied
+   for this pass - record which one you tested.)
+2. **The shim is visible on demand.** `/mcb guard` shows `shims>0` and names
+   `shim=yes` on the affected buttons, with the taint source. The shim wraps the
+   normal, charge and loss-of-control cooldown frames of each affected button.
+3. **Clean bars are untouched.** On a character/UI with no tainted bar addon (or
+   after disabling the bar addon and `/reload`), the stock cooldown swipe still
+   animates normally and `/mcb guard` shows `shims=0`; no `shim=yes` appears on
+   the main bar.
+4. **No new block.** The game must not log a new `ADDON_ACTION_BLOCKED` naming
+   `MaxDpsCompanionBridge` (in particular none on `SetCooldown`).
+5. **Override / extra coverage.** Enter a vehicle or an encounter with an
+   override bar and press through it, then use one encounter extra-action
+   button. `OverrideActionBarButton` / `ExtraActionButton` are covered whenever
+   secrets are active: `shim=yes` on them and no `ActionButton.lua:847` errors.
+6. **Silent.** No `[taint]`/guard chat line appears at any point; only the
+   command you type produces output. `/mcb guard off` prints one confirmation
+   and the stock refresh returns; `/mcb guard on` re-arms.
+
+**Third-party, NOT ours (do not patch, do not report as a MaxDps defect):**
+
+- 86x GW2_UI `Button:SetPassThroughButtons` map-pin error - badAddons
+  GW2_UI + TalentTreeTweaks interaction.
+- 2x TalentTreeTweaks `MultiBarBottomRightButton1:SetShown`.
+- 1x APR `StepUtils`.
+
+If these appear in the same session, report which addon the client blames and
+leave it to those addons; the 4.5.7 scope is only the `SetCooldown` secret
+flood. The 4.5.5 third-party patch tool no longer exists - do not recreate or
+re-run it.
 
 ## 4. macOS client (live retail, OWED)
 

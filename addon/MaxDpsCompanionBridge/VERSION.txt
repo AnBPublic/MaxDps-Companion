@@ -1,3 +1,24 @@
+4.5.3
+date: 2026-10-26 "Voidlight"
+git: v4.5.7 (companion) / bridge 4.5.3
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED - v5 core 35 + Ext2 40 + Ext3 43 + Ext4 51 (51-cell strip).
+v4.5.3: Companion 4.5.7 "Voidlight" / bridge 4.5.3. SecretGuard cooldown shim,
+          NO wire change and NO rotation change.
+          SecretGuard now wraps the cooldown frames (normal/charge/loss-of-control)
+          of action buttons the client reports as tainted by another addon and
+          sanitizes secret arguments to Clear()/SetCooldown(0, 0) while secrets are active,
+          stopping the ~3,686 ActionButton.lua:847 SetCooldown "Secret values are
+          only allowed during untainted execution" errors. GW2_UI taints the
+          bars; clean bars are untouched. OverrideActionBarButton/
+          ExtraActionButton are covered whenever secrets are active, standard
+          buttons only when the button or an ancestor (including addon-created
+          parent frames) is reported tainted. The guard stays silent; /mcb guard
+          reports shims=N on demand. tools/patch-gw2ui-taint.ps1 is removed - the
+          companion no longer patches third-party addons. Remaining GW2_UI
+          SetPassThroughButtons, TalentTreeTweaks SetShown and APR StepUtils
+          errors are third-party and out of scope.
+
 4.5.0
 date: 2026-10-25 "Voidlight"
 git: v4.5.0 (release branch)
