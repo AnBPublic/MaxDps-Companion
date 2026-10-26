@@ -18,20 +18,24 @@ in-game secret-cooldown error flood, NO wire change and NO rotation change.
 ### Fixed
 
 - **The thousands of `ActionButton.lua:847 SetCooldown ... Secret values are
-  only allowed during untainted execution` errors stop.** Blizzard's
-  Single-Button Assistant attaches an assisted-combat frame to the action
-  button it is showing; that frame's `OnUpdate` calls
-  `ActionButton_UpdateCooldown` / `UpdatePressAndHoldAction` at
-  `assistedCombatIconUpdateRate` (MaxDps sets 0.15 s). When a bar addon has
-  tainted that button, every tick throws. The live session logged 3,619 copies
-  on `OverrideActionBarButton2`, one per 0.15 s tick, plus the matching
-  `ADDON_ACTION_BLOCKED` for `SetAttribute`.
+  only allowed during untainted execution` errors stop.** The 3,619 copies in
+  the live session came from Blizzard's shared
+  `ActionBarButtonEventsFrame` (`ActionButton.lua:967 OnEvent` -> `:223`) ->
+  `ActionButton_UpdateCooldown` (842) -> `ApplyCooldown` (866) ->
+  `SetCooldown` (847) on `OverrideActionBarButton2`. A second path was the
+  assisted-combat frame's `OnUpdate` (`ActionButton.lua:1880`) ->
+  `OnActionBarSlotChanged` -> `Update` -> `UpdatePressAndHoldAction` ->
+  `SetAttribute` (one `ADDON_ACTION_BLOCKED`). Both are consequences of a
+  tainted override button; the target button/store does not come from the
+  companion's key path.
 - **Bridge 4.5.1 adds `SecretGuard.lua`.** While cooldowns are secret it hides
   the assisted-combat frame on override/vehicle/extra buttons, and on any
   button where the client's `issecurevariable` names a taint source. WoW does
-  not run `OnUpdate` on hidden frames, so the tick and the flood stop. Clean
-  main/multi-bar buttons are left untouched, the `C_AssistedCombat` API still
-  returns the next spell, and the companion keeps pressing normally.
+  not run `OnUpdate` on hidden frames, so the assisted-frame tick and its
+  cascade stop. Clean main/multi-bar buttons are left untouched, the
+  `C_AssistedCombat` API still returns the next spell, and the companion keeps
+  pressing normally. Hiding cannot untaint an already-poisoned button, so the
+  shared-frame `SetCooldown` path also needs the GW2_UI hotfix below.
 - **The taint source is named.** `/mcb guard` prints the secret predicate,
   `assistedCombatIconUpdateRate`, every assisted frame, its parent button and
   the addon the client blames; `/mcb guard off` restores the stock
