@@ -56,6 +56,19 @@ DONE
   addons; `/mcb guard on|off` toggles `DB.TaintGuard` (default true).
 - `Bridge.lua` `Defaults.TaintGuard = true`; TOC + `MDCB.VERSION` 4.5.1;
   `InGame.xml` loads `SecretGuard.lua` after `Bars.lua`.
+- **Follow-up root fix (same day).** The guard stops the assisted-combat
+  frame's own tick/cascade, but the shared `ActionBarButtonEventsFrame`
+  `ACTIONBAR_UPDATE_COOLDOWN` dispatch is a second route: once the parent
+  button itself is tainted, Blizzard's `SetCooldown` keeps throwing until
+  `/reload`, and the addon cannot untaint it. The root in this setup is GW2_UI
+  `Core/API/utils.lua` `normPetAndOverride`:
+  `OverrideActionBar:HookScript("OnShow"/"OnHide", ...)` calls `Hide()` on the
+  protected bar from tainted code in combat. `Games/Modern/Actionbar/
+  extraAB_bossAB.lua` also calls `ActionButton_UpdateCooldown(button)` from its
+  `ExtraAbilityContainer:AddFrame` hook. Both paths are commented out locally
+  with `tools/patch-gw2ui-taint.ps1` (backups `*.maxdps-backup-4.5.4`,
+  idempotent, `-Revert` restores). The tool is a third-party compatibility
+  patch, not part of the addon zip; run it after a GW2_UI update and `/reload`.
 - Companion 4.5.4 identity/changelog/README/VERSION/HANDOVER/TESTING §3u.
 
 VERIFY (this machine, 2026-10-26)
@@ -66,11 +79,17 @@ VERIFY (this machine, 2026-10-26)
 - `tools/ability_audit.ps1`: clean (0 violations/warnings/missing/stale).
 - `--ui-smoke-test` / `--ui-smoke-test --exp`: PASS, title
   `MaxDPS Companion v4.5.4 Voidlight`.
+- `tools/patch-gw2ui-taint.ps1` on a temp GW2_UI fixture: patched both files,
+  `luac` parse OK, second run no-op, `-Revert` restored both backups.
+- Live GW2_UI files patched and `luac -p` clean:
+  `Core/API/utils.lua` (override-bar hooks commented) and
+  `Games/Modern/Actionbar/extraAB_bossAB.lua` (cooldown call/frame pokes
+  commented). The game was not running; `/reload` is still required.
 
-OWED (live retail 12.1.5) - `docs/TESTING.md` §3u: in a restricted/instance
-fight, confirm the `[taint]` line, confirm the SetCooldown error count stops,
-and run `/mcb guard` to capture the tainted button/source. `/mcb guard off`
-must restore the stock assisted-combat refresh.
+OWED (live retail 12.1.5) - `docs/TESTING.md` §3u: after a `/reload`, in a
+restricted/instance fight, confirm the `[taint]` line and that the SetCooldown
+count stops; `/mcb guard` must name the tainted button/source if anything is
+still tainted. `/mcb guard off` must restore the stock assisted-combat refresh.
 
 ROLLED OUT (2026-10-26, primary checkout `A:\AI\GitHub\WoW-Companions\MaxDps-Companion`)
 - PR #13 merged to `master` (`5252346`), CI green on Windows + macOS; tag
@@ -86,6 +105,12 @@ ROLLED OUT (2026-10-26, primary checkout `A:\AI\GitHub\WoW-Companions\MaxDps-Com
 - Shipped smoke: `--ui-smoke-test` **PASS**, title
   `MaxDPS Companion v4.5.4 Voidlight`; a fresh 4.5.4 instance runs from `dist\`
   (PID 36060).
+- GW2_UI root hotfix applied locally: `Core/API/utils.lua` (override-bar
+  hooks) and `Games/Modern/Actionbar/extraAB_bossAB.lua` (extra-action cooldown
+  call/frame pokes) patched by `tools/patch-gw2ui-taint.ps1`; backups
+  `*.maxdps-backup-4.5.4` kept; `luac -p` clean. The tool is committed on
+  `master` and attached to the v4.5.4 release; the game needs `/reload` (it was
+  not running at rollout time).
 - Live guard confirmation is still OWED (§3u); the WoW client was not running
   at rollout time.
 

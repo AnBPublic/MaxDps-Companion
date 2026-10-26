@@ -54,6 +54,18 @@ in-game secret-cooldown error flood, NO wire change and NO rotation change.
   disable the named bar addon. Live confirmation of the guard stays OWED
   (`docs/TESTING.md` §3u).
 
+> **Follow-up (2026-10-26, same release).** The guard stops the
+> assisted-combat frame's own tick/cascade, but the shared
+> `ActionBarButtonEventsFrame` `ACTIONBAR_UPDATE_COOLDOWN` path is a second
+> route: once the parent button itself is tainted, Blizzard's handler keeps
+> throwing until `/reload`, and no addon can untaint it. The root in this setup
+> was GW2_UI's `OverrideActionBar:HookScript("OnShow"/"OnHide", ...)` (it calls
+> `Hide()` on the protected bar in combat) plus its extra-action
+> `ActionButton_UpdateCooldown` call. `tools/patch-gw2ui-taint.ps1` comments
+> both out, keeps `*.maxdps-backup-4.5.4` backups, and is idempotent. Run it
+> once after a GW2_UI update, then `/reload`. This is a third-party
+> compatibility patch, not part of the addon zip.
+
 ## 4.5.3 Voidlight - 2026-10-26
 
 **Companion 4.5.3 "Voidlight" / bridge 4.5.0 (unchanged).** Diagnostics and

@@ -751,6 +751,12 @@ Offline (see HANDOVER/final report): build 0/0, `dotnet test`, snapshots at
 
 ### 3u. 4.5.4 "Voidlight" secret-cooldown flood guard (bridge 4.5.1, live 12.1.5, OWED)
 
+0. **Root fix first.** If GW2_UI is installed, run
+   `pwsh tools/patch-gw2ui-taint.ps1` once (it backs up
+   `Core/API/utils.lua` and `Games/Modern/Actionbar/extraAB_bossAB.lua` as
+   `*.maxdps-backup-4.5.4`), then `/reload`. This comments out the
+   `OverrideActionBar` hooks that taint the override buttons; the bridge guard
+   alone cannot untaint an already-poisoned button.
 1. **Reproduce the old condition.** In a restricted/instance fight (where
    `C_Secrets.ShouldCooldownsBeSecret()` is true) let the companion press. The
    game must **not** log the repeating
