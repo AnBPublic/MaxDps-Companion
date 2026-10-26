@@ -1,3 +1,17 @@
+4.5.5
+Date: 2026-10-26 - "Voidlight"
+Companion 4.5.5 "Voidlight" / bridge 4.5.1 (unchanged). Diagnosis correction +
+GW2_UI compatibility hotfix packaging; NO wire change and NO rotation change.
+- The 3,619 SetCooldown errors came from Blizzard's shared
+  ActionBarButtonEventsFrame after GW2_UI's OverrideActionBar:HookScript called
+  Hide() on the protected bar in combat. The assisted-combat OnUpdate/SetAttribute
+  block was the second path. The bridge 4.5.1 guard stops the assisted-frame
+  cascade but cannot untaint an already-poisoned button.
+- tools/patch-gw2ui-taint.ps1 comments out GW2_UI's override-bar hooks and the
+  extra-action ActionButton_UpdateCooldown call, keeps *.maxdps-backup-4.5.4,
+  checks luac, is idempotent and supports -Revert. Run it after a GW2_UI update
+  and /reload. The local install was patched; live confirmation OWED (TESTING 3u).
+
 4.5.4
 Date: 2026-10-26 - "Voidlight"
 Companion 4.5.4 "Voidlight" / bridge 4.5.1 (ADDON UPDATE). Stops the in-game

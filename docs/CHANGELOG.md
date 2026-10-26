@@ -10,6 +10,47 @@ Format: Keep a Changelog sections (`Added` / `Changed` / `Fixed` / `Removed`)
 per release, plus the identity + wire line. The complete pre-4.0 history lives
 in [`../VERSION.txt`](../VERSION.txt) and `docs/archive/HANDOVER-history.md`.
 
+## 4.5.5 Voidlight - 2026-10-26
+
+**Companion 4.5.5 "Voidlight" / bridge 4.5.1 (unchanged).** Diagnosis
+correction + GW2_UI compatibility hotfix packaging, NO wire change and NO
+rotation change.
+
+### Fixed
+
+- **Corrects the 4.5.4 stack split.** The 3,619
+  `ActionButton.lua:847 SetCooldown ... Secret values are only allowed during
+  untainted execution` copies came from Blizzard's shared
+  `ActionBarButtonEventsFrame` (`ActionButton.lua:967 OnEvent` -> `:223`) ->
+  `ActionButton_UpdateCooldown` (842) -> `ApplyCooldown` (866) ->
+  `SetCooldown` (847) on `OverrideActionBarButton2`. The assisted-combat frame
+  was the second path (`:1880 OnUpdate` -> ... -> `SetAttribute`, one
+  `ADDON_ACTION_BLOCKED`). Both follow from a tainted override button; the
+  companion's key path is not the cause.
+- **The root was GW2_UI.** `Core/API/utils.lua` `normPetAndOverride` installs
+  `OverrideActionBar:HookScript("OnShow"/"OnHide", ...)` and calls `Hide()` on
+  the protected bar from tainted code in combat; its extra-action
+  `AddFrame` hook also calls `ActionButton_UpdateCooldown(button)`. The
+  bridge guard hides the assisted-combat frame (stops that cascade), but no
+  addon can untaint an already-poisoned button.
+
+### Added
+
+- **`tools/patch-gw2ui-taint.ps1`** (attached to the release): comments out
+  both GW2_UI paths, keeps `*.maxdps-backup-4.5.4` backups, verifies `luac -p`,
+  is idempotent and supports `-Revert`. Run it after a GW2_UI update, then
+  `/reload`.
+- The local GW2_UI install was patched on 2026-10-26; the game needs a reload.
+
+### Details
+
+- No engine, scheduler, key-delivery, protocol or addon change: bridge stays
+  **4.5.1**, strip stays 51 cells / protocol v5 + Ext2/Ext3/Ext4.
+- `docs/TESTING.md` §3u step 0 is the GW2_UI hotfix; live confirmation stays
+  OWED.
+- The in-app changelog is corrected here so a future GW2_UI update does not
+  lose the root-cause note.
+
 ## 4.5.4 Voidlight - 2026-10-26
 
 **Companion 4.5.4 "Voidlight" / bridge 4.5.1.** Bridge-only fix for the

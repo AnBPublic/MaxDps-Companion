@@ -1,5 +1,5 @@
 > [!IMPORTANT]
-> **Current client: 4.5.4 "Voidlight"** - the WinUI 3 Windows client
+> **Current client: 4.5.5 "Voidlight"** - the WinUI 3 Windows client
 > (`app/MaxDpsCompanion/`), the shared brain (`app/MaxDpsCompanion.Core/`) and the
 > macOS client (`app/MaxDpsCompanion.Mac/`, still `4.4.0 "Wayfinder"`), targeting
 > `MaxDpsCompanionBridge` + `dist`. **C# is the long-term base.** Frozen: the
@@ -46,7 +46,7 @@
 > [`app/MaxDpsCompanion.Mac/README.md`](app/MaxDpsCompanion.Mac/README.md);
 > live retail checks are OWED (`docs/TESTING.md` §4).
 
-# MaxDPS Companion (Retail Midnight 12.1.5, v4.5.4 "Voidlight")
+# MaxDPS Companion (Retail Midnight 12.1.5, v4.5.5 "Voidlight")
 
 Pixel bridge driver for [kaminaris MaxDps](https://www.curseforge.com/wow/addons/maxdps)
 (vendor pin: MaxDps v11.3.49). No memory read, no injection, no OCR, no LLM.
@@ -63,6 +63,25 @@ Two pieces:
 The legacy `MaxDpsBridge` addon (`addon/legacy/MaxDpsBridge/`, 40-cell strip) and the
 old WinForms client (`dist-legacy/`) are **legacy/frozen**; all current work targets
 `MaxDpsCompanionBridge` + `dist`.
+
+## v4.5.5 "Voidlight" - GW2_UI taint root hotfix, 4.5.4 diagnosis corrected
+
+4.5.4's bridge guard stops the assisted-combat frame's own tick/cascade, but the
+**3,619** `SetCooldown` errors came from Blizzard's shared
+`ActionBarButtonEventsFrame`: once GW2_UI's
+`OverrideActionBar:HookScript("OnShow"/"OnHide", ...)` called `Hide()` on the
+protected override bar in combat, the button stayed tainted and every
+`ACTIONBAR_UPDATE_COOLDOWN` threw until reload.
+
+- **Root fix:** `tools/patch-gw2ui-taint.ps1` (attached to the release)
+  comments out that hook and GW2_UI's extra-action
+  `ActionButton_UpdateCooldown` call, keeps `*.maxdps-backup-4.5.4` backups,
+  verifies `luac`, is idempotent and supports `-Revert`. Run it after a
+  GW2_UI update, then `/reload`. The local install is already patched.
+- **Bridge 4.5.1 is unchanged:** it still hides the assisted-combat frame while
+  cooldowns are secret, which stops the `SetAttribute` path; it cannot
+  untaint a button, so the GW2_UI hotfix is the root fix.
+- No wire, rotation or addon change in this release.
 
 ## v4.5.4 "Voidlight" - secret-cooldown error flood stopped (bridge 4.5.1, no wire change)
 

@@ -7,7 +7,7 @@ by release name or date before re-investigating an old problem.
 
 ## CLIENT STATUS (current)
 
-- **Current (Windows):** `4.5.4 "Voidlight"` - `app/MaxDpsCompanion/` (WinUI 3
+- **Current (Windows):** `4.5.5 "Voidlight"` - `app/MaxDpsCompanion/` (WinUI 3
   Windows client) + `app/MaxDpsCompanion.Core/` (shared brain) +
   `addon/MaxDpsCompanionBridge/` (4.5.1) + `dist/`. **C# is the long-term base**
   (decision 2026-10-17).
@@ -26,7 +26,46 @@ by release name or date before re-investigating an old problem.
 - Wire: protocol v5 + Ext2/Ext3/Ext4 (51 cells), unchanged since 4.0.3. Any wire change is an
   architect-trigger task (`AGENTS.md`).
 
-## 2026-10-26 RELEASE 4.5.4 "VOIDLIGHT" (secret-cooldown flood guard; bridge 4.5.1; NO wire change)
+## 2026-10-26 RELEASE 4.5.5 "VOIDLIGHT" (GW2_UI taint root hotfix; bridge 4.5.1 unchanged; NO wire change)
+
+Correction release after 4.5.4 shipped. The bridge guard stops the
+assisted-combat frame's tick/cascade, but the 3,619 `SetCooldown` errors came
+from Blizzard's shared `ActionBarButtonEventsFrame`: once the override button
+was tainted, `ACTIONBAR_UPDATE_COOLDOWN` kept throwing until `/reload`. The
+root was GW2_UI (`Core/API/utils.lua` `OverrideActionBar:HookScript(...)` calls
+`Hide()` on the protected bar in combat; the extra-action `AddFrame` hook calls
+`ActionButton_UpdateCooldown`). Branch `release/v4.5.5-gw2ui-hotfix`.
+Identity: csproj 4.5.5, bridge **4.5.1** (unchanged), no wire change.
+
+DONE
+- `tools/patch-gw2ui-taint.ps1`: idempotent, backs up
+  `*.maxdps-backup-4.5.4`, comments out both GW2_UI paths, `luac -p` check,
+  `-Revert` restores. Tested on a temp GW2_UI fixture (patch, second-run no-op,
+  revert) and on the live install (already patched).
+- Local GW2_UI patched: `Core/API/utils.lua` (override-bar hooks) and
+  `Games/Modern/Actionbar/extraAB_bossAB.lua` (extra-action cooldown call/frame
+  pokes); backups kept; parse clean. `/reload` required (game was not running).
+- Changelog/README/VERSION/ReleaseNotes 4.5.5 + `docs/TESTING.md` §3u step 0;
+  4.5.4 stack split corrected (shared frame vs assisted frame).
+- GitHub v4.5.4 release body corrected and `patch-gw2ui-taint.ps1` attached as
+  an asset (tag `v4.5.4` remains; the tool is on `master`/release assets).
+
+VERIFY (this machine, 2026-10-26)
+- `dotnet build app/MaxDpsCompanion -c Release`: 0 warnings / 0 errors.
+- `dotnet test -c Release`: 1119 passed / 0 failed (ReleaseIdentity 4.5.5).
+- `--ui-smoke-test` / `--ui-smoke-test --exp`: PASS, title
+  `MaxDPS Companion v4.5.5 Voidlight`.
+- `lua tests/secret_harness.lua`: 415 passed / 0 failed (bridge unchanged).
+- `luac -p` bridge + patched GW2_UI files: clean.
+- `tools/patch-gw2ui-taint.ps1` on a temp GW2_UI fixture: patched, parse OK,
+  second run no-op, `-Revert` restored; live install reports already patched.
+
+OWED (live retail 12.1.5) - `docs/TESTING.md` §3u: launch/reload with the
+patched GW2_UI, fight in restricted content, confirm the SetCooldown count
+stops; `/mcb guard` must show the taint state. The addon cannot untaint a
+button from a previous session; a reload is mandatory.
+
+
 
 Live 12.1.5 report: while the companion pressed in combat the game logged
 `ActionButton.lua:847 SetCooldown ... Secret values are only allowed during
