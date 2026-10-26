@@ -29,6 +29,16 @@ internal static class ReleaseNotes
     public static readonly IReadOnlyList<Release> All = new[]
     {
         new Release(
+            "4.5.5", "Voidlight", "2026-10-26",
+            "Corrects the taint diagnosis and ships the GW2_UI hotfix tool.",
+            new[]
+            {
+                "The 3,619 SetCooldown errors came from the shared ActionBarButtonEventsFrame after GW2_UI's OverrideActionBar:HookScript called Hide() on the protected bar in combat; the bridge 4.5.1 guard stops the assisted-frame cascade but cannot untaint a button.",
+                "tools/patch-gw2ui-taint.ps1 comments out the GW2_UI override-bar hooks and the extra-action ActionButton_UpdateCooldown call, keeps *.maxdps-backup-4.5.4 backups, and is idempotent. Run it after a GW2_UI update, then /reload.",
+                "No wire, rotation or addon change: the in-game bridge stays 4.5.1 and the strip is unchanged.",
+                "If the error persists, run /mcb guard and send the tainted button/source line.",
+            }),
+        new Release(
             "4.5.4", "Voidlight", "2026-10-26",
             "Stops the in-game secret-cooldown error flood (bridge 4.5.1).",
             new[]
