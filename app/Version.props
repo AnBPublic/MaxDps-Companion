@@ -7,7 +7,7 @@
          <Import Project="../Version.props" />            (Core, one level down)
          <Import Project="../../Version.props" />         (tests, two levels down) -->
   <PropertyGroup>
-    <Version>4.5.7</Version>
+    <Version>4.5.8</Version>
     <Codename>Voidlight</Codename>
   </PropertyGroup>
   <ItemGroup>

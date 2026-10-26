@@ -806,7 +806,7 @@ Offline (see HANDOVER/final report): build 0/0, `dotnet test`, snapshots at
 5. **Details/status unchanged.** Details still shows the live `toggles:` summary
    and the status card still reads `holding - Main off in game`.
 
-### 3w. 4.5.7 "Voidlight" cooldown shim (bridge 4.5.3, live 12.1.5, OWED)
+### 3w. 4.5.7/4.5.8 "Voidlight" cooldown shim (bridge 4.5.3/4.5.4, live 12.1.5, OWED)
 
 Precondition: GW2_UI installed (it taints the bars), an action bar with normal,
 charge and override/extra buttons, and a fight where
@@ -821,6 +821,11 @@ charge and override/extra buttons, and a fight where
 2. **The shim is visible on demand.** `/mcb guard` shows `shims>0` and names
    `shim=yes` on the affected buttons, with the taint source. The shim wraps the
    normal, charge and loss-of-control cooldown frames of each affected button.
+2b. **Main bar covered (4.5.8).** `/mcb guard` shows `shim=yes` on
+   `ActionButton1` (and the rest of the ActionButton family), and the
+   `ActionButton1Cooldown` / `ActionButton.lua:847` counter stays flat through
+   one combat. 4.5.8 scans the GW2_UI `gw_` marker keys and propagates taint
+   across the whole family.
 3. **Clean bars are untouched.** On a character/UI with no tainted bar addon (or
    after disabling the bar addon and `/reload`), the stock cooldown swipe still
    animates normally and `/mcb guard` shows `shims=0`; no `shim=yes` appears on

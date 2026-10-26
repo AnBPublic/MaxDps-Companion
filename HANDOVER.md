@@ -5,6 +5,57 @@ Read order: this file -> `ARCHITECTURE.md` -> `docs/PROTOCOL.md`. Full history
 [`docs/archive/HANDOVER-history.md`](docs/archive/HANDOVER-history.md); search it
 by release name or date before re-investigating an old problem.
 
+## 2026-10-26 RELEASE 4.5.8 "VOIDLIGHT" (main-bar cooldown shim; bridge 4.5.4; NO wire change)
+
+Live 12.1.5 follow-up to 4.5.7: the multibar flood stopped, but **83**
+`ActionButton.lua:847 SetCooldown ... Secret values are only allowed during
+untainted execution` errors remained on `ActionButton1Cooldown`. GW2_UI styles
+the main bar **in place** (`Games/Modern/Actionbar/actionbars.lua`
+`updateMainBar`): the button keeps Blizzard's `MainActionBar` parent, and
+`btn:SetScript("OnUpdate", nil)` leaves no Lua field for `issecurevariable`,
+so 4.5.7's button/ancestor probe missed it. Branch
+`release/v4.5.8-mainbar-shim`. Identity: csproj 4.5.8, bridge **4.5.4**, no
+wire change.
+
+DONE
+- **GW2_UI marker scan.** `HasThirdPartyMarker` iterates the frame's keys only
+  and treats a `gw_` key as a third-party marker (`gw_ShowMacroName`,
+  `gw_ChangedColor`, `gw_HkBg`, `MainActionBar.gw_Buttons`, ...). It never reads
+  the value because a `gw_` value can be secret.
+- **Family propagation.** If one button in a `BUTTONS` family is tainted, every
+  button in that family is shimmed; GW2_UI styles all 12 buttons in one pass.
+  Clean families are untouched.
+- **10 s clean-verdict TTL.** A clean verdict expires so a marker added after
+  the first scan is picked up; tainted/shimmed verdicts stay cached until the
+  existing bar/spec/secret events.
+- **Same policy as 4.5.7.** Normal/charge/loss-of-control cooldown frames only;
+  override/extra buttons always covered while secrets are active; secret args
+  cleared with `Clear()`/`SetCooldown(0, 0)`; plain calls pass through; no wire
+  change; guard silent; `/mcb guard` reports `shims=N`/`shim=yes`.
+- **No third-party patch.** `tools/patch-gw2ui-taint.ps1` remains deleted; the
+  companion does not modify GW2_UI/TalentTreeTweaks/APR. The local GW2_UI
+  4.5.5 edit is still applied on this machine; restore stock GW2_UI by
+  reinstalling/updating it after the live pass.
+- Tests: `tests/secret_harness.lua` 448 (8 new main-bar/marker/TTL checks);
+  xUnit 1123.
+
+VERIFY (this machine, 2026-10-26)
+- `dotnet build app/MaxDpsCompanion -c Release`: 0 warnings / 0 errors.
+- `dotnet test -c Release`: 1123 passed / 0 failed.
+- `lua tests/secret_harness.lua`: 448 passed / 0 failed (8 new checks).
+- `luac -p` bridge files: 16 files, 0 failed.
+- `pwsh tools/ability_audit.ps1`: 0 violations / 0 warnings; catalog matches.
+- `--ui-smoke-test` / `--ui-smoke-test --exp`: PASS both, title
+  `MaxDPS Companion v4.5.8 Voidlight`.
+
+OWED (live retail 12.1.5) - `docs/TESTING.md` §3w
+- In combat with secrets active, the `ActionButton.lua:847` counter must not
+  increase on `ActionButton1` / `ActionButton1Cooldown`.
+- `/mcb guard` must show `shim=yes` on `ActionButton1` (and the rest of the
+  ActionButton family).
+- No new `ADDON_ACTION_BLOCKED` naming `MaxDpsCompanionBridge`.
+- A clean bar still animates; one override/extra bar exercised.
+
 ## 2026-10-26 RELEASE 4.5.7 "VOIDLIGHT" (bridge cooldown shim; bridge 4.5.3; NO wire change)
 
 Live 12.1.5 follow-up to 4.5.5/4.5.6: the **3,686**
@@ -85,13 +136,13 @@ ROLLED OUT (2026-10-26, primary checkout `A:\AI\GitHub\WoW-Companions\MaxDps-Com
 
 ## CLIENT STATUS (current)
 
-- **Current (Windows):** `4.5.7 "Voidlight"` - `app/MaxDpsCompanion/` (WinUI 3
+- **Current (Windows):** `4.5.8 "Voidlight"` - `app/MaxDpsCompanion/` (WinUI 3
   Windows client) + `app/MaxDpsCompanion.Core/` (shared brain) +
-  `addon/MaxDpsCompanionBridge/` (4.5.3) + `dist/`. **C# is the long-term base**
+  `addon/MaxDpsCompanionBridge/` (4.5.4) + `dist/`. **C# is the long-term base**
   (decision 2026-10-17).
 - **macOS:** `4.5.5 "Voidlight"` (Apple Silicon, ad-hoc signed, not
   notarized); bridge 4.5.1. The Mac host keeps its Avalonia shell (the Windows
-  4.5.x Midnight UI is not ported). `app/Version.props` is now 4.5.7 (shared
+  4.5.x Midnight UI is not ported). `app/Version.props` is now 4.5.8 (shared
   with the Windows build and guarded against drift by
   `ReleaseIdentityTests`); the macOS binary stays 4.5.5 until its next cut.
 - **Changelog norm (since 4.5.0):** every release adds

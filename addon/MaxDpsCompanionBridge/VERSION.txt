@@ -1,3 +1,19 @@
+4.5.4
+date: 2026-10-26 "Voidlight"
+git: v4.5.8 (companion) / bridge 4.5.4
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED - v5 core 35 + Ext2 40 + Ext3 43 + Ext4 51 (51-cell strip).
+v4.5.4: Companion 4.5.8 "Voidlight" / bridge 4.5.4. Main-bar completion of the
+          cooldown shim. GW2_UI styles the main bar in place; ActionButton1
+          keeps Blizzard's MainActionBar parent and SetScript("OnUpdate", nil)
+          leaves no issecurevariable field. SecretGuard now scans addon-created
+          gw_ keys (keys only; a gw_ value may be secret) and shims the whole
+          button family when one member is tainted; clean families untouched.
+          Clean verdicts expire after 10 s so a late gw_ marker is picked up.
+          Stops the remaining 83 ActionButton.lua:847 SetCooldown secret-value
+          errors on ActionButton1Cooldown. No wire change; guard silent;
+          /mcb guard reports shims=N. No third-party addon is patched.
+
 4.5.3
 date: 2026-10-26 "Voidlight"
 git: v4.5.7 (companion) / bridge 4.5.3

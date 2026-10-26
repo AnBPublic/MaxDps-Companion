@@ -1,5 +1,5 @@
 > [!IMPORTANT]
-> **Current client: 4.5.7 "Voidlight"** (bridge **4.5.3**) - the WinUI 3 Windows
+> **Current client: 4.5.8 "Voidlight"** (bridge **4.5.4**) - the WinUI 3 Windows
 > client (`app/MaxDpsCompanion/`), the shared brain (`app/MaxDpsCompanion.Core/`)
 > and the macOS client (`app/MaxDpsCompanion.Mac/`, `4.5.5 "Voidlight"`), targeting
 > `MaxDpsCompanionBridge` + `dist`. **C# is the long-term base.** Frozen: the
@@ -52,7 +52,7 @@
 > [`app/MaxDpsCompanion.Mac/README.md`](app/MaxDpsCompanion.Mac/README.md);
 > live retail checks are OWED (`docs/TESTING.md` §4).
 
-# MaxDPS Companion (Retail Midnight 12.1.5, v4.5.7 "Voidlight", bridge 4.5.3)
+# MaxDPS Companion (Retail Midnight 12.1.5, v4.5.8 "Voidlight", bridge 4.5.4)
 
 Pixel bridge driver for [kaminaris MaxDps](https://www.curseforge.com/wow/addons/maxdps)
 (vendor pin: MaxDps v11.3.49). No memory read, no injection, no OCR, no LLM.
@@ -69,6 +69,25 @@ Two pieces:
 The legacy `MaxDpsBridge` addon (`addon/legacy/MaxDpsBridge/`, 40-cell strip) and the
 old WinForms client (`dist-legacy/`) are **legacy/frozen**; all current work targets
 `MaxDpsCompanionBridge` + `dist`.
+
+## v4.5.8 "Voidlight" - main-bar completion of the cooldown shim (bridge 4.5.4, no wire change)
+
+4.5.7 fixed the multibar flood but 83 errors remained on **ActionButton1**:
+GW2_UI styles the main bar **in place**, so the button keeps Blizzard's
+`MainActionBar` parent and `SetScript("OnUpdate", nil)` leaves no
+`issecurevariable` field.
+
+- **GW2_UI marker scan.** The guard scans addon-created `gw_` keys (keys only;
+  a `gw_` value may be secret) and treats a whole button family as tainted when
+  one member is, so `ActionButton1-12` and every GW2_UI-styled bar get the same
+  shim. Clean families are untouched.
+- **10 s clean-verdict TTL.** A marker GW2_UI adds after the first scan is
+  picked up; tainted/shimmed verdicts stay cached until the usual bar/spec/
+  secret events.
+- **No third-party patch.** The 4.5.5 GW2_UI tool stays removed; the companion
+  does not modify another addon.
+- No wire, protocol, rotation or addon-message change. `/mcb guard` still
+  reports `shims=N`/`shim=yes`; live checks OWED (`docs/TESTING.md` §3w).
 
 ## v4.5.7 "Voidlight" - secret-cooldown flood fixed inside the bridge (bridge 4.5.3, no wire change)
 

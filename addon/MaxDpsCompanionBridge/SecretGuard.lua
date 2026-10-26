@@ -1,5 +1,5 @@
 --- ============================ HEADER ============================
--- SecretGuard (bridge 4.5.3) - stops the "Secret values are only allowed
+-- SecretGuard (bridge 4.5.4) - stops the "Secret values are only allowed
 -- during untainted execution" flood that Blizzard's own action-bar code raises
 -- when a UI addon has tainted an action button while 12.x cooldowns are secret.
 --
@@ -36,16 +36,24 @@
 -- for AssistedCombatRotationFrame/cooldown/action/spellID and the script
 -- fields, plus up to three parent frames (SetScript(..., nil) may leave no Lua
 -- field behind, and GW2_UI parents the bars on an addon-created frame, so the
--- ancestor walk also asks issecurevariable(_G, ancestorName)). A source that is
+-- ancestor walk also asks issecurevariable(_G, ancestorName)). 4.5.8 adds the
+-- GW2_UI `gw_` marker scan (keys only - a marker value can be secret) because
+-- GW2_UI styles the main bar IN PLACE: ActionButton1 keeps Blizzard's
+-- MainActionBar parent and its script field can look clean. A source that is
 -- this addon is ignored - our own writes must never trigger the shims. The
 -- cache is dropped on a secret flip, on ADDON_LOADED and on every registered
--- bar event, never per tick.
+-- bar event, never per tick; clean verdicts also expire after 10 s so a late
+-- `gw_` marker is picked up. If one button in a family is tainted, the whole
+-- family is shimmed (GW2_UI styles a bar in one pass); a clean family is left
+-- alone.
 --
 -- Policy (check `/mcb guard`):
 --   * secret cooldowns + an OVERRIDE/VEHICLE/EXTRA button -> shim + hide;
 --   * secret cooldowns + a button the client names as tainted (button or
---     ancestor) -> shim + hide, and the taint source is reported;
---   * clean main/multi-bar buttons are left completely alone.
+--     ancestor, or a GW2_UI `gw_` marker) -> shim + hide, and the taint source
+--     is reported;
+--   * if one button in a family is tainted, the whole family is shimmed;
+--   * a clean family is left completely alone.
 -- `/mcb guard off` disables the guard and leaves the wrappers in place, where
 -- they pass every call straight through so the stock behavior (including the
 -- original error) returns. No wire change, no protected calls, no writes to
@@ -87,6 +95,10 @@ local Hidden = {};
 Guard.Active = false;
 -- Button -> true: the taint/shim decision for this cache generation is made.
 local Checked = setmetatable({}, { __mode = "k" });
+-- Button -> GetTime() of the last clean decision. GW2_UI may add its gw_
+-- markers after a clean scan, so a clean verdict expires; a tainted/shimmed
+-- verdict stays until the existing invalidation events.
+local CleanAt = setmetatable({}, { __mode = "k" });
 -- Frame -> { Tainted, Source, Done, AncestorTainted, AncestorSource }: the
 -- memoised issecurevariable verdict (own fields and, per button, the 3-level
 -- ancestor walk), so the 0.5 s ticker never re-asks the client.
@@ -178,19 +190,41 @@ local function MemoOf (Frame)
   return Entry;
 end
 
+--- GW2_UI (and the Gw2 family) mark their frames with `gw_` keys. The main
+--- action bar is styled IN PLACE, so ActionButton1 keeps Blizzard's
+--- MainActionBar parent and its script field can come back clean from
+--- issecurevariable even though GW2_UI replaced its OnUpdate handler. Iterate
+--- KEYS only - a gw_ value can be secret and even a nil check may throw in
+--- insecure code.
+local function HasThirdPartyMarker (Frame)
+  if type(Frame) ~= "table" then return false; end;
+  local Ok, Found = pcall(function ()
+    for Key in next, Frame do
+      if type(Key) == "string" and Key:sub(1, 3) == "gw_" then return true; end;
+    end;
+    return false;
+  end);
+  return Ok and Found == true;
+end
+
 local function TaintOf (Frame)
   if type(Frame) ~= "table" then return false, nil; end;
   local Cached = TaintMemo[Frame];
   if Cached and Cached.Done then return Cached.Tainted, Cached.Source; end;
-  if type(issecurevariable) ~= "function" then return false, nil; end;
   local Entry = MemoOf(Frame);
   Entry.Done = true;
-  for _, Key in ipairs(TAINT_KEYS) do
-    local Ok, Secure, Source = pcall(issecurevariable, Frame, Key);
-    if Ok and Secure == false and ThirdParty(Source) then
-      Entry.Tainted, Entry.Source = true, Source;
-      return true, Source;
+  if type(issecurevariable) == "function" then
+    for _, Key in ipairs(TAINT_KEYS) do
+      local Ok, Secure, Source = pcall(issecurevariable, Frame, Key);
+      if Ok and Secure == false and ThirdParty(Source) then
+        Entry.Tainted, Entry.Source = true, Source;
+        return true, Source;
+      end;
     end;
+  end;
+  if HasThirdPartyMarker(Frame) then
+    Entry.Tainted, Entry.Source = true, "GW2_UI";
+    return true, "GW2_UI";
   end;
   return false, nil;
 end
@@ -275,6 +309,7 @@ local COOLDOWN_KEYS = { "cooldown", "chargeCooldown", "lossOfControlCooldown" };
 --- wrappers stay installed and pass through while the guard is off or clean.
 function Guard.InvalidateCache ()
   for Button in pairs(Checked) do Checked[Button] = nil; end;
+  for Button in pairs(CleanAt) do CleanAt[Button] = nil; end;
   for Frame in pairs(TaintMemo) do TaintMemo[Frame] = nil; end;
 end
 
@@ -375,26 +410,50 @@ function Guard.Scan ()
     return;
   end;
 
+  -- A clean verdict is only a snapshot: GW2_UI may add its gw_ markers after
+  -- the scan that judged the button clean. Expire clean decisions after 10 s;
+  -- tainted/shimmed decisions stay cached until an invalidation event.
+  local Now = type(GetTime) == "function" and GetTime() or 0;
+  for _, At in pairs(CleanAt) do
+    if Now - At >= 10 then
+      Guard.InvalidateCache();
+      break;
+    end;
+  end;
+
   for _, Spec in ipairs(BUTTONS) do
+    local Buttons = {};
+    local Tainted = false;
+
+    -- GW2_UI styles all 12 buttons of a bar in one pass. Decide the family
+    -- once, then apply the same answer to every button in it so a clean
+    -- verdict on one sibling cannot leave another sibling unprotected.
     for Index = 1, Spec.Count do
       local Button = _G[Spec.Prefix .. Index];
       if type(Button) == "table" then
-        local Tainted = TaintOf(Button);
-        if not Tainted then Tainted = AncestorTaint(Button); end;
+        Buttons[#Buttons + 1] = Button;
+        local ButtonTainted = TaintOf(Button);
+        if not ButtonTainted then ButtonTainted = AncestorTaint(Button); end;
+        if ButtonTainted then Tainted = true; end;
+      end;
+    end;
 
-        if not Checked[Button] then
-          if Guard.ShouldShim(Secret, Spec.Override, Tainted) then
-            Guard.InstallCooldownShim(Button);
-          end;
-          Checked[Button] = true;
-        end;
+    local Shim = Guard.ShouldShim(Secret, Spec.Override, Tainted);
+    for _, Button in ipairs(Buttons) do
+      if Shim then
+        if not HasShim(Button) then Guard.InstallCooldownShim(Button); end;
+        Checked[Button] = true;
+        CleanAt[Button] = nil;
+      elseif not Checked[Button] then
+        Checked[Button] = true;
+        CleanAt[Button] = Now;
+      end;
 
-        local Frame = HasAssistedFrame(Button);
-        if Frame and Guard.ShouldPause(Secret, Spec.Override, Tainted) then
-          if Frame:IsShown() and CanHide(Frame) then
-            local Ok = pcall(Frame.Hide, Frame);
-            if Ok then Hidden[Frame] = true; end;
-          end;
+      local Frame = HasAssistedFrame(Button);
+      if Frame and Guard.ShouldPause(Secret, Spec.Override, Tainted) then
+        if Frame:IsShown() and CanHide(Frame) then
+          local Ok = pcall(Frame.Hide, Frame);
+          if Ok then Hidden[Frame] = true; end;
         end;
       end;
     end;

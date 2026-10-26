@@ -447,7 +447,7 @@ collapsed candidate is re-admitted when that press is held, and `NoteAttempt`
 suppresses a non-emitted Main at `MainReprobeMs` (150 ms), not the 500 ms
 situational window. Live checks OWED (`docs/TESTING.md` §3j).
 
-## MaxDpsCompanionBridge (CURRENT; in-game-config fork, no wire change; bridge 4.5.3 / companion 4.5.7)
+## MaxDpsCompanionBridge (CURRENT; in-game-config fork, no wire change; bridge 4.5.4 / companion 4.5.8)
 
 **`addon/legacy/MaxDpsBridge` = LEGACY (frozen). `addon/MaxDpsCompanionBridge` = CURRENT.**
 The companion bridge is the legacy sources renamed `MDB→MDCB` /
@@ -480,7 +480,7 @@ addon/MaxDpsCompanionBridge/
                            commands live in `InGame/Slash.lua` (`/mcb` +
                            `/mdb`/`/mdbx` aliases) and Bridge.lua exposes
                            MDCB.HandleCommand for diagnostics
-  SecretGuard.lua          secret-cooldown guard (bridge 4.5.1 -> 4.5.3): hides
+  SecretGuard.lua          secret-cooldown guard (bridge 4.5.1 -> 4.5.4): hides
                            Blizzard's assisted-combat frame on tainted
                            override/extra buttons while
                            `C_Secrets.ShouldCooldownsBeSecret()` is true, and
@@ -488,7 +488,9 @@ addon/MaxDpsCompanionBridge/
                            (normal/charge/loss-of-control) of tainted buttons
                            with secret args sanitized to `Clear()`/`SetCooldown(0, 0)`; taint is
                            read from `issecurevariable` on the button and its
-                           ancestors; `/mcb guard` report incl. `shims=N`
+                           ancestors, plus the addon-created `gw_` marker keys
+                           with whole-family propagation; `/mcb guard` report
+                           incl. `shims=N`
   HotbarWatch.lua          v4.0.3 Ext4 hotbar-map streamer: keybound action-bar
                            walk (spells/items/macros, ready flag, 32-entry cap),
                            gen/seq frame cycle held ≥2 paint ticks, typing veto,
@@ -517,7 +519,7 @@ gate); the companion in-game-config mode mirrors the Ext3 mask cells 40-42
 read-only. Offline bar: `luac -p` every file, `lua tests/secret_harness.lua`,
 `pwsh tools/ability_audit.ps1`. Live retail checks stay OWED.
 
-## SecretGuard: assisted-frame hide + cooldown shim (bridge 4.5.3, no wire change)
+## SecretGuard: assisted-frame hide + cooldown shim (bridge 4.5.4, no wire change)
 
 2026-10-26. `SecretGuard.lua` is the only bridge code that touches Blizzard's
 action-bar frames, and it only ever runs while the client says cooldowns are
@@ -532,6 +534,14 @@ secret (`C_Secrets.ShouldCooldownsBeSecret()`).
   :541/:705 `btn:SetScript("OnUpdate", nil)`, :703
   `btn:SetParent(fmMultibar)`, :795-798 `multibar:SetScript(...)`, and
   `Core/disableBlizzard.lua` :285-290 reparenting the Blizzard bars.
+- **Main-bar follow-up (4.5.4).** 4.5.3 caught the multi-bars through the
+  tainted parent, but GW2_UI styles `ActionButton1-12` **in place**: the button
+  keeps Blizzard's `MainActionBar` parent and `SetScript("OnUpdate", nil)`
+  leaves no `issecurevariable` field, so 83 errors remained on
+  `ActionButton1Cooldown`. 4.5.4 scans addon-created `gw_` keys (keys only; a
+  value may be secret), treats a whole button family as tainted when one
+  member is, and expires clean verdicts after 10 s so a late marker is picked
+  up. Clean families are untouched.
 - **Assisted-frame hide (4.5.1/4.5.2).** While secrets are active the guard hides
   the assisted-combat frame on override/vehicle/extra buttons and on any button
   `issecurevariable` names as tainted. WoW does not tick hidden frames, so the
@@ -561,7 +571,7 @@ secret (`C_Secrets.ShouldCooldownsBeSecret()`).
   `paused=0` while secrets are active.
 - **No wire change.** No cell, checksum, `PROTOCOL_VERSION` (5) or
   addon-message change; the untainted/clean path is byte-identical to 4.5.2.
-  Identity: companion **4.5.7**, bridge **4.5.3**.
+  Identity: companion **4.5.8**, bridge **4.5.4**.
 
 ## Main master switch (v4.0.4, no wire change)
 
