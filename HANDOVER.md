@@ -11,10 +11,10 @@ by release name or date before re-investigating an old problem.
   Windows client) + `app/MaxDpsCompanion.Core/` (shared brain) +
   `addon/MaxDpsCompanionBridge/` (4.5.1) + `dist/`. **C# is the long-term base**
   (decision 2026-10-17).
-- **macOS:** the last published Mac build is `4.4.0 "Wayfinder"` (Apple
-  Silicon, ad-hoc signed, not notarized); the Mac client is NOT ported to the
-  4.5.0 Midnight theme yet, so `app/Version.props` (Core/Mac scaffolding) stays
-  at 4.4.0. A macOS 4.5.0 asset is **OWED**.
+- **macOS:** `4.5.5 "Voidlight"` (Apple Silicon, ad-hoc signed, not
+  notarized); bridge 4.5.1. The Mac host keeps its Avalonia shell (the Windows
+  4.5.x Midnight UI is not ported). `app/Version.props` is now 4.5.5, guarded
+  against drift by `ReleaseIdentityTests`.
 - **Changelog norm (since 4.5.0):** every release adds
   `docs/CHANGELOG.md` (newest section) + a `ReleaseNotes` entry in the same
   commit; `ReleaseNotesTests` and `AGENTS.md` enforce it.
@@ -25,6 +25,45 @@ by release name or date before re-investigating an old problem.
   Deploy: `pwsh tools/publish.ps1` + `pwsh tools/install-addon.ps1` (both only on the user's go-ahead).
 - Wire: protocol v5 + Ext2/Ext3/Ext4 (51 cells), unchanged since 4.0.3. Any wire change is an
   architect-trigger task (`AGENTS.md`).
+
+## 2026-10-26 macOS 4.5.5 "VOIDLIGHT" RELEASE (Apple Silicon, same tag; Version.props corrected)
+
+Branch `release/v4.5.5-macos`. Root cause: `app/Version.props` (imported by
+Core, which the Mac host references) stayed at **4.4.0 Wayfinder** through the
+4.5.0-4.5.5 cuts while the Windows csproj moved to 4.5.5. The Mac/Core build
+therefore reported 4.4.0 even though it consumed the 4.5.x Core. No engine,
+wire or addon change; the bridge stays **4.5.1**.
+
+DONE
+- `app/Version.props` -> **4.5.5 "Voidlight"**; `ReleaseIdentityTests` now
+  reads the file and fails when it disagrees with the Windows assembly or the
+  current `ReleaseNotes` entry.
+- `.github/workflows/release-macos.yml`: default tag `v4.5.5`; if a tag's
+  shared `Version.props` is stale, replace ONLY `<Version>`/`<Codename>` with
+  the dispatch commit's values, after requiring them to match the tag and the
+  Windows csproj; `version_props_source` records the overlay. App/Core/addon
+  source stays the tag; `HEAD == tag^{commit}` is still asserted.
+- `tools/package-macos.sh`: app and addon versions are independent; the app
+  asset is `MaxDpsCompanion-4.5.5-macos-arm64.zip`, the addon asset is
+  `MaxDpsCompanionBridge-4.5.1-macos-addon.zip` (no collision with the Windows
+  `MaxDpsCompanionBridge-4.5.1.zip`); `addon_version`/`version_props_source`
+  are in BUILD-INFO.
+- Docs: README/Mac README, `docs/CHANGELOG.md` 4.5.5 (macOS bullet + Details),
+  `VERSION.txt`, `ARCHITECTURE.md`, `docs/TESTING.md` 4.0a. Release notes state
+  the Mac keeps the Avalonia shell; the Windows 4.5.x Midnight UI is not
+  ported.
+
+VERIFY (to fill after the publish run)
+- Dry run: `codesign --verify --deep --strict`, zip round-trip, SHA-256.
+- Release assets downloaded back and `sha256sum -c` clean.
+- BUILD-INFO: version 4.5.5 / codename Voidlight / source tag v4.5.5
+  (dfb9839) / addon 4.5.1 / `version_props_source` set.
+
+OWED
+- First live retail run from the release asset on the MacBook Air M5: launch
+  after the Gatekeeper override, grant Screen Recording + Accessibility,
+  install the 4.5.1 addon, then locate/decode/send. Live macOS capture/send
+  stays OWED; CI cannot prove it.
 
 ## 2026-10-26 RELEASE 4.5.5 "VOIDLIGHT" (GW2_UI taint root hotfix; bridge 4.5.1 unchanged; NO wire change)
 

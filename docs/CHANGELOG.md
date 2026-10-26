@@ -41,6 +41,11 @@ rotation change.
   is idempotent and supports `-Revert`. Run it after a GW2_UI update, then
   `/reload`.
 - The local GW2_UI install was patched on 2026-10-26; the game needs a reload.
+- **macOS 4.5.5 Apple Silicon build** from the same `v4.5.5` tag; app 4.5.5
+  "Voidlight" / bridge 4.5.1, existing Avalonia shell. The shared
+  `app/Version.props` was corrected from 4.4.0 to 4.5.5 for the macOS/Core
+  build; the Windows binary is unchanged. The Windows Midnight theme and the
+  4.5.x UI work are not ported to the Avalonia shell.
 
 ### Details
 
@@ -50,6 +55,10 @@ rotation change.
   OWED.
 - The in-app changelog is corrected here so a future GW2_UI update does not
   lose the root-cause note.
+- macOS assets: `MaxDpsCompanion-4.5.5-macos-arm64.zip`,
+  `MaxDpsCompanionBridge-4.5.1-macos-addon.zip`, `BUILD-INFO-macos.txt`,
+  `SHA256SUMS-macos.txt`; source tag `v4.5.5` (`dfb9839`), version metadata
+  overlay from the release commit. Live macOS capture/send stays OWED.
 
 ## 4.5.4 Voidlight - 2026-10-26
 

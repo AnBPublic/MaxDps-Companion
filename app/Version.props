@@ -1,13 +1,14 @@
 <Project>
-  <!-- Shared version truth for new projects only (P0a scaffolding).
-       Existing app/MaxDpsCompanion/MaxDpsCompanion.csproj keeps its own
-       values for now and does NOT import this file, so the Windows
-       build is unaffected. New SDK-style projects opt in via:
+  <!-- Shared Core/Mac version (P0a scaffolding; Windows keeps its own copy in
+       app/MaxDpsCompanion/MaxDpsCompanion.csproj). Bump BOTH on every release:
+       ReleaseIdentityTests fails when this file disagrees with the Windows
+       assembly, and the macOS release workflow refuses a tag/version mismatch.
+       New SDK-style projects opt in via:
          <Import Project="../Version.props" />            (Core, one level down)
          <Import Project="../../Version.props" />         (tests, two levels down) -->
   <PropertyGroup>
-    <Version>4.4.0</Version>
-    <Codename>Wayfinder</Codename>
+    <Version>4.5.5</Version>
+    <Codename>Voidlight</Codename>
   </PropertyGroup>
   <ItemGroup>
     <AssemblyMetadata Include="Codename" Value="$(Codename)" />

@@ -37,6 +37,7 @@ internal static class ReleaseNotes
                 "tools/patch-gw2ui-taint.ps1 comments out the GW2_UI override-bar hooks and the extra-action ActionButton_UpdateCooldown call, keeps *.maxdps-backup-4.5.4 backups, and is idempotent. Run it after a GW2_UI update, then /reload.",
                 "No wire, rotation or addon change: the in-game bridge stays 4.5.1 and the strip is unchanged.",
                 "If the error persists, run /mcb guard and send the tainted button/source line.",
+                "macOS 4.5.5 Apple Silicon build ships from the same tag; it shares the engine, wire and bridge 4.5.1 and keeps the native Avalonia shell (the Windows Midnight theme is not ported).",
             }),
         new Release(
             "4.5.4", "Voidlight", "2026-10-26",
