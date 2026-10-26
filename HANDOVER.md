@@ -65,6 +65,21 @@ patched GW2_UI, fight in restricted content, confirm the SetCooldown count
 stops; `/mcb guard` must show the taint state. The addon cannot untaint a
 button from a previous session; a reload is mandatory.
 
+ROLLED OUT (2026-10-26, primary checkout `A:\AI\GitHub\WoW-Companions\MaxDps-Companion`)
+- PR #14 merged to `master` (`dfb9839`), CI green on Windows + macOS; tag
+  `v4.5.5` pushed and the GitHub release published
+  (https://github.com/AnBPublic/MaxDps-Companion/releases/tag/v4.5.5), with the
+  `MaxDpsCompanionBridge-4.5.1.zip` and `patch-gw2ui-taint.ps1` assets.
+- `pwsh tools/publish.ps1`: FileVersion **4.5.5.0**, `dist\VERSION.txt`
+  **4.5.5 Voidlight**, `settings.ini` hash unchanged.
+- `pwsh tools/install-addon.ps1`: bridge **4.5.1** (TOC 4.5.1, `SecretGuard.lua`
+  present) installed to `_retail_\Interface\AddOns\MaxDpsCompanionBridge`.
+- Shipped smoke: `--ui-smoke-test` **PASS**, title
+  `MaxDPS Companion v4.5.5 Voidlight`; a fresh 4.5.5 instance runs from `dist\`
+  (PID 5620).
+- Live confirmation is OWED (§3u); the WoW client is not running. The local
+  GW2_UI files are patched; the next login/reload clears the old taint.
+
 
 
 Live 12.1.5 report: while the companion pressed in combat the game logged
