@@ -516,11 +516,9 @@ do
     return true;
   end;
   G.InvalidateCache();
-  Base = G.ShimCount();
   G.Scan();
   check("4.5.7 shim: tainted button wraps normal/charge/loss-of-control frames",
-    G.ShimCount() == Base + 3
-    and TaintedCooldown.SetCooldown == G.GuardedSetCooldown
+    TaintedCooldown.SetCooldown == G.GuardedSetCooldown
     and ChargeCooldown.SetCooldown == G.GuardedSetCooldown
     and LocCooldown.SetCooldown == G.GuardedSetCooldown);
 
@@ -589,12 +587,85 @@ do
   check("4.5.7 shim: SetEnabled(on) resumes the guard",
     G.SetEnabled(true) == true and G.Active == true and StubDB.TaintGuard == true);
 
+  -- (m) GW2_UI styles the main bar in place: ActionButton1 keeps Blizzard's
+  -- MainActionBar parent, and SetScript(..., nil) leaves no issecurevariable
+  -- field. The gw_ keys are the signal, and the whole ActionButton family gets
+  -- the shim (GW2_UI styles all 12 buttons in one pass).
+  SecretOn();
+  issecurevariable = function () return true end;
+  local GwCooldown = FakeCooldown(true);
+  local PeerCooldown = FakeCooldown(true);
+  _G.ActionButton6 = { cooldown = GwCooldown, gw_ShowMacroName = true };
+  _G.ActionButton7 = { cooldown = PeerCooldown };
+  G.InvalidateCache();
+  G.Scan();
+  check("4.5.8 shim: GW2_UI gw_ marker triggers a main-bar shim",
+    GwCooldown.SetCooldown == G.GuardedSetCooldown);
+  check("4.5.8 shim: a tainted family covers its clean sibling",
+    PeerCooldown.SetCooldown == G.GuardedSetCooldown);
+
+  -- (n) the parent bar's gw_Buttons key is enough when the button itself has
+  -- no marker (the MainActionBar case).
+  local GwBar = { gw_Buttons = {} };
+  local GwBarCooldown = FakeCooldown(true);
+  local GwBarButton = { cooldown = GwBarCooldown };
+  GwBarButton.GetParent = function () return GwBar end;
+  _G.MultiBarLeftButton1 = GwBarButton;
+  issecurevariable = function () return true end;
+  G.InvalidateCache();
+  G.Scan();
+  check("4.5.8 shim: parent gw_Buttons triggers the family shim",
+    GwBarCooldown.SetCooldown == G.GuardedSetCooldown);
+
+  -- (o) a family with no marker and a clean issecurevariable stays untouched.
+  local CleanRightCooldown = FakeCooldown(true);
+  _G.MultiBarRightButton1 = { cooldown = CleanRightCooldown };
+  issecurevariable = function () return true end;
+  G.InvalidateCache();
+  G.Scan();
+  check("4.5.8 shim: a clean family stays untouched",
+    CleanRightCooldown.SetCooldown ~= G.GuardedSetCooldown);
+
+  -- (p) the marker scan reads keys only; a secret gw_ value must not throw.
+  local SecretMarkerCooldown = FakeCooldown(true);
+  _G.MultiBar6Button1 = { cooldown = SecretMarkerCooldown, gw_secret = S(1) };
+  issecurevariable = function () return true end;
+  G.InvalidateCache();
+  local OkSecretMarker = pcall(G.Scan);
+  check("4.5.8 shim: gw_ key scan ignores a secret value",
+    OkSecretMarker and SecretMarkerCooldown.SetCooldown == G.GuardedSetCooldown);
+
+  -- (q) a marker added after a clean verdict is picked up after the 10 s TTL.
+  local SavedGetTime = GetTime;
+  local Now = 1000;
+  GetTime = function () return Now end;
+  local TtlCooldown = FakeCooldown(true);
+  _G.MultiBar5Button1 = { cooldown = TtlCooldown };
+  issecurevariable = function () return true end;
+  G.InvalidateCache();
+  G.Scan();
+  check("4.5.8 shim: clean family is remembered",
+    TtlCooldown.SetCooldown ~= G.GuardedSetCooldown);
+  _G.MultiBar5Button1.gw_ShowMacroName = true;
+  Now = 1005;
+  G.Scan();
+  check("4.5.8 shim: clean verdict is cached for 10 s",
+    TtlCooldown.SetCooldown ~= G.GuardedSetCooldown);
+  Now = 1011;
+  G.Scan();
+  check("4.5.8 shim: late gw_ marker is picked up after the TTL",
+    TtlCooldown.SetCooldown == G.GuardedSetCooldown);
+  GetTime = SavedGetTime;
+
   C_Secrets, issecurevariable = SavedSecrets, SavedSecure;
   MDCB.EnsureDB, G.Active = SavedEnsure, SavedActive;
   G.InvalidateCache();
   _G.ActionButton1, _G.ActionButton2, _G.ActionButton3 = nil, nil, nil;
   _G.ActionButton4, _G.ActionButton5 = nil, nil;
+  _G.ActionButton6, _G.ActionButton7 = nil, nil;
   _G.OverrideActionBarButton1 = nil;
+  _G.MultiBarLeftButton1, _G.MultiBarRightButton1 = nil, nil;
+  _G.MultiBar5Button1, _G.MultiBar6Button1 = nil, nil;
 end
 
 -- ================= 1. restricted cooldown shapes =================

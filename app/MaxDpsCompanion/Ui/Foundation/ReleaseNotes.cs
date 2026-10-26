@@ -29,6 +29,17 @@ internal static class ReleaseNotes
     public static readonly IReadOnlyList<Release> All = new[]
     {
         new Release(
+            "4.5.8", "Voidlight", "2026-10-26",
+            "Completes the cooldown shim on the main action bar; no third-party addon patched.",
+            new[]
+            {
+                "GW2_UI styles the main bar in place, so 4.5.7 missed ActionButton1. The bridge now scans addon-created gw_ keys (keys only) and shims the whole button family.",
+                "Stops the remaining 83 ActionButton.lua:847 SetCooldown 'secret values' errors on ActionButton1Cooldown.",
+                "Clean verdicts expire after 10 s so a late gw_ marker is picked up; clean families stay untouched.",
+                "No wire, protocol, rotation or addon-message change. The guard stays silent; /mcb guard reports shims=N.",
+                "OverrideActionBarButton/ExtraActionButton remain covered; the 4.5.5 GW2_UI patch tool stays removed.",
+            }),
+        new Release(
             "4.5.7", "Voidlight", "2026-10-26",
             "Stops the secret-cooldown flood on tainted action bars; no third-party addon patched.",
             new[]

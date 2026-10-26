@@ -1,3 +1,22 @@
+4.5.8
+Date: 2026-10-26 - "Voidlight"
+Companion 4.5.8 "Voidlight" / bridge 4.5.4 (ADDON UPDATE). Completes the
+cooldown shim on the main action bar; NO wire change and NO rotation change.
+- 4.5.7 fixed the multibar flood but 83 errors remained on ActionButton1:
+  GW2_UI styles the main bar in place, so the button keeps Blizzard's
+  MainActionBar parent and SetScript("OnUpdate", nil) leaves no
+  issecurevariable field. 4.5.8 scans addon-created gw_ keys (keys only; a
+  gw_ value may be secret) and shims the whole button family when one member
+  is tainted. Clean families are untouched.
+- Clean taint verdicts expire after 10 s so a late gw_ marker is picked up.
+- Override/extra coverage, silence, shims=N report and no-third-party-patch
+  policy are unchanged.
+- Tests: Lua harness 448 (8 new checks); xUnit stays 1123. No wire/protocol/
+  schema change.
+- Live checks OWED: no increase in ActionButton.lua:847 on ActionButton1 after
+  one combat; /mcb guard shows shim=yes on ActionButton1; no new
+  ADDON_ACTION_BLOCKED naming MaxDpsCompanionBridge.
+
 4.5.7
 Date: 2026-10-26 - "Voidlight"
 Companion 4.5.7 "Voidlight" / bridge 4.5.3 (ADDON UPDATE). Stops the

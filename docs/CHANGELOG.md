@@ -10,6 +10,51 @@ Format: Keep a Changelog sections (`Added` / `Changed` / `Fixed` / `Removed`)
 per release, plus the identity + wire line. The complete pre-4.0 history lives
 in [`../VERSION.txt`](../VERSION.txt) and `docs/archive/HANDOVER-history.md`.
 
+## 4.5.8 Voidlight - 2026-10-26
+
+**Companion 4.5.8 "Voidlight" / bridge 4.5.4 (ADDON UPDATE).** Main-bar
+completion of the 4.5.7 cooldown shim. NO wire change and NO rotation change.
+
+### Fixed
+
+- **The remaining 83 `ActionButton1Cooldown` / `ActionButton.lua:847` errors.**
+  4.5.7 caught the multi-bar buttons through the tainted parent frame, but
+  GW2_UI styles the main bar **in place**: `ActionButton1` keeps Blizzard's
+  `MainActionBar` parent, and `SetScript("OnUpdate", nil)` leaves no
+  `issecurevariable` field. The guard now also scans the addon-created `gw_`
+  keys (keys only; a `gw_` value may be secret) and treats a whole button
+  family as tainted when one member is, so `ActionButton1-12` and every
+  GW2_UI-styled bar get the same cooldown shim. Clean families are untouched.
+
+### Changed
+
+- **Clean taint verdicts expire after 10 s** so a `gw_` marker GW2_UI adds
+  after the first scan is picked up. Tainted/shimmed verdicts stay cached until
+  the existing bar/spec/secret events.
+- **Override/extra buttons** remain covered whenever secrets are active.
+- The guard remains silent; `/mcb guard` still reports `shims=N` and
+  `shim=yes` on demand. No third-party addon is patched.
+
+### Details
+
+- Addon: `SecretGuard.lua` gains `HasThirdPartyMarker` (key-only `gw_` scan),
+  family propagation and the 10 s clean-verdict TTL; TOC/bridge version
+  **4.5.4**.
+- Tests: Lua harness **448** (8 new main-bar/marker/TTL checks); xUnit stays
+  **1123**.
+- No wire, protocol, schema, rotation, key-delivery or addon-message change.
+- Live checks OWED: no increase in `ActionButton.lua:847` on the main bar
+  (`ActionButton1`) after one combat; `/mcb guard` shows `shim=yes` on
+  `ActionButton1`; no new `ADDON_ACTION_BLOCKED` naming
+  `MaxDpsCompanionBridge`.
+
+### Out of scope
+
+The 86x GW2_UI `Button:SetPassThroughButtons` map-pin error (badAddons
+GW2_UI+TalentTreeTweaks), 2x TalentTreeTweaks
+`MultiBarBottomRightButton1:SetShown` and 1x APR `StepUtils` remain
+third-party and are not patched.
+
 ## 4.5.7 Voidlight - 2026-10-26
 
 **Companion 4.5.7 "Voidlight" / bridge 4.5.3 (ADDON UPDATE).** Stops the

@@ -76,7 +76,7 @@
 
 local addonName, MDCB = ...;
 
-MDCB.VERSION = "4.5.3";
+MDCB.VERSION = "4.5.4";
 -- Release codename, shown next to the version in /mcb cfg (Status card) and
 -- the Debug tab. Single-sourced here; the TOC carries the same value in
 -- ## X-Codename so the AddOns list matches.
