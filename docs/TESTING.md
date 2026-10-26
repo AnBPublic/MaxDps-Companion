@@ -731,6 +731,24 @@ Offline (see HANDOVER/final report): build 0/0, `dotnet test`, snapshots at
 4. **Caption buttons.** Minimize/close still receive clicks, and the 8 px above
    them resizes the window.
 
+### 3t. 4.5.3 "Voidlight" toggle visibility + hold reasons (live 12.1.5, OWED)
+
+1. **Toggles on first sight.** Start the engine with the game foreground: the
+   log prints one `[toggles] ...` line summarising the 14 addon toggles, and
+   Details shows `toggles: ...`.
+2. **Main off is loud.** Turn the in-game **Main** pill OFF: the status card
+   reads `holding - Main off in game` (warning tone) and the log prints
+   `[toggles] Main OFF - rotation suspended (turn it back on: /mcb t Main on)`.
+   Turn it ON again: `holding` clears and the log prints
+   `[toggles] Main ON - rotation resumed`.
+3. **Other toggles.** Toggle Trinket/Defensive in the overlay: the log prints
+   `[toggles] Trinket OFF` (or `ON`) and the Details summary updates.
+4. **Other hold reasons.** Typing in chat shows `holding - typing in game chat`;
+   out of combat shows `holding - out of combat`; a frozen bridge heartbeat shows
+   `holding - link lost - addon heartbeat`.
+5. **Recovery command.** `/mcb t Main on` flips the master switch and the
+   companion resumes without a restart.
+
 ## 4. macOS client (live retail, OWED)
 
 Everything in this section needs a real client on a Mac. Static/offline

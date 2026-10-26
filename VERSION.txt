@@ -1,3 +1,15 @@
+4.5.3
+Date: 2026-10-26 - "Voidlight"
+Companion 4.5.3 "Voidlight" / bridge 4.5.0 (unchanged). Diagnostics/visibility,
+NO wire change and NO addon change.
+- The addon's 14 toggles are logged: on first sight, on every change, and when
+  the mirror stops. Details carries a live "toggles:" summary line.
+- A hold reads "holding - <reason>" (Main off in game, typing, out of combat,
+  link lost) in the status card instead of the green "waiting for suggestion";
+  the classic shell shows "Holding - <reason>" too.
+- "Main off in game" names the fix: turn Main ON in the overlay or
+  /mcb t Main on (the old /mcb main on hint was not a real command).
+
 4.5.2
 Date: 2026-10-25 - "Voidlight"
 Companion 4.5.2 "Voidlight" / bridge 4.5.0 (unchanged). Hotfix, NO wire change

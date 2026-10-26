@@ -29,6 +29,16 @@ internal static class ReleaseNotes
     public static readonly IReadOnlyList<Release> All = new[]
     {
         new Release(
+            "4.5.3", "Voidlight", "2026-10-26",
+            "The status card and log now name the toggle state and any hold.",
+            new[]
+            {
+                "The addon's 14 toggles are logged: on first sight, on every change, and summarised in Details.",
+                "A hold reads 'holding - <reason>' (Main off in game, typing, out of combat, link lost) instead of the green 'waiting for suggestion'.",
+                "'Main off in game' also names the fix: turn Main ON in the overlay or /mcb t Main on.",
+                "Same wording in the classic shell; the strip, protocol and key delivery are unchanged.",
+            }),
+        new Release(
             "4.5.2", "Voidlight", "2026-10-25",
             "Edge and corner resizing works again.",
             new[]

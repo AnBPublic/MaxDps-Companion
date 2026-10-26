@@ -10,6 +10,46 @@ Format: Keep a Changelog sections (`Added` / `Changed` / `Fixed` / `Removed`)
 per release, plus the identity + wire line. The complete pre-4.0 history lives
 in [`../VERSION.txt`](../VERSION.txt) and `docs/archive/HANDOVER-history.md`.
 
+## 4.5.3 Voidlight - 2026-10-26
+
+**Companion 4.5.3 "Voidlight" / bridge 4.5.0 (unchanged).** Diagnostics and
+visibility, NO wire change and NO addon change.
+
+### Added
+
+- **The addon's toggles are now communicated.** The 14-bit ADDON-WINS mirror is
+  logged the first time it is seen, on every change, and when it stops:
+  `[toggles] Main ON · all others ON`, `[toggles] Main OFF - rotation suspended
+  (turn it back on: /mcb t Main on)`, `[toggles] Trinket OFF, Defensive ON`.
+  The Exp Details disclosure carries the same summary as a live line
+  (`toggles: Main ON · OFF: Trinket`).
+
+### Fixed
+
+- **A hold is no longer disguised as "waiting for suggestion".** When the engine
+  held every send path, the status card still showed the green "waiting for
+  suggestion" line, which read like a broken companion. The card (and the
+  classic status line) now shows `holding - <reason>` in the hold tone.
+- **`Main off in game`** is called out by name, with the real fix: since 4.0.4
+  the in-game Main pill is the master switch and the addon blanks every slot
+  while it is OFF. The old hint pointed at `/mcb main on`, which is not a
+  command; the note and the log now say `turn Main ON in the overlay or
+  /mcb t Main on`.
+- Same treatment for `typing in game chat`, `out of combat` and
+  `link lost - addon heartbeat`.
+
+### Details
+
+- New pure helpers `Ui/Foundation/HoldCopy.cs` and
+  `Ui/Foundation/ToggleStateCopy.cs`; `HoldCopyTests` (11) and
+  `ToggleStateCopyTests` (11) pin the copy. `ToggleSyncTests` updated for the
+  corrected master-switch hint.
+- No engine, scheduler, key-delivery, protocol or addon change: the 4.5.2
+  pipeline was verified healthy against the live 12.1.5 client (strip decodes
+  `proto=5 state=NeedTarget`, 30 fps, spec `ROGUE · Assassination`) while the
+  log reported `Holding (addon Main off - rotation suspended)`.
+- Live retail check stays OWED (`docs/TESTING.md` §3t).
+
 ## 4.5.2 Voidlight - 2026-10-25
 
 **Companion 4.5.2 "Voidlight" / bridge 4.5.0 (unchanged).** Hotfix for window

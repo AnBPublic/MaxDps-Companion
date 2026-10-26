@@ -297,6 +297,8 @@ public sealed partial class ShellWindow
             : !processPresent ? ("Waiting for game", ControlTheme.TextMuted)
             : background ? ("Game in background", ControlTheme.TextMuted)
             : _engine.Paused ? ("Paused", ControlTheme.Warning)
+            : HoldCopy.Reason(_statusMessage) is { } classicHold
+                ? ($"Holding - {classicHold}", ControlTheme.StatusColor(_statusMessageTone))
             : status.BridgeVisible ? ("Running", ControlTheme.Success)
             : ("No bridge / window", ControlTheme.Danger);
         if (_stateLabel is not null)
@@ -384,6 +386,8 @@ public sealed partial class ShellWindow
                 : background ? ("game in background", ToUi(ExpTheme.Secondary))
                 : _calibrating ? ("calibrating\u2026", ToUi(ExpTheme.Accent))
                 : _engine.Paused ? ("paused", ToUi(ExpTheme.Accent))
+                : HoldCopy.Reason(_statusMessage) is { } expHold
+                    ? ($"holding - {expHold}", ControlTheme.StatusColor(_statusMessageTone))
                 : action == "-" ? ("waiting for suggestion", ToUi(ExpTheme.Ok))
                 : (action, ToUi(ExpTheme.Ok));
             _expConsole.SetState(expState, expColor);
@@ -409,7 +413,7 @@ public sealed partial class ShellWindow
             }
         }
 
-        UpdateMirrorPills();
+        UpdateMirrorPills(running);
     }
 
     /// <summary>

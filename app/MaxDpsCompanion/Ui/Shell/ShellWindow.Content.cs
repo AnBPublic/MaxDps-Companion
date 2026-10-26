@@ -310,19 +310,42 @@ public sealed partial class ShellWindow
     }
 
     /// <summary>250 ms tick: value-only writes, and only when the mask changed.</summary>
-    private void UpdateMirrorPills()
+    private void UpdateMirrorPills(bool running)
     {
-        if (_mirrorPills.Count == 0) return;
         var valid = _toggleSync.EffectiveFromMirror;
         var mask = _toggleSync.EffectiveMask;
         if (valid == _mirrorPillsValid && mask == _mirrorPillsMask) return;
+
+        var previousValid = _mirrorPillsValid;
+        var previousMask = _mirrorPillsMask;
         _mirrorPillsValid = valid;
         _mirrorPillsMask = mask;
+
         foreach (var (bit, pill) in _mirrorPills)
             pill.Tone = valid && (mask & (1 << bit)) != 0 ? StatusTone.Success : StatusTone.Muted;
         // Advanced > Configuration carries the same read-only witness
         // (MainForm's Advanced mirrors :193-206, ADDON-WINS echo semantics).
         _advancedConfig?.SetMask(valid, mask);
+
+        // 4.5.3: name the toggle state in the log and in Details. A user whose
+        // in-game Main pill was OFF saw "no presses" with only a hex mask as a
+        // witness, so every mirror transition now prints a plain-words line.
+        _expConsole?.SetToggles(running ? ToggleStateCopy.Summary(valid, mask) : "engine stopped");
+        if (ToggleStateCopy.Delta(previousValid, previousMask, valid, mask) is { } delta)
+        {
+            var tone = delta.StartsWith("Main OFF", StringComparison.Ordinal)
+                || delta.StartsWith("addon stopped reporting", StringComparison.Ordinal)
+                ? ControlTheme.Warning
+                : ControlTheme.Info;
+            LogMirror($"[toggles] {delta}", tone);
+        }
+    }
+
+    /// <summary>Appends a line to whichever console the active shell owns.</summary>
+    private void LogMirror(string text, WColor tone)
+    {
+        if (_expConsole is not null) _expConsole.AppendLog(text, tone);
+        else _consoleHome?.AppendLog(text, tone);
     }
 
     private GroupHeader HeaderFor(string title)
