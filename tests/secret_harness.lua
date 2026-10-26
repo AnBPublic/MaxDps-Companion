@@ -363,6 +363,240 @@ do
   _G.OverrideActionBarButton2, _G.ActionButton1 = nil, nil;
 end
 
+-- 4.5.7 cooldown shim: hiding the assisted frame cannot stop Blizzard's own
+-- SPELL_UPDATE_ICON path (ActionButton.lua:1026 -> :847 cooldown:SetCooldown),
+-- which throws on secret start/duration/modRate once a bar addon tainted the
+-- button. The guard wraps the three cooldown frames of a button the client
+-- reports as tainted and sanitises secret arguments; clean buttons keep
+-- Blizzard's method untouched and the guard stays silent.
+do
+  local G = MDCB.SecretGuard;
+  local AddonName = "MaxDpsCompanionBridge";
+
+  -- Recording fake cooldown: SetCooldown keeps every call, Clear is optional.
+  local function FakeCooldown (WithClear)
+    local Cooldown = { Calls = {} };
+    Cooldown.SetCooldown = function (self, Start, Duration, ModRate)
+      self.Calls[#self.Calls + 1] = { Start, Duration, ModRate };
+      self.SecretArgs = issecretvalue(Start) or issecretvalue(Duration)
+        or issecretvalue(ModRate);
+    end
+    if WithClear then
+      Cooldown.Clear = function (self) self.Cleared = (self.Cleared or 0) + 1 end
+    end
+    return Cooldown
+  end
+
+  local SavedSecrets, SavedSecure = C_Secrets, issecurevariable;
+  local SavedEnsure, SavedActive = MDCB.EnsureDB, G.Active;
+  local function SecretOn ()
+    C_Secrets = { ShouldCooldownsBeSecret = function () return true end };
+  end
+  local function SecretOff ()
+    C_Secrets = { ShouldCooldownsBeSecret = function () return false end };
+  end
+
+  -- (a) secret arguments are sanitised: Clear() when the frame has one, never
+  -- the original SetCooldown with a secret value.
+  G.Active = true;
+  local Cooldown = FakeCooldown(true);
+  local Button = { cooldown = Cooldown };
+  check("4.5.7 shim: install wraps the button cooldown",
+    G.InstallCooldownShim(Button) == 1 and Cooldown.SetCooldown == G.GuardedSetCooldown);
+  Button.cooldown:SetCooldown(S(1000), S(30), S(1));
+  check("4.5.7 shim: secret start/duration/modRate -> Clear, original untouched",
+    Cooldown.Cleared == 1 and #Cooldown.Calls == 0 and Cooldown.SecretArgs == nil);
+  Button.cooldown:SetCooldown(S(1000), 30, 1);
+  check("4.5.7 shim: secret start alone -> Clear",
+    Cooldown.Cleared == 2 and #Cooldown.Calls == 0);
+  Button.cooldown:SetCooldown(1000, S(30), 1);
+  check("4.5.7 shim: secret duration alone -> Clear",
+    Cooldown.Cleared == 3 and #Cooldown.Calls == 0);
+  Button.cooldown:SetCooldown(1000, 30, S(1));
+  check("4.5.7 shim: secret modRate alone -> Clear",
+    Cooldown.Cleared == 4 and #Cooldown.Calls == 0);
+
+  -- (b) plain arguments pass straight through, 3-arg and 2-arg shapes.
+  Button.cooldown:SetCooldown(1000, 30, 1);
+  check("4.5.7 shim: plain 3-arg call passes through",
+    #Cooldown.Calls == 1 and Cooldown.Calls[1][1] == 1000
+    and Cooldown.Calls[1][2] == 30 and Cooldown.Calls[1][3] == 1
+    and Cooldown.SecretArgs == false);
+  Button.cooldown:SetCooldown(1000, 5);
+  check("4.5.7 shim: plain 2-arg call passes through with 2 args",
+    #Cooldown.Calls == 2 and Cooldown.Calls[2][1] == 1000
+    and Cooldown.Calls[2][2] == 5 and Cooldown.Calls[2][3] == nil);
+
+  -- (c) guard off: every call passes through, secret or not.
+  G.Active = false;
+  Button.cooldown:SetCooldown(S(1000), S(30), S(1));
+  check("4.5.7 shim: guard off passes secret args through",
+    #Cooldown.Calls == 3 and Cooldown.Cleared == 4 and Cooldown.SecretArgs == true);
+  G.Active = true;
+
+  -- (c2) guard off is transparent, not a silent error sink: the original
+  -- SetCooldown error must reach the caller (this is how stock behavior
+  -- returns when the user opts out with /mcb guard off).
+  local ThrowCooldown = {
+    SetCooldown = function () error("secret args rejected", 0) end,
+  };
+  local ThrowButton = { cooldown = ThrowCooldown };
+  G.InstallCooldownShim(ThrowButton);
+  G.Active = false;
+  local OkThrow, ErrThrow = pcall(
+    ThrowButton.cooldown.SetCooldown, ThrowButton.cooldown, S(1), S(2), S(3));
+  check("4.5.7 shim: guard off does not swallow the original error",
+    OkThrow == false and tostring(ErrThrow):find("secret args rejected", 1, true) ~= nil);
+  G.Active = true;
+
+  -- (d) a frame without Clear falls back to SetCooldown(0, 0).
+  local NoClearCooldown = FakeCooldown(false);
+  local NoClearButton = { cooldown = NoClearCooldown };
+  G.InstallCooldownShim(NoClearButton);
+  NoClearButton.cooldown:SetCooldown(S(1000), S(30), S(1));
+  check("4.5.7 shim: no Clear falls back to SetCooldown(0, 0)",
+    #NoClearCooldown.Calls == 1 and #NoClearCooldown.Calls[1] == 2
+    and NoClearCooldown.Calls[1][1] == 0 and NoClearCooldown.Calls[1][2] == 0
+    and NoClearCooldown.SecretArgs == false);
+
+  -- (e) idempotent install, foreign wrapper wins.
+  local Base = G.ShimCount();
+  local TwiceCooldown = FakeCooldown(true);
+  local TwiceButton = { cooldown = TwiceCooldown };
+  G.InstallCooldownShim(TwiceButton);
+  check("4.5.7 shim: installing twice leaves the original saved once",
+    G.ShimCount() == Base + 1 and G.InstallCooldownShim(TwiceButton) == 0
+    and G.ShimCount() == Base + 1);
+  local Foreign = function () end;
+  TwiceCooldown.SetCooldown = Foreign;
+  G.InstallCooldownShim(TwiceButton);
+  check("4.5.7 shim: a foreign wrapper set after install is not overwritten",
+    TwiceCooldown.SetCooldown == Foreign);
+
+  -- (f) Scan: a clean main-bar button is never wrapped while secrets are
+  -- active; an override button (the vehicle/delve path) always is.
+  issecurevariable = function () return true end;
+  SecretOn();
+  local CleanCooldown = FakeCooldown(true);
+  _G.ActionButton1 = { cooldown = CleanCooldown };
+  local OverrideCooldown = FakeCooldown(true);
+  _G.OverrideActionBarButton1 = { cooldown = OverrideCooldown };
+  G.InvalidateCache();
+  Base = G.ShimCount();
+  G.Scan();
+  check("4.5.7 shim: clean main button gets no shim while secret",
+    CleanCooldown.SetCooldown ~= G.GuardedSetCooldown);
+  check("4.5.7 shim: override button gets a shim while secret",
+    OverrideCooldown.SetCooldown == G.GuardedSetCooldown and G.ShimCount() == Base + 1);
+
+  SecretOff();
+  local LooseOverrideCooldown = FakeCooldown(true);
+  _G.OverrideActionBarButton1 = { cooldown = LooseOverrideCooldown };
+  G.InvalidateCache();
+  G.Scan();
+  check("4.5.7 shim: not secret never shims an override button",
+    LooseOverrideCooldown.SetCooldown ~= G.GuardedSetCooldown);
+
+  -- (g) a bar-tainted button gets all three cooldown frames wrapped.
+  -- The scratch override button above is dropped first: override buttons are
+  -- shimmed on their own, which would blur the per-frame count below.
+  _G.OverrideActionBarButton1 = nil;
+  SecretOn();
+  local TaintedCooldown = FakeCooldown(true);
+  local ChargeCooldown = FakeCooldown(true);
+  local LocCooldown = FakeCooldown(true);
+  local TaintedButton = {
+    cooldown = TaintedCooldown,
+    chargeCooldown = ChargeCooldown,
+    lossOfControlCooldown = LocCooldown,
+  };
+  _G.ActionButton2 = TaintedButton;
+  issecurevariable = function (Frame)
+    if Frame == TaintedButton then return false, "GW2_UI" end;
+    return true;
+  end;
+  G.InvalidateCache();
+  Base = G.ShimCount();
+  G.Scan();
+  check("4.5.7 shim: tainted button wraps normal/charge/loss-of-control frames",
+    G.ShimCount() == Base + 3
+    and TaintedCooldown.SetCooldown == G.GuardedSetCooldown
+    and ChargeCooldown.SetCooldown == G.GuardedSetCooldown
+    and LocCooldown.SetCooldown == G.GuardedSetCooldown);
+
+  -- (h) a button parented on an addon-created frame (GW2_UI's fmMultibar) is
+  -- tainted through the named ancestor even when its own fields look clean.
+  local Bar = { _name = "GW2_UI_Bar" };
+  Bar.GetName = function (self) return self._name end;
+  local BarredCooldown = FakeCooldown(true);
+  local BarredButton = { cooldown = BarredCooldown };
+  BarredButton.GetParent = function () return Bar end;
+  _G.ActionButton3 = BarredButton;
+  issecurevariable = function (Frame, Key)
+    if Frame == _G and Key == "GW2_UI_Bar" then return false, "GW2_UI" end;
+    return true;
+  end;
+  G.InvalidateCache();
+  G.Scan();
+  check("4.5.7 shim: named third-party ancestor triggers a shim",
+    BarredCooldown.SetCooldown == G.GuardedSetCooldown);
+
+  -- (i) a taint source that is this addon is ignored (our own writes).
+  local OwnCooldown = FakeCooldown(true);
+  _G.ActionButton4 = { cooldown = OwnCooldown };
+  issecurevariable = function () return false, AddonName end;
+  G.InvalidateCache();
+  G.Scan();
+  check("4.5.7 shim: our own addon name is not a taint source",
+    OwnCooldown.SetCooldown ~= G.GuardedSetCooldown);
+
+  -- (j) status exposes the shim count.
+  local StatusLine = G.Status();
+  check("4.5.7 shim: status contains shims=",
+    StatusLine:find("shims=", 1, true) ~= nil);
+  check("4.5.7 shim: status counts the installed shims",
+    tonumber(StatusLine:match("shims=(%d+)")) == G.ShimCount());
+
+  -- (k) the taint verdict is memoised: a second Scan in the same generation
+  -- asks the client nothing, and a secret flip opens the cache again.
+  local Probes = 0;
+  issecurevariable = function () Probes = Probes + 1; return true end;
+  local CacheCooldown = FakeCooldown(true);
+  _G.ActionButton5 = { cooldown = CacheCooldown };
+  SecretOn();
+  G.InvalidateCache();
+  G.Scan();
+  local FirstProbes = Probes;
+  G.Scan();
+  check("4.5.7 shim: a cached scan makes no new issecurevariable calls",
+    FirstProbes > 0 and Probes == FirstProbes);
+  SecretOff();
+  G.Scan();
+  SecretOn();
+  G.Scan();
+  check("4.5.7 shim: a secret flip resumes the taint checks", Probes > FirstProbes);
+
+  -- (l) SetEnabled flips the module state, keeps the wrappers and prints one
+  -- confirmation line (manual command only).
+  local StubDB = { TaintGuard = true };
+  MDCB.EnsureDB = function () return StubDB end;
+  ClearChat();
+  check("4.5.7 shim: SetEnabled(off) keeps the installed shims",
+    G.SetEnabled(false) == false and G.Active == false and G.ShimCount() > 0);
+  local Line = ChatLog[#ChatLog] or "";
+  check("4.5.7 shim: /mcb guard off prints one confirmation line",
+    #ChatLog == 1 and Line:find("guard off", 1, true) ~= nil);
+  check("4.5.7 shim: SetEnabled(on) resumes the guard",
+    G.SetEnabled(true) == true and G.Active == true and StubDB.TaintGuard == true);
+
+  C_Secrets, issecurevariable = SavedSecrets, SavedSecure;
+  MDCB.EnsureDB, G.Active = SavedEnsure, SavedActive;
+  G.InvalidateCache();
+  _G.ActionButton1, _G.ActionButton2, _G.ActionButton3 = nil, nil, nil;
+  _G.ActionButton4, _G.ActionButton5 = nil, nil;
+  _G.OverrideActionBarButton1 = nil;
+end
+
 -- ================= 1. restricted cooldown shapes =================
 -- active real cooldown: isActive=true, isOnGCD=false; the Duration object
 -- reports 30 s remaining (the live path).

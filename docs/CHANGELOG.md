@@ -10,6 +10,60 @@ Format: Keep a Changelog sections (`Added` / `Changed` / `Fixed` / `Removed`)
 per release, plus the identity + wire line. The complete pre-4.0 history lives
 in [`../VERSION.txt`](../VERSION.txt) and `docs/archive/HANDOVER-history.md`.
 
+## 4.5.7 Voidlight - 2026-10-26
+
+**Companion 4.5.7 "Voidlight" / bridge 4.5.3 (ADDON UPDATE).** Stops the
+secret-cooldown error flood on tainted action bars. NO wire change and NO
+rotation change.
+
+### Fixed
+
+- **The 3,686 `ActionButton.lua:847 SetCooldown ... Secret values are only
+  allowed during untainted execution` errors.** The stack is Blizzard's own
+  cooldown update running on an action button that another addon has tainted;
+  the client refuses the secret cooldown arguments there, once per button per
+  refresh, which is how a single combat turn produced thousands of copies.
+  GW2_UI is what taints the bars. The bridge now wraps the cooldown frames of
+  those buttons only - the normal, charge and loss-of-control cooldown frames -
+  and sanitizes secret arguments to `Clear()`/`SetCooldown(0, 0)` while secrets are active. Bars
+  the client does not report as tainted are left alone.
+
+### Changed
+
+- **Which buttons get the shim.** `OverrideActionBarButton` /
+  `ExtraActionButton` are covered whenever secrets are active. Standard action
+  buttons are covered only when the client reports the button - or an ancestor
+  of it, including addon-created parent frames - as tainted.
+- **The guard stays silent.** Nothing is printed to chat. `/mcb guard` reports
+  the state on demand and now includes `shims=N`.
+
+### Removed
+
+- **`tools/patch-gw2ui-taint.ps1` is deleted and no longer shipped.** The
+  companion no longer modifies third-party addons. The local GW2_UI 4.5.5
+  hotfix applied earlier is left in place for now so the live pass measures the
+  bridge alone; it can be restored by reinstalling or updating GW2_UI after
+  that pass.
+
+### Out of scope
+
+These are not in our stack and are not addressed by this release:
+
+- 86x GW2_UI `Button:SetPassThroughButtons` map-pin error (badAddons
+  GW2_UI + TalentTreeTweaks).
+- 2x TalentTreeTweaks `MultiBarBottomRightButton1:SetShown`.
+- 1x APR `StepUtils`.
+
+### Details
+
+- Addon: `SecretGuard.lua` gains the cooldown shim; TOC/bridge version
+  **4.5.3**.
+- Tests: the Lua harness is expanded with shim cases; xUnit stays **1123**.
+- No wire, protocol, schema, rotation, key-delivery or addon-message change.
+- Live checks OWED: no increase in `ActionButton.lua:847` after one combat plus
+  one vehicle/override bar use; `/mcb guard` shows `shims>0`; no new
+  `ADDON_ACTION_BLOCKED` naming `MaxDpsCompanionBridge`.
+
 ## 4.5.6 Voidlight - 2026-10-26
 
 **Companion 4.5.6 "Voidlight" / bridge 4.5.2.** Quiet-logging fix, NO wire

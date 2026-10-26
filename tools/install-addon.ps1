@@ -11,6 +11,10 @@
     addon/legacy) is mutually exclusive at runtime; the player disables it
     per-character in the AddOns list.
 
+    Since 4.5.7 the bridge carries its own secret-cooldown guard (SecretGuard),
+    so no third-party addon is patched: the 4.5.5 GW2_UI taint hotfix tool is
+    removed and a GW2_UI/ElvUI update needs no follow-up patch.
+
 .EXAMPLE
     pwsh -File tools/install-addon.ps1
     pwsh -File tools/install-addon.ps1 -AddOnsPath 'D:\WoW\_retail_\Interface\AddOns'
@@ -41,6 +45,7 @@ $legacyNote = if (Test-Path -LiteralPath $legacy) { 'present (left untouched)' }
 
 Write-Host "Installed MaxDpsCompanionBridge to $target"
 Write-Host "Legacy MaxDpsBridge: $legacyNote."
+Write-Host "No third-party addon is patched: the bridge guard covers tainted cooldown frames (4.5.7 removed the GW2_UI hotfix tool)."
 Write-Host "Next steps:"
 Write-Host "  1. In game, open the AddOns list and DISABLE 'MaxDpsBridge' per-character (if present)."
 Write-Host "  2. ENABLE 'MaxDps Companion Bridge' for that character."

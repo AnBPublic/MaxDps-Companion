@@ -29,6 +29,17 @@ internal static class ReleaseNotes
     public static readonly IReadOnlyList<Release> All = new[]
     {
         new Release(
+            "4.5.7", "Voidlight", "2026-10-26",
+            "Stops the secret-cooldown flood on tainted action bars; no third-party addon patched.",
+            new[]
+            {
+                "The bridge now shims Blizzard's SetCooldown on action bars the client reports as tainted by another addon, and on override/extra buttons while secrets are active. Clean bars are untouched.",
+                "Stops the thousands of ActionButton.lua:847 SetCooldown 'secret values' errors logged while the companion pressed in combat.",
+                "OverrideActionBarButton/ExtraActionButton are covered too, including the path the old GW2_UI hotfix addressed.",
+                "No wire, protocol, rotation or addon-message change. The guard stays silent; /mcb guard reports shims=N on demand.",
+                "Removed the GW2_UI patch tool from this release. The companion no longer modifies third-party addons. The remaining GW2_UI SetPassThroughButtons, TalentTreeTweaks SetShown and APR errors are third-party and out of scope.",
+            }),
+        new Release(
             "4.5.6", "Voidlight", "2026-10-26",
             "Quiet logs: no in-game chat spam; one companion-log line per toggle switched off.",
             new[]
@@ -44,7 +55,7 @@ internal static class ReleaseNotes
             new[]
             {
                 "The 3,619 SetCooldown errors came from the shared ActionBarButtonEventsFrame after GW2_UI's OverrideActionBar:HookScript called Hide() on the protected bar in combat; the bridge 4.5.1 guard stops the assisted-frame cascade but cannot untaint a button.",
-                "tools/patch-gw2ui-taint.ps1 comments out the GW2_UI override-bar hooks and the extra-action ActionButton_UpdateCooldown call, keeps *.maxdps-backup-4.5.4 backups, and is idempotent. Run it after a GW2_UI update, then /reload.",
+                "tools/patch-gw2ui-taint.ps1 commented out the GW2_UI override-bar hooks and the extra-action ActionButton_UpdateCooldown call; it was removed in 4.5.7, which covers the same paths in the bridge.",
                 "No wire, rotation or addon change: the in-game bridge stays 4.5.1 and the strip is unchanged.",
                 "If the error persists, run /mcb guard and send the tainted button/source line.",
                 "macOS 4.5.5 Apple Silicon build ships from the same tag; it shares the engine, wire and bridge 4.5.1 and keeps the native Avalonia shell (the Windows Midnight theme is not ported).",

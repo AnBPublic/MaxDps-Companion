@@ -5,16 +5,78 @@ Read order: this file -> `ARCHITECTURE.md` -> `docs/PROTOCOL.md`. Full history
 [`docs/archive/HANDOVER-history.md`](docs/archive/HANDOVER-history.md); search it
 by release name or date before re-investigating an old problem.
 
+## 2026-10-26 RELEASE 4.5.7 "VOIDLIGHT" (bridge cooldown shim; bridge 4.5.3; NO wire change)
+
+Live 12.1.5 follow-up to 4.5.5/4.5.6: the **3,686**
+`Blizzard_ActionBar/Shared/ActionButton.lua:847 SetCooldown ... Secret values are
+only allowed during untainted execution` errors came from Blizzard's own cooldown
+update running on action buttons **GW2_UI** had tainted
+(`Games/Modern/Actionbar/actionbars.lua` :541/:705
+`btn:SetScript("OnUpdate", nil)`, :703 `btn:SetParent(fmMultibar)`, :795-798
+`multibar:SetScript(...)`, and `Core/disableBlizzard.lua` :285-290 reparenting
+the bars). 4.5.5 answered that with a third-party hotfix tool; 4.5.7 replaces it
+with a bridge-side shim. Branch `release/v4.5.7-cooldown-shim`. Identity: csproj
+4.5.7, bridge **4.5.3**, no wire change.
+
+DONE
+- **Bridge cooldown shim (`SecretGuard.lua`, bridge 4.5.3).** While
+  `C_Secrets.ShouldCooldownsBeSecret()` is true the guard wraps `SetCooldown`
+  on the **cooldown frames** of tainted action buttons only - normal frame plus
+  the charge and loss-of-control cooldown frames - and sanitizes secret start /
+  duration arguments to `Clear()`/`SetCooldown(0, 0)`. The client therefore stops refusing
+  Blizzard's own update on that button.
+- **Taint detection covers button + ancestor.** `issecurevariable(button,
+  field)` is probed on the button and walked up its parent chain (addon-created
+  parent frames included), which is what catches the GW2_UI reparent and
+  bar-level `SetScript` paths. Buttons the client reports clean are untouched.
+- **Override / extra coverage.** `OverrideActionBarButton` and
+  `ExtraActionButton` are shimmed whenever secrets are active, independent of
+  the taint probe (the path the deleted 4.5.5 hotfix used to cover).
+- **Guard stays silent.** No chat output; `/mcb guard` is on-demand and now
+  reports `shims=N` plus `shim=yes` on the affected buttons. Guard policy and
+  the assisted-frame hide from 4.5.1/4.5.2 are unchanged.
+- **The 4.5.5 GW2_UI taint hotfix tool is deleted** - the companion no longer
+  patches third-party addons. Its README/HANDOVER/TESTING install steps and the
+  printed installer instructions are updated to the bridge guard;
+  `docs/CHANGELOG.md` keeps the 4.5.5/4.5.6 history.
+- No wire, protocol, schema, rotation, key-delivery or addon-message change.
+
+VERIFY (this machine, 2026-10-26)
+- `dotnet build app/MaxDpsCompanion -c Release`: 0 warnings / 0 errors.
+- `dotnet test -c Release`: 1123 passed / 0 failed.
+- `lua tests/secret_harness.lua`: 440 passed / 0 failed (25 new shim checks).
+- `luac -p` bridge files: 16 files, 0 failed.
+- `pwsh tools/ability_audit.ps1`: 0 violations / 0 warnings; catalog matches.
+- `--ui-smoke-test` / `--ui-smoke-test --exp`: PASS both, title
+  `MaxDPS Companion v4.5.7 Voidlight`.
+
+OWED (live retail 12.1.5) - `docs/TESTING.md` §3w
+- In combat with secrets active, the `ActionButton.lua:847` error count must not
+  increase while pressing/casting.
+- `/mcb guard` must show `shims>0` and `shim=yes` on the affected buttons.
+- A clean/no-addon bar must keep the normal cooldown swipe; no shim there.
+- No new `ADDON_ACTION_BLOCKED` naming `MaxDpsCompanionBridge`.
+- One vehicle/override bar and one extra-action button exercised.
+
+NOTE (local GW2_UI state) - the 4.5.5 hotfix edit (`Core/API/utils.lua`
+override-bar hooks + `Games/Modern/Actionbar/extraAB_bossAB.lua`) is **still
+applied** on this machine, with `*.maxdps-backup-4.5.4` backups, but it is **no
+longer shipped or applied by us**. It stays in place for the live pass so the
+§3w result measures the bridge alone; restore stock GW2_UI (reinstall or update
+the addon, or the tool's `-Revert` from the 4.5.5 tag) **only after the live test
+passes**.
+
 ## CLIENT STATUS (current)
 
-- **Current (Windows):** `4.5.6 "Voidlight"` - `app/MaxDpsCompanion/` (WinUI 3
+- **Current (Windows):** `4.5.7 "Voidlight"` - `app/MaxDpsCompanion/` (WinUI 3
   Windows client) + `app/MaxDpsCompanion.Core/` (shared brain) +
-  `addon/MaxDpsCompanionBridge/` (4.5.2) + `dist/`. **C# is the long-term base**
+  `addon/MaxDpsCompanionBridge/` (4.5.3) + `dist/`. **C# is the long-term base**
   (decision 2026-10-17).
 - **macOS:** `4.5.5 "Voidlight"` (Apple Silicon, ad-hoc signed, not
   notarized); bridge 4.5.1. The Mac host keeps its Avalonia shell (the Windows
-  4.5.x Midnight UI is not ported). `app/Version.props` is now 4.5.5, guarded
-  against drift by `ReleaseIdentityTests`.
+  4.5.x Midnight UI is not ported). `app/Version.props` is now 4.5.7 (shared
+  with the Windows build and guarded against drift by
+  `ReleaseIdentityTests`); the macOS binary stays 4.5.5 until its next cut.
 - **Changelog norm (since 4.5.0):** every release adds
   `docs/CHANGELOG.md` (newest section) + a `ReleaseNotes` entry in the same
   commit; `ReleaseNotesTests` and `AGENTS.md` enforce it.
@@ -131,6 +193,8 @@ ROLLED OUT (2026-10-26, primary checkout `A:\AI\GitHub\WoW-Companions\MaxDps-Com
 
 
 
+## 2026-10-26 RELEASE 4.5.5 "VOIDLIGHT" (GW2_UI taint hotfix tool; bridge 4.5.1; NO wire change)
+
 Correction release after 4.5.4 shipped. The bridge guard stops the
 assisted-combat frame's tick/cascade, but the 3,619 `SetCooldown` errors came
 from Blizzard's shared `ActionBarButtonEventsFrame`: once the override button
@@ -141,10 +205,12 @@ root was GW2_UI (`Core/API/utils.lua` `OverrideActionBar:HookScript(...)` calls
 Identity: csproj 4.5.5, bridge **4.5.1** (unchanged), no wire change.
 
 DONE
-- `tools/patch-gw2ui-taint.ps1`: idempotent, backs up
-  `*.maxdps-backup-4.5.4`, comments out both GW2_UI paths, `luac -p` check,
-  `-Revert` restores. Tested on a temp GW2_UI fixture (patch, second-run no-op,
-  revert) and on the live install (already patched).
+- **Historical (removed in 4.5.7):** `tools/patch-gw2ui-taint.ps1` was idempotent,
+  backed up `*.maxdps-backup-4.5.4`, commented out both GW2_UI paths, ran a
+  `luac -p` check and `-Revert` restored. Tested on a temp GW2_UI fixture (patch,
+  second-run no-op, revert) and on the live install (already patched). **The file
+  is deleted in 4.5.7 and must not be run**; the bridge cooldown shim covers the
+  same paths (see the 4.5.7 record above).
 - Local GW2_UI patched: `Core/API/utils.lua` (override-bar hooks) and
   `Games/Modern/Actionbar/extraAB_bossAB.lua` (extra-action cooldown call/frame
   pokes); backups kept; parse clean. `/reload` required (game was not running).
@@ -185,6 +251,8 @@ ROLLED OUT (2026-10-26, primary checkout `A:\AI\GitHub\WoW-Companions\MaxDps-Com
 
 
 
+## 2026-10-26 RELEASE 4.5.4 "VOIDLIGHT" (secret-cooldown flood guard; bridge 4.5.1; NO wire change)
+
 Live 12.1.5 report: while the companion pressed in combat the game logged
 `ActionButton.lua:847 SetCooldown ... Secret values are only allowed during
 untainted execution` thousands of times, plus the matching
@@ -222,10 +290,12 @@ DONE
   `OverrideActionBar:HookScript("OnShow"/"OnHide", ...)` calls `Hide()` on the
   protected bar from tainted code in combat. `Games/Modern/Actionbar/
   extraAB_bossAB.lua` also calls `ActionButton_UpdateCooldown(button)` from its
-  `ExtraAbilityContainer:AddFrame` hook. Both paths are commented out locally
+  `ExtraAbilityContainer:AddFrame` hook. Both paths were commented out locally
   with `tools/patch-gw2ui-taint.ps1` (backups `*.maxdps-backup-4.5.4`,
-  idempotent, `-Revert` restores). The tool is a third-party compatibility
-  patch, not part of the addon zip; run it after a GW2_UI update and `/reload`.
+  idempotent, `-Revert` restores). That tool was a third-party compatibility
+  patch, never part of the addon zip; **4.5.7 deletes it** (the bridge shims the
+  cooldown frames instead) and the local GW2_UI edit is reverted by
+  reinstalling/updating GW2_UI after the §3w live pass.
 - Companion 4.5.4 identity/changelog/README/VERSION/HANDOVER/TESTING §3u.
 
 VERIFY (this machine, 2026-10-26)

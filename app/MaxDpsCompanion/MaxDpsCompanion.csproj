@@ -27,7 +27,7 @@
     <AssemblyTitle>MaxDPS Companion</AssemblyTitle>
     <Product>MaxDPS Companion</Product>
     <RootNamespace>MaxDpsCompanion</RootNamespace>
-    <Version>4.5.6</Version>
+    <Version>4.5.7</Version>
     <Codename>Voidlight</Codename>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Wave B (4.1 Paragon): the shared brain now lives in MaxDpsCompanion.Core
