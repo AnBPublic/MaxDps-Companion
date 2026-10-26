@@ -56,6 +56,23 @@ OWED (live retail 12.1.5) - `docs/TESTING.md` §3w
 - No new `ADDON_ACTION_BLOCKED` naming `MaxDpsCompanionBridge`.
 - A clean bar still animates; one override/extra bar exercised.
 
+ROLLED OUT (2026-10-26, primary checkout `A:\AI\GitHub\WoW-Companions\MaxDps-Companion`)
+- PR #19 merged to `master` (`c279c34`); CI green on Windows + macOS. Tag
+  `v4.5.8` pushed and the GitHub release published
+  (https://github.com/AnBPublic/MaxDps-Companion/releases/tag/v4.5.8) with the
+  `MaxDpsCompanionBridge-4.5.4.zip` addon asset. The 4.5.5 GW2_UI patch tool is
+  **not** attached.
+- `pwsh tools/publish.ps1`: FileVersion **4.5.8.0**, `dist\VERSION.txt`
+  **4.5.8 Voidlight**, `settings.ini` hash unchanged.
+- `pwsh tools/install-addon.ps1`: bridge **4.5.4** installed to
+  `_retail_\Interface\AddOns\MaxDpsCompanionBridge`. WoW was not running, so
+  the next launch loads it; `/reload` if the client is already open.
+- Shipped smoke: `--ui-smoke-test` **PASS** in both shells, title
+  `MaxDPS Companion v4.5.8 Voidlight`; a fresh 4.5.8 instance runs from `dist\`
+  (PID 4492).
+- Live main-bar check is OWED (`docs/TESTING.md` §3w); the user launches WoW
+  to load bridge 4.5.4.
+
 ## 2026-10-26 RELEASE 4.5.7 "VOIDLIGHT" (bridge cooldown shim; bridge 4.5.3; NO wire change)
 
 Live 12.1.5 follow-up to 4.5.5/4.5.6: the **3,686**
