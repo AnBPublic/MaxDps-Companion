@@ -10,6 +10,50 @@ Format: Keep a Changelog sections (`Added` / `Changed` / `Fixed` / `Removed`)
 per release, plus the identity + wire line. The complete pre-4.0 history lives
 in [`../VERSION.txt`](../VERSION.txt) and `docs/archive/HANDOVER-history.md`.
 
+## 4.5.4 Voidlight - 2026-10-26
+
+**Companion 4.5.4 "Voidlight" / bridge 4.5.1.** Bridge-only fix for the
+in-game secret-cooldown error flood, NO wire change and NO rotation change.
+
+### Fixed
+
+- **The thousands of `ActionButton.lua:847 SetCooldown ... Secret values are
+  only allowed during untainted execution` errors stop.** Blizzard's
+  Single-Button Assistant attaches an assisted-combat frame to the action
+  button it is showing; that frame's `OnUpdate` calls
+  `ActionButton_UpdateCooldown` / `UpdatePressAndHoldAction` at
+  `assistedCombatIconUpdateRate` (MaxDps sets 0.15 s). When a bar addon has
+  tainted that button, every tick throws. The live session logged 3,619 copies
+  on `OverrideActionBarButton2`, one per 0.15 s tick, plus the matching
+  `ADDON_ACTION_BLOCKED` for `SetAttribute`.
+- **Bridge 4.5.1 adds `SecretGuard.lua`.** While cooldowns are secret it hides
+  the assisted-combat frame on override/vehicle/extra buttons, and on any
+  button where the client's `issecurevariable` names a taint source. WoW does
+  not run `OnUpdate` on hidden frames, so the tick and the flood stop. Clean
+  main/multi-bar buttons are left untouched, the `C_AssistedCombat` API still
+  returns the next spell, and the companion keeps pressing normally.
+- **The taint source is named.** `/mcb guard` prints the secret predicate,
+  `assistedCombatIconUpdateRate`, every assisted frame, its parent button and
+  the addon the client blames; `/mcb guard off` restores the stock
+  Single-Button Assistant refresh.
+
+### Details
+
+- Addon: `SecretGuard.lua` (new, loaded after `Bars.lua`), `TaintGuard = true`
+  default in `Bridge.lua`, `/mcb guard [on|off]`, TOC/bridge version **4.5.1**.
+- No engine, scheduler, key-delivery or protocol change: the strip stays
+  51 cells, protocol v5 + Ext2/Ext3/Ext4, and the companion decodes it
+  unchanged. The guard only touches Blizzard's assisted-combat UI frame, never
+  the action buttons themselves.
+- Harness: `lua tests/secret_harness.lua` - 415 passed / 0 failed (6 new
+  guard cases: clean main bar untouched, override pause, tainted main pause,
+  not-secret no-op, full sweep hide/leave).
+- The underlying taint is a UI-addon issue (the same session's
+  `ADDON_ACTION_BLOCKED` names **GW2_UI**); stopping the flood does not
+  untaint that addon. If override-bar buttons still misbehave, update or
+  disable the named bar addon. Live confirmation of the guard stays OWED
+  (`docs/TESTING.md` §3u).
+
 ## 4.5.3 Voidlight - 2026-10-26
 
 **Companion 4.5.3 "Voidlight" / bridge 4.5.0 (unchanged).** Diagnostics and

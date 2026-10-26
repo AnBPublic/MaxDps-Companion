@@ -1,5 +1,5 @@
 > [!IMPORTANT]
-> **Current client: 4.5.3 "Voidlight"** - the WinUI 3 Windows client
+> **Current client: 4.5.4 "Voidlight"** - the WinUI 3 Windows client
 > (`app/MaxDpsCompanion/`), the shared brain (`app/MaxDpsCompanion.Core/`) and the
 > macOS client (`app/MaxDpsCompanion.Mac/`, still `4.4.0 "Wayfinder"`), targeting
 > `MaxDpsCompanionBridge` + `dist`. **C# is the long-term base.** Frozen: the
@@ -46,7 +46,7 @@
 > [`app/MaxDpsCompanion.Mac/README.md`](app/MaxDpsCompanion.Mac/README.md);
 > live retail checks are OWED (`docs/TESTING.md` §4).
 
-# MaxDPS Companion (Retail Midnight 12.1.5, v4.5.3 "Voidlight")
+# MaxDPS Companion (Retail Midnight 12.1.5, v4.5.4 "Voidlight")
 
 Pixel bridge driver for [kaminaris MaxDps](https://www.curseforge.com/wow/addons/maxdps)
 (vendor pin: MaxDps v11.3.49). No memory read, no injection, no OCR, no LLM.
@@ -63,6 +63,29 @@ Two pieces:
 The legacy `MaxDpsBridge` addon (`addon/legacy/MaxDpsBridge/`, 40-cell strip) and the
 old WinForms client (`dist-legacy/`) are **legacy/frozen**; all current work targets
 `MaxDpsCompanionBridge` + `dist`.
+
+## v4.5.4 "Voidlight" - secret-cooldown error flood stopped (bridge 4.5.1, no wire change)
+
+The game was logging thousands of `ActionButton.lua:847 SetCooldown ... Secret
+values are only allowed during untainted execution` errors while the companion
+pressed in combat. The stack is Blizzard's assisted-combat frame: it calls
+`ActionButton_UpdateCooldown` / `UpdatePressAndHoldAction` on its parent
+button every 0.15 s, and a UI addon had tainted that override button. The live
+session logged **3,619** copies on `OverrideActionBarButton2` plus the matching
+`SetAttribute` block.
+
+- **Bridge 4.5.1** adds `SecretGuard.lua`. While cooldowns are secret it hides
+  the assisted-combat frame on override/vehicle/extra buttons, and on any button
+  where `issecurevariable` names a taint source. WoW does not tick hidden
+  frames, so the error loop stops. Clean main bars are untouched,
+  `C_AssistedCombat` still returns the next spell, and the companion still
+  presses.
+- **In game:** `/mcb guard` names the assisted frame, its button and the addon
+  the client blames; `/mcb guard off` restores the stock Single-Button
+  Assistant refresh.
+- The underlying taint belongs to the bar addon (the session named **GW2_UI**);
+  the guard stops the flood, but update or disable that addon if override-bar
+  buttons still misbehave.
 
 ## v4.5.3 "Voidlight" - toggles in the log, holds named (no wire change)
 

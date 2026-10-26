@@ -74,6 +74,7 @@ local function Help ()
   MDCB.Print("  /mcb scale <0.5-2> | alpha <0.2-1>   overlay geometry");
   MDCB.Print("  /mcb reset                          overlay defaults");
   MDCB.Print("  /mcb t <key> [on|off]               flip one toggle");
+  MDCB.Print("  /mcb guard [on|off]                 taint guard (secret-cooldown errors)");
   MDCB.Print("  /mcb profile <Global|Spec|Talent>   apply a stored profile");
   MDCB.Print("  /mcb export | import <string>       versioned profile string");
   MDCB.Print("  /mcb cfg                            standalone config window");
@@ -129,6 +130,21 @@ local function RuntimeHandler (Command, Arg1, Rest)
     if MDCB.Profiles then
       local Ok, Msg = MDCB.Profiles.Import(Rest);
       MDCB.Print((Ok and "imported: " or "import failed: ") .. tostring(Msg));
+    end;
+  elseif Command == "guard" then
+    -- 4.5.1: `guard` reports the tainted-button / secret-cooldown state;
+    -- `guard on|off` toggles the assisted-combat pause.
+    if MDCB.SecretGuard then
+      local State = (Arg1 or ""):lower();
+      if State == "on" then
+        MDCB.SecretGuard.SetEnabled(true);
+      elseif State == "off" then
+        MDCB.SecretGuard.SetEnabled(false);
+      else
+        MDCB.SecretGuard.Report();
+      end;
+    else
+      MDCB.Print("taint guard not loaded");
     end;
   elseif Command == "console" then
     if MDCB.Settings then MDCB.Settings.Open("Console"); end;

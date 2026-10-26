@@ -8,6 +8,9 @@
     <Script file="MajorCooldowns.lua"/>
     <Script file="Keymap.lua"/>
     <Script file="Bars.lua"/>
+    <!-- 4.5.1: pauses Blizzard's assisted-combat frame on tainted override
+         buttons while cooldowns are secret (the SetCooldown flood guard). -->
+    <Script file="SecretGuard.lua"/>
     <Script file="MainFallback.lua"/>
     <Script file="Reader.lua"/>
     <!-- Ext4 hotbar map provider: after Reader (readiness/binding helpers),

@@ -7,9 +7,9 @@ by release name or date before re-investigating an old problem.
 
 ## CLIENT STATUS (current)
 
-- **Current (Windows):** `4.5.2 "Voidlight"` - `app/MaxDpsCompanion/` (WinUI 3
+- **Current (Windows):** `4.5.4 "Voidlight"` - `app/MaxDpsCompanion/` (WinUI 3
   Windows client) + `app/MaxDpsCompanion.Core/` (shared brain) +
-  `addon/MaxDpsCompanionBridge/` (4.5.0) + `dist/`. **C# is the long-term base**
+  `addon/MaxDpsCompanionBridge/` (4.5.1) + `dist/`. **C# is the long-term base**
   (decision 2026-10-17).
 - **macOS:** the last published Mac build is `4.4.0 "Wayfinder"` (Apple
   Silicon, ad-hoc signed, not notarized); the Mac client is NOT ported to the
@@ -25,6 +25,52 @@ by release name or date before re-investigating an old problem.
   Deploy: `pwsh tools/publish.ps1` + `pwsh tools/install-addon.ps1` (both only on the user's go-ahead).
 - Wire: protocol v5 + Ext2/Ext3/Ext4 (51 cells), unchanged since 4.0.3. Any wire change is an
   architect-trigger task (`AGENTS.md`).
+
+## 2026-10-26 RELEASE 4.5.4 "VOIDLIGHT" (secret-cooldown flood guard; bridge 4.5.1; NO wire change)
+
+Live 12.1.5 report: while the companion pressed in combat the game logged
+`ActionButton.lua:847 SetCooldown ... Secret values are only allowed during
+untainted execution` thousands of times, plus the matching
+`ADDON_ACTION_BLOCKED ... SetAttribute`. Branch `release/v4.5.4-taint-guard`.
+Identity: csproj 4.5.4 (codename unchanged), bridge **4.5.1**, no wire change.
+
+DONE
+- **Diagnosis.** The stack is Blizzard's assisted-combat frame
+  (`ActionButton_AssistedCombatRotationFrameMixin:OnUpdate` at
+  `ActionButton.lua:1880` -> `OnActionBarSlotChanged` -> `Update` ->
+  `ActionButton_UpdateCooldown` at 842 -> `ApplyCooldown` at 866 ->
+  `SetCooldown` at 847), not the companion's key path. The same session's
+  BugGrabber record names **GW2_UI** for
+  `OverrideActionBarButton3:SetAttribute()`, and the cooldown error is on
+  `OverrideActionBarButton2`. Counter 3619 at MaxDps's
+  `assistedCombatIconUpdateRate` (0.15 s) = one error per assisted-frame tick.
+- **Fix: `addon/MaxDpsCompanionBridge/SecretGuard.lua` (new, bridge 4.5.1).**
+  While `C_Secrets.ShouldCooldownsBeSecret()` is true it hides the
+  assisted-combat frame on override/vehicle/extra buttons, and on any button
+  where `issecurevariable(button, field)` returns a named taint source. WoW
+  does not run `OnUpdate` on hidden frames, so the tick stops. Clean
+  main/multi-bar buttons are untouched; `C_AssistedCombat` still returns the
+  next spell and the companion still presses normally.
+- `/mcb guard` reports the secret predicate, `assistedCombatIconUpdateRate`,
+  every assisted frame + parent button + taint source, and the loaded bar
+  addons; `/mcb guard on|off` toggles `DB.TaintGuard` (default true).
+- `Bridge.lua` `Defaults.TaintGuard = true`; TOC + `MDCB.VERSION` 4.5.1;
+  `InGame.xml` loads `SecretGuard.lua` after `Bars.lua`.
+- Companion 4.5.4 identity/changelog/README/VERSION/HANDOVER/TESTING §3u.
+
+VERIFY (this machine, 2026-10-26)
+- `lua tests/secret_harness.lua`: 415 passed / 0 failed (6 new guard cases).
+- `luac -p` all bridge Lua files: 16 files, 0 failed.
+- `dotnet build app/MaxDpsCompanion -c Release`: 0 warnings / 0 errors.
+- `dotnet test -c Release`: 1119 passed / 0 failed (ReleaseIdentity 4.5.4).
+- `tools/ability_audit.ps1`: clean (0 violations/warnings/missing/stale).
+- `--ui-smoke-test` / `--ui-smoke-test --exp`: PASS, title
+  `MaxDPS Companion v4.5.4 Voidlight`.
+
+OWED (live retail 12.1.5) - `docs/TESTING.md` §3u: in a restricted/instance
+fight, confirm the `[taint]` line, confirm the SetCooldown error count stops,
+and run `/mcb guard` to capture the tainted button/source. `/mcb guard off`
+must restore the stock assisted-combat refresh.
 
 ## 2026-10-26 RELEASE 4.5.3 "VOIDLIGHT" (toggles in the log, holds named; NO wire change)
 

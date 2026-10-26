@@ -323,8 +323,45 @@ assert(loadfile("addon/MaxDpsCompanionBridge/Keymap.lua"))("MaxDpsCompanionBridg
 assert(loadfile("addon/MaxDpsCompanionBridge/MainFallback.lua"))("MaxDpsCompanionBridge", MDCB)
 MDCB.SpellAliases = MDCB.SpellAliases or { [202168] = { 34428 } }
 assert(loadfile("addon/MaxDpsCompanionBridge/Reader.lua"))("MaxDpsCompanionBridge", MDCB)
+-- 4.5.1 taint guard: pure policy + WoW-frame plumbing (the harness's
+-- CreateFrame stub gives it a listener frame).
+assert(loadfile("addon/MaxDpsCompanionBridge/SecretGuard.lua"))("MaxDpsCompanionBridge", MDCB)
 assert(type(MDCB.GetMainSpellID) == "function")
 assert(type(MDCB.GetOffensiveCandidate) == "function")
+assert(type(MDCB.SecretGuard) == "table")
+
+-- 4.5.1 taint-guard policy: clean main-bar assisted frames are never hidden;
+-- override buttons and any button the client names as tainted are paused only
+-- while cooldowns are secret.
+do
+  local G = MDCB.SecretGuard;
+  check("4.5.1 guard: clean main bar stays alone", G.ShouldPause(true, false, false) == false)
+  check("4.5.1 guard: secret + override pauses", G.ShouldPause(true, true, false) == true)
+  check("4.5.1 guard: secret + tainted main pauses", G.ShouldPause(true, false, true) == true)
+  check("4.5.1 guard: not secret never pauses", G.ShouldPause(false, true, true) == false)
+
+  -- Full sweep: an override assisted frame is hidden while the predicate is
+  -- true, and a clean main-bar frame is untouched.
+  local function FakeAssisted ()
+    return {
+      Shown = true,
+      IsShown = function(self) return self.Shown end,
+      Hide = function(self) self.Shown = false end,
+    };
+  end
+  local OverrideFrame, MainFrame = FakeAssisted(), FakeAssisted();
+  _G.OverrideActionBarButton2 = { AssistedCombatRotationFrame = OverrideFrame };
+  _G.ActionButton1 = { AssistedCombatRotationFrame = MainFrame };
+  local SavedSecrets = C_Secrets;
+  C_Secrets = { ShouldCooldownsBeSecret = function() return true end };
+  G.Scan();
+  check("4.5.1 guard: override assisted frame is paused", OverrideFrame.Shown == false)
+  check("4.5.1 guard: clean main assisted frame stays", MainFrame.Shown == true)
+  C_Secrets = { ShouldCooldownsBeSecret = function() return false end };
+  G.Scan();
+  C_Secrets = SavedSecrets;
+  _G.OverrideActionBarButton2, _G.ActionButton1 = nil, nil;
+end
 
 -- ================= 1. restricted cooldown shapes =================
 -- active real cooldown: isActive=true, isOnGCD=false; the Duration object
