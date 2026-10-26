@@ -1,5 +1,5 @@
 > [!IMPORTANT]
-> **Current client: 4.5.2 "Voidlight"** - the WinUI 3 Windows client
+> **Current client: 4.5.3 "Voidlight"** - the WinUI 3 Windows client
 > (`app/MaxDpsCompanion/`), the shared brain (`app/MaxDpsCompanion.Core/`) and the
 > macOS client (`app/MaxDpsCompanion.Mac/`, still `4.4.0 "Wayfinder"`), targeting
 > `MaxDpsCompanionBridge` + `dist`. **C# is the long-term base.** Frozen: the
@@ -46,7 +46,7 @@
 > [`app/MaxDpsCompanion.Mac/README.md`](app/MaxDpsCompanion.Mac/README.md);
 > live retail checks are OWED (`docs/TESTING.md` §4).
 
-# MaxDPS Companion (Retail Midnight 12.1, v4.5.2 "Voidlight")
+# MaxDPS Companion (Retail Midnight 12.1.5, v4.5.3 "Voidlight")
 
 Pixel bridge driver for [kaminaris MaxDps](https://www.curseforge.com/wow/addons/maxdps)
 (vendor pin: MaxDps v11.3.49). No memory read, no injection, no OCR, no LLM.
@@ -63,6 +63,22 @@ Two pieces:
 The legacy `MaxDpsBridge` addon (`addon/legacy/MaxDpsBridge/`, 40-cell strip) and the
 old WinForms client (`dist-legacy/`) are **legacy/frozen**; all current work targets
 `MaxDpsCompanionBridge` + `dist`.
+
+## v4.5.3 "Voidlight" - toggles in the log, holds named (no wire change)
+
+Two visibility fixes after a Main off report that looked like a broken app:
+
+- **Toggles are communicated.** The companion logs the addon's 14-bit toggle
+  mirror the first time it sees it, on every change and when it stops:
+  `[toggles] Main ON · all others ON`,
+  `[toggles] Main OFF - rotation suspended (turn it back on: /mcb t Main on)`,
+  `[toggles] Trinket OFF, Defensive ON`. The Exp **Details** disclosure shows
+  the same summary as a live line.
+- **Holds are named.** The status card reads `holding - <reason>` (Main off in
+  game, typing in chat, out of combat, link lost) instead of the green
+  "waiting for suggestion"; the classic shell reads `Holding - <reason>`.
+- The old hint pointed at `/mcb main on`, which is not a command; the real one
+  is `/mcb t Main on` (or click the in-game Main pill).
 
 ## v4.5.2 "Voidlight" - edge and corner resizing restored (hotfix, no wire change)
 

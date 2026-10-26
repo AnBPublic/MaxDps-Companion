@@ -26,6 +26,47 @@ by release name or date before re-investigating an old problem.
 - Wire: protocol v5 + Ext2/Ext3/Ext4 (51 cells), unchanged since 4.0.3. Any wire change is an
   architect-trigger task (`AGENTS.md`).
 
+## 2026-10-26 RELEASE 4.5.3 "VOIDLIGHT" (toggles in the log, holds named; NO wire change)
+
+Follow-up after a "companion does not press anything" report: the in-game
+**Main** toggle was OFF (the 4.0.4 master switch), and the UI showed the green
+"waiting for suggestion" with only a hex mask in Details, so the cause was
+invisible. Branch `release/v4.5.3-toggles`. Identity: csproj 4.5.3 (codename
+unchanged), `ReleaseIdentityTests`, `ReleaseNotes`. **Addon unchanged at 4.5.0**;
+no wire change.
+
+DONE
+- **Toggles communicated.** `Ui/Foundation/ToggleStateCopy.cs` (pure) summarises
+  the 14-bit ADDON-WINS mirror and diffs transitions. `UpdateMirrorPills` logs
+  first sight / every change / mirror loss (`[toggles] Main ON · all others ON`,
+  `[toggles] Main OFF - rotation suspended (turn it back on: /mcb t Main on)`,
+  `[toggles] Trinket OFF, Defensive ON`) and feeds a live `toggles:` line in the
+  Exp Details disclosure (`ExpConsoleView.SetToggles`).
+- **Holds named.** `Ui/Foundation/HoldCopy.cs` maps the engine's hold status to
+  `holding - <reason>` (Main off in game / typing in game chat / out of combat /
+  link lost); the classic status line shows `Holding - <reason>`.
+- **Wrong hint fixed.** `ToggleSync.MainOffNote` pointed at `/mcb main on`, which
+  is not a command; it now says `turn Main ON in the overlay or /mcb t Main on`.
+  (`/mcb t Main on` already exists in `InGame/Slash.lua`.)
+- Details open height 252 -> 276 to fit the toggles line (still clamped by
+  `inner - 164`, so the log keeps its reserve).
+- Docs: CHANGELOG, VERSION.txt, README, TESTING §3t.
+
+VERIFY (this machine, 2026-10-26)
+- Live diagnosis that motivated the fix: `dist\MaxDpsCompanion.exe --probe`
+  decoded `proto=5 state=NeedTarget slots=-,...` (strip healthy, 8 px cells at
+  0,0), the engine ran at 30 fps and detected `ROGUE · Assassination`, and the
+  log said `Holding (addon Main off - rotation suspended)`; the addon's saved
+  `Toggles.Main` was `false` and `AppMask` 16383.
+- `dotnet build -c Release`: 0 warnings / 0 errors.
+- `dotnet test -c Release`: 1119 passed / 0 failed (new HoldCopyTests 11,
+  ToggleStateCopyTests 11, ToggleSyncTests copy updated).
+- `--ui-smoke-test` / `--ui-smoke-test --exp`: PASS (title 4.5.3 Voidlight).
+
+OWED (live retail 12.1.5) - `docs/TESTING.md` §3t: flip Main off/on in the
+overlay and watch the `[toggles]` lines and the Details summary; hold reasons
+(typing, out of combat, link lost); recovery with `/mcb t Main on`.
+
 ## 2026-10-25 RELEASE 4.5.2 "VOIDLIGHT" (edge/corner resizing hotfix; NO wire change)
 
 Hotfix after the 4.5.0/4.5.1 chrome work. Branch `release/v4.5.2-resize`.

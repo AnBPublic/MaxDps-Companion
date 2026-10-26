@@ -33,7 +33,7 @@ internal sealed class ExpConsoleView : UserControl
     // disclosure body scrolls when the clamp bites (small window), so nothing is
     // ever clipped mid-line.
     private const double DetailsCollapsed = 24;
-    private const double DetailsWanted = 252;
+    private const double DetailsWanted = 276;
     /// <summary>Rows above the disclosure (~104 DIP) plus the log's 60 DIP minimum.</summary>
     private const double LogReserve = 164;
 
@@ -48,6 +48,15 @@ internal sealed class ExpConsoleView : UserControl
     };
     private readonly ExpDetailsToggle _detailsToggle = new();
     private readonly TextBlock _detailsValue;
+    /// <summary>4.5.3: the addon-wins toggle state, plain words (value-only writes).</summary>
+    private readonly TextBlock _togglesValue = new()
+    {
+        FontSize = ControlTheme.Dip(DesignTokens.MicroSize),
+        FontFamily = new MediaFontFamily("Cascadia Mono, Consolas"),
+        Foreground = ControlTheme.Brush(ControlTheme.TextWhite40),
+        TextTrimming = TextTrimming.CharacterEllipsis,
+        VerticalAlignment = VerticalAlignment.Center,
+    };
     private readonly TextBlock _nowValue = new()
     {
         Text = "Now: idle - waiting for a MaxDps suggestion.",
@@ -154,6 +163,7 @@ internal sealed class ExpConsoleView : UserControl
         _calibrate.Click += (_, _) => CalibrateRequested?.Invoke();
 
         _detailsBody.Children.Add(_detailsValue);
+        _detailsBody.Children.Add(_togglesValue);
         _detailsBody.Children.Add(_nowValue);
         _detailsBody.Children.Add(_calibrate);
         _detailsBody.Children.Add(BuildChangelog());
@@ -345,6 +355,23 @@ internal sealed class ExpConsoleView : UserControl
     public void SetDetails(string text)
     {
         if (_detailsValue.Text != text) _detailsValue.Text = text;
+    }
+
+    /// <summary>
+    /// 4.5.3: the ADDON-WINS toggle state in plain words, e.g.
+    /// "toggles: Main OFF (master switch)". Value-only; the caller passes
+    /// <see cref="ToggleStateCopy.Summary"/> and only calls on change.
+    /// </summary>
+    public void SetToggles(string text)
+    {
+        var line = "toggles: " + text;
+        if (_togglesValue.Text == line) return;
+        _togglesValue.Text = line;
+        _togglesValue.Foreground = ControlTheme.Brush(
+            text.StartsWith("Main OFF", StringComparison.Ordinal)
+                ? ControlTheme.Warning
+                : ControlTheme.TextWhite40);
+        AutomationProperties.SetName(_togglesValue, "Addon toggles: " + text);
     }
 
     public void SetNow(string action, string why)

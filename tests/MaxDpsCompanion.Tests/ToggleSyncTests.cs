@@ -321,7 +321,7 @@ public class ToggleSyncTests
 
         // Valid mirror and Main OFF: the master gate closes and says why.
         Assert.False(ToggleSync.MainAllowsExecution(mirrorValid: true, mainOff));
-        Assert.Equal("addon Main toggle is OFF - rotation suspended (/mcb main on)",
+        Assert.Equal("addon Main toggle is OFF - rotation suspended (turn Main ON in the overlay or /mcb t Main on)",
             ToggleSync.MainOffNote(mirrorValid: true, mainOff));
 
         // The master bit is the only cleared bit: every other toggle persists.
