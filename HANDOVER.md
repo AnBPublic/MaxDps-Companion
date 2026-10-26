@@ -72,6 +72,23 @@ fight, confirm the `[taint]` line, confirm the SetCooldown error count stops,
 and run `/mcb guard` to capture the tainted button/source. `/mcb guard off`
 must restore the stock assisted-combat refresh.
 
+ROLLED OUT (2026-10-26, primary checkout `A:\AI\GitHub\WoW-Companions\MaxDps-Companion`)
+- PR #13 merged to `master` (`5252346`), CI green on Windows + macOS; tag
+  `v4.5.4` pushed and the GitHub release published
+  (https://github.com/AnBPublic/MaxDps-Companion/releases/tag/v4.5.4), with the
+  `MaxDpsCompanionBridge-4.5.1.zip` addon asset attached.
+- `pwsh tools/publish.ps1`: FileVersion **4.5.4.0**, `dist\VERSION.txt`
+  **4.5.4 Voidlight**, `settings.ini` hash unchanged.
+- `pwsh tools/install-addon.ps1`: installed bridge **4.5.1** to
+  `_retail_\Interface\AddOns\MaxDpsCompanionBridge` (21 files, `SecretGuard.lua`
+  present); `MaxDpsCompanionBridge: enabled` in the character's AddOns.txt, and
+  the legacy `MaxDpsBridge` is not installed.
+- Shipped smoke: `--ui-smoke-test` **PASS**, title
+  `MaxDPS Companion v4.5.4 Voidlight`; a fresh 4.5.4 instance runs from `dist\`
+  (PID 36060).
+- Live guard confirmation is still OWED (§3u); the WoW client was not running
+  at rollout time.
+
 ## 2026-10-26 RELEASE 4.5.3 "VOIDLIGHT" (toggles in the log, holds named; NO wire change)
 
 Follow-up after a "companion does not press anything" report: the in-game
