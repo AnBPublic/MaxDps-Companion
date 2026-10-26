@@ -109,7 +109,8 @@ ROLLED OUT (2026-10-26, primary checkout `A:\AI\GitHub\WoW-Companions\MaxDps-Com
   hooks) and `Games/Modern/Actionbar/extraAB_bossAB.lua` (extra-action cooldown
   call/frame pokes) patched by `tools/patch-gw2ui-taint.ps1`; backups
   `*.maxdps-backup-4.5.4` kept; `luac -p` clean. The tool is committed on
-  `master` and attached to the v4.5.4 release; the game needs `/reload` (it was
+  `master` (`82b9dc9`), attached to the v4.5.4 release, and the release body
+  now carries the follow-up/root-cause note; the game needs `/reload` (it was
   not running at rollout time).
 - Live guard confirmation is still OWED (§3u); the WoW client was not running
   at rollout time.
