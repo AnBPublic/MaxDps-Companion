@@ -398,4 +398,137 @@ public class TelemetrySerializationTests
         Assert.DoesNotContain("\"dsrc\"", json);
         Assert.DoesNotContain("\"opts\"", json);
     }
+
+    // ----- 4.6.0 "Cadence": Ext5 + timing on the tick/policy record --------
+
+    private static readonly Ext5Block SampleExt5 = new(
+        Rank: 7,
+        Delve: 2,
+        Interruptible: 2,
+        CastKind: 2,
+        CastAgeBucket: 9,
+        CcKey: new KeyStroke(0x51, false, true, false),
+        CcSpellId: 5246,
+        GcdBucket: 8);
+
+    private static TelemetryEvent SampleExt5Tick(TelemetryTiming? timing)
+    {
+        var combat = new CombatContext
+        {
+            HpValid = true,
+            HpPct = 70,
+            TargetCasting = TriState.Yes,
+            TargetCastInterruptible = TriState.Yes,
+            ContextValid = true,
+            DefensiveUrgency = DefensiveUrgency.Unknown,
+            StaggerUrgency = DefensiveUrgency.Unknown,
+            Ext5 = SampleExt5,
+        };
+        var plan = SchedulePlan.Hold(ScheduleReason.NoCandidate, 0, 0, 0, "insurance armed");
+        return new TelemetryEvent
+        {
+            Kind = TelemetryKind.Tick,
+            TMs = 10,
+            Policy = TelemetryEvent.BuildPolicy(plan, true, combat, new PolicyOptions(), timing),
+        };
+    }
+
+    [Fact]
+    public void Policy_Record_RoundTrips_Ext5_And_Timing()
+    {
+        var timing = new TelemetryTiming
+        {
+            Kind = "landing",
+            Reason = "Armed",
+            PredictedGcdEndMs = 2500,
+            LeadMs = 40,
+            CandidateSpell = 12294,
+        };
+        var line = Json(SampleExt5Tick(timing));
+
+        Assert.Contains("\"ext5\"", line);
+        Assert.Contains("\"timing\"", line);
+
+        var loaded = TelemetryJson.Deserialize(line)!.Policy!;
+        var ext5 = loaded.Ext5!;
+        Assert.Equal(7, ext5.Rank);
+        Assert.Equal(2, ext5.Delve);
+        Assert.Equal(2, ext5.Interruptible);
+        Assert.Equal(2, ext5.CastKind);
+        Assert.Equal(9, ext5.CastAgeBucket);
+        Assert.Equal(8, ext5.GcdBucket);
+        Assert.Equal(5246, ext5.CcSpellId);
+        Assert.Equal(new KeyStroke(0x51, false, true, false), ext5.CcKey!.ToKeyStroke());
+        // The recorded block rebuilds the exact decode the tick consumed.
+        Assert.Equal(SampleExt5, ext5.ToBlock());
+
+        var recorded = loaded.Timing!;
+        Assert.Equal("landing", recorded.Kind);
+        Assert.Equal("Armed", recorded.Reason);
+        Assert.Equal(2500, recorded.PredictedGcdEndMs);
+        Assert.Equal(40, recorded.LeadMs);
+        Assert.Equal(12294, recorded.CandidateSpell);
+
+        // Byte-stable: a replayed line re-serializes identically.
+        Assert.Equal(Encoding.UTF8.GetBytes(line), Reserialized(line));
+    }
+
+    [Fact]
+    public void Policy_Record_Omits_Ext5_And_Timing_When_Absent()
+    {
+        // Pre-4.6 shape: no Ext5 on the context and no timing decision. Both
+        // keys must be absent so old exports replay byte-identically.
+        var combatNoExt5 = new CombatContext
+        {
+            HpValid = true,
+            HpPct = 80,
+            ContextValid = true,
+            DefensiveUrgency = DefensiveUrgency.Unknown,
+            StaggerUrgency = DefensiveUrgency.Unknown,
+        };
+        var line = Json(new TelemetryEvent
+        {
+            Kind = TelemetryKind.Tick,
+            TMs = 10,
+            Policy = TelemetryEvent.BuildPolicy(
+                SchedulePlan.Hold(ScheduleReason.NoCandidate, 0, 0, 0, "insurance armed"),
+                true, combatNoExt5, new PolicyOptions()),
+        });
+        Assert.DoesNotContain("\"ext5\"", line);
+        Assert.DoesNotContain("\"timing\"", line);
+
+        var plain = Json(new TelemetryEvent
+        {
+            Kind = TelemetryKind.Tick,
+            TMs = 10,
+            Policy = TelemetryEvent.BuildPolicy(
+                SchedulePlan.Hold(ScheduleReason.MainRotation, 0, 0, 0, "no ext5"), true, combatNoExt5, new PolicyOptions()),
+        });
+        Assert.DoesNotContain("\"ext5\"", plain);
+        Assert.DoesNotContain("\"timing\"", plain);
+    }
+
+    [Fact]
+    public void Policy_Record_Omits_An_Invalid_Cc_Key_On_The_Ext5_Block()
+    {
+        var timing = new TelemetryTiming { Kind = "insurance", Reason = "no CC entry" };
+        var block = SampleExt5 with { CcKey = default, CcSpellId = 0 };
+        var combat = new CombatContext { HpValid = true, HpPct = 70, ContextValid = true, Ext5 = block };
+        var line = Json(new TelemetryEvent
+        {
+            Kind = TelemetryKind.Tick,
+            TMs = 10,
+            Policy = TelemetryEvent.BuildPolicy(
+                SchedulePlan.Hold(ScheduleReason.NoCandidate, 0, 0, 0, "no cc"), true, combat, new PolicyOptions(), timing),
+        });
+
+        Assert.Contains("\"ccId\":0", line);
+        Assert.DoesNotContain("\"cc\":", line);
+        var loaded = TelemetryJson.Deserialize(line)!.Policy!;
+        Assert.Null(loaded.Ext5!.CcKey);
+        Assert.False(loaded.Ext5.ToBlock().CcValid);
+        Assert.Null(loaded.Timing!.PredictedGcdEndMs);
+        Assert.Null(loaded.Timing.LeadMs);
+        Assert.Null(loaded.Timing.CandidateSpell);
+    }
 }

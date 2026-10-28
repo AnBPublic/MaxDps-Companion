@@ -195,7 +195,7 @@ internal sealed class MacCaptureStream : IDisposable
     /// <summary>
     /// Locate band: the top-left corner of the window. "As small as possible,
     /// as big as necessary" - the first rung covers every realistic strip
-    /// (51 cells up to ~20 px + a small offset); the scanner's ladder widens it
+    /// (58 cells up to ~20 px + a small offset); the scanner's ladder widens it
     /// only when the strip is not there (bigger cells land on rung 1).
     /// </summary>
     public const int DefaultBandWidth = 1024;

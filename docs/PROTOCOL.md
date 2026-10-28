@@ -1,26 +1,29 @@
-# Pixel protocol v5 + Ext2/Ext3/Ext4 (additive; 35/40/43/51-cell) — MaxDpsCompanionBridge ↔ MaxDpsCompanion
+# Pixel protocol v5 + Ext2/Ext3/Ext4/Ext5 (additive; 35/40/43/51/58-cell) — MaxDpsCompanionBridge ↔ MaxDpsCompanion
 
 Normative spec. Bridge encodes, companion decodes. The frame is the **35-cell
 v5 core** plus the **additive Ext2 block** (cells 35-39), the **additive
-Ext3 block** (cells 40-42) and the **additive Ext4 block** (cells 43-50), so a
-bridge that ships Ext4 renders a **51-cell** strip, left to right, each
+Ext3 block** (cells 40-42), the **additive Ext4 block** (cells 43-50) and the
+**additive Ext5 block** (cells 51-57), so a
+bridge that ships Ext5 renders a **58-cell** strip, left to right, each
 `CellSize` physical pixels square.
 The app samples the centre pixel (5-tap median at ≥2 px cells).
 
 > **Compatibility contract (Sep-2026 outage lesson):** the companion MUST
-> decode the previous protocol versions too. It decodes **v5/Ext4 (51 cells),
-> v5/Ext3 (43 cells), v5/Ext2 (40 cells), v5/v6 (35 cells, v6 accepted
-> forward-compatible), v4 (9 cells) and v1 (8 cells)**; the in-game addon
-> encodes the widest layout it ships (Ext2 = 40 cells; Ext3 = 43; Ext4 = 51).
-> The addon goes stale whenever the user
+> decode the previous protocol versions too. It decodes **v5/Ext5 (58 cells),
+> v5/Ext4 (51 cells), v5/Ext3 (43 cells), v5/Ext2 (40 cells), v5/v6 (35 cells,
+> v6 accepted forward-compatible), v4 (9 cells) and v1 (8 cells)**; the in-game
+> addon encodes the widest layout it ships (Ext2 = 40 cells; Ext3 = 43;
+> Ext4 = 51; Ext5 = 58). The addon goes stale whenever the user
 > runs a new exe without `install-addon.ps1` + `/reload`. Rule for every
 > protocol bump: **companion decodes N and the older supported widths; addon
 > encodes N**, and the app warns (never hard-fails) on skew so recalibrate is
-> the repair path. The defensive-urgency block, Ext2, Ext3 and Ext4 are all
-> **additive**: a pre-2.3 encoder leaves the three urgency nibbles at `0` =
+> the repair path. The defensive-urgency block, Ext2, Ext3, Ext4 and Ext5 are
+> all **additive**: a pre-2.3 encoder leaves the three urgency nibbles at `0` =
 > UNKNOWN, a pre-3.0 encoder leaves cell 33 B bit2 clear (cells 35-39 ignored),
-> a pre-Ext3 encoder leaves cell 28 B bit2 clear (cells 40-42 ignored) and a
-> pre-Ext4 encoder leaves cell 28 B bit3 clear (cells 43-50 ignored). The
+> a pre-Ext3 encoder leaves cell 28 B bit2 clear (cells 40-42 ignored), a
+> pre-Ext4 encoder leaves cell 28 B bit3 clear (cells 43-50 ignored) and a
+> pre-Ext5 encoder leaves cell 50 R bit0 clear and renders 51 cells (cells
+> 51-57 ignored). The
 > wire version nibble stays `5` in all directions — an updated addon still
 > decodes with an older companion exe (it ignores the reserved nibbles, whose
 > checksums it already covered), and a stale addon still drives the current
@@ -595,3 +598,139 @@ marked LAST).
 | v5 + Ext4 | 51 | cell 28 B bit3 | v5 core + Ext2 + Ext3 + Ext4 | v5 core + Ext2 + Ext3 (cells 43-50 ignored) |
 | stale addon + current companion | ≤43 | bit3 = 0 | Ext4 absent; `HotbarMap.Status = OldAddon` | n/a |
 | current addon + stale companion | 51 | bit3 = 1 | — | decodes the 43-cell prefix |
+
+That table is the pre-4.6 contract; the Ext5 rows (including the important
+"58-cell addon + pre-Ext5 companion" case, which is **not** rejected) are in the
+Ext5 section's own compatibility matrix below.
+
+## Ext5 block (4.6.0 "Cadence", additive)
+
+Ext5 extends the strip to **58 cells**; cells 0-50 are the unchanged v5 core +
+Ext2 + Ext3 + Ext4 layout (including the cells 10/34/39/42/50 checksums) and
+the version nibble stays `5`. The block carries the inputs of the interrupt
+insurance, GCD landing and opener release features: **target rank + delve
+state, interruptibility, cast age + cast kind, the remaining GCD, and the full
+CC entry (keystroke + spell id)**. Every field has a UNKNOWN code, so a
+secret-degraded or unreadable probe reads as "no reading" and every consumer
+keeps its pre-4.6 behaviour.
+
+**Presence:** `cell 50 R bit0 == 1` **AND** the Ext4 presence bit (cell 28 B
+bit3) **AND** a capture of at least **58 cells**. Cell 50 R was reserved-zero
+and sits outside every checksum (`Bridge.lua` writes 0 there; `Ext4` decode
+ignores it), so a pre-Ext5 addon renders 51 cells with the bit at 0 and a
+pre-Ext5 companion never sees the block at all. Like Ext4, the Ext5 addon-side
+DB key (`ext5`, default **false**) is the compatibility switch: with it off the
+bridge still emits 51 cells.
+
+**A pre-Ext5 companion is not rejected by a 58-cell addon.** Such a companion's
+sampler/locator only knows widths 51/43/40/35, so it samples the first 51 cells
+and decodes them as a normal Ext4 frame: cells 0-50 keep every checksum
+(10/34/39/42/50) and the Ext5 presence bit lives in a reserved nibble outside
+all of them. It simply never reads cells 51-57. The compatibility switch exists
+for the opposite direction (a pre-Ext5 addon feeding a 4.6.0 companion, which
+must stay byte-identical), and the opt-in default keeps a fresh install on the
+frozen 51-cell frame.
+
+**Cell map (cells 51-57, plus the presence nibble):**
+
+| Cell | Channel | Ext5 (4.6.0) meaning |
+| :--- | :--- | :--- |
+| 50 | R | bit0 EXT5 PRESENT (`0` = block absent, cells 51-57 ignored); G/B stay the Ext4 checksum/heartbeat commit |
+| 51 | R | bits0-2 target rank: 0 unknown, 1 trivial, 2 normal, 3 elite, 4 rare, 5 rareelite, 6 worldboss, 7 elite-skull (`UnitClassification == "elite"` and `UnitLevel == -1`); bits3 reserved |
+| 51 | G | bits0-1 in-delve (`0` unknown, `1` no, `2` yes), bits2-3 reserved - **telemetry-only**: no companion decision rule reads it today |
+| 51 | B | reserved `0` |
+| 52 | R | bits0-1 interruptible (`0` unknown, `1` no, `2` yes), bits2-3 reserved |
+| 52 | G | cast-age bucket 0-15: `0` unknown/none, `1..14` = `[(b-1)*250, b*250)` ms, `14` saturates (≥3250 ms), `15` reserved; only meaningful when the cast kind is cast/channel |
+| 52 | B | bits0-1 cast kind (`0` unknown, `1` none, `2` cast, `3` channel), bits2-3 reserved |
+| 53 | R | GCD-remaining bucket: `0` unknown, `1` not on GCD, `2..15` = `[(b-2)*100, (b-1)*100)` ms, `15` saturates (≥1300 ms) |
+| 53 | G/B | reserved `0` |
+| 54 | R/G/B | CC entry keystroke: `R = vk hi`, `G = vk lo`, `B = key flags` (bit0 Shift, bit1 Ctrl, bit2 Alt, **bit3 Valid**) - identical packing to Ext4 |
+| 55 | R/G/B | CC spell id `idTop` (bits 21-20, decoder masks `& 3`), `id19-16`, `id15-12` |
+| 56 | R/G/B | CC spell id `id11-8`, `id7-4`, `id3-0` |
+| 57 | R/G/B | Ext5 checksum: `R = 0` (reserved), `G = sum(R,G,B nibbles of cells 51-56) mod 16`, `B = commit (= heartbeat)` |
+
+**Decode rules (companion):**
+
+- The block is read only from a **58-cell capture** with cell 50 R bit0 set:
+  `ext5Present = cell 50 R bit0 && cell 28 B bit3 && cells.Length >= 58`. A
+  51-cell Ext4 (or narrower) addon decodes exactly as before; cells 51-57 are
+  never read.
+- A cell-57 checksum failure **or a torn commit** (heartbeat mismatch) drops
+  **only** Ext5 (`BridgeFrame.Ext5 = null`); the frame, the v5 core, Ext2,
+  Ext3 and Ext4 are kept - the same "drop only this block" rule as
+  cell-39/Ext2, cell-42/Ext3 and cell-50/Ext4. Symmetrically, a torn Ext4 frame
+  does not drop a checksum-valid Ext5 block: each block owns its commit.
+- **`Ext5Block.Unknown`** is the all-zero block. Field semantics on the decode
+  side: `Rank` 0 = unknown (never "trivial"); `CastAgeMinMs` is -1 for bucket 0
+  and 15 (unknown/none); `GcdRemainMinMs` is -1 for bucket 0 and 0 for bucket 1
+  (not on GCD); `BossGrade` = rank 6 or 7 only; `CcValid` = a real keystroke
+  AND a spell id > 0.
+- **`Delve` (cell 51 G) is telemetry-only.** It is carried so a recorded tick
+  can be labelled with the run type, and no decision rule reads it (the opener
+  gate is `Rank`, nothing else). The field exists so the two surfaces agree on
+  one wire layout; treating it as an input without a curated rule that says so
+  would be exactly the silent drift this section forbids.
+- **Consistency, not redundancy (interrupt insurance).** Cells 52 R/B duplicate
+  the core cast triple so the insurance input is complete when the core nibbles
+  are UNKNOWN. The companion therefore **cross-checks** them: a block whose
+  `cast kind` is `1` (none) or whose `interruptible` is `1` (no) denies the
+  insurance press even when the core triple is UNKNOWN. The two sources can
+  never silently disagree in the firing direction.
+- **Prediction bias (deviation D5, landing only).** `GcdRemainMinMs` is the
+  bucket's LOWER bound, so the landing planner predicts the bucket's **upper
+  edge** (`now + GcdRemainMinMs + 100 ms`) rather than the midpoint the approved
+  plan named. The resulting 0-100 ms LATE bias is deliberate: a late pre-fire
+  sits inside the client's ~400 ms spell-queue window and lands on the GCD,
+  while an early one can be dropped. The learned lead (10-150 ms EWMA) trims the
+  remaining transport latency; it never removes the bucket bias.
+- **An invalid CC key forces `CcSpellId = 0`** (D4). The full CC entry is on
+  the wire because a synthesized press needs a keystroke: when the addon could
+  not offer a bindable CC it writes key flags bit3 = 0 and the decoder surfaces
+  neither a stroke nor an id (never half an entry).
+- Arithmetic is never applied before the addon has checked
+  `C_Secrets.ShouldCooldownsBeSecret()`: a secret/unreadable probe encodes 0 in
+  every field, which decodes as UNKNOWN.
+- The cell-57 `R` channel is reserved and **ignored** (not asserted `0`), like
+  cells 34/39/42/50 R. The core checksums (cells 10/34) and the Ext2/Ext3/Ext4
+  checksums (39/42/50) keep covering exactly cells 1-9, 11-33, 36-38, 40-41
+  and 43-49; none of them change.
+- The Ext5 block is additive over the **frozen** v5/Ext2/Ext3/Ext4 contract: no
+  cell, nibble lane, version nibble or checksum defined above is renumbered or
+  moved.
+
+**Deviations from the approved research plan (D1/D2/D4/D5):**
+
+| # | Approved plan | Shipped | Why |
+| :--- | :--- | :--- | :--- |
+| D1 | Ext5 presence = cell 28 B bit4 | presence = **cell 50 R bit0** | Wire channels are 4-bit nibbles, so cell 28 B has no bit4. Cell 50 R is documented reserved-0 and is outside every checksum, so the bit costs no existing field. |
+| D2 | cast **remaining** bucket | cast **age** bucket | `UnitCastingInfo` is never called (all returns are secret); only the event cast-start stamp (`TargetCastSince`) exists. A stun cancels a cast at any point, so age is sufficient for insurance. |
+| D4 | Ext5 carries a CC index only | Ext5 carries the **full CC entry (key + spell id)** | A synthesized CC needs a keystroke; when the kick occupies slot 6 the CC key is absent. Reuses Ext4's proven key/id packing. |
+| D5 | landing fires at the cell-53 **midpoint** | landing fires at the bucket's **upper edge** (midpoint + 100 ms) | The bucket is a 100 ms LOWER bound, so the midpoint is not a safe press target: the true remaining time can be up to 100 ms longer than the bucket's floor. The upper edge turns that ambiguity into a 0-100 ms LATE bias, which the client's ~400 ms spell queue absorbs, while an early press can be dropped outright. The 10-150 ms learned lead then trims the transport latency; it never removes the bucket bias. |
+
+(The third deviation in the plan, **D3**, is companion-side only - the opener
+gate is `BossGrade` (rank 6/7), not "elite + max HP" - and changes no wire
+field.)
+
+**Degrade matrix:**
+
+| Case | Result |
+| :--- | :--- |
+| Ext5 addon key off (51 cells) | today's frame, byte-identical; `Ext5 == null` |
+| Ext5 on, pre-Ext5 companion | **not rejected**: the pre-Ext5 companion samples its OWN 51-cell width (its `IsV5Length` has no 58) and decodes the 51-cell prefix - every checksum of cells 0-50 is intact and cell 50 R bit0 is outside all of them. Result: a normal 4.5.8 frame; `Ext5` is simply unknown to that app. Only a companion whose locator cannot lock onto the wider strip would report no pixel block, and the toggle stays opt-in. |
+| Presence clear / capture < 58 | `Ext5 == null`; insurance, opener and cell-53 landing are inert, the estimator landing still works |
+| Cell-57 checksum or heartbeat failure | drops **only** Ext5; core/Ext2/Ext3/Ext4 unaffected |
+| Secret/degraded probe | every Ext5 field 0 (UNKNOWN); no arithmetic attempted on a secret value |
+
+**Compatibility matrix (Ext5):**
+
+| In-game addon | Strip width | Presence | 4.6.0 companion | Pre-Ext5 companion |
+| :--- | :--- | :--- | :--- | :--- |
+| v5 + Ext4 | 51 | cell 28 B bit3 | v5 + Ext2 + Ext3 + Ext4, `Ext5 == null` | v5 + Ext2 + Ext3 |
+| v5 + Ext5 | 58 | cell 28 B bit3 **and** cell 50 R bit0 | v5 + Ext2 + Ext3 + Ext4 + Ext5 | **decodes the 51-cell prefix** (its samples are 51 cells wide; every checksum of cells 0-50 is intact, cell 50 R bit0 is outside all of them) - a normal Ext4 frame, Ext5 ignored. Not rejected. |
+
+**Hosts:** the capture/locator width ladder is ONE shared list
+(`PixelProtocol.V5Widths` = 58/51/43/40/35) consumed by the Windows sampler,
+locator and colour learner and by the macOS sampler and scanner, so no host can
+pin itself to an older width again. The shortest usable frame on the wire is
+still the 35-cell v5 core.
+

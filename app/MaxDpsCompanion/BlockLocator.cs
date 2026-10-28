@@ -164,17 +164,13 @@ internal static class BlockLocator
     }
 
     /// <summary>
-    /// v5-family window widths, widest first: Ext4 (51), Ext3 (43), Ext2 (40)
-    /// and the v5 core (35). All four share the core layout; a narrower stale
-    /// addon falls back to its own width, so the sweep still finds it.
+    /// v5-family window widths, widest first: Ext5 (58), Ext4 (51), Ext3 (43),
+    /// Ext2 (40) and the v5 core (35). All five share the core layout; a
+    /// narrower stale addon falls back to its own width, so the sweep still
+    /// finds it. ONE shared ladder (<see cref="PixelProtocol.V5Widths"/>) so
+    /// the Windows and macOS candidates cannot drift apart.
     /// </summary>
-    private static readonly int[] V5WindowWidths =
-    {
-        PixelProtocol.CellCountExt4,
-        PixelProtocol.CellCountExt3,
-        PixelProtocol.CellCountExt2,
-        PixelProtocol.CellCount,
-    };
+    private static readonly int[] V5WindowWidths = PixelProtocol.V5Widths;
 
     /// <summary>
     /// Confirms the candidate really is our strip by decoding all cells.

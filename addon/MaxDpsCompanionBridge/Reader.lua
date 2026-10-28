@@ -52,6 +52,10 @@ local CooldownSet = {};   -- spellID -> true, via GlowCooldownMidnight/GlowCoold
 local SensorEvents = false;
 local PlayerCasting, PlayerChanneling = false, false;
 local TargetCasting, TargetCastInterruptible = false, nil;
+-- 4.6.0 Ext5: cast vs channel on the TARGET. Both POST events set
+-- TargetCasting (the interrupt gate's contract), so the kind needs its own
+-- plain boolean; it is only read by the Ext5 probe.
+local TargetChanneling = false;
 -- Watchdog timestamps (plain GetTime numbers, never secret): a missed STOP
 -- event must not latch "casting" forever and hold the whole rotation.
 local PlayerCastSince, TargetCastSince = nil, nil;
@@ -1417,7 +1421,7 @@ end
 -- be missed across a loading screen, and a cast cannot span one.
 function MDCB.ResetSensors ()
   PlayerCasting, PlayerChanneling = false, false;
-  TargetCasting, TargetCastInterruptible = false, nil;
+  TargetCasting, TargetChanneling, TargetCastInterruptible = false, false, nil;
   PlayerCastSince, TargetCastSince = nil, nil;
 end
 
@@ -1556,6 +1560,7 @@ function MDCB.InitSensors ()
   local TargetFrame = CreateSensor("target", function (Event)
     if Event == "UNIT_SPELLCAST_START" or Event == "UNIT_SPELLCAST_CHANNEL_START" then
       TargetCasting = true; TargetCastInterruptible = nil; TargetCastSince = CastTimer();
+      TargetChanneling = (Event == "UNIT_SPELLCAST_CHANNEL_START");
     elseif Event == "UNIT_SPELLCAST_INTERRUPTIBLE" then
       TargetCastInterruptible = true;
     elseif Event == "UNIT_SPELLCAST_NOT_INTERRUPTIBLE" then
@@ -1566,11 +1571,13 @@ function MDCB.InitSensors ()
       or Event == "UNIT_SPELLCAST_CHANNEL_STOP"    -- v2.1: a target channel
       then                                          -- ending must clear too
       TargetCasting = false; TargetCastInterruptible = nil; TargetCastSince = nil;
+      TargetChanneling = false;
     elseif Event == "PLAYER_TARGET_CHANGED" then
       -- v2.1: the tracked cast belonged to the PREVIOUS target; without this
       -- a target switch mid-cast leaves a stale "casting" bit that would gate
       -- Spell Reflection onto a target that is not casting anything.
       TargetCasting = false; TargetCastInterruptible = nil; TargetCastSince = nil;
+      TargetChanneling = false;
     end
   end);
   if TargetFrame then
@@ -1711,6 +1718,7 @@ function MDCB.GetTargetContext ()
   end
   if not HasTarget then
     TargetCasting, TargetCastInterruptible, TargetCastSince = false, nil, nil;
+    TargetChanneling = false;
   end
 
   local Melee = 2;   -- unknown unless the shared event-gated probe answers
@@ -1731,6 +1739,7 @@ function MDCB.GetTargetContext ()
     if TargetCasting and CastStale(TargetCastSince) then
       -- Watchdog: the STOP was missed; report UNKNOWN, not "casting".
       TargetCasting, TargetCastInterruptible, TargetCastSince = false, nil, nil;
+      TargetChanneling = false;
       CastFlags = bit.bor(CastFlags, 2);
     elseif TargetCasting then
       CastFlags = bit.bor(CastFlags, 1);
@@ -1748,6 +1757,189 @@ function MDCB.GetTargetContext ()
     CastFlags = bit.bor(CastFlags, 2);
   end
   return Melee, HpBand, CastFlags;
+end
+
+--- ======= Ext5 PROBE (bridge 4.6.0) =======
+-- One read-only snapshot for the Bridge's Ext5 block (cells 51-57). Nothing
+-- here throws; every unreadable input stays UNKNOWN (0/nil) and the wire
+-- writer degrades each field to 0 on its own.
+--   rank            0 unknown, 1 trivial, 2 normal, 3 elite, 4 rare,
+--                   5 rareelite, 6 worldboss, 7 elite-skull
+--   delve           0 unknown, 1 no, 2 yes
+--   interruptible   0 unknown, 1 no, 2 yes (0 unless a target cast is live)
+--   castKind        0 unknown, 1 none, 2 cast, 3 channel
+--   castAgeMs       ms since the event cast-start stamp (nil = none/unknown);
+--                   UnitCastingInfo/UnitChannelInfo are NEVER called (every
+--                   return is secret -- see the zero-taint notes at the top)
+--   ccSpellId/ccKey/ccMods  first ready AND bound auto-eligible curated CC
+--   gcdRemainingMs  nil UNKNOWN, -1 not on GCD, >= 0 ms left on the GCD
+local RANK_BY_CLASSIFICATION = {
+  trivial = 1, normal = 2, elite = 3, rare = 4, rareelite = 5, worldboss = 6,
+};
+
+-- Target rank. UnitClassification/UnitLevel are plain reads for "target" (the
+-- same pair IsBossTarget already compares); anything unexpected -> 0 unknown.
+-- elite-skull = the elite classification WITH the boss-level -1 marker.
+local function TargetRankUncached ()
+  if type(UnitClassification) ~= "function" then return 0; end
+  local OkC, Class = pcall(UnitClassification, "target");
+  if not OkC or type(Class) ~= "string" then return 0; end
+  local Rank = RANK_BY_CLASSIFICATION[Class] or 0;
+  if Rank == 3 and type(UnitLevel) == "function" then
+    local OkL, Level = pcall(UnitLevel, "target");
+    if OkL and Level == -1 then return 7; end
+  end
+  return Rank;
+end
+
+-- In-delve, taint-safe public detection only: a delve runs inside the scenario
+-- system, so instance type "scenario" + a live C_Scenario.GetInfo() is the
+-- signal. An overworld/dungeon/raid instance is a definite NO. A scenario with
+-- no readable scenario info, or a client without the instance API, stays
+-- UNKNOWN (0) rather than guessing.
+local function DelveState ()
+  if type(GetInstanceInfo) ~= "function" then return 0; end
+  local OkI, _Name, InstType = pcall(GetInstanceInfo);
+  if not OkI or type(InstType) ~= "string" then return 0; end
+  if InstType ~= "scenario" then return 1; end
+  if type(_G.C_Scenario) ~= "table"
+    or type(_G.C_Scenario.GetInfo) ~= "function" then
+    return 0;
+  end
+  local OkS, Info = pcall(_G.C_Scenario.GetInfo);
+  if not OkS then return 0; end
+  if type(Info) == "table" then return 2; end
+  return 1;
+end
+
+-- Target cast snapshot: kind, age (ms) and interruptibility, ALL derived from
+-- the event sensors (plain booleans + a plain GetTime stamp). The watchdog and
+-- the missing-target reset mirror GetTargetContext, so a missed STOP can never
+-- leave a stale cast age on the wire.
+local function TargetCastSnapshot ()
+  if not SensorEvents then return 0, nil, 0; end
+  if not TargetCasting then return 1, nil, 0; end
+  if CastStale(TargetCastSince) then
+    TargetCasting, TargetChanneling, TargetCastInterruptible, TargetCastSince
+      = false, false, nil, nil;
+    return 0, nil, 0;
+  end
+  if type(UnitExists) == "function" then
+    local OkE, Exists = pcall(UnitExists, "target");
+    if OkE and Exists ~= true then
+      TargetCasting, TargetChanneling, TargetCastInterruptible, TargetCastSince
+        = false, false, nil, nil;
+      return 0, nil, 0;
+    end
+  end
+  local Kind = TargetChanneling and 3 or 2;
+  local Interruptible = 0;
+  if TargetCastInterruptible == true then Interruptible = 2;
+  elseif TargetCastInterruptible == false then Interruptible = 1; end
+  local Age = nil;
+  if type(TargetCastSince) == "number" then
+    local Now = SafeNow();
+    if Now then
+      Age = (Now - TargetCastSince) * 1000;
+      if Age < 0 then Age = 0; end
+    end
+  end
+  return Kind, Age, Interruptible;
+end
+
+-- The insurance CC entry: the first ready AND bound AUTO-ELIGIBLE curated CC
+-- (the same per-spec "cc" extras list slot 6 falls through to) plus the key the
+-- bridge would press. Reuses ExtraCandidates (ready + bound + known variant)
+-- and ResolveBinding -- no second binding path. The addon CC toggle stays
+-- restrict-only (missing = ON), exactly like GetCrowdControlCandidate. Boss
+-- targets are NOT filtered out here: the companion's CrowdControlVetoes owns
+-- DR/immunity, and insurance against a boss cast is the case that matters.
+local function CCEntry ()
+  if type(MDCB.ExtraCandidates) ~= "function" then return nil; end
+  if MDCB.Toggles and MDCB.Toggles.IsCC and not MDCB.Toggles.IsCC() then
+    return nil;
+  end
+  local Candidates = MDCB.ExtraCandidates("cc", 4);
+  if type(Candidates) ~= "table" then return nil; end
+  for i = 1, #Candidates do
+    local Id = Candidates[i];
+    if type(Id) == "number" and Id > 0
+      and not (MDCB.IsNeverAutomatic and MDCB.IsNeverAutomatic(Id)) then
+      local VK, Mods = MDCB.ResolveBinding(Id);
+      if type(VK) == "number" and VK > 0 then
+        return Id, VK, (type(Mods) == "number" and Mods or 0);
+      end
+    end
+  end
+  return nil;
+end
+
+-- The ONLY cooldown arithmetic in the Ext5 block, and it runs ONLY after the
+-- 12.x secret predicate said no (SecretGuard.lua:135-141 is the same check).
+-- Predicate true => nil = UNKNOWN => bucket 0. The predicate missing on an old
+-- client falls through to the plain-number type guards below.
+local GCD_SPELL_ID = 61304;   -- the GCD's own id, same probe StatusFlags uses
+
+local function CooldownsSecret ()
+  if type(_G.C_Secrets) ~= "table" then return false; end
+  if type(_G.C_Secrets.ShouldCooldownsBeSecret) ~= "function" then return false; end
+  local Ok, Secret = pcall(_G.C_Secrets.ShouldCooldownsBeSecret);
+  if not Ok or Secret == nil then return false; end
+  -- The verdict itself can arrive tainted: never compare it outside a pcall.
+  local OkTrue, IsTrue = pcall(function () return Secret == true; end);
+  return (OkTrue and IsTrue == true);
+end
+
+local function GcdRemainingMs ()
+  if CooldownsSecret() then return nil; end   -- secret: no read, no arithmetic
+  if type(_G.C_Spell) ~= "table"
+    or type(_G.C_Spell.GetSpellCooldown) ~= "function" then
+    return nil;
+  end
+  local Ok, Info = pcall(_G.C_Spell.GetSpellCooldown, GCD_SPELL_ID);
+  if not Ok or type(Info) ~= "table" then return nil; end
+  -- Tri-state read inside the pcall: a secret isOnGCD throws the compare and
+  -- lands in Ok=false, so it can never leak into a branch here.
+  local OkT, State, Start, Duration = pcall(function ()
+    local On = Info.isOnGCD;
+    if On == true then return 2, Info.startTime, Info.duration; end
+    if On == false then return 1, nil, nil; end
+    return 0, nil, nil;
+  end);
+  if not OkT then return nil; end
+  if State == 1 then return -1; end       -- confirmed NOT on the GCD
+  if State ~= 2 then return nil; end      -- UNKNOWN
+  if type(Start) ~= "number" or type(Duration) ~= "number" then return nil; end
+  local Now = SafeNow();
+  if not Now then return nil; end
+  local Left = (Start + Duration - Now) * 1000;
+  if Left < 0 then Left = 0; end
+  return Left;
+end
+
+function MDCB.GetExt5 ()
+  local Out = {
+    rank = 0, delve = 0, interruptible = 0, castKind = 0, castAgeMs = nil,
+    ccKey = nil, ccMods = 0, ccSpellId = nil, gcdRemainingMs = nil,
+  };
+  local OkRank, Rank = pcall(TargetRankUncached);
+  if OkRank and type(Rank) == "number" then Out.rank = Rank; end
+  local OkDelve, Delve = pcall(DelveState);
+  if OkDelve and type(Delve) == "number" then Out.delve = Delve; end
+  local OkCast, Kind, Age, Interruptible = pcall(TargetCastSnapshot);
+  if OkCast then
+    if type(Kind) == "number" then Out.castKind = Kind; end
+    if type(Age) == "number" then Out.castAgeMs = Age; end
+    if type(Interruptible) == "number" then Out.interruptible = Interruptible; end
+  end
+  local OkCC, Id, VK, Mods = pcall(CCEntry);
+  if OkCC and type(Id) == "number" and Id > 0
+    and type(VK) == "number" and VK > 0 then
+    Out.ccSpellId, Out.ccKey, Out.ccMods = Id, VK, (Mods or 0);
+  end
+  local OkGcd, Gcd = pcall(GcdRemainingMs);
+  if OkGcd and type(Gcd) == "number" then Out.gcdRemainingMs = Gcd; end
+  return Out;
 end
 
 -- Per-slot range probe: 0 unknown, 1 in range, 2 out of range.

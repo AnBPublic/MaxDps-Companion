@@ -1,3 +1,6 @@
+using MaxDpsCompanion.Core.Knowledge;
+using MaxDpsCompanion.Core.Scheduler;
+
 namespace MaxDpsCompanion;
 
 /// <summary>
@@ -43,6 +46,28 @@ namespace MaxDpsCompanion;
 ///    edge) drops the Main failure memory so a stuck rotation suggestion
 ///    cannot carry its backoff into the next target. MinKeyInterval and link
 ///    state persist either way.
+///
+/// 4.6.0 "Cadence" (all four features default OFF, see
+/// <see cref="CadenceOptions"/>; with them off every line below reproduces the
+/// 4.5.8 behaviour byte-identically):
+///  * interrupt INSURANCE: on a confirmed interruptible cast that the slot-6
+///    kick cannot cover, the addon's own bound CC entry (Ext5) is appended to
+///    the Interrupt slot - one more candidate on the EXISTING send gates, never
+///    a second send path. The press is a GCD-riding CC in the general case, so
+///    the interrupt exemption is per-SPELL: it bypasses the GCD only when the
+///    registry marks the spell off-GCD. Its DR application, per-cast latch and
+///    timing record are committed only when the stroke really reaches the plan.
+///  * LANDING: the GCD-riding head is pre-fired `leadMs` before the PREDICTED
+///    GCD end (Ext5 cell 53 or the observed-edge estimator) so the press is
+///    queued by the client instead of waiting for the strip's flag to fall.
+///    One pre-fire per GCD, aborted on any identity/verdict change, and the
+///    Fired latch + latency sample are committed only at emission.
+///  * KICK MEMORY: a rejected WIRE KICK stroke marks the kick failed for the
+///    first suppression rung (<see cref="KickMemory"/>, instance state owned by
+///    this scheduler) so insurance can cover the next cast; a CC id never feeds
+///    it. Cleared on a target change, out of combat or a confirmed GCD.
+///  * OPENER RELEASE: on a BOSS-GRADE pull one ready Offensive major is
+///    pre-ranked ahead of the first Main for the engine's 2500 ms window.
 ///
 /// The engine's existing per-slot send gates stay authoritative; the plan is
 /// only the order and the pacing decision.
@@ -181,6 +206,41 @@ internal sealed class ActionScheduler
     private long _stunAttemptMs;
     private int _stunAttemptSpellId;
 
+    // ---- 4.6.0 "Cadence" -------------------------------------------------
+
+    // Feature switches (all OFF by default, see CadenceOptions.Off).
+    private CadenceOptions _cadence = CadenceOptions.Off;
+
+    // GCD landing planner: the estimator + per-GCD pre-fire latch. Observed on
+    // every decoded frame even with Landing=Off (it only *feeds* the prediction
+    // the engines' adaptive polling reads); it never changes a plan unless
+    // CadenceOptions.LandingAuto is set.
+    private readonly LandingPlanner _landing = new();
+
+    // Predicted end of the current GCD (0 = unknown). Read by the engines'
+    // adaptive polling via PredictedGcdEndMs.
+    private long _predictedGcdEndMs;
+
+    // This tick's timing decision (telemetry; null = none).
+    private SchedulerTiming? _lastTiming;
+
+    // Insurance: the fired decision awaiting its send, so the DR application is
+    // recorded ONLY after a real keystroke went out (never for a vetoed or
+    // engine-rejected tick).
+    private bool _insuranceAwaitsSend;
+    private int _insuranceSpellId;
+    private CcDrCategory _insuranceDr;
+    private int _insuranceBaseDurationMs;
+
+    // Insurance per-CAST latch: after one press, the same still-running cast is
+    // never pressed again (cast age is monotonic inside one cast). Cleared when
+    // the cast ends, the age bucket restarts (a new cast) or LatchGraceMs
+    // elapses. A bool + timestamps (never a 0 sentinel) so a press at engine
+    // ms 0 is still latched.
+    private bool _insuranceLatchedCast;
+    private long _insuranceLatchAtMs;
+    private int _insuranceLatchCastBucket;
+
     /// <summary>Failed-action rejections detected (diagnostics; telemetry reads the plan).</summary>
     public int RejectionsDetected { get; private set; }
 
@@ -194,6 +254,39 @@ internal sealed class ActionScheduler
 
     /// <summary>The policy memory (used by replay/tests to inspect sequencing state).</summary>
     public PolicyMemory Policy => _policyMemory;
+
+    /// <summary>
+    /// The predicted end of the current GCD in engine ms (0 = unknown). Fed by
+    /// the landing planner on every decoded frame, so a pre-4.6 addon still
+    /// yields an estimator-based prediction. The engines' adaptive polling
+    /// reads this; it never changes a plan by itself.
+    /// </summary>
+    internal long PredictedGcdEndMs => _predictedGcdEndMs;
+
+    /// <summary>
+    /// This tick's Cadence timing decision (insurance / landing / opener), or
+    /// null when this tick made none. Exactly one is recorded per tick; the
+    /// precedence is insurance, landing pre-fire, landing abort, opener.
+    /// </summary>
+    internal SchedulerTiming? LastTiming => _lastTiming;
+
+    /// <summary>The landing planner (replay/test seam: state + estimators).</summary>
+    internal LandingPlanner Landing => _landing;
+
+    /// <summary>
+    /// 4.6.0 kick-failure memory. INSTANCE state owned by this scheduler: the
+    /// only writer is <see cref="NoteFailure"/> and the only reader is the
+    /// insurance predicate, so two schedulers (a replay, a test, a second
+    /// engine) can never share, inherit or clear each other's ladder.
+    /// </summary>
+    internal KickMemory Kick { get; } = new();
+
+    /// <summary>
+    /// Applies the 4.6.0 feature switches. Optional by design: an unconfigured
+    /// scheduler (every pre-4.6 caller, every test that does not opt in) keeps
+    /// <see cref="CadenceOptions.Off"/>, which is byte-identical to 4.5.8.
+    /// </summary>
+    internal void Configure(CadenceOptions options) => _cadence = options;
 
     /// <summary>
     /// Records a decoded frame's heartbeat (cheap; called for every frame so
@@ -330,6 +423,15 @@ internal sealed class ActionScheduler
             // ineffective probe. The next Observe frames decide.
             ArmStunProbe(spellId, nowMs);
         }
+
+        // 4.6.0 interrupt insurance: the DR ladder is written HERE, after the
+        // stroke really went out - never at plan time - so a vetoed or
+        // engine-rejected insurance press cannot poison the shared CC memory.
+        if (_insuranceAwaitsSend && slot == Slot.Interrupt && spellId == _insuranceSpellId)
+        {
+            _insuranceAwaitsSend = false;
+            CrowdControlVetoes.NoteUsed(_insuranceDr, nowMs, _insuranceBaseDurationMs);
+        }
     }
 
     /// <summary>
@@ -401,12 +503,28 @@ internal sealed class ActionScheduler
         _stunAttemptMs = 0;
         _stunAttemptSpellId = 0;
         _lastOnGcd = false;
+        // 4.6.0: a fresh session must not inherit a GCD prediction, a landing
+        // latch or a kick-failure rung from the previous one.
+        _landing.Reset();
+        _predictedGcdEndMs = 0;
+        _lastTiming = null;
+        _insuranceAwaitsSend = false;
+        _insuranceSpellId = 0;
+        _insuranceDr = default;
+        _insuranceBaseDurationMs = 0;
+        _insuranceLatchedCast = false;
+        _insuranceLatchAtMs = 0;
+        _insuranceLatchCastBucket = 0;
+        Kick.Reset();
     }
 
     /// <summary>Deterministic scheduling decision for one tick.</summary>
     public SchedulePlan Advance(ScheduleInput input)
     {
         _catalogForNotes = input.Catalog;
+        // 4.6.0: exactly one timing decision per tick; an early return (stale
+        // frame / link lost / paused / no target) records none.
+        _lastTiming = null;
 
         // 1. Link / protocol: a stale or unknown strip must never fire.
         if (input.Frame is not { } frame)
@@ -434,6 +552,14 @@ internal sealed class ActionScheduler
         _policyMemory.ClearExpired(input.NowMs);
         PruneAttempts(input.NowMs);
 
+        // 2b. 4.6.0 Cadence timing. Observe the GCD edges for the length /
+        //     latency EWMAs and predict the current GCD's end. Passive by
+        //     design: with Landing=Off the prediction only feeds the engines'
+        //     adaptive polling (and this is still cheaper than a plan change),
+        //     so the plan below stays byte-identical to 4.5.8.
+        _landing.Observe(frame.OnGcd, input.NowMs);
+        _predictedGcdEndMs = _landing.PredictEnd(frame.Ext5, input.NowMs);
+
         // 3. State transitions (before the gates so a held plan still sees
         //    edges). Target regained / state change / GCD release clears local
         //    suppression: a candidate blocked in one state must be re-tried
@@ -443,6 +569,9 @@ internal sealed class ActionScheduler
             var targetChanged = frame.HasTarget != _lastHasTarget;
             var combatChanged = frame.InCombat != _lastInCombat;
             var gcdReleased = _lastOnGcd && !frame.OnGcd;
+            // 4.6.0: a confirmed GCD means the last press landed, so the kick
+            // failure rung is cleared (the kick is no longer "known broken").
+            if (_lastOnGcd != frame.OnGcd && frame.OnGcd) Kick.Reset();
             if (frame.State != _lastState || targetChanged || combatChanged || gcdReleased)
                 _blockedUntil.Clear();
             // A target change or a combat transition is a new fight state: the
@@ -459,6 +588,9 @@ internal sealed class ActionScheduler
             if (targetChanged || combatChanged)
             {
                 _attempts.Clear();
+                // 4.6.0: a new fight state also forgets a failed kick (target
+                // change) - insurance may cover the new target immediately.
+                Kick.Reset();
                 // A new fight state is a new Main rotation: drop the Main
                 // slot's failure memory (suppression + ladder + decay stamp)
                 // so a stuck suggestion from the previous target cannot keep
@@ -477,6 +609,13 @@ internal sealed class ActionScheduler
         _lastHasTarget = frame.HasTarget;
         _lastInCombat = frame.InCombat;
         _lastOnGcd = frame.OnGcd;
+        // 4.6.0: out of combat (or no target left) forgets a failed kick: there
+        // is no fight to kick in, and the next target is a new attempt. The v1
+        // protocol has no target flag, so its absence is UNKNOWN (fail open),
+        // exactly like the NoTarget gate below.
+        if (!frame.InCombat
+            || (!frame.HasTarget && frame.Version != PixelProtocol.SupportedVersionV1))
+            Kick.Reset();
 
         // 4. Hard state gates (the engine applies the same gates before the
         //    send path; modelled here so the scheduler is complete for tests
@@ -541,6 +680,27 @@ internal sealed class ActionScheduler
         }
 
         var ranked = new List<(ActionCandidate Candidate, PolicyDecision? Policy)>(PixelProtocol.SlotCount);
+
+        // 5b. 4.6.0 interrupt INSURANCE (default OFF). Evaluated before the
+        //     normal selection so an interruptible cast the slot-6 kick cannot
+        //     cover is answered with the addon's own bound CC entry (Ext5 cell
+        //     54-56). The press is appended as ONE MORE Interrupt candidate
+        //     AFTER the wire candidates, so it ties LAST on the Interrupt rank:
+        //     a live, usable kick always wins the tie (the CC is the fallback,
+        //     never the first answer). It rides the existing bypass (GCD + min
+        //     key interval), the existing OS gates and the existing failure
+        //     machinery - there is no second send path - and with the toggle off
+        //     nothing here runs.
+        //
+        //     The verdict is a PLAN only: the per-cast latch, the DR/latch
+        //     arming and the timing record are committed in the send loop below,
+        //     after the stroke actually reached `actions` (review m2). Arming
+        //     them here is how a press that the send gates hold (a live GCD on a
+        //     GCD-riding CC, an OS/failure suppression) used to report a press
+        //     and block its own retry without ever sending a keystroke.
+        var insurancePlan = InsuranceCandidate(input, frame, context, catalog,
+            interruptCandidatePresent: bySlot[(int)Slot.Interrupt] is { Count: > 0 });
+
         for (var i = 0; i < PixelProtocol.SlotCount; i++)
         {
             if (bySlot[i] is not { Count: > 0 } slotCandidates) continue;
@@ -673,6 +833,12 @@ internal sealed class ActionScheduler
             }
         }
 
+        // 5c. Append the insured cast AFTER the wire candidates (see 5b): a live
+        //     kick keeps the Interrupt rank tie, so the CC only surfaces when the
+        //     kick is absent or its own gates refuse it.
+        if (insurancePlan is { } insuredPlan)
+            ranked.Add((insuredPlan.Candidate, insuredPlan.Policy));
+
         if (ranked.Count == 0)
         {
             // R2 (sustain-cd): HP is in the sustain window, the spec owns a
@@ -710,8 +876,16 @@ internal sealed class ActionScheduler
         // Stable rank order: interrupt first, then emergency survival, then the
         // prescribed slot ranks. Policy-off rank table reproduces the legacy
         // interrupt/defensive/main/... order exactly.
+        // 4.6.0 opener release (default OFF): inside the engine's boss-grade
+        // pull window ONE ready Offensive major is pre-ranked ahead of the
+        // first Main (rank 3, i.e. behind Interrupt/emergency/Defensive). Rank
+        // elite/rare/normal/UNKNOWN never opens the window, so their order is
+        // unchanged; with the toggle off this is the exact 4.5.8 ordering.
+        var openerPromoted = _cadence.OpenerPromotes ? FirstOffensiveMajor(ranked) : -1;
         var ordered = ranked
-            .OrderBy(t => RankFor(t.Candidate.Slot, t.Policy))
+            .Select((entry, index) => (entry, promoted: index == openerPromoted))
+            .OrderBy(t => RankFor(t.entry.Candidate.Slot, t.entry.Policy, t.promoted))
+            .Select(t => t.entry)
             .ToList();
 
         // 7. Duplicate collapse: one physical stroke, one press (highest
@@ -798,11 +972,53 @@ internal sealed class ActionScheduler
         // emitted the same stroke, so a held higher-rank press cannot strand Main.
         if (collapsedMains.Count > 0) final.AddRange(collapsedMains);
 
+        // 8c. 4.6.0 LANDING (default OFF, [Scheduler] Landing=Auto only).
+        //     Inside a LIVE GCD the head that rides it is pre-fired `leadMs`
+        //     before the PREDICTED end, so the client's spell queue lands it the
+        //     instant the GCD falls instead of waiting for the strip's flag.
+        //     One pre-fire per GCD; the armed identity/verdict is compared on
+        //     every tick (an Abort costs nothing - the next tick re-plans).
+        //     With the toggle off `landingFire` stays null, the GCD gate below
+        //     is the unchanged GcdHold and no timing is recorded.
+        //
+        //     Plan and COMMIT are split (review m3): `Plan` returns the intent
+        //     only. The Fired latch, the latency sample and the timing record are
+        //     committed in the send loop when the stroke is actually emitted, so
+        //     a pre-fire that a later gate holds can neither be latched without a
+        //     keystroke nor feed the latency EWMA a sample for a press that never
+        //     happened.
+        LandingCandidate? landingFired = null;
+        LandingDecision landingDecision = LandingDecision.None;
+        if (_cadence.LandingAuto && frame.OnGcd)
+        {
+            var landingHead = FirstGcdRiding(final);
+            if (landingHead is { } armable)
+            {
+                landingDecision = _landing.Plan(armable, frame.OnGcd, frame.Ext5, input.NowMs, enabled: true);
+                if (landingDecision.Action == LandingAction.Fire) landingFired = armable;
+                // An Abort is a DECISION, not a press: it is recorded here (it
+                // costs nothing and the next tick re-plans). The pre-fire's own
+                // timing record is committed at emission below.
+                if (landingDecision.Action == LandingAction.Abort && _lastTiming is null)
+                {
+                    _lastTiming = new SchedulerTiming(
+                        SchedulerTiming.KindLandAbort,
+                        landingDecision.Reason,
+                        landingDecision.PredictedGcdEndMs,
+                        landingDecision.LeadMs,
+                        landingDecision.CandidateSpell);
+                }
+            }
+        }
+
         // 9. Timing gates. GCD: v4+ encode it; the interrupt is off the GCD
         //    and always bypasses. Min key interval: one press per interval —
         //    the interrupt bypasses it too (time-critical kick must not wait
         //    behind a recent DPS press). v1 frames carry no GCD flag, so an
         //    identical repeat is suppressed for RepeatSuppressMs instead.
+        //    The landing pre-fire is a SCHEDULED stroke: it is exempt from both
+        //    of those two gates for this one GCD. Every UNSCHEDULED stroke is
+        //    still gated by MinKeyIntervalMs exactly as before.
         var gcdUnknown = frame.Version is not (PixelProtocol.SupportedVersion
             or PixelProtocol.SupportedVersionV6
             or PixelProtocol.SupportedVersionV4);
@@ -827,11 +1043,18 @@ internal sealed class ActionScheduler
         {
             var slot = candidate.Slot;
             if (emittedStrokes.Contains(candidate.Stroke)) continue;
+            // 4.6.0 landing: the one stroke the planner pre-fired this GCD is
+            // the only candidate allowed through the GCD gate below.
+            var landingScheduled = landingFired is { } fired
+                && fired.Slot == slot
+                && fired.Stroke == candidate.Stroke
+                && fired.SpellId == candidate.SpellId;
             // GCD bypass (RC6): the interrupt is off-GCD by design; v3.5 also
             // exempts an emergency survival verdict and any ability the
             // registry marks off-GCD, so a time-critical situational action is
-            // not lost to the brief GCD-off window.
-            if (frame.OnGcd && !BypassesGcd(slot, policy, candidate.SpellId))
+            // not lost to the brief GCD-off window. The landing pre-fire is the
+            // scheduled exception (see 8c).
+            if (frame.OnGcd && !landingScheduled && !BypassesGcd(slot, policy, candidate.SpellId))
             {
                 NoteHold(ScheduleReason.GcdHold);
                 continue;
@@ -866,7 +1089,10 @@ internal sealed class ActionScheduler
             // press; only an identical slot+stroke+spell repeat inside the
             // interval is held, which covers the pre-GCD-flip window. Every
             // other slot keeps the one-press-per-interval pacing.
-            if (MinIntervalApplies(slot, candidate, intervalElapsed))
+            // 4.6.0: the landing pre-fire is SCHEDULED (armed for the predicted
+            // GCD edge), so it is exempt too. Unscheduled strokes keep the
+            // exact 4.5.8 pacing.
+            if (MinIntervalApplies(slot, candidate, intervalElapsed, landingScheduled))
             {
                 NoteHold(ScheduleReason.MinInterval);
                 continue;
@@ -894,12 +1120,40 @@ internal sealed class ActionScheduler
                 candidate.Stroke,
                 candidate.SpellId,
                 ReasonFor(slot, policy),
-                slot == Slot.Interrupt)
+                BypassesGcd(slot, policy, candidate.SpellId))
             {
                 Provider = policy?.Provider ?? "",
                 Evidence = policy?.Evidence ?? [],
             });
             emittedStrokes.Add(candidate.Stroke);
+
+            // 4.6.0 EMISSION COMMITS. This is the first point in the tick where
+            // the stroke provably reached the plan (every GCD/min-interval/
+            // suppression gate above said yes), so it is the only point where
+            // the latches, the DR application and the timing record may be
+            // armed (review m2/m3). A held press commits nothing: no bogus
+            // telemetry, no blocked retry, no latency sample for a keystroke
+            // that never happened.
+            if (landingScheduled && landingDecision.Action == LandingAction.Fire)
+            {
+                _landing.CommitFire(input.NowMs);
+                if (_lastTiming is null)
+                {
+                    _lastTiming = new SchedulerTiming(
+                        SchedulerTiming.KindLandPrefire,
+                        landingDecision.Reason,
+                        landingDecision.PredictedGcdEndMs,
+                        landingDecision.LeadMs,
+                        landingDecision.CandidateSpell);
+                }
+            }
+            if (insurancePlan is { } insuredCommit
+                && slot == insuredCommit.Candidate.Slot
+                && candidate.Stroke == insuredCommit.Candidate.Stroke
+                && candidate.SpellId == insuredCommit.Candidate.SpellId)
+            {
+                CommitInsurance(input.NowMs, insuredCommit);
+            }
         }
 
         // T2 (no-downtime Main): remember the Main identity that won this tick;
@@ -922,7 +1176,15 @@ internal sealed class ActionScheduler
 
         // 10. Head metadata (diagnostics/tests only; the action list is the order).
         var head = actions[0];
-        var headCandidate = HeadCandidate(bySlot[(int)head.Slot]!, head.Stroke, head.SpellId);
+        // 4.6.0: the head can be a SYNTHESIZED candidate (the interrupt insurance
+        // press) for a slot the wire carried nothing in, so the slot's candidate
+        // list may be empty. Fall back to the scheduled identity instead of
+        // dereferencing a missing list.
+        var headCandidate = bySlot[(int)head.Slot] is { } headSlot
+            ? HeadCandidate(headSlot, head.Stroke, head.SpellId)
+            : new ActionCandidate(head.Slot, head.Stroke, Enabled: true, Actionable: true,
+                FirstSeenMs: input.NowMs, LastChangedMs: input.NowMs,
+                LastPressedMs: 0, EverPressed: false, SpellId: head.SpellId);
         var confidence = ConfidenceFor(head.Reason);
         if (!headCandidate.Actionable) confidence -= 20;
         if (headCandidate.IsStale(input.NowMs, Math.Max(250, input.StaleAfterMs))) confidence -= 40;
@@ -939,10 +1201,14 @@ internal sealed class ActionScheduler
     /// Gravitational rank: interrupt, emergency survival, defensive, solo
     /// self-sustain, main, mobility, offensive, consumable, trinket. The
     /// policy-off path yields the exact legacy order for the six MaxDps slots.
+    /// <paramref name="openerPromoted"/> lifts the one Offensive major the
+    /// 4.6.0 opener window released to rank 3: ahead of the first Main, behind
+    /// Interrupt / emergency / Defensive (never past a survival action).
     /// </summary>
-    private static int RankFor(Slot slot, PolicyDecision? policy)
+    private static int RankFor(Slot slot, PolicyDecision? policy, bool openerPromoted = false)
     {
         if (policy is { Emergency: true }) return 1;
+        if (openerPromoted) return 3;
         return slot switch
         {
             Slot.Interrupt => 0,
@@ -1023,6 +1289,24 @@ internal sealed class ActionScheduler
     internal void NoteFailure(Slot slot, KeyStroke stroke, long nowMs, int spellId = 0)
     {
         var key = (slot, stroke, spellId);
+        // 4.6.0: a rejected slot-6 WIRE KICK stroke is a failed kick. This
+        // scheduler's own memory (read by the insurance predicate) records the
+        // first suppression rung so the next interruptible cast may be covered
+        // by the Ext5 crowd control instead of a kick that is known to fail.
+        // Written here - the single "this press failed" funnel - so every
+        // failure path (no GCD after a press, repeated sends) feeds it
+        // identically.
+        //
+        // Spell-aware on purpose (4.6.0 review): the interrupt slot also carries
+        // SYNTHESIZED insurance presses and wire-delegated crowd control, whose
+        // spell id is a curated CC entry. A CC that fails (out of range, DR
+        // immunity, a target that moved) says nothing about the kick, so it must
+        // never poison the ladder that decides whether insurance may cover the
+        // next cast - the same conflation also fed a failing CC into the retry
+        // state of a healthy kick. Only the wire kick (an id that is not a
+        // curated crowd-control row) writes this memory.
+        if (slot == Slot.Interrupt && !InterruptInsurance.IsCrowdControlPress(spellId))
+            Kick.NoteFailure(nowMs);
         // R2 (sustain-cd): a SelfHeal press that failed for a TRANSIENT reason
         // (out of range, no resource yet, GCD timing) is re-polled every tick
         // and must fire as soon as the heal is ready again. Its suppression is
@@ -1089,6 +1373,142 @@ internal sealed class ActionScheduler
         return 0;
     }
 
+    /// <summary>
+    /// 4.6.0 interrupt INSURANCE. Returns the synthetic Interrupt candidate when
+    /// the policy's <see cref="InterruptInsurance"/> says the Ext5 crowd-control
+    /// entry may cover the target's live interruptible cast, or null.
+    ///
+    /// Everything is delegated: the toggle, the CC opt-in, the casting-only
+    /// rule, the interruptibility rule, the curated eligibility and every veto
+    /// (DR, immunity, deep-DR stun, the stun-ineffective latch) live in the
+    /// policy file. The scheduler only decides WHERE the press goes (the
+    /// existing Interrupt slot), records the DR application AFTER the keystroke
+    /// really went out (see <see cref="NoteSent"/>), and keeps the per-cast
+    /// latch that stops a still-running cast from being pressed twice.
+    ///
+    /// Plan-only (review m2): nothing is armed here. The per-cast latch, the
+    /// DR/reason fields and the timing record are committed by
+    /// <see cref="CommitInsurance"/> from the send loop, i.e. only when the
+    /// candidate was actually emitted into the plan's actions.
+    ///
+    /// The candidate is fresh by construction (first-seen = now), so the stale
+    /// demotion below can never bury an insured cast mid-cast.
+    /// </summary>
+    private InsurancePlan? InsuranceCandidate(
+        ScheduleInput input, BridgeFrame frame, CombatContext context, AbilityCatalog catalog,
+        bool interruptCandidatePresent)
+    {
+        // Two independent switches must BOTH be on: the scheduler's configured
+        // [Interrupt] InsuranceEnabled (CadenceOptions) and the policy option the
+        // engine fed in (PolicyOptions.FromSettings carries the same setting).
+        // Either one off = the 4.5.8 path, checked before any other work so the
+        // OFF path cannot even allocate a candidate.
+        if (!_cadence.InsuranceEnabled) return null;
+        var options = input.Options ?? new PolicyOptions
+        {
+            // Intelligence off: a minimal options object carrying just the
+            // [Interrupt] values the predicate needs. Every other policy knob
+            // stays at its default and the predicate does not consult them.
+            InsuranceEnabled = true,
+            InsuranceMinCastAgeMs = _cadence.InsuranceMinCastAgeMs,
+        };
+        if (!options.InsuranceEnabled) return null;
+
+        // Per-cast latch: one insurance press per observed cast. The cast age
+        // bucket is monotonic inside one cast, so a lower bucket (or a cast
+        // that ended) means the previous press's cast is over. Only a COMMITTED
+        // press (a real emission, see CommitInsurance) ever sets this latch.
+        if (_insuranceLatchedCast)
+        {
+            var ext = frame.Ext5;
+            var sameCast = context.TargetCasting == TriState.Yes
+                && ext is { CastAgeBucket: > 0 }
+                && ext.CastAgeBucket >= _insuranceLatchCastBucket
+                && input.NowMs - _insuranceLatchAtMs <= LandingPlanner.LatchGraceMs;
+            if (sameCast) return null;
+            _insuranceLatchedCast = false;
+        }
+
+        var decision = InterruptInsurance.Evaluate(
+            context, options, catalog, _policyMemory,
+            frame.InCombat, frame.HasTarget, input.NowMs,
+            interruptCandidatePresent, Kick.Failed(input.NowMs));
+        if (!decision.Fire) return null;
+
+        var candidate = new ActionCandidate(
+            Slot.Interrupt, decision.Stroke, Enabled: true, Actionable: true,
+            FirstSeenMs: input.NowMs, LastChangedMs: input.NowMs,
+            LastPressedMs: 0, EverPressed: false, SpellId: decision.SpellId);
+        // USE without the emergency flag: the interrupt's rank already puts it
+        // first, and the emergency flag would additionally bypass the GCD
+        // (insurance is a CC press, not a survival action - it bypasses the GCD
+        // only when the registry says the spell itself is off-GCD).
+        var policy = PolicyDecision.Use(decision.Reason);
+        return new InsurancePlan(candidate, policy, decision,
+            frame.Ext5?.CastAgeBucket ?? 0);
+    }
+
+    /// <summary>
+    /// 4.6.0 insurance COMMIT, called from the send loop once the insured stroke
+    /// is in `actions`. Only here does the tick become a real press: the DR
+    /// application is armed for <see cref="NoteSent"/>, the per-cast latch arms
+    /// and the timing record names the press. A press that any gate held
+    /// commits nothing, so it can be retried on the next tick (review m2).
+    /// </summary>
+    private void CommitInsurance(long nowMs, InsurancePlan plan)
+    {
+        _insuranceAwaitsSend = true;
+        _insuranceSpellId = plan.Decision.SpellId;
+        _insuranceDr = plan.Decision.Dr;
+        _insuranceBaseDurationMs = plan.Decision.BaseDurationMs;
+        _insuranceLatchedCast = true;
+        _insuranceLatchAtMs = nowMs;
+        _insuranceLatchCastBucket = plan.CastAgeBucket;
+        _lastTiming ??= new SchedulerTiming(
+            SchedulerTiming.KindInsurance, plan.Decision.Reason, _predictedGcdEndMs, 0,
+            plan.Decision.SpellId);
+    }
+
+    /// <summary>
+    /// 4.6.0 landing: the highest-ranked candidate that RIDES the GCD (i.e. is
+    /// not exempt by <see cref="BypassesGcd"/>). That is the only stroke the
+    /// planner may pre-fire; everything off-GCD already sends immediately.
+    /// </summary>
+    private LandingCandidate? FirstGcdRiding(List<(ActionCandidate Candidate, PolicyDecision? Policy)> final)
+    {
+        foreach (var (candidate, policy) in final)
+        {
+            if (BypassesGcd(candidate.Slot, policy, candidate.SpellId)) continue;
+            return new LandingCandidate(
+                candidate.Slot,
+                candidate.Stroke,
+                candidate.SpellId,
+                policy?.Verdict ?? PolicyVerdict.Use,
+                ReasonFor(candidate.Slot, policy),
+                policy is { Emergency: true });
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// 4.6.0 opener: index of the FIRST ready Offensive major in the ranked
+    /// list (-1 = none). "Major" = a curated major offensive purpose or a
+    /// cooldown of at least 60 s; an unknown identity is never promoted (a
+    /// wrong major on a pull is the cooldown waste this window exists to avoid).
+    /// </summary>
+    private int FirstOffensiveMajor(List<(ActionCandidate Candidate, PolicyDecision? Policy)> ranked)
+    {
+        for (var i = 0; i < ranked.Count; i++)
+        {
+            var candidate = ranked[i].Candidate;
+            if (candidate.Slot != Slot.Offensive) continue;
+            if (candidate.SpellId <= 0) continue;
+            if (_catalogForNotes?.TryGet(candidate.SpellId) is not { } ability) continue;
+            if (ability.Purpose == AbilityPurpose.MajorOffensive || ability.CooldownMs >= 60_000) return i;
+        }
+        return -1;
+    }
+
     /// <summary>Test/diagnostic seam: the failure-suppression window set for a key (0 = none).</summary>
     internal long FailedUntilFor(Slot slot, KeyStroke stroke, int spellId = 0) =>
         _failedUntil.GetValueOrDefault((slot, stroke, spellId));
@@ -1119,16 +1539,27 @@ internal sealed class ActionScheduler
 
     /// <summary>
     /// v3.5 GCD bypass: a candidate may be attempted during an active GCD when
-    /// it is the interrupt (off-GCD by design), an emergency survival verdict,
-    /// or an ability the registry marks <see cref="GcdKind.OffGcd"/>. Everything
-    /// else waits for the GCD to fall, as before.
+    /// it is a catalogued OFF-GCD ability (the fail-open legacy path for the
+    /// interrupt), an emergency survival verdict, or a catalogued
+    /// <see cref="GcdKind.OffGcd"/> ability in any other slot.
+    ///
+    /// 4.6.0 (review M1): the exemption is per SPELL, not per slot. The
+    /// interrupt slot is no longer a blanket bypass, because the same slot now
+    /// carries the synthesized INSURANCE press - a crowd control that usually
+    /// rides the GCD. Sending it mid-GCD makes the client drop it while the
+    /// caller believes it landed (the DR ladder advanced and the per-cast latch
+    /// suppressed the retry). So:
+    ///  * a catalogued ability answers from its <see cref="GcdKind"/>;
+    ///  * an uncatalogued / unknown interrupt identity keeps the pre-4.6
+    ///    exemption (a kick the registry does not know must still land), which
+    ///    is also the exact 4.5.8 behaviour.
     /// </summary>
     private bool BypassesGcd(Slot slot, PolicyDecision? policy, int spellId)
     {
-        if (slot == Slot.Interrupt) return true;
         if (policy is { Emergency: true }) return true;
-        if (spellId > 0 && _catalogForNotes?.TryGet(spellId) is { Gcd: GcdKind.OffGcd }) return true;
-        return false;
+        if (spellId > 0 && _catalogForNotes?.TryGet(spellId) is { } ability)
+            return ability.Gcd == GcdKind.OffGcd;
+        return slot == Slot.Interrupt;
     }
 
     /// <summary>
@@ -1138,10 +1569,16 @@ internal sealed class ActionScheduler
     /// Only an identical slot+stroke+spell repeat inside the interval is held,
     /// covering the pre-GCD-flip double-fire window. Every other slot keeps the
     /// original one-press-per-interval pacing.
+    ///
+    /// 4.6.0 landing: <paramref name="scheduled"/> marks the ONE stroke the
+    /// landing planner pre-fired for this GCD. It is exempt (it was armed for
+    /// the predicted GCD edge, exactly like a kick). Every UNSCHEDULED stroke
+    /// keeps the pacing above unchanged.
     /// </summary>
-    private bool MinIntervalApplies(Slot slot, ActionCandidate candidate, bool intervalElapsed)
+    private bool MinIntervalApplies(Slot slot, ActionCandidate candidate, bool intervalElapsed, bool scheduled)
     {
         if (intervalElapsed) return false;
+        if (scheduled) return false;
         if (slot is not (Slot.Interrupt or Slot.Main)) return true;
         return _hasSent
             && slot == _lastSentSlot
@@ -1187,4 +1624,17 @@ internal sealed class ActionScheduler
         ScheduleReason.Trinket => 50,
         _ => 50,
     };
+
+    /// <summary>
+    /// 4.6.0 insurance PLAN: the synthetic candidate the policy approved this
+    /// tick plus everything the commit needs. It is a local value, never a
+    /// field: a plan that the send gates hold leaves no scheduler state behind
+    /// (review m2). <see cref="CastAgeBucket"/> is the Ext5 bucket the plan was
+    /// approved with, so the per-cast latch compares against the same cast.
+    /// </summary>
+    private readonly record struct InsurancePlan(
+        ActionCandidate Candidate,
+        PolicyDecision Policy,
+        InsuranceDecision Decision,
+        int CastAgeBucket);
 }

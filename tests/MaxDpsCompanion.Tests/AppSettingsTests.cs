@@ -345,4 +345,88 @@ public class AppSettingsTests : IDisposable
         Assert.Contains(settings.LoadWarnings, w => w.Contains("CombatOnly=0"));
         Assert.Contains(settings.LoadWarnings, w => w.Contains("overlay", StringComparison.OrdinalIgnoreCase));
     }
+
+    // ----- 4.6.0 "Cadence": insurance + landing (all default OFF) ----------
+
+    [Fact]
+    public void Cadence_Settings_Default_To_Off()
+    {
+        var settings = AppSettings.Load(_path);
+
+        Assert.False(settings.InsuranceEnabled);
+        Assert.Equal(1000, settings.InsuranceMinCastAgeMs);
+        Assert.Equal(LandingMode.Off, settings.Landing);
+        Assert.False(settings.SchedulerAdaptivePolling);
+        Assert.False(settings.SchedulerOpenerRelease);
+    }
+
+    [Fact]
+    public void Load_Parses_The_Cadence_Sections()
+    {
+        File.WriteAllText(_path,
+            "[Interrupt]\nInsuranceEnabled=1\nInsuranceMinCastAgeMs=1500\n" +
+            "[Scheduler]\nLanding=Auto\nAdaptivePolling=1\nOpenerRelease=on\n");
+
+        var settings = AppSettings.Load(_path);
+
+        Assert.True(settings.InsuranceEnabled);
+        Assert.Equal(1500, settings.InsuranceMinCastAgeMs);
+        Assert.Equal(LandingMode.Auto, settings.Landing);
+        Assert.True(settings.SchedulerAdaptivePolling);
+        Assert.True(settings.SchedulerOpenerRelease);
+    }
+
+    [Fact]
+    public void Cadence_Settings_Are_Clamped_And_Unknown_Landing_Is_Off()
+    {
+        File.WriteAllText(_path,
+            "[Interrupt]\nInsuranceMinCastAgeMs=1\n" +
+            "[Scheduler]\nLanding=Sometimes\n");
+
+        var low = AppSettings.Load(_path);
+        Assert.Equal(250, low.InsuranceMinCastAgeMs);
+        Assert.Equal(LandingMode.Off, low.Landing);   // only "auto" opts in
+
+        File.WriteAllText(_path, "[Interrupt]\nInsuranceMinCastAgeMs=9000\n");
+        var high = AppSettings.Load(_path);
+        Assert.Equal(3000, high.InsuranceMinCastAgeMs);
+    }
+
+    [Fact]
+    public void Save_Round_Trips_The_Cadence_Settings()
+    {
+        var settings = AppSettings.Load(_path);
+        settings.InsuranceEnabled = true;
+        settings.InsuranceMinCastAgeMs = 1750;
+        settings.Landing = LandingMode.Auto;
+        settings.SchedulerAdaptivePolling = true;
+        settings.SchedulerOpenerRelease = true;
+        settings.Save();
+
+        var text = File.ReadAllText(_path);
+        Assert.Contains("[Interrupt]", text);
+        Assert.Contains("InsuranceEnabled=1", text);
+        Assert.Contains("InsuranceMinCastAgeMs=1750", text);
+        Assert.Contains("Landing=Auto", text);
+        Assert.Contains("AdaptivePolling=1", text);
+        Assert.Contains("OpenerRelease=1", text);
+
+        var reloaded = AppSettings.Load(_path);
+        Assert.True(reloaded.InsuranceEnabled);
+        Assert.Equal(1750, reloaded.InsuranceMinCastAgeMs);
+        Assert.Equal(LandingMode.Auto, reloaded.Landing);
+        Assert.True(reloaded.SchedulerAdaptivePolling);
+        Assert.True(reloaded.SchedulerOpenerRelease);
+    }
+
+    [Fact]
+    public void Save_Clamps_The_Cadence_Numeric_Value()
+    {
+        var settings = AppSettings.Load(_path);
+        settings.InsuranceMinCastAgeMs = 99;      // below the 250 floor
+        settings.Save();
+
+        Assert.Contains("InsuranceMinCastAgeMs=250", File.ReadAllText(_path));
+        Assert.Equal(250, AppSettings.Load(_path).InsuranceMinCastAgeMs);
+    }
 }

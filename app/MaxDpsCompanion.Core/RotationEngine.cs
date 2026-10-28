@@ -78,6 +78,13 @@ internal sealed class RotationEngine : IDisposable
     private readonly ActionScheduler _scheduler = new();
     private SchedulePlan _lastPlan = SchedulePlan.Hold(ScheduleReason.NoCandidate);
 
+    // 4.6.0 "Cadence" opener release: a rising InCombat edge on a BOSS-GRADE
+    // target (Ext5 rank 6 worldboss / 7 elite-skull) opens a 2500 ms window in
+    // which the scheduler pre-ranks one ready Offensive major ahead of Main.
+    // [Scheduler] OpenerRelease=0 leaves the detector disabled: today's order.
+    private readonly OpenerWindow _opener = new();
+    private SchedulerTiming? _openerTiming;
+
     // v2.0 ability knowledge + situational policy. The catalog is immutable;
     // options are rebuilt per tick from settings (cheap record).
     private readonly AbilityCatalog _catalog = AbilityCatalog.Default;
@@ -253,6 +260,8 @@ internal sealed class RotationEngine : IDisposable
         _candidateTracker.Reset();
         _lastDecision = DecisionResult.Fallback();
         _scheduler.Reset();
+        _opener.Reset();
+        _openerTiming = null;
         _legacyPolicyMemory.Reset();
         _lastPlan = SchedulePlan.Hold(ScheduleReason.NoCandidate);
         _telemetryFrame = null;
@@ -368,6 +377,15 @@ internal sealed class RotationEngine : IDisposable
                 var fast = _settings.PollIntervalMs;
                 var idleMs = Math.Max(120, fast * 4);
                 var wait = _idle ? idleMs : Math.Max(8, fast);
+                // 4.6.0 "Cadence" ADAPTIVE POLLING ([Scheduler]
+                // AdaptivePolling=1, default OFF): burst to 16 ms only inside
+                // the predicted GCD-edge window so the landing pre-fire and the
+                // natural GCD flip are observed on time. Inserted BEFORE the
+                // duty-cycle guard, which stays authoritative, and gated on
+                // !_idle so idle pacing is unchanged.
+                wait = CadencePacing.AdaptiveWait(
+                    wait, _settings.SchedulerAdaptivePolling, _idle,
+                    _scheduler.PredictedGcdEndMs, _clock.ElapsedMs);
                 // PERF (v1.3.9) duty-cycle guard: the screen read costs what
                 // it costs (measured ~4.2 ms per BitBlt on this machine —
                 // the whole tick). Cap our CPU share at ~10% by stretching
@@ -422,6 +440,7 @@ internal sealed class RotationEngine : IDisposable
         _lastCombatContext = null;
         _planFreshThisTick = false;
         _ttkFeedMs = null;
+        _openerTiming = null;
 
         if (!_window.Refresh(_settings.ProcessName))
         {
@@ -518,6 +537,26 @@ internal sealed class RotationEngine : IDisposable
             _mirrorMask = mirror.Mask;
             _mirrorEpoch = mirror.Epoch;
             _mirrorBlocked = mirror.Blocked;
+        }
+
+        // 4.6.0 "Cadence" OPENER RELEASE detector ([Scheduler] OpenerRelease,
+        // default OFF). The rising InCombat edge is the pull; only a BOSS-GRADE
+        // Ext5 rank (6 worldboss / 7 elite-skull) opens the 2500 ms window, and
+        // the detector needs the preceding out-of-combat frame (a session that
+        // starts mid-fight cannot know a pull happened). With the toggle off the
+        // detector is disabled and the order is today's.
+        if (_settings.SchedulerOpenerRelease)
+        {
+            _opener.Observe(frame.InCombat, frame.Ext5, enabled: true, _lastFrameMs);
+            if (_opener.OpenedThisFrame)
+            {
+                _openerTiming = new SchedulerTiming(
+                    SchedulerTiming.KindOpener, "opener: boss-grade pull window", 0, 0, 0);
+            }
+        }
+        else
+        {
+            _opener.Reset();
         }
 
         // Decision layer observation: record the decoded candidates once per
@@ -933,6 +972,15 @@ internal sealed class RotationEngine : IDisposable
         // consumes it, and the telemetry tick records it (explainability).
         var combat = CombatContext.FromFrame(frame, _settings.HpCurve).WithTtk(_ttkEstimate, _settings.TimeToKillHistoryDurFactor);
         _lastCombatContext = combat;
+        // 4.6.0 "Cadence" feature switches (all default OFF in AppSettings, so
+        // this call is inert on a stock config). Re-applied every tick because
+        // the settings are live-editable.
+        _scheduler.Configure(new CadenceOptions(
+            InsuranceEnabled: _settings.InsuranceEnabled,
+            InsuranceMinCastAgeMs: _settings.InsuranceMinCastAgeMs,
+            LandingAuto: _settings.Landing == LandingMode.Auto,
+            OpenerRelease: _settings.SchedulerOpenerRelease,
+            OpenerWindowActive: _settings.SchedulerOpenerRelease && _opener.Active(now)));
         var plan = _scheduler.Advance(new ScheduleInput
         {
             Frame = frame,
@@ -1423,6 +1471,23 @@ internal sealed class RotationEngine : IDisposable
         return $"{SlotName(slot)}: {_lastDecision.Reason} ({_lastDecision.Confidence}%){demotedInt}";
     }
 
+    /// <summary>
+    /// 4.6.0: projects one scheduler timing decision (+ the engine's opener
+    /// event) onto the telemetry record. Null when the tick made no decision, so
+    /// the <c>timing</c> field stays absent on every pre-4.6 / OFF line.
+    /// </summary>
+    private static TelemetryTiming? TimingRecord(SchedulerTiming? timing) =>
+        timing is { } t
+            ? new TelemetryTiming
+            {
+                Kind = t.Kind,
+                Reason = t.Reason,
+                PredictedGcdEndMs = t.PredictedGcdEndMs > 0 ? t.PredictedGcdEndMs : null,
+                LeadMs = t.LeadMs > 0 ? t.LeadMs : null,
+                CandidateSpell = t.CandidateSpell > 0 ? t.CandidateSpell : null,
+            }
+            : null;
+
     private void Report(string message, bool visible, BridgeState state, string summary = "-", string raw = "-")
     {
         // v1.5.0 telemetry: one tick event per Report (the engine's single
@@ -1437,9 +1502,14 @@ internal sealed class RotationEngine : IDisposable
             // The policy record only exists for ticks where the scheduler
             // actually ran; on the legacy path a stale plan must never be
             // recorded as if it explained this tick.
+            // 4.6.0: the Cadence timing decision rides the policy record
+            // (precedence insurance > landing pre-fire > landing abort >
+            // opener). Null on every other tick, so pre-4.6 recordings and
+            // Landing=Off replays stay byte-identical.
             var policyRecord = _planFreshThisTick
                 ? TelemetryEvent.BuildPolicy(_lastPlan, true, _lastCombatContext,
-                    _settings.IntelligenceEnabled ? PolicyOptions.FromSettings(_settings) : null)
+                    _settings.IntelligenceEnabled ? PolicyOptions.FromSettings(_settings) : null,
+                    TimingRecord(_scheduler.LastTiming ?? _openerTiming))
                 : null;
             telemetry.Append(TelemetryEvent.Tick(
                 now,

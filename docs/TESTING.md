@@ -852,6 +852,45 @@ leave it to those addons; the 4.5.7 scope is only the `SetCooldown` secret
 flood. The 4.5.5 third-party patch tool no longer exists - do not recreate or
 re-run it.
 
+### 3x. 4.6.0 "Cadence" Ext5 + insurance + landing (bridge 4.6.0, live 12.1.5, OWED)
+
+Precondition: bridge 4.6.0 installed, companion 4.6.0, `[Spells] spell6=1`,
+`[CrowdControl] Enabled=1`. Do the Ext5 block first - the other two consume it.
+
+1. **Ext5 off is still 51 cells.** With the addon `Ext5` key off (fresh
+   install), `/mcb status` shows `ext5=0`, the strip is 51 cells, and the
+   companion decodes and presses exactly as 4.5.8 did.
+2. **Ext5 on decodes.** `/mcb ext5 on`, `/reload`, then `/mcb status` shows
+   `ext5=1`; `--probe` (or the Advanced Cadence card) reports a 58-cell frame
+   with a valid Ext5 block and no decode fault.
+3. **Buckets vs the real UI.** On a target that casts: the cast-age bucket rises
+   through 250 ms bands and resets on a new cast/target change; GCD remaining
+   tracks the real GCD (compare against a visible cooldown sweep). Under
+   `C_Secrets.ShouldCooldownsBeSecret()` (restricted content) the GCD bucket
+   reads UNKNOWN and nothing behaves differently.
+4. **Insurance, kick on cooldown.** Pull a caster pack at T8+. Let the kick be
+   used or disabled; on the next interruptible cast the curated stun/silence
+   fires once, the cast is cancelled, and no second press repeats inside the
+   same cast.
+5. **Insurance, failed kick.** Kick out of range / into an immune target: within
+   the 1.5 s window the CC covers the next cast, and `KickMemory` does not make
+   the kick path fire again first. Confirm no CC on a non-interruptible cast or
+   after the ineffective-stun latch.
+6. **Insurance off is inert.** `InsuranceEnabled=0` + `/reload`: no CC press at
+   all, and the Interrupt slot behaves exactly as 4.5.8 (wire kick only).
+7. **Landing.** `Landing=Auto` + `/reload`: on a dummy, presses land at GCD end
+   (telemetry `LandPrefire` predicted vs actual), no double press, and a
+   pre-fire that starts no GCD enters the 600 ms failure window. `Landing=Off`
+   restores today's pacing exactly.
+8. **Adaptive poll.** `AdaptivePolling=1`: poll bursts near the predicted GCD
+   end and relaxes after; foreground/heartbeat/duty gates still hold (alt-tab
+   pauses, link loss holds).
+9. **Opener.** `OpenerRelease=1`: pull a worldboss/elite-skull (delve boss) and
+   one ready major is released immediately; pull ordinary elite trash and no
+   major is promoted; rank UNKNOWN behaves as today.
+10. **No wedge.** `/mcb ext5 off` + `/reload` returns to a 51-cell strip with no
+    Lua error even if the toggle was flipped mid-session before the reload.
+
 ## 4. macOS client (live retail, OWED)
 
 Everything in this section needs a real client on a Mac. Static/offline

@@ -10,6 +10,74 @@ Format: Keep a Changelog sections (`Added` / `Changed` / `Fixed` / `Removed`)
 per release, plus the identity + wire line. The complete pre-4.0 history lives
 in [`../VERSION.txt`](../VERSION.txt) and `docs/archive/HANDOVER-history.md`.
 
+## 4.6.0 Cadence - 2026-10-28
+
+**Companion 4.6.0 "Cadence" / bridge 4.6.0 (ADDON UPDATE; Ext5 is opt-in).**
+Three features, all default OFF: an additive Ext5 context block, interrupt
+insurance, and GCD-perfect delivery. Wire: the v5 core 35 + Ext2 40 + Ext3 43 +
+Ext4 51 stay **byte-identical**; Ext5 adds cells 51-57 with presence on cell
+50 R bit0 and grows the strip to **58 cells** only while the addon DB key
+`Ext5` is on. The version nibble stays `5`.
+
+### Added
+
+- **Ext5 context block (cells 51-57).** Target rank (incl. elite-skull =
+  `elite` + `UnitLevel == -1`), in-delve flag, interruptible cast + cast-**age**
+  bucket, GCD remaining bucket, and the interrupt-fallback CC entry as a full
+  **key + spell id** pair packed exactly like Ext4. Addon key `Ext5` default
+  **off**; `/mcb ext5 on|off` (needs `/reload`), `/mcb status` prints `ext5=N`.
+- **Interrupt insurance** (`[Interrupt] InsuranceEnabled=0`). Fires the curated
+  single-target stun/silence when a live interruptible cast cannot be covered by
+  the kick: no interrupt candidate, a failed kick inside its 1.5 s window, or a
+  cast older than `InsuranceMinCastAgeMs` (250-3000, default 1000). The existing
+  DR ladder, immunity veto, casting-only rule and `StunIneffective` latch all
+  still apply, and the companion CC toggle is still required.
+- **GCD-perfect delivery.** `[Scheduler] Landing=Off|Auto` pre-fires one
+  GCD-riding stroke per GCD at `gcd_end - lead` (Ext5 bucket when live, else an
+  estimator learned from observed on-GCD edges), aborting if the candidate
+  changes. `AdaptivePolling=0` bursts the poll to ~16 ms in the ~300 ms before
+  the predicted end. `OpenerRelease=0` drops the out-of-combat hold and
+  pre-ranks one ready major on a **worldboss or elite-skull** rising edge only.
+- Cadence card in Advanced with all five keys; `docs/PROTOCOL.md` Ext5 section;
+  plan `docs/plans/2026-10-28-ext5-insurance-landing.md`.
+
+### Changed
+
+- Capture ladder widens to 35/40/43/51/**58** on Windows and macOS. A pre-Ext5
+  companion samples its own 51-cell width and decodes the 51-cell prefix, so the
+  opt-in block never breaks an older host.
+- `KickMemory` is owned by each scheduler instance, not a process global.
+- `MinKeyIntervalMs` still gates every unscheduled stroke; only `Landing=Auto`
+  scheduled landings are paced by the planner.
+
+### Fixed
+
+- Insurance and landing commit their DR write, per-cast latch and telemetry only
+  after the stroke is actually emitted (a held plan no longer burns the cast).
+- `/mcb ext5 on` without `/reload` no longer writes past the created strip
+  textures (`SetNibbles` nil-guards; every Ext5 write is width-gated).
+- A GCD-riding insurance stun no longer bypasses the GCD just because it rides
+  the Interrupt slot; only a genuinely off-GCD kick bypasses it.
+
+### Removed
+
+- Nothing. No defensive-policy change, no Delve preset, no enemy-count or revive
+  cells.
+
+### Details
+
+- Presence cell 50 R bit0; Ext5 checksum cell 57 G over cells 51-56 mod 16, B =
+  heartbeat; a checksum or heartbeat failure drops **only** Ext5. Presence also
+  requires Ext4 and a 58-cell capture.
+- Cast **remaining** stays off the wire: `UnitCastingInfo` returns secrets and
+  the bridge never calls it. Cast age comes from the existing event stamp; a
+  stun cancels a cast at any point, so age is sufficient for insurance.
+- D1-D5 deviations (presence cell, cast age, opener rank gating, full CC entry,
+  GCD bucket upper-edge bias) are recorded in the plan and `docs/PROTOCOL.md`.
+- Offline: build 0/0, 1235 xUnit, 520 Lua checks, `luac -p` clean, audit
+  violations 0 / warnings 0, UI smoke PASS. **Live retail is OWED**
+  (`docs/TESTING.md` 3x).
+
 ## 4.5.8 Voidlight - 2026-10-26
 
 **Companion 4.5.8 "Voidlight" / bridge 4.5.4 (ADDON UPDATE).** Main-bar

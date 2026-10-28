@@ -29,6 +29,17 @@ internal static class ReleaseNotes
     public static readonly IReadOnlyList<Release> All = new[]
     {
         new Release(
+            "4.6.0", "Cadence", "2026-10-28",
+            "Context on the wire, interrupt insurance, and GCD-perfect delivery - all default off.",
+            new[]
+            {
+                "Ext5 adds target rank, an in-delve flag, interruptible cast age, GCD remaining and the interrupt-fallback CC key/id in cells 51-57 (58-cell strip, presence cell 50 R bit0). With the addon Ext5 key off the strip is still exactly 51 cells.",
+                "Interrupt insurance fires the curated single-target stun/silence when the kick cannot cover a live interruptible cast, through the existing DR, immunity and ineffective-stun vetoes - a GCD-riding CC respects the GCD.",
+                "GCD landing pre-fires one GCD-riding stroke per GCD at gcd_end - lead, aborting if the candidate changes; adaptive polling bursts to ~16 ms near the predicted end.",
+                "Opener release pre-ranks one ready major on a worldboss or elite-skull pull only; elite, rare, normal and unknown ranks keep today's behaviour.",
+                "Enable manually: [Interrupt] InsuranceEnabled, [Scheduler] Landing=Auto, AdaptivePolling, OpenerRelease, and /mcb ext5 on (requires /reload). Live retail checks remain OWED.",
+            }),
+        new Release(
             "4.5.8", "Voidlight", "2026-10-26",
             "Completes the cooldown shim on the main action bar; no third-party addon patched.",
             new[]

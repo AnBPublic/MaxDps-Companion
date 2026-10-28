@@ -1,3 +1,32 @@
+4.6.0
+Date: 2026-10-28 - "Cadence"
+Companion 4.6.0 "Cadence" / bridge 4.6.0 (ADDON UPDATE; Ext5 is opt-in). Three
+features, all default OFF: an additive Ext5 context block, interrupt insurance,
+and GCD-perfect delivery. Wire: the v5 core 35 + Ext2 40 + Ext3 43 + Ext4 51
+stay byte-identical; Ext5 adds cells 51-57 (presence = cell 50 R bit0, strip
+grows to 58 cells while the addon DB key Ext5 is on, version nibble stays 5).
+- Ext5 carries target rank (incl. elite-skull), the in-delve flag, the
+  interruptible cast + cast-AGE bucket, the GCD remaining bucket and the
+  interrupt-fallback CC entry (key + spell id, Ext4 packing). Cast REMAINING is
+  unobservable - UnitCastingInfo returns secrets and is never called - and a
+  stun cancels a cast at any point, so age is the honest, useful signal.
+- Interrupt insurance ([Interrupt] InsuranceEnabled=0) fires the curated
+  single-target stun/silence when a live interruptible cast cannot be covered
+  by the kick (no candidate, a failed kick inside its 1.5 s window, or the cast
+  has run past InsuranceMinCastAgeMs=1000). DR, immunity and StunIneffective
+  vetoes still apply; a GCD-riding CC respects the GCD, only an off-GCD kick
+  bypasses it. Companion CC must be enabled.
+- GCD-perfect delivery: [Scheduler] Landing=Off/Auto pre-fires one GCD-riding
+  stroke per GCD at gcd_end - lead (Ext5 bucket when live, else an observed-edge
+  estimator), aborting when the candidate changes; AdaptivePolling=0 bursts to
+  ~16 ms near the predicted end; OpenerRelease=0 drops the OOC hold and
+  pre-ranks one ready major on a worldboss/elite-skull rising edge only.
+- Fixed: insurance/landing no longer arm DR, the latch or telemetry before the
+  stroke is emitted; /mcb ext5 on no longer writes past the created textures
+  without /reload. KickMemory is per-scheduler instance.
+- No defensive-policy change, no preset, no enemy-count or revive cells.
+  Live retail checks remain OWED (docs/TESTING.md 3x).
+
 4.5.8
 Date: 2026-10-26 - "Voidlight"
 Companion 4.5.8 "Voidlight" / bridge 4.5.4 (ADDON UPDATE). Completes the

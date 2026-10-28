@@ -77,13 +77,20 @@ public class PixelProtocolExt3Tests
     }
 
     [Fact]
-    public void IsV5Length_Accepts_35_40_43_Rejects_Everything_Else()
+    public void IsV5Length_Accepts_35_40_43_51_58_Rejects_Everything_Else()
     {
         Assert.True(PixelProtocol.IsV5Length(PixelProtocol.CellCount));
         Assert.True(PixelProtocol.IsV5Length(PixelProtocol.CellCountExt2));
         Assert.True(PixelProtocol.IsV5Length(PixelProtocol.CellCountExt3));
+        // 4.6.0 "Cadence": Ext4 (51) and Ext5 (58) are part of the family; the
+        // old 51-only upper bound is gone. 54/56 stay rejected because no
+        // protocol frame has that width.
+        Assert.True(PixelProtocol.IsV5Length(PixelProtocol.CellCountExt4));
+        Assert.True(PixelProtocol.IsV5Length(PixelProtocol.CellCountExt5));
         Assert.Equal(14, PixelProtocol.Ext3MaskBitCount);
-        foreach (var length in new[] { 7, 8, 9, 34, 36, 39, 41, 42, 44 })
+        // 44/54/56 were valid rejections before 4.6 (no frame that wide) and
+        // still are; 51 moved to the accepted list above.
+        foreach (var length in new[] { 7, 8, 9, 34, 36, 39, 41, 42, 44, 54, 56 })
             Assert.False(PixelProtocol.IsV5Length(length));
     }
 

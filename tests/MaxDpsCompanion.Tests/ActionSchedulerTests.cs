@@ -27,7 +27,8 @@ public class ActionSchedulerTests
         BridgeState state = BridgeState.Active,
         bool inCombat = true,
         bool onGcd = false,
-        bool hasTarget = true)
+        bool hasTarget = true,
+        Ext5Block? ext5 = null)
     {
         var array = new KeyStroke?[PixelProtocol.SlotCount];
         foreach (var (slot, stroke) in slots) array[(int)slot] = stroke;
@@ -42,6 +43,7 @@ public class ActionSchedulerTests
             Version = version,
             StatusFlags = flags,
             Slots = array,
+            Ext5 = ext5,
         };
     }
 
@@ -428,5 +430,209 @@ public class ActionSchedulerTests
 
         Assert.Equal(Slot.Main, plan.Selected);
         Assert.Equal(50, plan.Confidence); // 70 base - 20 not-actionable
+    }
+
+    // ---------- 4.6.0 Cadence: GCD landing ([Scheduler] Landing=Auto) --------
+
+    /// <summary>The landing feature only: insurance and the opener stay OFF.</summary>
+    private static CadenceOptions LandingAuto => new(
+        InsuranceEnabled: false, InsuranceMinCastAgeMs: 1000,
+        LandingAuto: true, OpenerRelease: false, OpenerWindowActive: false);
+
+    private static ActionScheduler LandingScheduler()
+    {
+        var scheduler = new ActionScheduler();
+        scheduler.Configure(LandingAuto);
+        return scheduler;
+    }
+
+    /// <summary>Ext5 with a GCD bucket (0 unknown, 1 not on GCD, 2..15 = 100 ms bands).</summary>
+    private static Ext5Block Ext5(int gcdBucket = 15, int rank = 3) => new(
+        Rank: rank,
+        Delve: 2,
+        Interruptible: 2,
+        CastKind: 2,
+        CastAgeBucket: 5,
+        CcKey: KeyF,
+        CcSpellId: 107570,
+        GcdBucket: gcdBucket);
+
+    [Fact]
+    public void Landing_Auto_Prefires_The_Gcd_Riding_Head_Once_At_The_Predicted_Edge()
+    {
+        // Estimator path (no Ext5): the GCD starts at 0, the 1500 ms seed puts the
+        // predicted end at 1500 and the seed lead (40 ms) at 1460.
+        var scheduler = LandingScheduler();
+        var candidate = Candidate(Slot.Main, KeyE);
+
+        var armed = scheduler.Advance(Input(0, Frame([(Slot.Main, KeyE)], onGcd: true), candidate));
+        Assert.Equal(ScheduleReason.GcdHold, armed.Reason);
+        Assert.Empty(armed.Actions);
+        Assert.Null(scheduler.LastTiming);          // nothing decided yet
+
+        var fired = scheduler.Advance(Input(1460,
+            Frame([(Slot.Main, KeyE)], heartbeat: 2, onGcd: true), candidate));
+        Assert.Equal(Slot.Main, fired.Selected);
+        Assert.Equal(KeyE, fired.Actions[0].Stroke);
+        Assert.Equal(ScheduleReason.MainRotation, fired.Reason);
+        var timing = scheduler.LastTiming;
+        Assert.NotNull(timing);
+        Assert.Equal(SchedulerTiming.KindLandPrefire, timing!.Value.Kind);
+        Assert.Equal(1500, timing.Value.PredictedGcdEndMs);
+        Assert.Equal(LandingPlanner.SeedLatencyMs, timing.Value.LeadMs);
+
+        // One pre-fire per GCD: still inside the same GCD, the head is held again.
+        var again = scheduler.Advance(Input(1470,
+            Frame([(Slot.Main, KeyE)], heartbeat: 3, onGcd: true), candidate));
+        Assert.Equal(ScheduleReason.GcdHold, again.Reason);
+        Assert.Empty(again.Actions);
+    }
+
+    [Fact]
+    public void Landing_Auto_Reads_The_Ext5_Gcd_Bucket_Before_The_Estimator()
+    {
+        var scheduler = LandingScheduler();
+        var candidate = Candidate(Slot.Main, KeyE);
+
+        // Bucket 3 = 100..200 ms remaining -> predicted end = now + 200.
+        var plan = scheduler.Advance(Input(1000,
+            Frame([(Slot.Main, KeyE)], onGcd: true, ext5: Ext5(gcdBucket: 3)), candidate));
+
+        Assert.Equal(ScheduleReason.GcdHold, plan.Reason);
+        Assert.Equal(1200, scheduler.PredictedGcdEndMs);   // 1000 + 200
+    }
+
+    [Fact]
+    public void Landing_Auto_Aborts_When_The_Gcd_Riding_Head_Changes()
+    {
+        var scheduler = LandingScheduler();
+
+        // Arm on Main/KeyE at the GCD start.
+        var armed = scheduler.Advance(Input(0,
+            Frame([(Slot.Main, KeyE)], onGcd: true), Candidate(Slot.Main, KeyE)));
+        Assert.Equal(ScheduleReason.GcdHold, armed.Reason);
+
+        // The rotation moves to KeyR before the edge: the armed stroke is never
+        // pre-fired, the abort is reported and the new head re-plans from Idle.
+        var abort = scheduler.Advance(Input(300,
+            Frame([(Slot.Main, KeyR)], heartbeat: 2, onGcd: true), Candidate(Slot.Main, KeyR)));
+        Assert.Equal(ScheduleReason.GcdHold, abort.Reason);
+        Assert.Empty(abort.Actions);
+        Assert.Equal(SchedulerTiming.KindLandAbort, scheduler.LastTiming!.Value.Kind);
+        Assert.Contains("candidate changed", scheduler.LastTiming!.Value.Reason);
+
+        // The re-planned head fires at the same predicted edge.
+        var fired = scheduler.Advance(Input(1460,
+            Frame([(Slot.Main, KeyR)], heartbeat: 3, onGcd: true), Candidate(Slot.Main, KeyR)));
+        Assert.Equal(Slot.Main, fired.Selected);
+        Assert.Equal(KeyR, fired.Actions[0].Stroke);
+        Assert.Equal(SchedulerTiming.KindLandPrefire, scheduler.LastTiming!.Value.Kind);
+    }
+
+    [Fact]
+    public void Landing_Off_Reproduces_Todays_Order_And_Gcd_Hold()
+    {
+        var frame = Frame([(Slot.Main, KeyE), (Slot.Offensive, Key2), (Slot.Defensive, KeyX)],
+            onGcd: true, ext5: Ext5(gcdBucket: 1));   // "not on GCD" + the GCD flag set
+        var candidates = new[]
+        {
+            Candidate(Slot.Main, KeyE), Candidate(Slot.Offensive, Key2), Candidate(Slot.Defensive, KeyX),
+        };
+
+        // An explicitly OFF scheduler is indistinguishable from an unconfigured
+        // one (the 4.5.8 default), even with a live Ext5 block present.
+        var off = new ActionScheduler();
+        off.Configure(CadenceOptions.Off);
+        var configuredOff = off.Advance(Input(1000, frame, candidates));
+        var unconfigured = new ActionScheduler().Advance(Input(1000, frame, candidates));
+
+        Assert.Equal(ScheduleReason.GcdHold, configuredOff.Reason);
+        Assert.Empty(configuredOff.Actions);
+        Assert.Null(off.LastTiming);
+        Assert.Equal(unconfigured.Reason, configuredOff.Reason);
+        Assert.Equal(configuredOff.Actions.Select(a => a.Slot), unconfigured.Actions.Select(a => a.Slot));
+
+        // Off-GCD, the same OFF scheduler keeps the exact legacy rank order.
+        var openFrame = Frame([(Slot.Main, KeyE), (Slot.Offensive, Key2), (Slot.Defensive, KeyX)],
+            heartbeat: 2, ext5: Ext5(gcdBucket: 1));
+        var plan = off.Advance(Input(2000, openFrame, candidates));
+        Assert.Equal([Slot.Defensive, Slot.Main, Slot.Offensive], plan.Actions.Select(a => a.Slot).ToArray());
+        Assert.Null(off.LastTiming);
+    }
+
+    [Fact]
+    public void Landing_Unscheduled_Strokes_Still_Wait_For_The_Minimum_Interval()
+    {
+        var scheduler = LandingScheduler();
+        scheduler.NoteSent(1000, Slot.Main, KeyE);   // a DPS key went out 50 ms ago
+
+        var frame = Frame([(Slot.Main, KeyE), (Slot.Offensive, Key2)]);
+        var held = scheduler.Advance(Input(1050, frame,
+            Candidate(Slot.Main, KeyE), Candidate(Slot.Offensive, Key2)));
+
+        // No GCD reported, so the landing planner never runs: the identical Main
+        // repeat is still paced by MinKeyIntervalMs exactly as before.
+        Assert.Equal(ScheduleReason.MinInterval, held.Reason);
+        Assert.Empty(held.Actions);
+    }
+
+    [Fact]
+    public void Landing_Held_PreFire_Does_Not_Latch_And_Fires_Once_The_Gate_Opens()
+    {
+        // Review m3: the planner's Fired latch and latency sample are committed
+        // only when the stroke really reached `actions`. A pre-fire the send
+        // gates hold must therefore neither spend the GCD's single pre-fire nor
+        // report a press; the next open tick still sends it.
+        var scheduler = LandingScheduler();
+        var candidate = Candidate(Slot.Main, KeyE);
+
+        var armed = scheduler.Advance(Input(0,
+            Frame([(Slot.Main, KeyE)], onGcd: true), candidate));
+        Assert.Equal(ScheduleReason.GcdHold, armed.Reason);
+        Assert.Equal(LandingState.Armed, scheduler.Landing.State);
+
+        // An engine OS-gate rejection holds that stroke for MainReprobeMs.
+        scheduler.NoteAttempt(1400, Slot.Main, KeyE, AttemptOutcome.MovementBound);
+
+        var held = scheduler.Advance(Input(1460,
+            Frame([(Slot.Main, KeyE)], heartbeat: 2, onGcd: true), candidate));
+        Assert.Equal(ScheduleReason.Unavailable, held.Reason);
+        Assert.Empty(held.Actions);
+        Assert.Null(scheduler.LastTiming);                       // no press reported
+        Assert.Equal(LandingState.Armed, scheduler.Landing.State); // not spent
+        Assert.Equal(LandingPlanner.SeedLatencyMs, scheduler.Landing.LatencyMs);
+
+        // The gate cleared at 1550: the same GCD's pre-fire still goes out.
+        var fired = scheduler.Advance(Input(1560,
+            Frame([(Slot.Main, KeyE)], heartbeat: 3, onGcd: true), candidate));
+        Assert.Equal(Slot.Main, fired.Selected);
+        Assert.Equal(KeyE, fired.Actions[0].Stroke);
+        Assert.Equal(SchedulerTiming.KindLandPrefire, scheduler.LastTiming!.Value.Kind);
+        Assert.Equal(LandingState.Fired, scheduler.Landing.State);
+    }
+
+    [Fact]
+    public void Landing_PreFire_That_Starts_No_Gcd_Enters_The_Reject_Window()
+    {
+        // Ext5 says "not on GCD" (bucket 1) while the status flag still reads
+        // on-GCD: the planner fires immediately and the press starts nothing.
+        var scheduler = LandingScheduler();
+        var candidate = Candidate(Slot.Offensive, KeyR);
+
+        var fired = scheduler.Advance(Input(1000,
+            Frame([(Slot.Offensive, KeyR)], onGcd: true, ext5: Ext5(gcdBucket: 1)), candidate));
+        Assert.Equal(Slot.Offensive, fired.Selected);
+        Assert.Equal(SchedulerTiming.KindLandPrefire, scheduler.LastTiming!.Value.Kind);
+        scheduler.NoteSent(1000, Slot.Offensive, KeyR);
+
+        // The press never produced a GCD: the pre-existing RejectDetectMs (600 ms)
+        // window records the failure, unchanged by the landing feature.
+        scheduler.Advance(Input(1100, Frame([(Slot.Offensive, KeyR)], heartbeat: 2), candidate));
+        var judged = scheduler.Advance(Input(1600, Frame([(Slot.Offensive, KeyR)], heartbeat: 3), candidate));
+        Assert.Equal(1, scheduler.RejectionsDetected);
+        Assert.Equal(ScheduleReason.Unavailable, judged.Reason);
+        // The rejection is stamped when it is DETECTED (600 ms after the press).
+        Assert.Equal(1600 + ActionScheduler.RejectedSuppressMs,
+            scheduler.FailedUntilFor(Slot.Offensive, KeyR));
     }
 }

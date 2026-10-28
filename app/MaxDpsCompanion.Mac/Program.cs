@@ -358,7 +358,7 @@ internal static class Program
     /// <summary>
     /// Diagnostic: try the strip at the top-left corner across the plausible
     /// UI-scale cell sizes; report the magic cell, version nibble and the
-    /// 51 sampled colours so a byte-order or scale mismatch is obvious.
+    /// 58 sampled colours so a byte-order or scale mismatch is obvious.
     /// </summary>
     private static List<string> Diagnose(System.Drawing.Point origin, AppSettings settings, MacCaptureStream? stream)
     {

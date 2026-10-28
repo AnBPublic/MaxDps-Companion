@@ -203,6 +203,15 @@ internal sealed class CombatContext
     public string? Class { get; init; }
     public string? Spec { get; init; }
 
+    /// <summary>
+    /// Ext5 (4.6.0 "Cadence"): the interrupt-insurance / GCD-landing / opener
+    /// block the policy and scheduler read this tick (rank, delve,
+    /// interruptible, cast age + kind, GCD bucket, CC entry). Null when the
+    /// addon did not ship Ext5, the capture was narrower than 58 cells or the
+    /// cell-57 commit failed — every consumer then keeps its pre-4.6 behaviour.
+    /// </summary>
+    public Ext5Block? Ext5 { get; init; }
+
     /// <summary>False when the bridge could not compute the v5 sensor block (or frame is v4/v1).</summary>
     public bool ContextValid { get; init; }
 
@@ -282,6 +291,7 @@ internal sealed class CombatContext
             DefensiveCatalogSource = frame.DefensiveCatalogSource,
             OffensiveDerivedGapFill = AbilityCatalog.Default.IsOffensiveGapFill(
                 frame.ClassName, frame.SpecName, frame.SpellId(Slot.Offensive)),
+            Ext5 = frame.Ext5,
             ContextValid = true,
         };
     }
@@ -337,6 +347,7 @@ internal sealed class CombatContext
             OffensiveDerivedGapFill = OffensiveDerivedGapFill,
             Class = Class,
             Spec = Spec,
+            Ext5 = Ext5,
             ContextValid = ContextValid,
             TtkValid = estimate.Valid,
             TtkSec = estimate.TtkSec,
@@ -384,6 +395,7 @@ internal sealed class CombatContext
             OffensiveDerivedGapFill = OffensiveDerivedGapFill,
             Class = Class,
             Spec = Spec,
+            Ext5 = Ext5,
             ContextValid = ContextValid,
             TtkValid = TtkValid,
             TtkSec = TtkSec,

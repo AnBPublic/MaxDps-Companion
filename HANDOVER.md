@@ -5,6 +5,55 @@ Read order: this file -> `ARCHITECTURE.md` -> `docs/PROTOCOL.md`. Full history
 [`docs/archive/HANDOVER-history.md`](docs/archive/HANDOVER-history.md); search it
 by release name or date before re-investigating an old problem.
 
+## 2026-10-28 RELEASE 4.6.0 "CADENCE" (Ext5 + interrupt insurance + GCD landing; bridge 4.6.0; additive wire)
+
+Three features, all default OFF. Branch `release/v4.6.0-cadence`. Identity:
+csproj 4.6.0 / `app/Version.props` 4.6.0 / bridge **4.6.0**. Wire: v5 core 35 +
+Ext2 40 + Ext3 43 + Ext4 51 byte-identical; Ext5 = cells 51-57, presence cell
+50 R bit0, strip 58 cells **only** while the addon DB key `Ext5` is on; version
+nibble stays 5.
+
+DONE
+- **Ext5 decode/encode.** `PixelProtocol.CellCountExt5 = 58`, `Ext5Block`
+  (rank, delve, interruptible, cast kind/age, CC key + spell id, GCD bucket),
+  presence on cell 50 R bit0, checksum cell 57 G over cells 51-56, commit B =
+  heartbeat; a failure drops only Ext5. Width ladder 35/40/43/51/58 on Windows
+  and macOS (`V5Widths`, `CaptureWidths`, locator, Mac scanner).
+- **Bridge.** `DB.Ext5` default false, `CELL_COUNT` 51 or 58, `WriteExt5` after
+  `WriteExt4`, `Reader.GetExt5`, `/mcb ext5 on|off` (needs `/reload`),
+  `ext5=N` in `/mcb status`. Cast age from the existing event stamp; GCD from
+  `C_Spell.GetSpellCooldown(61304)` only when the secret predicate is false.
+  Never calls `UnitCastingInfo`/`UnitChannelInfo`.
+- **Insurance.** `Knowledge/InterruptInsurance.cs`; predicate = enabled + in
+  combat + confirmed cast + interruptible != No + valid CC entry + (no kick |
+  `KickMemory` failed | cast age >= `InsuranceMinCastAgeMs`), then the curated
+  `InterruptFallbackVeto` ladder. `CrowdControlGate.Enabled` still required.
+  `KickMemory` is per-scheduler (`ActionScheduler.Kick`).
+- **Landing.** `Scheduler/LandingPlanner.cs` (Idle/Armed/Fired, one pre-fire per
+  GCD, `CommitFire` only on emission, EWMA lead seed 40 ms clamp 10-150,
+  estimator seed 1500 clamp 750-2000), `CadencePacing` adaptive wait,
+  `OpenerWindow` (rank 6/7 only). `ActionScheduler.Configure(CadenceOptions)`.
+- Tests: `PixelProtocolExt5Tests`, `InterruptInsuranceTests`,
+  `LandingPlannerTests`, scheduler/policy/harness additions.
+
+VERIFY (this machine, 2026-10-28)
+- `dotnet build app/MaxDpsCompanion -c Release --no-incremental`: 0 warnings / 0 errors.
+- `dotnet test -c Release`: 1235 passed / 0 failed, twice.
+- `lua tests/secret_harness.lua`: 520 passed / 0 failed.
+- `luac -p`: clean.
+- `pwsh tools/ability_audit.ps1`: violations 0 / warnings 0; catalog matches.
+- `--ui-smoke-test`: PASS, title `MaxDPS Companion v4.6.0 Cadence`.
+- Live retail **OWED** (`docs/TESTING.md` 3x).
+
+OWED (live retail 12.1.5) - `docs/TESTING.md` 3x
+- `/mcb ext5 on` + `/reload`: `/mcb status` shows `ext5=1`, the strip is 58 wide,
+  and `--probe`/the Advanced card decode it.
+- Cast-age and GCD buckets against a real cast bar/GCD; UNKNOWN under secret
+  cooldowns; insurance on a real caster with the kick on cooldown and with a
+  failed kick; no CC on a break-immune/non-interruptible cast.
+- Landing: dead-GCD ms before/after on a dummy and in a delve; no double press;
+  opener on a boss vs delve trash.
+
 ## 2026-10-26 RELEASE 4.5.8 "VOIDLIGHT" (main-bar cooldown shim; bridge 4.5.4; NO wire change)
 
 Live 12.1.5 follow-up to 4.5.7: the multibar flood stopped, but **83**

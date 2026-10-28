@@ -36,6 +36,14 @@ internal enum Slot
 
 internal readonly record struct KeyStroke(byte VirtualKey, bool Shift, bool Ctrl, bool Alt)
 {
+    /// <summary>
+    /// A stroke names a real key. The decoder never constructs a
+    /// <see cref="KeyStroke"/> from a wire entry whose VALID flag is clear, so
+    /// for blocks that store only the stroke (Ext5's CC entry) this is the
+    /// same predicate as that flag: virtual key 0 is not a keystroke.
+    /// </summary>
+    public bool Valid => VirtualKey != 0;
+
     public string Describe()
     {
         var prefix = (Ctrl ? "Ctrl+" : "") + (Alt ? "Alt+" : "") + (Shift ? "Shift+" : "");
@@ -59,6 +67,48 @@ internal readonly record struct SelfHeal2Slot(KeyStroke Stroke, int SpellId, Tri
 /// commit failed — mirroring Ext2's "drop only this block" contract.
 /// </summary>
 internal readonly record struct Ext3Block(int Mask, int Epoch, int Blocked);
+
+/// <summary>
+/// Ext5 (4.6.0 "Cadence") block decoded from cells 51-57: the interrupt
+/// insurance / GCD landing / opener-release inputs. Every field is a plain
+/// 0-15 wire value with its own UNKNOWN code, so a secret-degraded or
+/// pre-Ext5 probe reads as "no reading" instead of a fabricated one.
+/// <see cref="Unknown"/> is the all-zero block; <see cref="CcKey"/> is the
+/// full CC entry (keystroke + spell id, Ext4's proven packing) because a
+/// synthesized press needs a keystroke.
+/// </summary>
+internal sealed record Ext5Block(
+    int Rank, int Delve, int Interruptible, int CastKind,
+    int CastAgeBucket, KeyStroke CcKey, int CcSpellId, int GcdBucket)
+{
+    /// <summary>Every field UNKNOWN (the all-zero wire block).</summary>
+    public static readonly Ext5Block Unknown = new(0, 0, 0, 0, 0, default, 0, 0);
+
+    /// <summary>Rank 6 (worldboss) or 7 (elite + UnitLevel -1 = elite-skull) only.</summary>
+    public bool BossGrade => Rank is 6 or 7;
+
+    /// <summary>
+    /// Lower bound of the target's cast age in ms, or -1 when UNKNOWN/none.
+    /// 0 = unknown/none, 1..14 = [(b-1)*250, b*250), 14 saturates, 15 reserved.
+    /// </summary>
+    public int CastAgeMinMs => CastAgeBucket is <= 0 or >= 15
+        ? -1
+        : (CastAgeBucket - 1) * PixelProtocol.Ext5CastAgeStepMs;
+
+    /// <summary>
+    /// Lower bound of the remaining GCD in ms (-1 UNKNOWN). 0 = unknown,
+    /// 1 = not on GCD (0 ms left), 2..15 = [(b-2)*100, (b-1)*100), 15 saturates.
+    /// </summary>
+    public int GcdRemainMinMs => GcdBucket switch
+    {
+        <= 0 => -1,
+        1 => 0,
+        _ => (GcdBucket - 2) * PixelProtocol.Ext5GcdStepMs,
+    };
+
+    /// <summary>A usable CC press: a real key AND a spell id (0 id is forced with an invalid key).</summary>
+    public bool CcValid => CcKey.Valid && CcSpellId > 0;
+}
 
 /// <summary>One decoded reading of the addon's pixel block.</summary>
 internal sealed class BridgeFrame
@@ -141,6 +191,18 @@ internal sealed class BridgeFrame
     /// <summary>Ext4 (v4.0.3): decoded cells 43-50; null when absent or the cell-50 checksum/commit failed.</summary>
     public Ext4Frame? Ext4 { get; init; }
 
+    /// <summary>
+    /// Ext5 (4.6.0): cell 50 R bit0 says a 58-cell Ext5 block is present
+    /// (AND the Ext4 presence bit is set AND the capture is >= 58 cells).
+    /// </summary>
+    public bool Ext5Present { get; init; }
+
+    /// <summary>
+    /// Ext5 (4.6.0): decoded cells 51-57; null when absent, short, or the
+    /// cell-57 checksum/commit failed. A failure drops ONLY this block.
+    /// </summary>
+    public Ext5Block? Ext5 { get; init; }
+
     public string? ClassName { get; init; }
     public string? SpecName { get; init; }
 
@@ -218,10 +280,11 @@ internal static class PixelProtocol
     ///       the version nibble explicitly; same 35-cell layout.
     ///
     /// The companion decodes the v5/v6 layout at 35 (core), 40 (Ext2), 43
-    /// (Ext3) or 51 (Ext4) cells, v4 (9 cells) and v1 (8 cells); the addon
-    /// encodes the widest layout it ships. Same-length misreads are rejected by
-    /// the version nibble. A rescue fallback to the legacy windows is applied by
-    /// the engine, so an old in-game addon still drives the current companion.
+    /// (Ext3), 51 (Ext4) or 58 (Ext5) cells, v4 (9 cells) and v1 (8 cells); the
+    /// addon encodes the widest layout it ships. Same-length misreads are
+    /// rejected by the version nibble. A rescue fallback to the legacy windows
+    /// is applied by the engine, so an old in-game addon still drives the
+    /// current companion.
     /// </summary>
     public const int CellCountV1 = 8;
     public const int CellCountV4 = 9;
@@ -253,6 +316,18 @@ internal static class PixelProtocol
     /// 43-50 ignored.
     /// </summary>
     public const int CellCountExt4 = 51;
+
+    /// <summary>
+    /// Ext5 (4.6.0 "Cadence"): the frame becomes 58 cells wide. Cells 0-50 are
+    /// the unchanged v5 core + Ext2 + Ext3 + Ext4 layout; 51-57 are the
+    /// insurance / landing block (rank, delve, interruptible, cast age + kind,
+    /// GCD bucket, CC key + spell id, commit). Presence is cell 50 R bit0 —
+    /// a reserved-zero channel that sits outside every checksum — AND the Ext4
+    /// presence bit AND a >= 58-cell capture, so a pre-Ext5 addon (51 cells)
+    /// decodes byte-identically with cells 51-57 never read.
+    /// </summary>
+    public const int CellCountExt5 = 58;
+
     public const int SupportedVersionV1 = 1;
     public const int SupportedVersionV4 = 4;
     public const int SupportedVersion = 5;
@@ -325,6 +400,26 @@ internal static class PixelProtocol
     public const int Ext4IdBitCount = 22;
 
     /// <summary>
+    /// Ext5 cell indices (only present in a 58-cell capture). Cell 50 keeps
+    /// Ext4's checksum (G) and heartbeat commit (B); its reserved R channel
+    /// carries the Ext5 presence bit.
+    /// </summary>
+    public const int Ext5PresenceCellIndex = Ext4CommitCellIndex;
+    public const int Ext5PresenceBit = 1;
+    public const int Ext5RankCellIndex = 51;
+    public const int Ext5CastCellIndex = 52;
+    public const int Ext5GcdCellIndex = 53;
+    public const int Ext5CcKeyCellIndex = 54;
+    public const int Ext5CcSpellIdCellIndex = 55;
+    public const int Ext5CommitCellIndex = 57;
+
+    /// <summary>Cast-age bucket width in ms (bucket 1 starts at 0, bucket 14 saturates at 3250).</summary>
+    public const int Ext5CastAgeStepMs = 250;
+
+    /// <summary>GCD-remaining bucket width in ms (bucket 2 starts at 0, bucket 15 saturates at 1300).</summary>
+    public const int Ext5GcdStepMs = 100;
+
+    /// <summary>
     /// Cell 28 B bit2: the Ext3 block is present. Bits 0-1 stay the SelfHeal2
     /// range tri-state; every reader masks cell 28 B with <c>&amp; 3</c> so this
     /// bit can never bleed into the range value.
@@ -346,12 +441,30 @@ internal static class PixelProtocol
     public const int ClassFlagHpCurveActive = 8;
 
     /// <summary>
-    /// True for any capture width the v5 decoder understands: 51 (Ext4), 43
-    /// (Ext3), 40 (Ext2) or 35 (v5 core). Decode reads the widest block the
-    /// capture can hold and falls back to Ext2/core semantics when the presence
-    /// bits are clear, so a stale addon still decodes.
+    /// True for any capture width the v5 decoder understands: 58 (Ext5), 51
+    /// (Ext4), 43 (Ext3), 40 (Ext2) or 35 (v5 core). Decode reads the widest
+    /// block the capture can hold and falls back to core semantics when the
+    /// presence bits are clear, so a stale addon still decodes.
     /// </summary>
-    public static bool IsV5Length(int length) => length is CellCount or CellCountExt2 or CellCountExt3 or CellCountExt4;
+    public static bool IsV5Length(int length) =>
+        length is CellCount or CellCountExt2 or CellCountExt3 or CellCountExt4 or CellCountExt5;
+
+    /// <summary>
+    /// The v5-family widths every host tries, widest first. ONE ladder so the
+    /// Windows sampler/locator, the macOS sampler/scanner and the colour
+    /// learner cannot drift apart again (the Mac once pinned itself to the
+    /// locator's first entry and made Ext4 unreachable). Reading a narrower
+    /// addon at a wider width is safe: the extensions are gated on their own
+    /// presence bits and the tail reads as background.
+    /// </summary>
+    public static readonly int[] V5Widths =
+    {
+        CellCountExt5,
+        CellCountExt4,
+        CellCountExt3,
+        CellCountExt2,
+        CellCount,
+    };
 
     /// <summary>v5 sentinel nibble for "value unknown / not applicable".</summary>
     public const int UnknownNibble = 15;
@@ -800,6 +913,61 @@ internal static class PixelProtocol
             }
         }
 
+        // Ext5 block (4.6.0): cells 51-57. Presence is cell 50 R bit0 — a
+        // reserved-zero channel outside every checksum — AND the Ext4 presence
+        // bit AND a 58-cell capture. Cell 57 G covers cells 51-56 and its B is
+        // the heartbeat commit; a checksum failure or a torn commit drops ONLY
+        // Ext5, never Ext4, Ext3, Ext2 or the v5 core. Reading cell 50 R here
+        // (instead of reusing the Ext4 commit tuple) keeps the Ext4 decode
+        // byte-identical, which is the frozen contract.
+        var ext5Present = ext4Present
+            && cells.Length >= CellCountExt5
+            && (N(Ext5PresenceCellIndex).R & Ext5PresenceBit) != 0;
+        Ext5Block? ext5 = null;
+        if (ext5Present)
+        {
+            var (rankBits, delveBits, _) = N(Ext5RankCellIndex);
+            var (interruptibleBits, castAgeBucket, castKindBits) = N(Ext5CastCellIndex);
+            var (gcdBucket, _, _) = N(Ext5GcdCellIndex);
+            var (ccVkHi, ccVkLo, ccFlags) = N(Ext5CcKeyCellIndex);
+            var (ccIdTop, ccId19_16, ccId15_12) = N(Ext5CcSpellIdCellIndex);
+            var (ccId11_8, ccId7_4, ccId3_0) = N(Ext5CcSpellIdCellIndex + 1);
+
+            var ext5Sum = 0;
+            for (var i = Ext5RankCellIndex; i < Ext5CommitCellIndex; i++)
+            {
+                var (r, g, b) = N(i);
+                ext5Sum += r + g + b;
+            }
+            var (_, ext5Checksum, ext5Commit) = N(Ext5CommitCellIndex);
+            if (ext5Commit == heartbeat && (ext5Sum & 0xF) == ext5Checksum)
+            {
+                // An invalid CC key forces the spell id to 0 (D4: a synthesized
+                // press needs a keystroke, so half an entry is never surfaced),
+                // exactly like the Ext4 pad rule.
+                var ccValid = (ccFlags & FlagValid) != 0;
+                var ccSpellId = ccValid
+                    ? ((ccIdTop & 3) << 20) | (ccId19_16 << 16) | (ccId15_12 << 12)
+                        | (ccId11_8 << 8) | (ccId7_4 << 4) | ccId3_0
+                    : 0;
+                ext5 = new Ext5Block(
+                    rankBits & 7,
+                    delveBits & 3,
+                    interruptibleBits & 3,
+                    castKindBits & 3,
+                    castAgeBucket,
+                    ccValid
+                        ? new KeyStroke(
+                            (byte)((ccVkHi << 4) | ccVkLo),
+                            (ccFlags & FlagShift) != 0,
+                            (ccFlags & FlagCtrl) != 0,
+                            (ccFlags & FlagAlt) != 0)
+                        : default,
+                    ccSpellId,
+                    gcdBucket);
+            }
+        }
+
         var className = (classFlags & 1) != 0 ? AbilityCatalog.ClassName(classId) : null;
         var specName = className is not null ? AbilityCatalog.SpecName(className, specId) : null;
 
@@ -834,6 +1002,8 @@ internal static class PixelProtocol
             TypingActive = typingActive,
             Ext4Present = ext4Present,
             Ext4 = ext4,
+            Ext5Present = ext5Present,
+            Ext5 = ext5,
         };
     }
 

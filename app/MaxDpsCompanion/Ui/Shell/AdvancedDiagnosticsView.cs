@@ -38,6 +38,11 @@ internal sealed class AdvancedDiagnosticsView : UserControl
     private readonly NumberBox _offsetX;
     private readonly NumberBox _offsetY;
     private readonly TextBox _bnetPath;
+    private readonly CheckBox _insurance;
+    private readonly NumberBox _insuranceAge;
+    private readonly CheckBox _landingAuto;
+    private readonly CheckBox _adaptivePolling;
+    private readonly CheckBox _openerRelease;
     private readonly ChamferButton _calibrateColors;
     private readonly ChamferButton _calibrateAdv;
     private readonly CastAuditView _castAudit = new();
@@ -75,6 +80,17 @@ internal sealed class AdvancedDiagnosticsView : UserControl
         _offsetX = AdvancedUi.Number(0, -4000, 4000, "Block offset X");
         _offsetY = AdvancedUi.Number(0, -4000, 4000, "Block offset Y");
         _bnetPath = AdvancedUi.Field("", "Battle.net path");
+
+        // 4.6.0 "Cadence" timing (all default OFF = 4.5.8 behaviour).
+        _insurance = AdvancedUi.Check("Interrupt insurance (press the bound CC when no kick is available)",
+            "Uses the addon's Ext5 CC entry on a confirmed interruptible cast when no interrupt candidate exists or the last kick failed. Never bypasses a CC veto; default off.");
+        _insuranceAge = AdvancedUi.Number(1000, 250, 3000, "Insurance minimum cast age in milliseconds (250-3000)");
+        _landingAuto = AdvancedUi.Check("Auto-land on the GCD (fire just before the predicted GCD end)",
+            "Off = every stroke is paced by the minimum key interval only (4.5.8 behaviour). Auto = pre-arm the head candidate and fire it once per GCD, using the Ext5 GCD bucket or the estimator.");
+        _adaptivePolling = AdvancedUi.Check("Adaptive polling near the GCD edge (16 ms)",
+            "Polls at 16 ms inside the predicted GCD edge window and at the configured Poll interval elsewhere. The duty-cycle guard still caps total work.");
+        _openerRelease = AdvancedUi.Check("Release held openers on a boss pull (worldboss / elite-skull)",
+            "On a rank 6 (worldboss) or rank 7 (elite-skull) pull the out-of-combat opener hold is released for 2.5 s. Trash, elite and unknown ranks keep today's behaviour.");
 
         _calibrateColors = AdvancedUi.Button("Calibrate colors", ButtonRole.Ghost, () => CalibrateRequested?.Invoke());
         _calibrateAdv = AdvancedUi.Button("Recalibrate", ButtonRole.Ghost, () => CalibrateRequested?.Invoke());
@@ -119,6 +135,18 @@ internal sealed class AdvancedDiagnosticsView : UserControl
             AdvancedUi.Row("Cell size (px)", _cellSize),
             AdvancedUi.Row("Block offset X", _offsetX),
             AdvancedUi.Row("Block offset Y", _offsetY)));
+        // 4.6.0 "Cadence": insurance + GCD landing + opener release. One row per
+        // settings key ([Interrupt] InsuranceEnabled/InsuranceMinCastAgeMs,
+        // [Scheduler] Landing/AdaptivePolling/OpenerRelease); the numeric one is
+        // a labelled NumberBox row, the same pattern as the Timing card.
+        content.Children.Add(AdvancedUi.Card("Cadence", "4.6",
+            _insurance,
+            AdvancedUi.Row("Min cast age (ms)", _insuranceAge),
+            _landingAuto,
+            _adaptivePolling,
+            _openerRelease,
+            AdvancedUi.HintTip("All off by default: 4.5.8 behaviour is unchanged.",
+                "Insurance presses the addon's own bound CC on an interruptible cast when no kick is available; Auto landing fires the head candidate once per GCD just before its predicted end; adaptive polling refines the tick near that edge; opener release only fires on worldboss/elite-skull pulls.")));
         // S8 diagnostics: per-toggle why-not-firing (scheduler verdict + toggle
         // state + candidate staleness), old BuildDiagnosticsContent :1976-1979.
         content.Children.Add(AdvancedUi.Card("Why not firing", "Explain", _whyNotFiring));
@@ -167,6 +195,11 @@ internal sealed class AdvancedDiagnosticsView : UserControl
             _offsetX.Value = settings.OffsetX;
             _offsetY.Value = settings.OffsetY;
             _bnetPath.Text = settings.BNetPath;
+            _insurance.IsChecked = settings.InsuranceEnabled;
+            _insuranceAge.Value = Math.Clamp(settings.InsuranceMinCastAgeMs, 250, 3000);
+            _landingAuto.IsChecked = settings.Landing == LandingMode.Auto;
+            _adaptivePolling.IsChecked = settings.SchedulerAdaptivePolling;
+            _openerRelease.IsChecked = settings.SchedulerOpenerRelease;
         }
         finally
         {
@@ -188,6 +221,12 @@ internal sealed class AdvancedDiagnosticsView : UserControl
         // reference; the engine's per-tick snapshot never sees a field change.
         settings.Color = settings.Color.WithTolerance((int)NumberOr(_tolerance, settings.Color.Tolerance));
         settings.BNetPath = _bnetPath.Text.Trim();
+        settings.InsuranceEnabled = _insurance.IsChecked == true;
+        settings.InsuranceMinCastAgeMs =
+            Math.Clamp((int)NumberOr(_insuranceAge, settings.InsuranceMinCastAgeMs), 250, 3000);
+        settings.Landing = _landingAuto.IsChecked == true ? LandingMode.Auto : LandingMode.Off;
+        settings.SchedulerAdaptivePolling = _adaptivePolling.IsChecked == true;
+        settings.SchedulerOpenerRelease = _openerRelease.IsChecked == true;
     }
 
     /// <summary>Live protocol/bridge raw readouts (old RefreshStatus :2917-2927).</summary>
@@ -268,5 +307,14 @@ internal sealed class AdvancedDiagnosticsView : UserControl
         _offsetX.ValueChanged += (_, _) => On();
         _offsetY.ValueChanged += (_, _) => On();
         _bnetPath.TextChanged += (_, _) => On();
+        _insurance.Checked += (_, _) => On();
+        _insurance.Unchecked += (_, _) => On();
+        _insuranceAge.ValueChanged += (_, _) => On();
+        _landingAuto.Checked += (_, _) => On();
+        _landingAuto.Unchecked += (_, _) => On();
+        _adaptivePolling.Checked += (_, _) => On();
+        _adaptivePolling.Unchecked += (_, _) => On();
+        _openerRelease.Checked += (_, _) => On();
+        _openerRelease.Unchecked += (_, _) => On();
     }
 }
