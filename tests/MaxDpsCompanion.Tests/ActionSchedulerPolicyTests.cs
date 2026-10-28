@@ -1,3 +1,4 @@
+using MaxDpsCompanion.Core.Scheduler;
 using Xunit;
 
 namespace MaxDpsCompanion.Tests;
@@ -660,5 +661,97 @@ public class ActionSchedulerPolicyTests
         // 7 s later the stale streak is dropped -> base 1.5 s (not the 3 s rung).
         s.NoteFailure(Slot.Offensive, KeyR, 9000);
         Assert.Equal(10_500, s.FailedUntilFor(Slot.Offensive, KeyR));
+    }
+
+    // ---- 4.6.0 Cadence: kick memory (scheduler-owned) ---------------------
+
+    // The five interrupt-insurance scheduler tests and the KickMemory-static
+    // test moved to InterruptInsuranceTests: the insurance path writes the
+    // process-wide CrowdControlVetoes.Memory, so it belongs in the serialised
+    // CC collection, and KickMemory itself is instance state now (review M2).
+
+    [Fact]
+    public void Kick_Failure_Sets_The_Schedulers_Kick_Memory_And_State_Edges_Clear_It()
+    {
+        var scheduler = new ActionScheduler();
+
+        // The single failure funnel: a rejected slot-6 WIRE KICK stroke is a
+        // failed kick, recorded in THIS scheduler's memory.
+        scheduler.NoteFailure(Slot.Interrupt, KeyF, 1000, 6552);
+        Assert.True(scheduler.Kick.Failed(1000));
+        Assert.Equal(1000 + KickMemory.FailedWindowMs, scheduler.Kick.FailedUntilMs);
+
+        // A target edge (new fight) forgets it.
+        scheduler.Advance(Input(1000,
+            Frame([(Slot.Main, KeyE)], heartbeat: 1, hasTarget: false), null, null,
+            Candidate(Slot.Main, KeyE)));
+        Assert.False(scheduler.Kick.Failed(1000));
+
+        // Out of combat forgets it too.
+        scheduler.NoteFailure(Slot.Interrupt, KeyF, 2000, 6552);
+        Assert.True(scheduler.Kick.Failed(2000));
+        scheduler.Advance(Input(2000,
+            Frame([(Slot.Main, KeyE)], heartbeat: 2, inCombat: false), null, null,
+            Candidate(Slot.Main, KeyE)));
+        Assert.False(scheduler.Kick.Failed(2000));
+
+        // A confirmed GCD (the last press landed) forgets it as well.
+        scheduler.NoteFailure(Slot.Interrupt, KeyF, 3000, 6552);
+        Assert.True(scheduler.Kick.Failed(3000));
+        scheduler.Advance(Input(3000,
+            Frame([(Slot.Main, KeyE)], heartbeat: 3, onGcd: true), null, null,
+            Candidate(Slot.Main, KeyE)));
+        Assert.False(scheduler.Kick.Failed(3000));
+    }
+
+    // ---- 4.6.0 Cadence: opener release pre-rank ---------------------------
+
+    /// <summary>Opener only: the engine has already opened the boss window.</summary>
+    private static CadenceOptions OpenerWindowOpen => new(
+        InsuranceEnabled: false, InsuranceMinCastAgeMs: 1000,
+        LandingAuto: false, OpenerRelease: true, OpenerWindowActive: true);
+
+    private static CadenceOptions OpenerDisabled => new(
+        InsuranceEnabled: false, InsuranceMinCastAgeMs: 1000,
+        LandingAuto: false, OpenerRelease: true, OpenerWindowActive: false);
+
+    private static readonly TriState[] OpenerRange = Range(
+        (Slot.Main, TriState.Yes), (Slot.Offensive, TriState.Yes));
+
+    [Fact]
+    public void Opener_Promotes_One_Offensive_Major_Ahead_Of_The_First_Main()
+    {
+        var frame = Frame([(Slot.Main, KeyE), (Slot.Offensive, KeyR)]);
+
+        var closed = new ActionScheduler();
+        closed.Configure(OpenerDisabled);
+        var before = closed.Advance(Input(1000, frame, Context(range: OpenerRange), PolicyOptions.Standard,
+            Candidate(Slot.Main, KeyE), Candidate(Slot.Offensive, KeyR, spellId: 1719)));
+        Assert.Equal(Slot.Main, before.Selected);   // today's order
+
+        var opened = new ActionScheduler();
+        opened.Configure(OpenerWindowOpen);
+        var during = opened.Advance(Input(1000, frame, Context(range: OpenerRange), PolicyOptions.Standard,
+            Candidate(Slot.Main, KeyE), Candidate(Slot.Offensive, KeyR, spellId: 1719)));
+
+        // Recklessness (1719, 3 min) is a ready major offensive: it is pre-ranked
+        // ahead of the first Main for the 2500 ms window only.
+        Assert.Equal(Slot.Offensive, during.Selected);
+        Assert.Equal(KeyR, during.Actions[0].Stroke);
+        Assert.Equal([Slot.Offensive, Slot.Main], during.Actions.Select(a => a.Slot).ToArray());
+    }
+
+    [Fact]
+    public void Opener_Never_Promotes_A_Minor_Offensive()
+    {
+        var frame = Frame([(Slot.Main, KeyE), (Slot.Offensive, KeyR)]);
+        var opened = new ActionScheduler();
+        opened.Configure(OpenerWindowOpen);
+
+        // 6673 = Battle Shout (a curated minor/utility offensive, short cooldown):
+        // the window must not lift it ahead of the rotation.
+        var plan = opened.Advance(Input(1000, frame, Context(range: OpenerRange), PolicyOptions.Standard,
+            Candidate(Slot.Main, KeyE), Candidate(Slot.Offensive, KeyR, spellId: 6673)));
+        Assert.Equal(Slot.Main, plan.Selected);
     }
 }

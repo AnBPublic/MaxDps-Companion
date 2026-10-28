@@ -124,6 +124,21 @@ internal sealed class PolicyOptions
     public double TtkHistoryDurFactor { get; init; } = TtkPolicy.DefaultNeedDurFactor;
 
     /// <summary>
+    /// 4.6.0 "Cadence" interrupt insurance (<c>[Interrupt] InsuranceEnabled</c>,
+    /// default OFF). When false the scheduler never asks
+    /// <see cref="InterruptInsurance"/> anything, so the 4.5.8 output stays
+    /// byte-identical.
+    /// </summary>
+    public bool InsuranceEnabled { get; init; }
+
+    /// <summary>
+    /// <c>[Interrupt] InsuranceMinCastAgeMs</c> (clamp 250..3000, default 1000):
+    /// with a live interrupt candidate present, the insurance press waits for a
+    /// cast at least this old (Ext5's 250 ms age buckets).
+    /// </summary>
+    public int InsuranceMinCastAgeMs { get; init; } = 1000;
+
+    /// <summary>
     /// v3.8 TTK-aware cooldown gating: hold a major offensive for this many
     /// seconds after first sight while the target TTK is unknown
     /// (<c>[TimeToKill] WarmupSec</c>, clamp 0..10). Retained for
@@ -157,6 +172,8 @@ internal sealed class PolicyOptions
         TtkHistoryQuantile = settings.TimeToKillHistoryQuantile,
         TtkHistoryDurFactor = settings.TimeToKillHistoryDurFactor,
         TtkWarmupSec = settings.TimeToKillWarmupSec,
+        InsuranceEnabled = settings.InsuranceEnabled,
+        InsuranceMinCastAgeMs = Math.Clamp(settings.InsuranceMinCastAgeMs, 250, 3000),
     };
 
     /// <summary>

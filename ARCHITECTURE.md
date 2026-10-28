@@ -447,7 +447,38 @@ collapsed candidate is re-admitted when that press is held, and `NoteAttempt`
 suppresses a non-emitted Main at `MainReprobeMs` (150 ms), not the 500 ms
 situational window. Live checks OWED (`docs/TESTING.md` §3j).
 
-## MaxDpsCompanionBridge (CURRENT; in-game-config fork, no wire change; bridge 4.5.4 / companion 4.5.8)
+## Ext5 + interrupt insurance + GCD landing (v4.6.0 "Cadence"; bridge 4.6.0)
+
+Additive context for the two solo-Delve behaviours. **Wire:** v5 core 35 + Ext2
+40 + Ext3 43 + Ext4 51 are byte-identical; Ext5 adds cells 51-57 (strip 58)
+with presence on **cell 50 R bit0**. The addon DB key `Ext5` defaults **false**,
+so a stock install still emits exactly 51 cells; a pre-Ext5 companion samples
+its own 51-cell width and decodes the 51-cell prefix.
+
+- **Bytes.** 51 R rank (0 unknown, 1 trivial, 2 normal, 3 elite, 4 rare,
+  5 rareelite, 6 worldboss, 7 elite-skull = elite + `UnitLevel == -1`);
+  51 G delve (0 unknown / 1 no / 2 yes); 52 R interruptible (0/1/2), 52 G cast
+  **age** bucket `1..14 = [(b-1)*250, b*250)` ms, 52 B cast kind; 53 R GCD
+  remaining `0 unknown / 1 off-GCD / 2..15 = [(b-2)*100,(b-1)*100)` ms`; 54-56
+  the CC entry (key triple + 21-bit spell id, Ext4 packing); 57 G = nibble sum
+  of 51-56 mod 16, B = heartbeat. A checksum/heartbeat failure drops only Ext5.
+- **Cast remaining is not on the wire.** `UnitCastingInfo` returns secrets and
+  is never called (`Reader.lua:115-125`); age uses the event cast-start stamp.
+  A stun cancels a cast at any point, so age is enough for insurance.
+- **Insurance.** `Knowledge/InterruptInsurance.cs` synthesises the curated
+  single-target stun/silence when the kick cannot cover a live interruptible
+  cast. It reuses `CrowdControlVetoes.InterruptFallbackVeto` (casting-only, DR,
+  immunity, `StunIneffective`) and the companion CC opt-in; `ActionScheduler`
+  only presses it after a real emission and records `NoteUsed` then. A
+  GCD-riding CC respects the GCD (`BypassesGcd` is per-spell).
+- **Landing.** `Scheduler/LandingPlanner.cs` holds a GCD-riding head until
+  `gcd_end - lead`, pre-fires exactly once per GCD, aborts on a candidate
+  change, and only `CommitFire` latches it. Predictions come from the Ext5
+  bucket when live, else from observed on-GCD edges (EWMA). `CadencePacing`
+  bursts the poll; `OpenerWindow` promotes one ready major on rank 6/7 only.
+- `KickMemory` is per-scheduler instance (`ActionScheduler.Kick`), not global.
+
+## MaxDpsCompanionBridge (CURRENT; in-game-config fork, no wire change; bridge 4.6.0 / companion 4.6.0)
 
 **`addon/legacy/MaxDpsBridge` = LEGACY (frozen). `addon/MaxDpsCompanionBridge` = CURRENT.**
 The companion bridge is the legacy sources renamed `MDB→MDCB` /

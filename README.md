@@ -1,7 +1,7 @@
 > [!IMPORTANT]
-> **Current client: 4.5.8 "Voidlight"** (bridge **4.5.4**) - the WinUI 3 Windows
+> **Current client: 4.6.0 "Cadence"** (bridge **4.6.0**) - the WinUI 3 Windows
 > client (`app/MaxDpsCompanion/`), the shared brain (`app/MaxDpsCompanion.Core/`)
-> and the macOS client (`app/MaxDpsCompanion.Mac/`, `4.5.5 "Voidlight"`), targeting
+> and the macOS client (`app/MaxDpsCompanion.Mac/`, `4.6.0 "Cadence"`), targeting
 > `MaxDpsCompanionBridge` + `dist`. **C# is the long-term base.** Frozen: the
 > 3.7.9 WinForms distribution (`dist-legacy/`, `build.ps1`), the legacy bridge
 > (`addon/legacy/MaxDpsBridge/`) and the Rust port (`companion-rs/`, reference
@@ -52,7 +52,7 @@
 > [`app/MaxDpsCompanion.Mac/README.md`](app/MaxDpsCompanion.Mac/README.md);
 > live retail checks are OWED (`docs/TESTING.md` §4).
 
-# MaxDPS Companion (Retail Midnight 12.1.5, v4.5.8 "Voidlight", bridge 4.5.4)
+# MaxDPS Companion (Retail Midnight 12.1.5, v4.6.0 "Cadence", bridge 4.6.0)
 
 Pixel bridge driver for [kaminaris MaxDps](https://www.curseforge.com/wow/addons/maxdps)
 (vendor pin: MaxDps v11.3.49). No memory read, no injection, no OCR, no LLM.
@@ -63,12 +63,42 @@ Two pieces:
 
  | Piece | What it does |
  | :--- | :--- |
- | `MaxDpsCompanionBridge` (addon, `addon/MaxDpsCompanionBridge/`) | Queries the MaxDps rotation engine each frame and encodes suggestions, ability ids, combat context and the keybound hotbar map into a 51-cell strip of flat-coloured pixels (35-cell v5 core + additive Ext2/Ext3/Ext4 blocks). |
+ | `MaxDpsCompanionBridge` (addon, `addon/MaxDpsCompanionBridge/`) | Queries the MaxDps rotation engine each frame and encodes suggestions, ability ids, combat context and the keybound hotbar map into a 51-cell strip of flat-coloured pixels (35-cell v5 core + additive Ext2/Ext3/Ext4 blocks). With the opt-in `Ext5` addon key on it adds cells 51-57 (58 cells): target rank, in-delve, cast age, GCD remaining and the interrupt-fallback CC key/id. |
  | `MaxDpsCompanion.exe` (desktop app, `app/MaxDpsCompanion/`) | WinUI 3 shell that samples those pixels, decodes the frame, evaluates every situational suggestion (USE / HOLD / SKIP / UNAVAILABLE / UNKNOWN) against an embedded ability intelligence registry + explicit candidate providers, queues recognised hotbar presses, schedules one action at a time, and replays the player's own keybinds into the attached game window. |
 
 The legacy `MaxDpsBridge` addon (`addon/legacy/MaxDpsBridge/`, 40-cell strip) and the
 old WinForms client (`dist-legacy/`) are **legacy/frozen**; all current work targets
 `MaxDpsCompanionBridge` + `dist`.
+
+## v4.6.0 "Cadence" - Ext5 context, interrupt insurance, GCD-perfect delivery (bridge 4.6.0, additive wire)
+
+Three features, **all default OFF** and switched on by hand in your per-machine
+`dist\settings.ini` (the tracked root `settings.ini` documents every key). The
+defensive layer is untouched: it stays reactive and HP/urgency banded.
+
+- **Ext5 context (addon key `Ext5`, default off).** Cells 51-57 carry target
+  rank (incl. elite-skull), the in-delve flag, the interruptible cast plus its
+  **age**, the GCD remaining bucket, and the interrupt-fallback CC as a full key
+  + spell id pair. `/mcb ext5 on` then `/reload`; `/mcb status` prints `ext5=N`.
+  With it off the bridge still emits exactly 51 cells, so an older companion
+  keeps working. Cast **remaining** is deliberately not on the wire:
+  `UnitCastingInfo` returns secrets and the bridge never calls it.
+- **Interrupt insurance (`[Interrupt] InsuranceEnabled=1`).** When a live
+  interruptible cast cannot be covered by the kick - no interrupt candidate, a
+  failed kick inside its suppression window, or a cast older than
+  `InsuranceMinCastAgeMs` (default 1000) - the companion fires the curated
+  single-target stun/silence. DR, immunity and the ineffective-stun latch still
+  apply; a GCD-riding stun respects the GCD. Needs `spell6=1` and
+  `[CrowdControl] Enabled=1`.
+- **GCD-perfect delivery.** `[Scheduler] Landing=Auto` pre-fires one GCD-riding
+  stroke per GCD at `gcd_end - lead` (Ext5 bucket when live, else a learned
+  estimator) and aborts if the candidate changes; `AdaptivePolling=1` bursts the
+  poll to ~16 ms near the predicted end; `OpenerRelease=1` drops the
+  out-of-combat hold and pre-ranks one ready major on a **worldboss or
+  elite-skull** pull only - elite/rare/normal/unknown keep today's behaviour.
+- `MinKeyIntervalMs` still gates every unscheduled stroke. Offline: build 0/0,
+  1235 xUnit, 520 Lua checks, audit clean, UI smoke PASS. **Live retail OWED**
+  (`docs/TESTING.md` 3x).
 
 ## v4.5.8 "Voidlight" - main-bar completion of the cooldown shim (bridge 4.5.4, no wire change)
 

@@ -42,6 +42,18 @@ internal enum TtkFallback
 }
 
 /// <summary>
+/// [Scheduler] Landing (4.6.0 "Cadence") — GCD landing planner mode. OFF is the
+/// historical behaviour (every stroke is gated by the minimum key interval and
+/// the on-GCD flag only). AUTO pre-arms the head candidate and fires it
+/// `leadMs` before the predicted GCD end, at most once per GCD.
+/// </summary>
+internal enum LandingMode
+{
+    Off = 0,
+    Auto = 1,
+}
+
+/// <summary>
 /// INI-backed settings, kept hand-editable in the same shape as settings.ini.
 /// </summary>
 internal sealed class AppSettings
@@ -147,6 +159,16 @@ internal sealed class AppSettings
     public bool InteractEnabled { get; set; } = false;
     public string InteractKey { get; set; } = "F";
 
+    // [Interrupt] — 4.6.0 "Cadence" interrupt INSURANCE (default OFF). When ON
+    // the companion may press the Ext5 CC entry (the addon's own bound CC) on a
+    // confirmed interruptible cast when no interrupt candidate is available or
+    // the last kick failed. InsuranceEnabled=0 means the policy path is never
+    // called, so output is byte-identical to 4.5.8. InsuranceMinCastAgeMs is
+    // the cast-age floor that makes an insurance press wait for a real cast
+    // (clamp 250..3000; cast age comes from Ext5's 250 ms buckets).
+    public bool InsuranceEnabled { get; set; } = false;
+    public int InsuranceMinCastAgeMs { get; set; } = 1000;
+
     // [UserQueue] — v4.0.3 hotbar press queue (protocol Ext4). The companion
     // watches the player's own keybound action-bar strokes and queues a press
     // into the current GCD window instead of letting the rotation overwrite
@@ -169,6 +191,20 @@ internal sealed class AppSettings
     // Protocol v1 frames carry no GCD flag; an identical re-suggested stroke
     // is suppressed for this long instead of machine-gunning a dead GCD.
     public int SchedulerRepeatSuppressMs { get; set; } = 900;
+
+    // [Scheduler] — 4.6.0 "Cadence" timing features, all default OFF so a
+    // 4.5.8 config behaves byte-identically:
+    //   Landing         Off|Auto  — GCD landing planner (Ext5 cell 53 supplies
+    //                                the live GCD remainder; the estimator is
+    //                                the fallback).
+    //   AdaptivePolling 0|1      — 16 ms polls inside the predicted GCD edge
+    //                                window, configured PollIntervalMs elsewhere.
+    //   OpenerRelease   0|1      — on a BOSS-GRADE pull (Ext5 rank 6 worldboss
+    //                                or 7 elite-skull) release the out-of-combat
+    //                                opener hold for a 2500 ms window.
+    public LandingMode Landing { get; set; } = LandingMode.Off;
+    public bool SchedulerAdaptivePolling { get; set; } = false;
+    public bool SchedulerOpenerRelease { get; set; } = false;
 
     // [Intelligence] — situational intelligence (v2.0). ON by default: the
     // deterministic policy layer evaluates every situational candidate
@@ -473,11 +509,16 @@ internal sealed class AppSettings
             case ("targeting", "targetkey"): TargetKey = string.IsNullOrWhiteSpace(value) ? TargetKey : value.Trim(); break;
             case ("interact", "interactenabled"): InteractEnabled = ParseBool(value, InteractEnabled); break;
             case ("interact", "interactkey"): InteractKey = string.IsNullOrWhiteSpace(value) ? InteractKey : value.Trim(); break;
+            case ("interrupt", "insuranceenabled"): InsuranceEnabled = ParseBool(value, InsuranceEnabled); break;
+            case ("interrupt", "insurancemincastagems"): InsuranceMinCastAgeMs = Math.Clamp(ParseInt(value, InsuranceMinCastAgeMs), 250, 3000); break;
             case ("userqueue", "enabled"): UserQueueEnabled = ParseBool(value, UserQueueEnabled); break;
             case ("userqueue", "background"): UserQueueBackground = ParseBool(value, UserQueueBackground); break;
             case ("scheduler", "enabled"): SchedulerEnabled = ParseBool(value, SchedulerEnabled); break;
             case ("scheduler", "heartbeattimeoutms"): SchedulerHeartbeatTimeoutMs = Math.Clamp(ParseInt(value, SchedulerHeartbeatTimeoutMs), 100, 5000); break;
             case ("scheduler", "repeatsuppressms"): SchedulerRepeatSuppressMs = Math.Clamp(ParseInt(value, SchedulerRepeatSuppressMs), 100, 5000); break;
+            case ("scheduler", "landing"): Landing = ParseLanding(value); break;
+            case ("scheduler", "adaptivepolling"): SchedulerAdaptivePolling = ParseBool(value, SchedulerAdaptivePolling); break;
+            case ("scheduler", "openerrelease"): SchedulerOpenerRelease = ParseBool(value, SchedulerOpenerRelease); break;
             case ("intelligence", "enabled"): IntelligenceEnabled = ParseBool(value, IntelligenceEnabled); break;
             case ("intelligence", "staleafterms"): IntelligenceStaleAfterMs = ParseInt(value, IntelligenceStaleAfterMs); break;
             case ("intelligence", "hpcurve"): HpCurve = ParseBool(value, HpCurve); break;
@@ -584,6 +625,14 @@ internal sealed class AppSettings
             .AppendLine($"InteractEnabled={(InteractEnabled ? 1 : 0)}")
             .AppendLine($"InteractKey={InteractKey}")
             .AppendLine()
+            .AppendLine("; 4.6.0 interrupt insurance (default off). ON lets the companion press")
+            .AppendLine("; the addon's own bound CC (Ext5) on an interruptible cast when no")
+            .AppendLine("; interrupt candidate is available or the last kick failed.")
+            .AppendLine("; InsuranceMinCastAgeMs: wait for a cast this old (clamp 250..3000).")
+            .AppendLine("[Interrupt]")
+            .AppendLine($"InsuranceEnabled={(InsuranceEnabled ? 1 : 0)}")
+            .AppendLine($"InsuranceMinCastAgeMs={Math.Clamp(InsuranceMinCastAgeMs, 250, 3000)}")
+            .AppendLine()
             .AppendLine("; v4.0.3: recognise your own keybound action-bar presses (Ext4 map) and")
             .AppendLine("; queue them into the current GCD window. Background=1 also delivers")
             .AppendLine("; while the game window is not focused.")
@@ -595,10 +644,17 @@ internal sealed class AppSettings
             .AppendLine("; priority loop; [Intelligence] may then reorder it.")
             .AppendLine("; HeartbeatTimeoutMs: frozen heartbeat => link lost => nothing fires.")
             .AppendLine("; RepeatSuppressMs: v1 frames carry no GCD flag; identical repeats wait this long.")
+            .AppendLine("; Landing: Off|Auto - Auto pre-arms the head candidate and fires it just")
+            .AppendLine("; before the predicted GCD end (needs the Ext5 GCD bucket or the estimator).")
+            .AppendLine("; AdaptivePolling: 1 = 16 ms polls inside the predicted GCD edge window.")
+            .AppendLine("; OpenerRelease: 1 = release the OOC opener hold on a worldboss/elite-skull pull.")
             .AppendLine("[Scheduler]")
             .AppendLine($"Enabled={(SchedulerEnabled ? 1 : 0)}")
             .AppendLine($"HeartbeatTimeoutMs={SchedulerHeartbeatTimeoutMs}")
             .AppendLine($"RepeatSuppressMs={SchedulerRepeatSuppressMs}")
+            .AppendLine($"Landing={(Landing == LandingMode.Auto ? "Auto" : "Off")}")
+            .AppendLine($"AdaptivePolling={(SchedulerAdaptivePolling ? 1 : 0)}")
+            .AppendLine($"OpenerRelease={(SchedulerOpenerRelease ? 1 : 0)}")
             .AppendLine()
             .AppendLine("; Situational intelligence (default on). 0 = pre-intelligence")
             .AppendLine("; behaviour: no knowledge-based filtering of situation slots.")
@@ -735,6 +791,13 @@ internal sealed class AppSettings
     {
         "conservemajors" or "conserve" => TtkFallback.ConserveMajors,
         _ => TtkFallback.FailOpen,
+    };
+
+    /// <summary>[Scheduler] Landing: only "auto" opts in; anything else is Off.</summary>
+    private static LandingMode ParseLanding(string value) => value.Trim().ToLowerInvariant() switch
+    {
+        "auto" => LandingMode.Auto,
+        _ => LandingMode.Off,
     };
 
     private static int ParseInt(string value, int fallback) =>        int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)

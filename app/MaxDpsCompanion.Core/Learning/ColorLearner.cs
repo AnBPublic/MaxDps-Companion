@@ -19,17 +19,13 @@ internal static class ColorLearner
     public const int MinSeparation = 48;
 
     /// <summary>
-    /// v5-family capture widths, widest first: Ext4 (51), Ext3 (43), then the
-    /// Ext2 (40) and v5 core (35) fallbacks. The calibrate sampler captures the
-    /// widest frame; a narrower stale addon is classified on its own width.
+    /// v5-family capture widths, widest first: Ext5 (58), Ext4 (51), Ext3 (43),
+    /// then the Ext2 (40) and v5 core (35) fallbacks. The calibrate sampler
+    /// captures the widest frame; a narrower stale addon is classified on its
+    /// own width. ONE shared ladder (<see cref="PixelProtocol.V5Widths"/>) so
+    /// calibration cannot reject a frame the sampler legitimately captured.
     /// </summary>
-    internal static readonly int[] V5CaptureWidths =
-    {
-        PixelProtocol.CellCountExt4,
-        PixelProtocol.CellCountExt3,
-        PixelProtocol.CellCountExt2,
-        PixelProtocol.CellCount,
-    };
+    internal static readonly int[] V5CaptureWidths = PixelProtocol.V5Widths;
 
     private static bool IsV5Width(int length) => V5CaptureWidths.Contains(length);
 

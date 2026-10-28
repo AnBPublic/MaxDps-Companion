@@ -1,8 +1,29 @@
-4.5.4
-date: 2026-10-26 "Voidlight"
-git: v4.5.8 (companion) / bridge 4.5.4
+4.6.0
+date: 2026-10-28 "Cadence"
+git: v4.6.0 (companion) / bridge 4.6.0
 interface: 120100 (Retail Midnight 12.1)
-protocol: UNCHANGED - v5 core 35 + Ext2 40 + Ext3 43 + Ext4 51 (51-cell strip).
+protocol: ADDITIVE Ext5 block (cells 51-57; strip grows to 58 cells while the
+          addon DB key Ext5 is on; presence = cell 50 R bit0; version nibble
+          stays 5 and the v5 core 35 + Ext2 40 + Ext3 43 + Ext4 51 stay
+          byte-identical). With Ext5 off the strip is exactly 51 cells.
+v4.6.0: Companion 4.6.0 "Cadence" / bridge 4.6.0. Three features, all default
+          OFF. (1) Ext5 context: target rank incl. elite-skull, in-delve flag,
+          interruptible cast + cast-AGE bucket (cast remaining is unobservable -
+          UnitCastingInfo returns secrets and is never called), GCD remaining
+          bucket, and the interrupt-fallback CC entry as a full key + spell id
+          pair (Ext4 packing). (2) Interrupt insurance: when a live
+          interruptible cast cannot be covered by the kick, fire the curated
+          single-target stun/silence through the existing DR / immunity /
+          StunIneffective veto ladder; a GCD-riding CC respects the GCD, only
+          an off-GCD kick bypasses it. (3) GCD-perfect delivery: landing
+          planner pre-fires one GCD-riding stroke per GCD at gcd_end - lead
+          (Ext5 bucket when live, else an observed-edge estimator), adaptive
+          polling bursts to ~16 ms near the predicted end, and opener release
+          pre-ranks one ready major on a worldboss/elite-skull rising edge only.
+          New keys: [Interrupt] InsuranceEnabled/InsuranceMinCastAgeMs,
+          [Scheduler] Landing/AdaptivePolling/OpenerRelease, addon DB Ext5.
+          /mcb ext5 on|off (requires /reload); /mcb status prints ext5=N.
+
 v4.5.4: Companion 4.5.8 "Voidlight" / bridge 4.5.4. Main-bar completion of the
           cooldown shim. GW2_UI styles the main bar in place; ActionButton1
           keeps Blizzard's MainActionBar parent and SetScript("OnUpdate", nil)

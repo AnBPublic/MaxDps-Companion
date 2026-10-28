@@ -45,7 +45,9 @@ public class CaptureDiagnosticsTests
 
         var cells = sampler.Sample(new Point(10, 10), 8, new IntPtr(0x1234));
 
-        Assert.Equal(PixelProtocol.CellCountExt4, cells.Length);
+        // 4.6.0: the sampler captures the widest frame the protocol defines
+        // (Ext5 = 58 cells); this assertion used to pin CellCountExt4 (51).
+        Assert.Equal(PixelProtocol.CellCountExt5, cells.Length);
         Assert.All(cells, cell => Assert.Equal(Color.Empty, cell));
         Assert.Equal(CaptureOutcome.Minimized, sampler.LastOutcome);
         // The blit path was never entered: no screen DC was acquired.

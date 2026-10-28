@@ -3253,5 +3253,366 @@ local function RunParagonTests ()
   MaxDps.Spell = SavedSpell
 end
 RunParagonTests()
+
+-- =====================================================================
+-- Ext5 (4.6.0 "Cadence"): target rank / cast age+kind / GCD landing / CC
+-- insurance, cells 51-57 behind the addon DB key `Ext5` (default OFF).
+-- With the key off the strip must stay the 51-cell 4.5.8 frame (no cell 51
+-- texture, cell 50 R bit0 clear); with it on the strip is 58 cells and the
+-- block is checksummed by cell 57.
+-- =====================================================================
+local function RunExt5Tests ()
+  local DB = MaxDpsCompanionBridgeDB
+  local SavedClock = GetTime
+  local Now = 5000.0
+  GetTime = function () return Now end
+  runDeferred()
+
+  -- Reload the encoder so the load-time CELL_COUNT picks up DB.Ext5, then boot
+  -- it like the client would. Returns the strip, its OnUpdate and the texture
+  -- id base (cell i = TexBase + 1 + i).
+  local function BootStrip ()
+    local Before, TexBase = #AllFrames, TextureCount
+    assert(loadfile("addon/MaxDpsCompanionBridge/Bridge.lua"))("MaxDpsCompanionBridge", MDCB)
+    local Loader
+    for i = Before + 1, #AllFrames do
+      local f = AllFrames[i]
+      if f._events and f._events["ADDON_LOADED"] and f._scripts and f._scripts.OnEvent then
+        Loader = f
+      end
+    end
+    assert(Loader, "Ext5 reloaded loader frame missing")
+    Loader._scripts.OnEvent(Loader, "ADDON_LOADED", "MaxDpsCompanionBridge")
+    local Strip = _G.MaxDpsCompanionBridge_Block
+    assert(Strip and Strip._scripts and Strip._scripts.OnUpdate, "Ext5 strip missing")
+    return Strip, Strip._scripts.OnUpdate, TexBase
+  end
+
+  -- ---- (1) Ext5 OFF: the 51-cell compatibility frame ----
+  DB.Ext5 = false
+  local StripOff, TickOff, TexOff = BootStrip()
+  local function NibOff (i)
+    local c = Textures[TexOff + 1 + i]
+    if not c then return 0, 0, 0 end
+    return math.floor(c[1] * 15 + 0.5), math.floor(c[2] * 15 + 0.5), math.floor(c[3] * 15 + 0.5)
+  end
+  check("E5 Ext5=false strip stays 51 cells wide", type(StripOff._size) == "table"
+    and StripOff._size[1] == 8 * 51 and StripOff._size[2] == 8)
+  check("E5 Ext5=false creates exactly 51 textures", TextureCount == TexOff + 51)
+  check("E5 Ext5=false has no cell 51 texture", Textures[TexOff + 52] == nil)
+  local OkOff = pcall(TickOff, StripOff, 0.06)
+  check("E5 Ext5=false cell 50 R stays 0 (no presence bit)", OkOff and NibOff(50) == 0)
+
+  -- ---- (2) Ext5 ON: 58 cells, presence bit, Ext4 commit untouched ----
+  DB.Ext5 = true
+  local Strip, Tick, TexBase = BootStrip()
+  local function XNib (i)
+    local c = Textures[TexBase + 1 + i]
+    if not c then return 0, 0, 0 end
+    return math.floor(c[1] * 15 + 0.5), math.floor(c[2] * 15 + 0.5), math.floor(c[3] * 15 + 0.5)
+  end
+  check("E5 Ext5=true strip is 58 cells wide", type(Strip._size) == "table"
+    and Strip._size[1] == 8 * 58 and Strip._size[2] == 8)
+  check("E5 Ext5=true creates exactly 58 textures", TextureCount == TexBase + 58)
+
+  UnitClassification, UnitLevel = nil, nil
+  local OkOn = pcall(Tick, Strip, 0.06)
+  local hb = select(2, XNib(9))
+  local c50r, c50g, c50b = XNib(50)
+  local Ext4Sum = 0
+  for i = 43, 49 do
+    local r, g, b = XNib(i)
+    Ext4Sum = Ext4Sum + r + g + b
+  end
+  check("E5 cell 50 R bit0 = Ext5 presence", OkOn and c50r == 1)
+  check("E5 cell 50 G is still the Ext4 checksum", c50g == (Ext4Sum % 16))
+  check("E5 cell 50 B is still the heartbeat", c50b == hb)
+
+  -- ---- (3) target rank (cell 51 R), incl. elite-skull ----
+  local SavedClassFn, SavedLevelFn = UnitClassification, UnitLevel
+  local function RankOf (Class, Level)
+    UnitClassification = function () return Class end
+    UnitLevel = function () return Level end
+    pcall(Tick, Strip, 0.06)
+    return (XNib(51))
+  end
+  check("E5 rank trivial = 1", RankOf("trivial", 1) == 1)
+  check("E5 rank normal = 2", RankOf("normal", 80) == 2)
+  check("E5 rank elite = 3", RankOf("elite", 82) == 3)
+  check("E5 rank rare = 4", RankOf("rare", 80) == 4)
+  check("E5 rank rareelite = 5", RankOf("rareelite", 80) == 5)
+  check("E5 rank worldboss = 6", RankOf("worldboss", -1) == 6)
+  check("E5 rank elite-skull = 7 (elite + UnitLevel -1)", RankOf("elite", -1) == 7)
+  check("E5 rank undocumented classification = 0", RankOf("minus", 80) == 0)
+  UnitClassification, UnitLevel = nil, nil
+  pcall(Tick, Strip, 0.06)
+  check("E5 rank without the classification API = 0", XNib(51) == 0)
+
+  -- ---- (4) in-delve (cell 51 G): 0 unknown / 1 no / 2 yes ----
+  local SavedInstFn, SavedScenario = GetInstanceInfo, _G.C_Scenario
+  local function DelveOf (InstFn, Scenario)
+    GetInstanceInfo = InstFn
+    _G.C_Scenario = Scenario
+    pcall(Tick, Strip, 0.06)
+    return (select(2, XNib(51)))
+  end
+  check("E5 in-delve yes = 2 (scenario instance + C_Scenario.GetInfo)", DelveOf(
+    function () return "Delve", "scenario" end,
+    { GetInfo = function () return { name = "Delve" } end }) == 2)
+  check("E5 in-delve no = 1 (overworld)", DelveOf(
+    function () return nil, "none" end, nil) == 1)
+  check("E5 in-delve unknown = 0 (scenario instance, no scenario API)", DelveOf(
+    function () return "X", "scenario" end, nil) == 0)
+  check("E5 in-delve unknown = 0 (instance API throws)", DelveOf(
+    function () error("blocked") end, { GetInfo = function () return {} end }) == 0)
+  GetInstanceInfo, _G.C_Scenario = SavedInstFn, SavedScenario
+
+  -- ---- (5) cast kind / age buckets / interruptibility (cell 52) ----
+  FireUnitEvent("target", "UNIT_SPELLCAST_STOP")   -- normalise the sensor latch
+  Now = 6000.0
+  FireUnitEvent("target", "UNIT_SPELLCAST_START")
+  local function CastNow (AgeMs)
+    Now = 6000.0 + (AgeMs or 0) / 1000
+    pcall(Tick, Strip, 0.06)
+    local r, g, b = XNib(52)
+    return r, g, b
+  end
+  local cr, cg, cb = CastNow(0)
+  check("E5 cell 52 B cast kind = 2 (cast)", cb == 2)
+  check("E5 cell 52 G age 0 ms = bucket 1", cg == 1)
+  check("E5 cell 52 R interruptible = 0 while the verdict is unknown", cr == 0)
+  check("E5 age 249 ms = bucket 1", select(2, CastNow(249)) == 1)
+  check("E5 age 250 ms = bucket 2", select(2, CastNow(250)) == 2)
+  check("E5 age 251 ms = bucket 2", select(2, CastNow(251)) == 2)
+  check("E5 age 1000 ms = bucket 5", select(2, CastNow(1000)) == 5)
+  check("E5 age 9000 ms saturates at bucket 14", select(2, CastNow(9000)) == 14)
+  FireUnitEvent("target", "UNIT_SPELLCAST_INTERRUPTIBLE")
+  check("E5 cell 52 R interruptible = 2 (yes)", (CastNow(500)) == 2)
+  FireUnitEvent("target", "UNIT_SPELLCAST_NOT_INTERRUPTIBLE")
+  check("E5 cell 52 R interruptible = 1 (no)", (CastNow(500)) == 1)
+  Now = 6000.75
+  FireUnitEvent("target", "UNIT_SPELLCAST_CHANNEL_START")
+  check("E5 cell 52 B cast kind = 3 (channel)", select(3, CastNow(0)) == 3)
+  FireUnitEvent("target", "UNIT_SPELLCAST_START")
+  FirePlainEvent("PLAYER_TARGET_CHANGED")
+  local tr, tg, tb = CastNow(0)
+  check("E5 target change clears cast kind/age/interruptible",
+    tr == 0 and tg == 0 and tb == 1)
+  FireUnitEvent("target", "UNIT_SPELLCAST_CHANNEL_STOP")
+  local nr, ng, nb = CastNow(0)
+  check("E5 no cast = kind 1 (none), age 0, interruptible 0",
+    nr == 0 and ng == 0 and nb == 1)
+
+  -- ---- (6) GCD landing bucket (cell 53) ----
+  local SavedCooldown = C_Spell.GetSpellCooldown
+  local GcdCalls = 0
+  local function GcdStub (Ms, OnGcd)
+    if Ms == nil then
+      C_Spell.GetSpellCooldown = function (id)
+        if id ~= 61304 then return SavedCooldown(id) end
+        GcdCalls = GcdCalls + 1
+        return { startTime = 0, duration = 0, isEnabled = true, isActive = false,
+          isOnGCD = (OnGcd ~= false) }
+      end
+      return
+    end
+    C_Spell.GetSpellCooldown = function (id)
+      if id ~= 61304 then return SavedCooldown(id) end
+      GcdCalls = GcdCalls + 1
+      return { startTime = Now, duration = Ms / 1000, isEnabled = true,
+        isActive = true, isOnGCD = true }
+    end
+  end
+  local function GcdBucketOf (Ms, OnGcd)
+    GcdStub(Ms, OnGcd)
+    pcall(Tick, Strip, 0.06)
+    return (XNib(53))
+  end
+  check("E5 GCD 99 ms = bucket 2", GcdBucketOf(99) == 2)
+  check("E5 GCD 100 ms = bucket 3", GcdBucketOf(100) == 3)
+  check("E5 GCD 1299 ms = bucket 14", GcdBucketOf(1299) == 14)
+  check("E5 GCD 1300 ms = bucket 15", GcdBucketOf(1300) == 15)
+  check("E5 GCD 0 ms = bucket 2", GcdBucketOf(0) == 2)
+  check("E5 confirmed not-on-GCD = bucket 1", GcdBucketOf(nil, false) == 1)
+
+  -- ---- (7) secret mode: predicate read BEFORE any arithmetic ----
+  local SavedSecrets = C_Secrets
+  C_Secrets = { ShouldCooldownsBeSecret = function () return true end }
+  -- The stub returns SECRET start/duration: any subtraction would throw (and
+  -- the pcall would hide it), so the call COUNT is the assertion.
+  C_Spell.GetSpellCooldown = function (id)
+    if id ~= 61304 then return SavedCooldown(id) end
+    GcdCalls = GcdCalls + 1
+    return { startTime = S(Now), duration = S(1.2), isEnabled = true,
+      isActive = true, isOnGCD = true }
+  end
+  local CallsBefore = GcdCalls
+  local SecProbe = MDCB.GetExt5()
+  check("E5 secret mode: gcdRemainingMs stays nil (bucket 0)",
+    SecProbe.gcdRemainingMs == nil)
+  check("E5 secret mode: the cooldown is never even read", GcdCalls == CallsBefore)
+  pcall(Tick, Strip, 0.06)
+  check("E5 secret mode: cell 53 R = 0 (UNKNOWN) on the wire", XNib(53) == 0)
+  C_Secrets = SavedSecrets
+  C_Spell.GetSpellCooldown = SavedCooldown
+
+  -- ---- (8) CC banking entry: cells 54-56 key + spell id round-trip ----
+  local SavedActionInfo, SavedBindingKey = GetActionInfo, GetBindingKey
+  local SavedSpec, SavedSpecInfo = GetSpecialization, GetSpecializationInfo
+  local SavedMacroSpell, SavedMacroItem = GetMacroSpell, GetMacroItem
+  -- An earlier section left overlay HotKey buttons in MaxDps.Spells (path #1 of
+  -- ResolveBinding). Clear them so the CC key comes from the action bar, which
+  -- is what this pin is about.
+  local SavedSpells = MaxDps.Spells
+  MaxDps.Spells = {}
+  GetSpecialization = function () return 1 end
+  GetSpecializationInfo = function () return 71 end   -- Warrior / Arms
+  GetMacroSpell = function () return nil end
+  GetMacroItem = function () return nil end
+  GetActionInfo = function (slot)
+    if slot == 1 then return "spell", 107570 end   -- Storm Bolt (Arms cc)
+    return nil
+  end
+  GetBindingKey = function (cmd)
+    if cmd == "ACTIONBUTTON1" then return "1" end
+    return nil
+  end
+  if MDCB.InvalidateBindings then pcall(MDCB.InvalidateBindings) end
+  MDCB._BindCache = {}
+  local CcVK, CcMods = MDCB.ResolveBinding(107570)
+  check("E5 CC stub resolves the curated CC binding",
+    CcVK == 0x31 and (CcMods or 0) == 0)
+  local CcProbe = MDCB.GetExt5()
+  check("E5 CC entry picks the ready+bound curated CC", CcProbe.ccSpellId == 107570)
+  check("E5 CC entry carries the resolved key", CcProbe.ccKey == CcVK)
+  pcall(Tick, Strip, 0.06)
+  local k54r, k54g, k54b = XNib(54)
+  local i55r, i55g, i55b = XNib(55)
+  local i56r, i56g, i56b = XNib(56)
+  local DecodedVK = k54r * 16 + k54g
+  local DecodedId = i55r * 2 ^ 20 + i55g * 2 ^ 16 + i55b * 2 ^ 12
+    + i56r * 2 ^ 8 + i56g * 2 ^ 4 + i56b
+  check("E5 cell 54 key packing round-trips (vk hi/lo)", DecodedVK == CcVK)
+  check("E5 cell 54 flags = mods | valid(8)",
+    k54b == bit.bor(bit.band(CcMods or 0, 7), 8))
+  check("E5 cell 55 R carries only idTop & 3", i55r == 0)
+  check("E5 cells 55-56 spell id round-trips", DecodedId == 107570)
+
+  GetBindingKey = function (cmd)
+    if cmd == "ACTIONBUTTON1" then return "SHIFT-1" end
+    return nil
+  end
+  MDCB._BindCache = {}
+  pcall(Tick, Strip, 0.06)
+  check("E5 cell 54 packs SHIFT into the key flags (9)", select(3, XNib(54)) == 9)
+
+  MDCB.Toggles.SetCC(false)
+  pcall(Tick, Strip, 0.06)
+  local z54, z55, z56 = XNib(54), XNib(55), XNib(56)
+  check("E5 CC toggle off = clean zero key/id block", z54 == 0 and z55 == 0 and z56 == 0)
+  MDCB.Toggles.SetCC(true)
+
+  -- ---- (9) commit cell 57 ----
+  pcall(Tick, Strip, 0.06)
+  local Sum = 0
+  for i = 51, 56 do
+    local r, g, b = XNib(i)
+    Sum = Sum + r + g + b
+  end
+  local m57r, m57g, m57b = XNib(57)
+  local hb2 = select(2, XNib(9))
+  check("E5 cell 57 R = 0", m57r == 0)
+  check("E5 cell 57 G = sum(cells 51-56) mod 16", m57g == (Sum % 16))
+  check("E5 cell 57 B = heartbeat", m57b == hb2)
+
+  -- ---- (10) no protected/secret cast API is ever called ----
+  local SavedUIC, SavedChannel = UnitCastingInfo, UnitChannelInfo
+  local UiCalls, ChannelCalls = 0, 0
+  UnitCastingInfo = function () UiCalls = UiCalls + 1; return nil end
+  UnitChannelInfo = function () ChannelCalls = ChannelCalls + 1; return nil end
+  Now = Now + 0.4
+  FireUnitEvent("target", "UNIT_SPELLCAST_START")
+  pcall(Tick, Strip, 0.06)
+  pcall(MDCB.GetExt5)
+  check("E5 UnitCastingInfo / UnitChannelInfo are never called",
+    UiCalls == 0 and ChannelCalls == 0)
+  FireUnitEvent("target", "UNIT_SPELLCAST_STOP")
+  UnitCastingInfo, UnitChannelInfo = SavedUIC, SavedChannel
+
+  -- ---- (11) /mcb ext5 + /mcb status ----
+  ClearChat()
+  MDCB.HandleCommand("ext5 off")
+  local OffLine = ChatLog[#ChatLog] or ""
+  check("E5 /mcb ext5 off persists the key", DB.Ext5 == false)
+  check("E5 /mcb ext5 off explains the /reload requirement",
+    OffLine:find("ext5", 1, true) ~= nil and OffLine:find("/reload", 1, true) ~= nil)
+  ClearChat()
+  MDCB.HandleCommand("ext5 on")
+  local OnLine = ChatLog[#ChatLog] or ""
+  check("E5 /mcb ext5 on persists the key and reports 58 cells",
+    DB.Ext5 == true and OnLine:find("58", 1, true) ~= nil)
+  ClearChat()
+  MDCB.HandleCommand("status")
+  local StatusLine = ChatLog[#ChatLog] or ""
+  check("E5 /mcb status prints ext5=1", StatusLine:find("ext5=1", 1, true) ~= nil)
+
+  -- ---- (12) B1: flipping the key ON inside a 51-cell session ----
+  -- The strip width (and every cell texture) is created once at ADDON_LOADED,
+  -- so `/mcb ext5 on` only persists the key. The very next Update used to paint
+  -- cells 51-57 that do not exist: SetNibbles indexed nil, Update threw before
+  -- WriteStatus/WriteVersion and the companion saw a torn frame until /reload.
+  -- The write sites are width-gated now (Ext5Active) and SetNibbles itself
+  -- fails closed; this pins BOTH: a full Update writes a valid 51-cell frame,
+  -- with no error and no paint above cell 50.
+  DB.Ext5 = false
+  local Strip51, Tick51, Tex51 = BootStrip()
+  local function Nib51 (i)
+    local c = Textures[Tex51 + 1 + i]
+    if not c then return 0, 0, 0 end
+    return math.floor(c[1] * 15 + 0.5), math.floor(c[2] * 15 + 0.5), math.floor(c[3] * 15 + 0.5)
+  end
+  check("E5 B1 boots a 51-cell strip", TextureCount == Tex51 + 51)
+
+  ClearChat()
+  MDCB.HandleCommand("ext5 on")
+  local FlipLine = ChatLog[#ChatLog] or ""
+  check("E5 B1 runtime flip persists the key", DB.Ext5 == true)
+  check("E5 B1 runtime flip still asks for /reload", FlipLine:find("/reload", 1, true) ~= nil)
+
+  local OkFlip = pcall(Tick51, Strip51, 0.06)
+  check("E5 B1 runtime flip: Update completes with no error", OkFlip)
+  check("E5 B1 runtime flip: no new texture was created", TextureCount == Tex51 + 51)
+  check("E5 B1 runtime flip: there is still no cell 51 texture", Textures[Tex51 + 52] == nil)
+  local f50r, f50g, f50b = Nib51(50)
+  check("E5 B1 runtime flip: cell 50 R stays 0 (no presence bit)", f50r == 0)
+  local FlipSum = 0
+  for i = 43, 49 do
+    local r, g, b = Nib51(i)
+    FlipSum = FlipSum + r + g + b
+  end
+  local FlipHb = select(2, Nib51(9))
+  check("E5 B1 runtime flip: Ext4 checksum still covers cells 43-49",
+    f50g == (FlipSum % 16))
+  check("E5 B1 runtime flip: cell 50 B is still the heartbeat", f50b == FlipHb)
+  -- No paint landed above cell 50: every texture this strip owns is cell 0-50.
+  local MaxWritten = 0
+  for id in pairs(ColorWrites) do if id > MaxWritten then MaxWritten = id end end
+  check("E5 B1 runtime flip: no paint above cell 50", MaxWritten <= Tex51 + 51)
+
+  -- A second tick (the key is still on) must stay just as clean: the bug did
+  -- not depend on the first frame after the flip.
+  check("E5 B1 runtime flip: a second Update stays clean", pcall(Tick51, Strip51, 0.06))
+
+  -- ---- restore stubs ----
+  DB.Ext5 = false
+  MaxDps.Spells = SavedSpells
+  GetActionInfo, GetBindingKey = SavedActionInfo, SavedBindingKey
+  GetSpecialization, GetSpecializationInfo = SavedSpec, SavedSpecInfo
+  GetMacroSpell, GetMacroItem = SavedMacroSpell, SavedMacroItem
+  GetTime = SavedClock
+  UnitClassification, UnitLevel = SavedClassFn, SavedLevelFn
+end
+RunExt5Tests()
+
 print(string.format("RESULT: %d passed, %d failed", PASS, FAIL))
 if FAIL > 0 then os.exit(1) end

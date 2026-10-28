@@ -10,7 +10,7 @@ namespace MaxDpsCompanion.Tests;
 /// </summary>
 internal sealed class TestV5Frame
 {
-    private readonly (int R, int G, int B)[] _nibbles = new (int, int, int)[PixelProtocol.CellCountExt2];
+    private readonly (int R, int G, int B)[] _nibbles = new (int, int, int)[PixelProtocol.CellCountExt5];
 
     public TestV5Frame()
     {
@@ -184,8 +184,18 @@ internal sealed class TestV5Frame
         return this;
     }
 
-    public Color[] Build(int heartbeat, bool inCombat = true, bool onGcd = false, bool hasTarget = true, int version = 0)
+    /// <param name="cellCount">
+    /// 4.6.0: pass <see cref="PixelProtocol.CellCountExt5"/> to emit the full
+    /// 58-cell frame with the Ext5 block set (same bytes as
+    /// <see cref="BuildExt5"/>). 0 (the default) keeps the historical 35-cell
+    /// core frame, so every existing caller is unchanged.
+    /// </param>
+    public Color[] Build(
+        int heartbeat, bool inCombat = true, bool onGcd = false, bool hasTarget = true,
+        int version = 0, int cellCount = 0)
     {
+        if (cellCount == PixelProtocol.CellCountExt5)
+            return BuildExt5(heartbeat, inCombat, onGcd, hasTarget, version);
         Prepare(heartbeat, inCombat, onGcd, hasTarget, version);
         var cells = new Color[PixelProtocol.CellCount];
         for (var i = 0; i < cells.Length; i++)
@@ -193,6 +203,91 @@ internal sealed class TestV5Frame
         return cells;
     }
 
+    // ---- Ext5 (4.6.0) -----------------------------------------------------
+
+    /// <summary>
+    /// Encodes the Ext5 block (cells 51-56). An invalid/absent key forces the
+    /// spell id to 0, exactly like the addon side (D4: a synthesized press
+    /// needs a keystroke, so half an entry is never emitted).
+    /// </summary>
+    public TestV5Frame Ext5(
+        int rank = 0,
+        int delve = 0,
+        int interruptible = 0,
+        int castKind = 0,
+        int castAgeBucket = 0,
+        KeyStroke? ccKey = null,
+        int ccSpellId = 0,
+        int gcdBucket = 0)
+    {
+        _nibbles[PixelProtocol.Ext5RankCellIndex] = (rank & 7, delve & 3, 0);
+        _nibbles[PixelProtocol.Ext5CastCellIndex] =
+            (interruptible & 3, castAgeBucket & 0xF, castKind & 3);
+        _nibbles[PixelProtocol.Ext5GcdCellIndex] = (gcdBucket & 0xF, 0, 0);
+
+        var key = ccKey ?? default;
+        var keyFlags = (key.Valid ? 8 : 0)
+            | (key.Shift ? 1 : 0) | (key.Ctrl ? 2 : 0) | (key.Alt ? 4 : 0);
+        _nibbles[PixelProtocol.Ext5CcKeyCellIndex] =
+            (key.VirtualKey >> 4, key.VirtualKey & 0x0F, keyFlags);
+
+        var id = key.Valid ? ccSpellId : 0;
+        _nibbles[PixelProtocol.Ext5CcSpellIdCellIndex] =
+            ((id >> 20) & 0x3, (id >> 16) & 0xF, (id >> 12) & 0xF);
+        _nibbles[PixelProtocol.Ext5CcSpellIdCellIndex + 1] =
+            ((id >> 8) & 0xF, (id >> 4) & 0xF, id & 0xF);
+        return this;
+    }
+
+    /// <summary>
+    /// Ext5 capture (4.6.0): the 35 core cells + Ext2 + Ext3 + an empty Ext4
+    /// frame (so its presence bit and cell-50 commit are valid) + the Ext5
+    /// block at 51-57. Cell 50 R carries the Ext5 presence bit.
+    /// </summary>
+    public Color[] BuildExt5(
+        int heartbeat,
+        bool inCombat = true,
+        bool onGcd = false,
+        bool hasTarget = true,
+        int version = 0,
+        bool ext5Present = true)
+    {
+        Prepare(heartbeat, inCombat, onGcd, hasTarget, version);
+
+        // Cell 28 B: Ext3 (bit2) + Ext4 (bit3) present. Cell 28 sits inside
+        // the cell-34 extension checksum (cells 11-33), so recompute it.
+        var (castR, castG, _) = _nibbles[PixelProtocol.CastCellIndex];
+        _nibbles[PixelProtocol.CastCellIndex] =
+            (castR, castG, PixelProtocol.CastFlagExt3Present | PixelProtocol.CastFlagExt4Present);
+        var ext = 0;
+        for (var i = PixelProtocol.SpellIdCellBase; i <= PixelProtocol.ClassSpecCellIndex; i++)
+            ext += _nibbles[i].R + _nibbles[i].G + _nibbles[i].B;
+        _nibbles[PixelProtocol.ExtensionCellIndex] = (0, ext & 0xF, heartbeat);
+
+        // Ext3 block: an empty but valid mask/epoch/blocked block.
+        _nibbles[PixelProtocol.Ext3MaskCellIndex] = (0, 0, 0);
+        _nibbles[PixelProtocol.Ext3FlagsCellIndex] = (0, 0, 0);
+        _nibbles[PixelProtocol.Ext3CommitCellIndex] = (0, 0, heartbeat);
+
+        // Ext4 block: a valid empty LAST frame (header flags = LAST) so the
+        // Ext5 presence bit has a real Ext4 block behind it.
+        _nibbles[PixelProtocol.Ext4HeaderCellIndex] = (0, 0, 1);
+        for (var i = PixelProtocol.Ext4EntryACellIndex; i < PixelProtocol.Ext4CommitCellIndex; i++)
+            _nibbles[i] = (0, 0, 0);
+        _nibbles[PixelProtocol.Ext5PresenceCellIndex] =
+            (ext5Present ? PixelProtocol.Ext5PresenceBit : 0, 1, heartbeat);
+
+        // Ext5 commit: R reserved 0, G = sum of cells 51-56, B = heartbeat.
+        var ext5 = 0;
+        for (var i = PixelProtocol.Ext5RankCellIndex; i < PixelProtocol.Ext5CommitCellIndex; i++)
+            ext5 += _nibbles[i].R + _nibbles[i].G + _nibbles[i].B;
+        _nibbles[PixelProtocol.Ext5CommitCellIndex] = (0, ext5 & 0xF, heartbeat);
+
+        var cells = new Color[PixelProtocol.CellCountExt5];
+        for (var i = 0; i < cells.Length; i++)
+            cells[i] = ToColor(_nibbles[i]);
+        return cells;
+    }
     /// <summary>Ext2 capture: the 35 core cells plus 35-39 (curve + SelfHeal2 + cell-39 checksum).</summary>
     public Color[] BuildExt2(int heartbeat, bool inCombat = true, bool onGcd = false, bool hasTarget = true, int version = 0)
     {

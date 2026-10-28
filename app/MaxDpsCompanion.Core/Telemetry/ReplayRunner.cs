@@ -385,6 +385,15 @@ internal static class ReplayRunner
                                     verdict.Provider is { Length: > 0 } provider ? $"  [{provider}]" : "",
                                     verdict.Evidence is { Length: > 0 } why ? $"  why: {string.Join("; ", why)}" : ""));
                         }
+                        // 4.6.0: the timing decision is recorded for audit; it
+                        // is informational (the scheduler owns the clock) and
+                        // therefore never counted as a mismatch.
+                        if (policy.Timing is { } timing)
+                            body.Append(F("  cadence : {0} {1}{2}{3}{4}\n",
+                                timing.Kind, timing.Reason,
+                                timing.PredictedGcdEndMs is { } pred ? $"  predGcdEnd={Sec(pred)}s" : "",
+                                timing.LeadMs is { } lead ? $"  lead={lead}ms" : "",
+                                timing.CandidateSpell is { } cand ? $"  spell={cand}" : ""));
                     }
 
                     if (context is not null && recomputed is { } rejectionSource)
@@ -494,6 +503,9 @@ internal static class ReplayRunner
         StaggerUrgency = ParseEnum(policy.StaggerUrgency, DefensiveUrgency.Unknown),
         DefensiveCatalogSource = policy.DefensiveCatalogSource ?? false,
         OffensiveDerivedGapFill = policy.OffensiveDerivedGapFill,
+        // 4.6.0: absent on every pre-4.6 record -> null, which keeps the
+        // insurance/landing/opener paths inert exactly as they ran then.
+        Ext5 = policy.Ext5?.ToBlock(),
         ContextValid = policy.ContextValid,
         Class = policy.Class,
         Spec = policy.Spec,

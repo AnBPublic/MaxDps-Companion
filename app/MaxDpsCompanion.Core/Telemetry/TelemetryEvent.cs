@@ -224,6 +224,87 @@ internal sealed record TelemetryOptions
 }
 
 /// <summary>
+/// 4.6.0 "Cadence": the Ext5 (interrupt insurance / landing / opener) fields the
+/// tick actually consumed. Recorded as its own object so a replay rebuilds the
+/// exact <see cref="Ext5Block"/> the policy and scheduler saw; the whole object
+/// is omitted when the addon did not ship Ext5, keeping every pre-4.6 line
+/// byte-identical.
+/// </summary>
+internal sealed record TelemetryExt5
+{
+    /// <summary>Target rank 0-7 (6 worldboss, 7 elite-skull).</summary>
+    [JsonPropertyName("rank")] public int Rank { get; init; }
+
+    /// <summary>In-delve tri-state 0-2.</summary>
+    [JsonPropertyName("dlv")] public int Delve { get; init; }
+
+    /// <summary>Interruptible tri-state 0-2.</summary>
+    [JsonPropertyName("intr")] public int Interruptible { get; init; }
+
+    /// <summary>Cast kind 0-3 (0 unknown, 1 none, 2 cast, 3 channel).</summary>
+    [JsonPropertyName("ck")] public int CastKind { get; init; }
+
+    /// <summary>Cast-age bucket 0-15 (0 unknown/none, 1..14 = 250 ms buckets).</summary>
+    [JsonPropertyName("age")] public int CastAgeBucket { get; init; }
+
+    /// <summary>GCD-remaining bucket 0-15 (0 unknown, 1 not on GCD, 2..15 = 100 ms buckets).</summary>
+    [JsonPropertyName("gcd")] public int GcdBucket { get; init; }
+
+    /// <summary>The CC entry's keystroke (omitted when the wire key was invalid).</summary>
+    [JsonPropertyName("cc")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public TelemetryStroke? CcKey { get; init; }
+
+    /// <summary>The CC entry's spell id (0 when the wire key was invalid).</summary>
+    [JsonPropertyName("ccId")] public int CcSpellId { get; init; }
+
+    public static TelemetryExt5 From(Ext5Block block) => new()
+    {
+        Rank = block.Rank,
+        Delve = block.Delve,
+        Interruptible = block.Interruptible,
+        CastKind = block.CastKind,
+        CastAgeBucket = block.CastAgeBucket,
+        GcdBucket = block.GcdBucket,
+        CcKey = TelemetryStroke.From(block.CcKey.Valid ? block.CcKey : null),
+        CcSpellId = block.CcSpellId,
+    };
+
+    public Ext5Block ToBlock() => new(
+        Rank, Delve, Interruptible, CastKind, CastAgeBucket,
+        CcKey?.ToKeyStroke() ?? default, CcSpellId, GcdBucket);
+}
+
+/// <summary>
+/// 4.6.0 "Cadence": one timing decision the scheduler made this tick, recorded
+/// so a landing/insurance/opener outcome can be reproduced and audited without
+/// the live clock. Whole record omitted when the tick made no such decision.
+/// </summary>
+internal sealed record TelemetryTiming
+{
+    /// <summary>Which planner produced it: "insurance", "landing" or "opener".</summary>
+    [JsonPropertyName("kind")] public string Kind { get; init; } = "";
+
+    /// <summary>The planner's reason/state ("Armed", "Fired", "Window", "Abort", ...).</summary>
+    [JsonPropertyName("reason")] public string Reason { get; init; } = "";
+
+    /// <summary>The predicted end of the current GCD (engine ms), when known.</summary>
+    [JsonPropertyName("predGcdEndMs")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? PredictedGcdEndMs { get; init; }
+
+    /// <summary>The lead the planner aimed with (ms), when it used one.</summary>
+    [JsonPropertyName("leadMs")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? LeadMs { get; init; }
+
+    /// <summary>The spell id the timing decision was about (0/omitted = unknown).</summary>
+    [JsonPropertyName("cand")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? CandidateSpell { get; init; }
+}
+
+/// <summary>
 /// The scheduler/policy outcome for the tick: the plan head and reason, the
 /// combat context the policy saw, and the per-candidate verdicts. This is the
 /// explainability record for "why was this situation ability pressed or not".
@@ -405,6 +486,24 @@ internal sealed record TelemetryPolicy
 
     [JsonPropertyName("opts")] public TelemetryOptions? Options { get; init; }
     [JsonPropertyName("verdicts")] public TelemetryVerdict[]? Verdicts { get; init; }
+
+    /// <summary>
+    /// 4.6.0 additive: the decoded Ext5 block the tick consumed. Omitted when
+    /// the addon shipped no Ext5 (every pre-4.6 record), so replay keeps those
+    /// byte-identical and the insurance/landing paths stay inert.
+    /// </summary>
+    [JsonPropertyName("ext5")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public TelemetryExt5? Ext5 { get; init; }
+
+    /// <summary>
+    /// 4.6.0 additive: the scheduler's timing decision for this tick (insurance
+    /// / landing / opener). Null on every tick that made no such decision, so
+    /// existing fixtures replay byte-identically.
+    /// </summary>
+    [JsonPropertyName("timing")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public TelemetryTiming? Timing { get; init; }
 }
 
 /// <summary>One input send (spell / target / interact) with its pacing interval.</summary>
@@ -520,7 +619,14 @@ internal sealed record TelemetryEvent
     };
 
     /// <summary>Builds the explainability record from the scheduler plan + context.</summary>
-    public static TelemetryPolicy BuildPolicy(SchedulePlan plan, bool fresh, CombatContext? combat, PolicyOptions? options)
+    /// <param name="timing">
+    /// 4.6.0: the scheduler's timing decision for this tick (insurance /
+    /// landing / opener). Null (the default) omits the record entirely, which
+    /// keeps every pre-4.6 line byte-identical.
+    /// </param>
+    public static TelemetryPolicy BuildPolicy(
+        SchedulePlan plan, bool fresh, CombatContext? combat, PolicyOptions? options,
+        TelemetryTiming? timing = null)
     {
         TelemetryVerdict[]? verdicts = null;
         if (plan.Verdicts.Length > 0)
@@ -620,6 +726,10 @@ internal sealed record TelemetryEvent
                 TtkWarmupSec = options.TtkWarmupSec == 0 ? null : options.TtkWarmupSec,
             },
             Verdicts = verdicts,
+            // 4.6.0: only present when the addon shipped Ext5; the replay
+            // context mapper rebuilds the block from these fields.
+            Ext5 = combat?.Ext5 is { } ext5 ? TelemetryExt5.From(ext5) : null,
+            Timing = timing,
         };
     }
 

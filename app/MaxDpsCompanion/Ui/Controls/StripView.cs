@@ -42,8 +42,8 @@ public sealed class StripCell : INotifyPropertyChanged
 
 /// <summary>
 /// P2-B WinUI port of the decoded bridge strip (old UiControls.cs StripView
-/// :862-929). The plan's shape: ItemsRepeater + UniformGridLayout over 51
-/// cells (PixelProtocol.CellCountExt4, the v5+Ext4 wire length) instead of one
+/// :862-929). The plan's shape: ItemsRepeater + UniformGridLayout over 58
+/// cells (PixelProtocol.CellCountExt5, the v5+Ext5 wire length) instead of one
 /// owner-drawn row. Same cell-state update API: assign the raw hex
 /// <see cref="Sample"/> (space-separated RRGGBB tokens); unparseable cells draw
 /// as empty keyline outlines, cell 0 shows the brass tick when valid.
@@ -58,7 +58,7 @@ public sealed class StripView : UserControl
 
     public StripView()
     {
-        _cells = new StripCell[PixelProtocol.CellCountExt4];
+        _cells = new StripCell[PixelProtocol.CellCountExt5];
         for (var i = 0; i < _cells.Length; i++) _cells[i] = new StripCell();
 
         var repeater = new ItemsRepeater
@@ -82,7 +82,7 @@ public sealed class StripView : UserControl
         ApplySample();
     }
 
-    /// <summary>Number of rendered cells (51, the v5 Ext4 length).</summary>
+    /// <summary>Number of rendered cells (58, the v5 Ext5 length).</summary>
     public int CellCount => _cells.Length;
 
     /// <summary>Raw hex sample: space-separated 6-char RRGGBB tokens.</summary>

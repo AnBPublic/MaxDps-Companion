@@ -7,8 +7,8 @@
          <Import Project="../Version.props" />            (Core, one level down)
          <Import Project="../../Version.props" />         (tests, two levels down) -->
   <PropertyGroup>
-    <Version>4.5.8</Version>
-    <Codename>Voidlight</Codename>
+    <Version>4.6.0</Version>
+    <Codename>Cadence</Codename>
   </PropertyGroup>
   <ItemGroup>
     <AssemblyMetadata Include="Codename" Value="$(Codename)" />

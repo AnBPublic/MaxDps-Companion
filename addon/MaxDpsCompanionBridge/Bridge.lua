@@ -52,6 +52,16 @@
 --   cell 28 B bit2 Ext3 PRESENT (app mask block live)
 --   cells 40-41   Ext3 app mask (14 bits) + epoch + blocked nibble
 --   cell 42       Ext3 checksum R=0 G=checksum(cells 40-41) B=commit
+--   cell 50 R     bit0 Ext5 PRESENT (4.6.0; the Ext4 commit cell's reserved
+--                 nibble, outside every checksum)
+--   cells 51-57   Ext5 (only when the addon DB key Ext5 is true; otherwise the
+--                 strip stays 51 cells and every cell is byte-identical):
+--     51 R=target rank (0 unknown..7 elite-skull) G=delve (0/1/2) B=0
+--     52 R=interruptible (0/1/2) G=cast-age bucket 0-14 B=cast kind 0-3
+--     53 R=GCD bucket (0 unknown, 1 not-on-GCD, 2..15 = 100 ms steps)
+--     54 CC key (vk hi, vk lo, flags)   -- Ext4's exact packing
+--     55-56 CC spell id (22 bits)
+--     57 Ext5 checksum R=0 G=sum(cells 51-56) B=commit
 --
 -- The defensive urgency mirrors MaxDps's own glow curves at their control
 -- points (vendor Buttons.lua:1056-1110); see Reader.lua.
@@ -76,11 +86,11 @@
 
 local addonName, MDCB = ...;
 
-MDCB.VERSION = "4.5.4";
+MDCB.VERSION = "4.6.0";
 -- Release codename, shown next to the version in /mcb cfg (Status card) and
 -- the Debug tab. Single-sourced here; the TOC carries the same value in
 -- ## X-Codename so the AddOns list matches.
-MDCB.CODENAME = "Voidlight";
+MDCB.CODENAME = "Cadence";
 
 -- Chat print, defined FIRST: AutoCalibrate (below) and the Update watchdog
 -- both call it, and Lua resolves locals lexically -- a later `local
@@ -106,7 +116,15 @@ end
 -- 5. Cell 35 is the HP-curve colour, cells 36-38 are the SelfHeal2 slot and
 -- cell 39 is the Ext2 checksum. The v5 checksums (cells 10 and 34) keep
 -- covering only their original ranges.
+-- CELL_COUNT is the EFFECTIVE strip width for this session: 51 cells (4.5.8
+-- compatibility frame) or 58 with the 4.6.0 Ext5 block. It is decided once in
+-- ADDON_LOADED from the DB key and never changes mid-session -- the cells are
+-- frames/textures created once, so /mcb ext5 flips the key and asks for a
+-- /reload instead of rebuilding the strip (a mid-session rebuild would leave
+-- the companion anchored on the old width).
 local CELL_COUNT = 51;
+local CELL_COUNT_BASE = 51;
+local CELL_COUNT_EXT5 = 58;
 local PROTOCOL_VERSION = 5;
 
 local STATUS_FLAG_IN_COMBAT = 1;
@@ -159,6 +177,46 @@ local CAST_EXT4_PRESENT = 8;    -- cell 28 B bit3
 local EXT4_FLAG_LAST = 1;
 local EXT4_FLAG_EMPTY = 2;
 
+-- Ext5 (v4.6.0, default OFF) additive block: cells 51-57. Presence = cell 50
+-- R bit0 (the Ext4 commit cell's documented reserved-0 nibble, covered by no
+-- checksum). With the DB key Ext5 false the strip stays at 51 cells and not one
+-- byte of the frame changes -- that is the compatibility guarantee for every
+-- pre-4.6 companion. All-zero always means UNKNOWN.
+--   51 R bits0-2 target rank, G bits0-1 delve (0 unknown/1 no/2 yes), B 0
+--   52 R bits0-1 interruptible (0/1 no/2 yes), G cast-age bucket, B cast kind
+--   53 R GCD remaining bucket
+--   54 CC key vkHi/vkLo/flags (identical packing to an Ext4 entry)
+--   55-56 CC spell id (22 bits, same nibble order as the core id cells)
+--   57 R=0, G=sum(cells 51-56) mod 16, B=heartbeat
+local EXT5_RANK_CELL = 51;
+local EXT5_CAST_CELL = 52;
+local EXT5_GCD_CELL = 53;
+local EXT5_CC_KEY_CELL = 54;
+local EXT5_CC_ID_CELL = 55;     -- cells 55-56
+local EXT5_COMMIT_CELL = 57;
+local EXT5_CC_ID_MAX = 0x3FFFFF;
+
+-- The single Ext5 on/off reader. Cheap (one global table lookup). This is the
+-- PERSISTED key: it can be true while the strip is still 51 cells (a
+-- `/mcb ext5 on` takes effect only after a /reload).
+local function Ext5On ()
+  local DB = MaxDpsCompanionBridgeDB;
+  return (type(DB) == "table" and DB.Ext5 == true);
+end
+
+-- The single "may I touch cells 51-57?" gate. The key is NOT enough: the strip
+-- width is fixed at ADDON_LOADED (the textures are created once), so a session
+-- that booted 51 cells must never paint an Ext5 cell even after
+-- `/mcb ext5 on` flipped the DB key. Without the width half of this gate the
+-- next tick painted cells 51-57 that do not exist: SetNibbles indexed nil,
+-- Update threw, and the companion saw a torn frame until /reload (review B1).
+-- Every Ext5 write site - the Ext4 commit cell's presence bit included - goes
+-- through here, so the presence bit can never advertise a block the strip
+-- cannot render.
+local function Ext5Active ()
+  return CELL_COUNT == CELL_COUNT_EXT5 and Ext5On();
+end
+
 local CLASS_SPEC_VALID = 1;
 local BUFF_VALID = 2;
 local EXT2_PRESENT = 4;
@@ -203,6 +261,11 @@ local Defaults = {
   -- Ext2 HP-curve cell 35: on by default. Off paints black and clears
   -- cell 33 B bit3, so the companion falls back to its plain vitals path.
   HpCurve = true,
+  -- 4.6.0 Ext5 block (cells 51-57: target rank, cast age/kind, GCD landing,
+  -- CC insurance entry). DEFAULT OFF: with it off the strip is the 51-cell
+  -- 4.5.8 frame, byte-identical, so every pre-4.6 companion keeps working.
+  -- Flipping it needs a /reload (the cell textures are created once).
+  Ext5 = false,
   -- v3.5 rotating slots (3/6/7/8): each candidate is offered for this many
   -- rendered ticks (the frame heartbeat) before the weighted sequence
   -- [top, next, top, next2] advances to the following one.
@@ -312,7 +375,15 @@ end
 --- ======= PIXEL PLUMBING =======
 
 local function SetNibbles (Index, R, G, B)
-  Cells[Index]:SetColorTexture(R / 15, G / 15, B / 15, 1);
+  -- 4.6.0 review B1: never index a texture the strip does not own. The strip
+  -- width is decided once at ADDON_LOADED (cells 0..CELL_COUNT-1), so a write
+  -- past the end means a caller disagreed with the width - a bug, but one that
+  -- must fail closed (skip the paint) instead of throwing out of Update and
+  -- tearing the whole frame. Every Ext5 site is width-gated (Ext5Active), so
+  -- this is the second fence, not the first.
+  local Tex = Cells[Index];
+  if not Tex then return; end
+  Tex:SetColorTexture(R / 15, G / 15, B / 15, 1);
 end
 
 -- Cached paint: slot/status cells skip SetColorTexture when nibbles are
@@ -898,7 +969,87 @@ local function WriteExt4 ()
   local Sum = Gen + Seq + Flags;
   Sum = Sum + WriteExt4Entry(EXT4_ENTRY_A_CELL, E1);
   Sum = Sum + WriteExt4Entry(EXT4_ENTRY_B_CELL, E2);
-  Paint(EXT4_COMMIT_CELL, 0, Sum % 16, Heartbeat);
+  -- R stays the documented reserved 0 unless Ext5 is on, where bit0 is the
+  -- Ext5 PRESENT flag (Ext5 requires Ext4; G/B are unchanged either way).
+  Paint(EXT4_COMMIT_CELL, Ext5Active() and 1 or 0, Sum % 16, Heartbeat);
+end
+
+--- ======= Ext5 TARGET/CAST/GCD/CC BLOCK (4.6.0) =======
+-- Cells 51-57. The whole block exists only when the DB key Ext5 is true; with
+-- it off WriteExt5 is never called and nothing past cell 50 is touched.
+-- Sources (Reader.GetExt5): target rank/delve from plain unit + instance APIs,
+-- cast kind/age from the EXISTING event cast-start stamps (UnitCastingInfo is
+-- never called -- every return is secret), the CC entry from the existing
+-- ready+bound curated "cc" extras walk, and the GCD from
+-- C_Spell.GetSpellCooldown(61304) ONLY after the secret predicate has said no.
+-- Every failure paints UNKNOWN (0), never a guess.
+
+-- Cast age bucket: 0 unknown/none, 1..14 = [(b-1)*250, b*250) ms, 14 saturates.
+local function Ext5AgeBucket (AgeMs)
+  if type(AgeMs) ~= "number" or AgeMs < 0 then return 0; end
+  local Bucket = math.floor(AgeMs / 250) + 1;
+  if Bucket > 14 then Bucket = 14; end
+  return Bucket;
+end
+
+-- GCD bucket: 0 unknown, 1 not on GCD, 2..15 = [(b-2)*100, (b-1)*100) ms,
+-- 15 saturates at >= 1300 ms. The reader hands back -1 for "confirmed off GCD"
+-- and nil for UNKNOWN, so no arithmetic ever runs on an unread value here.
+local function Ext5GcdBucket (GcdMs)
+  if type(GcdMs) ~= "number" then return 0; end
+  if GcdMs < 0 then return 1; end
+  local Bucket = math.floor(GcdMs / 100) + 2;
+  if Bucket > 15 then Bucket = 15; end
+  return Bucket;
+end
+
+local function Ext5Probe ()
+  if type(MDCB.GetExt5) ~= "function" then return nil; end
+  local Ok, Probe = pcall(MDCB.GetExt5);
+  if Ok and type(Probe) == "table" then return Probe; end
+  return nil;
+end
+
+local function WriteExt5 (Probe)
+  local Rank, Delve, Interruptible = 0, 0, 0;
+  local CastKind, CastAge = 0, 0;
+  local Gcd = 0;
+  local KeyHi, KeyLo, KeyFlags = 0, 0, 0;
+  local IdA, IdB, IdC, IdD, IdE, IdF = 0, 0, 0, 0, 0, 0;
+  if Probe then
+    Rank = bit.band(tonumber(Probe.rank) or 0, 7);
+    Delve = bit.band(tonumber(Probe.delve) or 0, 3);
+    Interruptible = bit.band(tonumber(Probe.interruptible) or 0, 3);
+    CastKind = bit.band(tonumber(Probe.castKind) or 0, 3);
+    CastAge = Ext5AgeBucket(Probe.castAgeMs);
+    Gcd = Ext5GcdBucket(Probe.gcdRemainingMs);
+    -- The CC entry is all-or-nothing: a valid key (flag bit3) plus a spell id
+    -- the companion can press, or a clean zero block.
+    local Id = Probe.ccSpellId;
+    local Key = Probe.ccKey;
+    if type(Id) == "number" and Id > 0 and Id <= EXT5_CC_ID_MAX
+      and type(Key) == "number" and Key > 0 then
+      KeyHi = bit.band(bit.rshift(Key, 4), 0xF);
+      KeyLo = bit.band(Key, 0xF);
+      KeyFlags = bit.bor(bit.band(Probe.ccMods or 0, 0x07), 8);   -- Valid=8
+      IdA = bit.band(bit.rshift(Id, 20), 0x3);
+      IdB = bit.band(bit.rshift(Id, 16), 0xF);
+      IdC = bit.band(bit.rshift(Id, 12), 0xF);
+      IdD = bit.band(bit.rshift(Id, 8), 0xF);
+      IdE = bit.band(bit.rshift(Id, 4), 0xF);
+      IdF = bit.band(Id, 0xF);
+    end
+  end
+  Paint(EXT5_RANK_CELL, Rank, Delve, 0);
+  Paint(EXT5_CAST_CELL, Interruptible, CastAge, CastKind);
+  Paint(EXT5_GCD_CELL, Gcd, 0, 0);
+  Paint(EXT5_CC_KEY_CELL, KeyHi, KeyLo, KeyFlags);
+  Paint(EXT5_CC_ID_CELL, IdA, IdB, IdC);
+  Paint(EXT5_CC_ID_CELL + 1, IdD, IdE, IdF);
+  local Sum = Rank + Delve + Interruptible + CastAge + CastKind + Gcd
+    + KeyHi + KeyLo + KeyFlags + IdA + IdB + IdC + IdD + IdE + IdF;
+  Paint(EXT5_COMMIT_CELL, 0, Sum % 16, Heartbeat);
+  return Sum % 16;
 end
 
 -- Typing veto bit (cell 41 R bit2). Read once per tick; a failed read reports
@@ -951,6 +1102,10 @@ local function WriteEmptyFrame (State)
   end
   WriteExt3(EMask, EEpoch, EBlocked, TypingActive());
   WriteExt4();
+  -- Ext5: a Paused frame advertises the block (cell 50 R bit0) but leaves every
+  -- Ext5 cell at all-zero = UNKNOWN, with a checksum over the zeros. With the
+  -- DB key off this line paints nothing (51-cell frame).
+  if Ext5Active() then WriteExt5(nil); end
   local Sr, Sg, Sb = WriteStatus(State, 0);
   WriteVersion((Sr + Sg + Sb) % 16);
   -- v5 extension checksum covers cells 11-33 exactly (Ext2 cells excluded).
@@ -1064,6 +1219,9 @@ local function Update (self, Delta)
     end
     -- Valid core checksum + commit==heartbeat so the strip still decodes as
     -- a Paused frame (companion holds) instead of a torn frame.
+    -- Ext5 cells are held at UNKNOWN with a fresh heartbeat/checksum so the
+    -- block never looks torn while the colour sweep runs.
+    if Ext5Active() then WriteExt5(nil); end
     local SR, SG, SB = WriteStatus(STATE_PAUSED);
     local SlotSum;
     if Kind == "flat" then
@@ -1362,6 +1520,9 @@ local function Update (self, Delta)
   end
   WriteExt3(PubMask, PubEpoch, PubBlocked, TypingActive());
   WriteExt4();
+  -- Ext5 (4.6.0): cells 51-57, only when the addon DB key is on. The probe is
+  -- pcall-contained in Reader; a failed probe paints all-zero = UNKNOWN.
+  if Ext5Active() then WriteExt5(Ext5Probe()); end
 
   -- v1.3.4 MELEE-STATE FIX: a live suggestion ALWAYS wins the state (Active).
   -- Target/interact states exist ONLY so the companion can ask for a target
@@ -1447,6 +1608,26 @@ local function HandleCommand (Input)
     else
       Print("heal diag unavailable");
     end
+    return;
+  end
+
+  if Command == "ext5" then
+    -- 4.6.0 Ext5 strip (cells 51-57). The cell textures are created once at
+    -- load, so flipping the key only takes effect after a /reload: the width
+    -- (51 vs 58 cells) is not rebuilt mid-session, which keeps the companion's
+    -- anchor/width ladder honest instead of half-converted.
+    if DB.Ext5 == nil then DB.Ext5 = false; end
+    if Arg1 == "on" then
+      DB.Ext5 = true;
+    elseif Arg1 == "off" then
+      DB.Ext5 = false;
+    elseif Arg1 ~= nil then
+      Print("usage: /mcb ext5 [on|off]");
+      return;
+    end
+    Print(("ext5 is %s (%d cells) - /reload to apply the strip width change")
+      :format(DB.Ext5 and "|cFF00FF00on|r" or "|cFFFF0000off|r",
+        DB.Ext5 and CELL_COUNT_EXT5 or CELL_COUNT_BASE));
     return;
   end
 
@@ -1645,8 +1826,9 @@ local function HandleCommand (Input)
     end
     local RC = MDCB._RotCounts or {};
     local RotText = ("3:%d,6:%d,7:%d,8:%d"):format(RC[3] or 0, RC[6] or 0, RC[7] or 0, RC[8] or 0);
-    Print(("v%s protocol=%d ext2=1 ext3=1 ext4=1 hpcurve=%s sh2=%s enabled=%s calibrate=%s offset=%d,%d cell=%dpx bound=%d spell=%s next=%s ready=%s urg=%s extras=%s toggles=%s app=%s/%s/%d dwell=%d rot=%s")
-      :format(MDCB.VERSION, PROTOCOL_VERSION, DB.HpCurve and "on" or "off", Sh2Text,
+    Print(("v%s protocol=%d ext2=1 ext3=1 ext4=1 ext5=%d hpcurve=%s sh2=%s enabled=%s calibrate=%s offset=%d,%d cell=%dpx bound=%d spell=%s next=%s ready=%s urg=%s extras=%s toggles=%s app=%s/%s/%d dwell=%d rot=%s")
+      :format(MDCB.VERSION, PROTOCOL_VERSION, Ext5On() and 1 or 0,
+        DB.HpCurve and "on" or "off", Sh2Text,
         tostring(DB.Enabled), tostring(DB.Calibrate),
         DB.OffsetX, DB.OffsetY, DB.CellSize, MDCB.BindingCount(), MainText, NextFn, Ready, UrgencyText, ExtrasText,
         TogglesLine(),
@@ -1712,7 +1894,7 @@ local function HandleCommand (Input)
   else
     Print("commands: |cFFFFFF00on|r / |cFFFFFF00off|r / |cFFFFFF00toggle|r / "
       .. "|cFFFFFF00offset <x> <y>|r / |cFFFFFF00cellsize <px>|r / |cFFFFFF00calibrate on|off|r / "
-      .. "|cFFFFFF00hpcurve on|off|r / |cFFFFFF00heal|r / |cFFFFFF00hotbar|r / "
+      .. "|cFFFFFF00hpcurve on|off|r / |cFFFFFF00ext5 on|off|r / |cFFFFFF00heal|r / |cFFFFFF00hotbar|r / "
       .. "|cFFFFFF00status|r / |cFFFFFF00diag|r / |cFFFFFF00autocal|r / |cFFFFFF00reset|r / |cFFFFFF00version|r / "
       .. "|cFFFFFF00toggles|r / |cFFFFFF00overlay on|off|r / |cFFFFFF00<key> on|off|r / "
       .. "|cFFFFFF00all on|off|r / |cFFFFFF00why heal|r / "
@@ -1761,6 +1943,13 @@ do
       -- here on only the explicit flag is authoritative.
       UserPaused = (MaxDpsCompanionBridgeDB.UserPaused == true);
       MaxDpsCompanionBridgeDB.UserPaused = UserPaused;
+
+      -- 4.6.0 Ext5: the effective strip width is decided HERE, once per
+      -- session, from the merged DB key. Flipping it mid-session would need
+      -- frames/textures that do not exist yet, so /mcb ext5 only persists the
+      -- key and prints the /reload requirement (see HandleCommand "ext5").
+      CELL_COUNT = (MaxDpsCompanionBridgeDB.Ext5 == true) and CELL_COUNT_EXT5
+        or CELL_COUNT_BASE;
 
       CreateBlock();
       Root:SetScript("OnUpdate", Update);

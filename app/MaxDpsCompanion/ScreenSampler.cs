@@ -51,19 +51,16 @@ internal sealed class ScreenSampler : IDisposable
     private readonly byte[] _tapB = new byte[TapsPerCell];
 
     /// <summary>
-    /// v5-family capture widths, widest first: Ext4 (51), Ext3 (43), then the
-    /// Ext2 (40) and v5 core (35) fallbacks. The whole family shares the core
-    /// layout, so a narrower stale addon decodes from the widest capture with
-    /// its extra cells read as background — the ladder is the documented order
-    /// in which the widths are attempted, not four BitBlts.
+    /// v5-family capture widths, widest first: Ext5 (58), Ext4 (51), Ext3 (43),
+    /// then the Ext2 (40) and v5 core (35) fallbacks. The whole family shares
+    /// the core layout and each extension is gated on its own presence bit, so
+    /// a narrower stale addon decodes from the widest capture with its extra
+    /// cells read as background — the ladder is the documented order in which
+    /// the widths are attempted, not five BitBlts. ONE shared ladder
+    /// (<see cref="PixelProtocol.V5Widths"/>): the Windows and macOS hosts must
+    /// never drift apart (that drift once made Ext4 unreachable on macOS).
     /// </summary>
-    public static readonly int[] CaptureWidths =
-    {
-        PixelProtocol.CellCountExt4,
-        PixelProtocol.CellCountExt3,
-        PixelProtocol.CellCountExt2,
-        PixelProtocol.CellCount,
-    };
+    public static readonly int[] CaptureWidths = PixelProtocol.V5Widths;
 
     // 4.1 A2.3: the sampler no longer decodes the captured frame a second time.
     // It used to fill Ext3Mirror / Ext3MirrorPresent here and NOTHING in the
@@ -96,7 +93,7 @@ internal sealed class ScreenSampler : IDisposable
         if (window != IntPtr.Zero && IsMinimizedProbe(window))
         {
             LastOutcome = CaptureOutcome.Minimized;
-            return new Color[PixelProtocol.CellCountExt4];
+            return new Color[PixelProtocol.CellCountExt5];
         }
 
         var cells = SampleCells(origin, cellSize, (x, y) => ReadPixel(x, y));
@@ -105,12 +102,14 @@ internal sealed class ScreenSampler : IDisposable
     }
 
     private Color[] SampleCells(Point origin, int cellSize, Func<int, int, Color> read) =>
-        // Ext4 (v4.0.3): capture the full 51-cell frame in one BitBlt so the
-        // additive hotbar-map cells are readable. A 43-cell Ext3, 40-cell Ext2
-        // or 35-cell core addon leaves the extra cells as background and still
-        // decodes — Ext4 is gated on cell 28 B bit3, Ext3 on bit2 and Ext2 on
-        // cell 33 B bit2, so the presence bits decide which extension reads.
-        SampleCells(origin, cellSize, PixelProtocol.CellCountExt4, read);
+        // Ext5 (4.6.0): capture the full 58-cell frame in one BitBlt so the
+        // additive Ext5 cells are readable. A 51-cell Ext4, 43-cell Ext3,
+        // 40-cell Ext2 or 35-cell core addon leaves the extra cells as
+        // background and still decodes — Ext5 is gated on cell 50 R bit0 AND
+        // the Ext4 presence bit, Ext4 on cell 28 B bit3, Ext3 on bit2 and
+        // Ext2 on cell 33 B bit2, so the presence bits decide which extension
+        // reads.
+        SampleCells(origin, cellSize, PixelProtocol.CellCountExt5, read);
 
     private Color[] SampleCells(Point origin, int cellSize, int cellCount, Func<int, int, Color> read)
     {
