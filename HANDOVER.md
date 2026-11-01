@@ -18,6 +18,10 @@ by release name or date before re-investigating an old problem.
   be used at healthy HP. All DPS/tank specs keep the same defensive provider.
 - SelfHeal-transported Absorb/Reflect/mitigation routes through Defensive, not
   SelfSustain. Existing MaxDps Main rotations untouched.
+- Opt-in Burst + confirmed Ext5 boss rank 6/7 no longer delays a major offensive
+  opener waiting for TTK samples; ordinary/unknown targets unchanged.
+- Successful branch CI publishes pre-release v4.7.0-rc.1 with two ZIP bundles
+  from GitHub Releases (Actions artifacts are the fallback).
 - Companion/Core source, Windows publish and addon ZIPs are packaged as
   downloadable GitHub Actions artifacts once CI passes.
 - Release/install instructions, exact artifact names and E2E checks are in

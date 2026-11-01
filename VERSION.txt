@@ -7,6 +7,8 @@ Companion 4.7.0 "Sentinel" / bridge 4.7.0 (identity-only addon update).
   buffs (not speculative autonomous presses); six tank roles.
 - Mitigation carried in SelfHeal is evaluated as mitigation, not as a heal.
 - Speculative failed GCD presses roll back offensive/defensive coverage memory.
+- Opt-in Burst mode honors Ext5 confirmed worldboss/elite-skull rank for
+  major offensive openers before TTK estimates become measurable.
 - Same authoritative MaxDps main rotations, same wire, no protected API.
 - Versioned Windows + in-game addon ZIPs attached to successful GitHub CI
   on the release branch; no claim of live retail validation.

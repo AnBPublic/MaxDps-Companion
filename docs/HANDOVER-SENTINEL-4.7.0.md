@@ -16,16 +16,21 @@ Date: 2026-11-01 · Windows companion and Retail 12.1.x addon · Codename **Sent
 
 ## Download both ZIPs from GitHub
 
-1. Open the GitHub Actions link above. Select the newest **successful CI**
-   run whose branch is `release/v4.7.0-sentinel`.
-2. Under **Artifacts**, download `MaxDpsCompanion-release-bundles`.
-   GitHub login is normally required for Actions artifact downloads.
-3. Extract the artifact container to find:
+1. Prefer the GitHub **prerelease page** once the two CI jobs succeed:
+   https://github.com/AnBPublic/MaxDps-Companion/releases/tag/v4.7.0-rc.1
+   It is created only by successful CI of this release branch (not a stable
+   v4.7.0 claim).
+2. Download both attached assets:
    - `MaxDpsCompanion-4.7.0-Sentinel-win-x64.zip`
    - `MaxDpsCompanionBridge-4.7.0.zip`
-4. These names refer to the **actual CI-built** artifacts, not files committed
-   under `dist/`; the repo does not track a Windows binary. Artifacts are
-   retained for **30 days**. Do not install an archive from a failed run.
+3. If the release publication is blocked, use GitHub Actions instead:
+   https://github.com/AnBPublic/MaxDps-Companion/actions/workflows/ci.yml .
+   Select the latest successful CI on `release/v4.7.0-sentinel`, then
+   download `MaxDpsCompanion-release-bundles` under Artifacts. This download
+   normally requires a GitHub login and expires after 30 days.
+4. These are **CI-built** ZIPs, not files committed to `dist/`. Never install
+   from a failed CI run. Keep the release candidate clearly labelled until
+   live retail tests pass.
 
 ## Windows deployment (agent instructions)
 
@@ -57,6 +62,8 @@ Date: 2026-11-01 · Windows companion and Retail 12.1.x addon · Codename **Sent
   may be maintained while healthy, without autonomous candidate generation.
 - Defensive absorbs on the SelfHeal transport use mitigation policy.
 - Failed GCD presses retract speculative mitigation/burst memory.
+- Burst preset releases major offensive openers against a verified
+  boss-grade Ext5 rank (6 or 7) even before TTK can be sampled.
 - No changes to MaxDps-owned main rotation, Lua behavior, protocol, or vendor.
 
 ## Offline / live verification

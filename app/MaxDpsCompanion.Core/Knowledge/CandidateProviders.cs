@@ -274,6 +274,9 @@ internal sealed class OffensiveCandidateProvider : ICandidateProvider
         if (p.Options.Preset == RotationPreset.Burst
             && ability.Purpose == AbilityPurpose.MajorOffensive
             && !TtkPolicy.SubFiftyBypass(ability)
+            // Ext5 rank 6/7 is a confirmed boss-grade encounter. An opt-in
+            // Burst user should not lose the opener awaiting HP/TTK samples.
+            && ctx.Ext5?.BossGrade != true
             && !ctx.TtkValid)
             return D(PolicyDecision.Hold($"burst preset: holding {ability.Name} until a boss TTK is measurable"),
                 src, "burst preset (no valid boss TTK)");

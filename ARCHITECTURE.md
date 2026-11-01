@@ -13,6 +13,9 @@
 - `Knowledge/PolicyEvaluator.cs`: `PolicyMemory` owns the shared monitor
   and preserves the original speculative cooldown rollback for failed GCD
   sends (PR #21).
+- `OffensiveCandidateProvider`: only for opt-in Burst, a verified Ext5
+  boss-grade target bypasses the not-yet-valid TTK warmup hold for major
+  offensives. The ordinary/unknown target case is unchanged.
 - No additional protocol cells, autonomous rotation engine, protected API
   calls, or changes to MaxDps Main suggestions.
 

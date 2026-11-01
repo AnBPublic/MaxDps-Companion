@@ -183,3 +183,43 @@ jobs:
             swiftc -typecheck -sdk "$(xcrun --show-sdk-path)" "$src"
             echo "swiftc -typecheck: OK"
           fi
+
+  publish_candidate:
+    name: Publish Sentinel release-candidate ZIPs
+    needs: [windows, macos]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/release/v4.7.0-sentinel' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download the verified Windows and addon bundles
+        uses: actions/download-artifact@v4
+        with:
+          name: MaxDpsCompanion-release-bundles
+          path: release-output
+
+      - name: Publish GitHub prerelease from the verified commit
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v4.7.0-rc.1
+          target_commitish: ${{ github.sha }}
+          name: MaxDPS Companion v4.7.0 Sentinel (Release Candidate)
+          prerelease: true
+          draft: false
+          generate_release_notes: false
+          body: |
+            Sentinel 4.7.0 — shared cooldown intelligence for all 13 classes and
+            40 catalogued specs, including DPS and tanks. Universal verified
+            health-loss response, tank mitigation maintenance, defensive
+            absorbs routed correctly, speculative GCD failure recovery, and
+            opt-in Burst opener on verified boss-grade Ext5 targets.
+
+            Windows and addon ZIPs are below. Keep existing settings.ini and
+            official MaxDps addon. See docs/HANDOVER-SENTINEL-4.7.0.md for
+            safe installation/rollback steps.
+
+            Offline CI passed; LIVE WoW Retail verification is STILL OWED.
+          files: |
+            release-output/MaxDpsCompanion-4.7.0-Sentinel-win-x64.zip
+            release-output/MaxDpsCompanionBridge-4.7.0.zip
+          fail_on_unmatched_files: true

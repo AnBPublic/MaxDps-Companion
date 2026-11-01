@@ -66,7 +66,8 @@ public class UniversalCooldownIntelligenceTests
             memory.HealthPressure.Observe(context, true, 10_000);
             var result = Evaluate(Slot.Main, 0, context, memory);
             Assert.Equal(PolicyVerdict.Use, result.Verdict);
-            Assert.Equal("MaxDpsRotation", "MaxDpsRotation"); // provenance invariant: Main is never rewritten
+            Assert.Equal("Generic", result.Provider);
+            Assert.Equal(CandidateSourceKind.MaxDpsWire, result.Source);
             count++;
         }
         Assert.Equal(40, count);
@@ -132,6 +133,36 @@ public class UniversalCooldownIntelligenceTests
         Assert.Equal(PolicyVerdict.Hold,
             Evaluate(Slot.Defensive, 2565,
                 Context(100, urgency: DefensiveUrgency.White)).Verdict);
+    }
+
+    [Fact]
+    public void BossGrade_Ext5_Allows_OptIn_Burst_Without_Ttk_For_Dps_And_Tank()
+    {
+        foreach (var spec in new[] { "Arms", "Protection" })
+        {
+            var baseContext = Context(100, "WARRIOR", spec);
+            // No TTK yet: the opt-in Burst preset conserves a major.
+            var standard = Evaluate(Slot.Offensive, 1719, baseContext,
+                options: new PolicyOptions { Preset = RotationPreset.Burst });
+            Assert.Equal(PolicyVerdict.Hold, standard.Verdict);
+
+            var boss = new CombatContext
+            {
+                Class = "WARRIOR",
+                Spec = spec,
+                ContextValid = true,
+                HpValid = true,
+                HpSource = HpSource.Plain,
+                HpPct = 100,
+                Cast = PlayerCastState.None,
+                SlotRange = new TriState[PixelProtocol.SlotCount],
+                SlotBuffActive = new TriState[PixelProtocol.SlotCount],
+                Ext5 = new Ext5Block(6, 0, 0, 0, 0, default, 0, 0),
+            };
+            var burst = Evaluate(Slot.Offensive, 1719, boss,
+                options: new PolicyOptions { Preset = RotationPreset.Burst });
+            Assert.Equal(PolicyVerdict.Use, burst.Verdict);
+        }
     }
 
     [Fact]

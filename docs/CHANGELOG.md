@@ -26,6 +26,9 @@ Ext5 58 cells. MaxDps owns Main and the core rotation; no vendored Lua edited.
   explicitly flagged for self-buff tracking may fire at healthy HP for the six
   known tank specs when the buff is observably absent. No autonomous
   candidate generation; unknown buff readings or unknown spec fail closed.
+- **Burst boss-grade opener:** with Burst preset and valid Ext5 rank 6/7, a
+  major offensive need not wait for TTK warmup. Unknown/ordinary targets
+  retain Burst conservation, and MaxDps remains the ability source.
 - **Full class/spec regression matrix:** all 13 classes / 40 specs exercised
   through the common authoritative Main provider, explicit tank role checks,
   and pressure/mitigation routing scenarios.
