@@ -119,6 +119,9 @@ internal static class CandidateProviders
         // absorb/mitigation carried in SelfHeal must NOT be judged as a heal.
         if (ability.IsDefensive) return Defensive;
         if (ability.Category == AbilityCategory.SelfHeal || slot == Slot.SelfHeal) return SelfSustain;
+        // A true heal carried in the MaxDps Defensive slot (e.g. Lay on
+        // Hands) must retain the existing defensive urgency/HP policy.
+        if (ability.IsSurvival) return Defensive;
 
         // v3.5 movement routing (RC5). Every movement tool belongs to the
         // Mobility provider, which only ever fires a target-reaching tool when
@@ -382,6 +385,19 @@ internal sealed class DefensiveCandidateProvider : ICandidateProvider
 
         var emergency = hp is { } ehp && ehp <= opts.EmergencyHpPct;
 
+        // An absorb carried in the SelfHeal extra slot remains subject to
+        // that slot's Solo and HP eligibility. It does not use overheal maths,
+        // but cannot fire at healthy HP or freely with Solo turned off.
+        if (input.Slot == Slot.SelfHeal && ability.IsDefensive)
+        {
+            if (!ctx.HpValid)
+                return D(PolicyDecision.Hold("defensive sustain HP unknown"), src, "HP unknown (defensive extra)");
+            if (!opts.SoloEnabled && !emergency)
+                return D(PolicyDecision.Hold("solo mode off; defensive sustain held"), src, "solo off (defensive extra)");
+            if (hp > opts.SelfSustainHpPct && !emergency)
+                return D(PolicyDecision.Hold("defensive sustain above HP threshold"), src, "HP above sustain (defensive extra)");
+        }
+
         // T4 (v3.6.0) dying-target hold, now a per-tier / scope lookup. Solo:
         // Minor 6 s, Major 10 s, Immunity 15 s. Group: only Minor is gated, and
         // only on a Valid rate below 4 s with the fast-pack latch and urgency
@@ -481,7 +497,7 @@ internal sealed class DefensiveCandidateProvider : ICandidateProvider
             if (input.Memory.HealthPressure.FallingFast
                 && ability.Purpose == AbilityPurpose.DefensiveMajor
                 && ability.Tier == DefensiveTier.Major
-                && ctx.HpValid && ctx.HpPct <= 70
+                && ctx.HpValid && ctx.HpPct is > 50 and <= 70
                 && required > DefensiveUrgency.Yellow
                 && urgency is DefensiveUrgency.Yellow or DefensiveUrgency.Orange)
                 required = (DefensiveUrgency)((int)required - 1);

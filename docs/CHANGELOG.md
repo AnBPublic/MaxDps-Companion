@@ -20,8 +20,8 @@ Ext5 58 cells. MaxDps owns Main and the core rotation; no vendored Lua edited.
 
 - **Shared health-pressure observer:** every class and spec receives the same
   bounded, plain-HP-only 1.8 s rolling window. A >=15 percentage-point loss
-  with the newest HP <=70% can promote an eligible **major** defensive by one
-  urgency stage. Unknown/secret/quantized-only HP never triggers a promotion.
+  with the newest HP between 51% and 70% can promote an eligible **major**
+  defensive by one urgency stage. Unknown/secret/quantized-only HP never triggers a promotion.
 - **Buff-aware tank maintenance:** a MaxDps-offered minor defensive that is
   explicitly flagged for self-buff tracking may fire at healthy HP for the six
   known tank specs when the buff is observably absent. No autonomous

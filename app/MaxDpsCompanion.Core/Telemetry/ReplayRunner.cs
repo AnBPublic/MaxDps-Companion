@@ -259,6 +259,10 @@ internal static class ReplayRunner
                             var pendingCombat = ToCombat(evt.Policy!).WithTtk(
                                 ttkEstimator?.Estimate ?? TtkEstimate.Invalid,
                                 pendingOptions.TtkHistoryDurFactor ?? 0.5);
+                            // Match the live scheduler's bounded health window
+                            // before computing the tick's candidate verdicts.
+                            policyMemory.HealthPressure.Observe(pendingCombat,
+                                evt.InCombat ?? false, evt.TMs);
                                 var pendingPolicyOptions = new PolicyOptions
                                 {
                                     SoloEnabled = pendingOptions.Solo,

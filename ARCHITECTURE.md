@@ -9,7 +9,8 @@
 - `Knowledge/CandidateProviders.cs`: defensive purpose wins over SelfHeal
   transport; a *MaxDps-offered* buff-trackable minor tank mitigation can be
   maintained while healthy with confirmed missing buff; a strong observed
-  health decline can move a major defensive one urgency step earlier.
+  health decline can move a major defensive one urgency step earlier at
+  51–70% HP. Replay reconstructs the same observed sampling window.
 - `Knowledge/PolicyEvaluator.cs`: `PolicyMemory` owns the shared monitor
   and preserves the original speculative cooldown rollback for failed GCD
   sends (PR #21).
