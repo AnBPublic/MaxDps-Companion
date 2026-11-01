@@ -5,6 +5,29 @@ Read order: this file -> `ARCHITECTURE.md` -> `docs/PROTOCOL.md`. Full history
 [`docs/archive/HANDOVER-history.md`](docs/archive/HANDOVER-history.md); search it
 by release name or date before re-investigating an old problem.
 
+## 2026-11-01 RELEASE CANDIDATE 4.7.0 "SENTINEL" — DPS + tank shared cooldown intelligence
+
+- Branch: `release/v4.7.0-sentinel`; parent includes PR #21 speculative
+  cooldown rejection recovery.
+- Windows app and bridge identity: 4.7.0 Sentinel. Wire: 5, core/Ext2/Ext3/
+  Ext4 unchanged, Ext5 remains opt-in, no new addon sensors.
+- New `Knowledge/HealthPressureMonitor.cs` tracks *observed* plain HP across
+  1.8 s. A strong loss (15+ percentage points, current HP <=70%) can lower
+  major defensive urgency by one step. Resets on secret/unknown HP and OOC.
+- A MaxDps-offered tank maintenance minor with confirmed inactive self-buff can
+  be used at healthy HP. All DPS/tank specs keep the same defensive provider.
+- SelfHeal-transported Absorb/Reflect/mitigation routes through Defensive, not
+  SelfSustain. Existing MaxDps Main rotations untouched.
+- Opt-in Burst + confirmed Ext5 boss rank 6/7 no longer delays a major offensive
+  opener waiting for TTK samples; ordinary/unknown targets unchanged.
+- Successful branch CI publishes pre-release v4.7.0-rc.1 with two ZIP bundles
+  from GitHub Releases (Actions artifacts are the fallback).
+- Companion/Core source, Windows publish and addon ZIPs are packaged as
+  downloadable GitHub Actions artifacts once CI passes.
+- Release/install instructions, exact artifact names and E2E checks are in
+  `docs/HANDOVER-SENTINEL-4.7.0.md`.
+- **Live retail E2E OWED.** GitHub CI cannot certify a running WoW client.
+
 ## 2026-10-28 RELEASE 4.6.0 "CADENCE" (Ext5 + interrupt insurance + GCD landing; bridge 4.6.0; additive wire)
 
 Three features, all default OFF. Branch `release/v4.6.0-cadence`. Identity:

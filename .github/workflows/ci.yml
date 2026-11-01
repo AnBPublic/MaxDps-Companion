@@ -104,6 +104,34 @@ jobs:
             throw "tools/ability_audit.ps1 failed with exit code $code"
           }
 
+      - name: Package versioned Windows companion and addon
+        if: ${{ startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/tags/v') }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          [xml]$props = Get-Content 'app/Version.props' -Raw
+          $version = [string]$props.Project.PropertyGroup.Version
+          $codename = [string]$props.Project.PropertyGroup.Codename
+          New-Item -ItemType Directory -Force -Path 'release-output/windows' | Out-Null
+          dotnet publish app/MaxDpsCompanion/MaxDpsCompanion.csproj -c Release -r win-x64 --self-contained false -p:Platform=x64 -p:EnableMsixTooling=true -p:WindowsPackageType=None -p:PublishSingleFile=false -o release-output/windows
+          if ($LASTEXITCODE -ne 0) { throw "Windows publish failed: $LASTEXITCODE" }
+          foreach ($required in @('MaxDpsCompanion.exe', 'MaxDpsCompanion.pri')) {
+            if (-not (Test-Path -LiteralPath "release-output/windows/$required")) { throw "Missing $required after publish" }
+          }
+          Set-Content -Path 'release-output/windows/VERSION.txt' -Value "$version $codename"
+          Compress-Archive -Path 'release-output/windows/*' -DestinationPath "release-output/MaxDpsCompanion-$version-$codename-win-x64.zip" -CompressionLevel Optimal
+          Compress-Archive -Path 'addon/MaxDpsCompanionBridge' -DestinationPath "release-output/MaxDpsCompanionBridge-$version.zip" -CompressionLevel Optimal
+          Write-Host "Built versioned Windows and addon ZIPs for $version $codename"
+
+      - name: Upload companion + addon install bundles
+        if: ${{ startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/tags/v') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: MaxDpsCompanion-release-bundles
+          path: release-output/*.zip
+          if-no-files-found: error
+          retention-days: 30
+
   macos:
     name: macos-latest - Core + Mac build, swiftc parse
     runs-on: macos-latest
@@ -155,3 +183,43 @@ jobs:
             swiftc -typecheck -sdk "$(xcrun --show-sdk-path)" "$src"
             echo "swiftc -typecheck: OK"
           fi
+
+  publish_candidate:
+    name: Publish Sentinel release-candidate ZIPs
+    needs: [windows, macos]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/release/v4.7.0-sentinel' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download the verified Windows and addon bundles
+        uses: actions/download-artifact@v4
+        with:
+          name: MaxDpsCompanion-release-bundles
+          path: release-output
+
+      - name: Publish GitHub prerelease from the verified commit
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v4.7.0-rc.1
+          target_commitish: ${{ github.sha }}
+          name: MaxDPS Companion v4.7.0 Sentinel (Release Candidate)
+          prerelease: true
+          draft: false
+          generate_release_notes: false
+          body: |
+            Sentinel 4.7.0 — shared cooldown intelligence for all 13 classes and
+            40 catalogued specs, including DPS and tanks. Universal verified
+            health-loss response, tank mitigation maintenance, defensive
+            absorbs routed correctly, speculative GCD failure recovery, and
+            opt-in Burst opener on verified boss-grade Ext5 targets.
+
+            Windows and addon ZIPs are below. Keep existing settings.ini and
+            official MaxDps addon. See docs/HANDOVER-SENTINEL-4.7.0.md for
+            safe installation/rollback steps.
+
+            Offline CI passed; LIVE WoW Retail verification is STILL OWED.
+          files: |
+            release-output/MaxDpsCompanion-4.7.0-Sentinel-win-x64.zip
+            release-output/MaxDpsCompanionBridge-4.7.0.zip
+          fail_on_unmatched_files: true

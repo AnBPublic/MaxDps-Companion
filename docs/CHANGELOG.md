@@ -10,6 +10,54 @@ Format: Keep a Changelog sections (`Added` / `Changed` / `Fixed` / `Removed`)
 per release, plus the identity + wire line. The complete pre-4.0 history lives
 in [`../VERSION.txt`](../VERSION.txt) and `docs/archive/HANDOVER-history.md`.
 
+## 4.7.0 Sentinel - 2026-11-01
+
+**Companion 4.7.0 "Sentinel" / bridge 4.7.0 (identity-only bridge upgrade).**
+Wire: UNCHANGED v5 core 35 + Ext2 40 + Ext3 43 + Ext4 51 and opt-in
+Ext5 58 cells. MaxDps owns Main and the core rotation; no vendored Lua edited.
+
+### Added
+
+- **Shared health-pressure observer:** every class and spec receives the same
+  bounded, plain-HP-only 1.8 s rolling window. A >=15 percentage-point loss
+  with the newest HP between 51% and 70% can promote an eligible **major**
+  defensive by one urgency stage. Unknown/secret/quantized-only HP never triggers a promotion.
+- **Buff-aware tank maintenance:** a MaxDps-offered minor defensive that is
+  explicitly flagged for self-buff tracking may fire at healthy HP for the six
+  known tank specs when the buff is observably absent. No autonomous
+  candidate generation; unknown buff readings or unknown spec fail closed.
+- **Burst boss-grade opener:** with Burst preset and valid Ext5 rank 6/7, a
+  major offensive need not wait for TTK warmup. Unknown/ordinary targets
+  retain Burst conservation, and MaxDps remains the ability source.
+- **Full class/spec regression matrix:** all 13 classes / 40 specs exercised
+  through the common authoritative Main provider, explicit tank role checks,
+  and pressure/mitigation routing scenarios.
+
+### Changed
+
+- Absorb/reflect/mitigation purpose now takes precedence over the SelfHeal
+  transport slot when selecting the correct candidate provider.
+- GitHub Actions CI packages versioned Windows companion and addon ZIPs for
+  release branches/tags; the Windows bundle preserves the WinUI .pri resource.
+- In-game bridge identity and application identity updated to Sentinel 4.7.0.
+
+### Fixed
+
+- A failed GCD-riding defensive/offensive press no longer leaves a false active
+  cooldown coverage window (included from review branch PR #21).
+
+### Removed
+
+- Nothing. No Main-rotation gating, no secret API access, no protocol extension.
+
+### Details
+
+- Build/test verification is reported by GitHub CI on the commit; live Retail
+  12.1.5 validation and user desktop installation are OWED.
+- Source/deployment runbook: `docs/HANDOVER-SENTINEL-4.7.0.md`.
+- No inference of class-specific boss mechanics or enemy damage not exposed
+  by Midnight APIs. Every existing OFF/manual policy remains absolute.
+
 ## 4.6.0 Cadence - 2026-10-28
 
 **Companion 4.6.0 "Cadence" / bridge 4.6.0 (ADDON UPDATE; Ext5 is opt-in).**

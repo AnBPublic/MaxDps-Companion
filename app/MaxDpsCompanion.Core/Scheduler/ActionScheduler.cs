@@ -655,6 +655,9 @@ internal sealed class ActionScheduler
         var policyOn = input.Options is not null;
         var catalog = input.Catalog ?? AbilityCatalog.Default;
         var context = input.Context ?? CombatContext.Unknown();
+        // Uses only valid plain HP observations; unavailable/secret/curve-only
+        // vitals reset it. The same rule runs for all DPS and tank specs.
+        _policyMemory.HealthPressure.Observe(context, frame.InCombat, input.NowMs);
         var policyHeld = 0;
         var policySkipped = 0;
         var castHeld = 0;
@@ -1273,6 +1276,9 @@ internal sealed class ActionScheduler
 
         if (input.NowMs - stillPending.SentAt >= RejectDetectMs)
         {
+            // NoteSent optimistically recorded mitigation/burst coverage; an
+            // unchanged candidate with no GCD means this press did not land.
+            _policyMemory.RejectUnconfirmedUse(stillPending.SpellId, stillPending.SentAt);
             NoteFailure(stillPending.Slot, stillPending.Stroke, input.NowMs, stillPending.SpellId);
             _pendingConfirm = null;
             RejectionsDetected++;
