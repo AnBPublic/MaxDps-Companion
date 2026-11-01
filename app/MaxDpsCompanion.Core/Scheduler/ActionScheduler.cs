@@ -1273,6 +1273,9 @@ internal sealed class ActionScheduler
 
         if (input.NowMs - stillPending.SentAt >= RejectDetectMs)
         {
+            // NoteSent optimistically recorded mitigation/burst coverage; an
+            // unchanged candidate with no GCD means this press did not land.
+            _policyMemory.RejectUnconfirmedUse(stillPending.SpellId, stillPending.SentAt);
             NoteFailure(stillPending.Slot, stillPending.Stroke, input.NowMs, stillPending.SpellId);
             _pendingConfirm = null;
             RejectionsDetected++;
