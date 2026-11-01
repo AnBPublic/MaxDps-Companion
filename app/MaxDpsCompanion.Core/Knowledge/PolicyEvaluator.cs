@@ -210,6 +210,13 @@ internal sealed class PolicyMemory
     private readonly Dictionary<string, (long UntilMs, DefensiveTier Tier)> _defensives = new();
     private readonly Dictionary<string, long> _offensives = new();
 
+    // A dispatched GCD action is only predicted to have applied. Preserve the
+    // previous window so a confirmed failed key press can restore it.
+    private (int SpellId, long SentAtMs, string Group,
+        (long UntilMs, DefensiveTier Tier)? Prior, long AppliedUntilMs, DefensiveTier AppliedTier)? _tentativeDefensive;
+    private (int SpellId, long SentAtMs, string Group,
+        long? PriorUntilMs, long AppliedUntilMs)? _tentativeOffensive;
+
     // v4.2.0 CC attack guard. These are companion-owned timers only; no game
     // value is read. The effective hold is capped by the caller (10 s default)
     // so a long PvE Sap/Polymorph cannot silence the rotation for a minute.
@@ -296,10 +303,12 @@ internal sealed class PolicyMemory
                 var group = ability.ConflictGroup ?? "Defensive";
                 var duration = ability.DurationMs > 0 ? ability.DurationMs : DefaultDefensiveMs;
                 var until = nowMs + duration;
-                if (!_defensives.TryGetValue(group, out var current)
-                    || until >= current.UntilMs
-                    || ability.Tier > current.Tier)
+                var prior = _defensives.TryGetValue(group, out var current)
+                    ? ((long UntilMs, DefensiveTier Tier)?)current
+                    : null;
+                if (prior is null || until >= prior.Value.UntilMs || ability.Tier > prior.Value.Tier)
                 {
+                    _tentativeDefensive = (ability.SpellId, nowMs, group, prior, until, ability.Tier);
                     _defensives[group] = (until, ability.Tier);
                 }
                 break;
@@ -310,8 +319,12 @@ internal sealed class PolicyMemory
                 var group = ability.ConflictGroup ?? "Offensive";
                 var duration = ability.DurationMs > 0 ? ability.DurationMs : DefaultOffensiveMs;
                 var until = nowMs + duration;
-                if (!_offensives.TryGetValue(group, out var current) || until > current)
+                var prior = _offensives.TryGetValue(group, out var current) ? (long?)current : null;
+                if (prior is null || until > prior.Value)
+                {
+                    _tentativeOffensive = (ability.SpellId, nowMs, group, prior, until);
                     _offensives[group] = until;
+                }
                 break;
             }
             case AbilityPurpose.Trinket:
@@ -323,6 +336,43 @@ internal sealed class PolicyMemory
                     _offensives.TryGetValue("Trinket.OnUse", out var current) ? current : 0,
                     nowMs + 20_000);
                 break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Retracts only the latest speculative window when a GCD press is proved
+    /// unsuccessful. Stale or mismatched failure reports cannot change memory.
+    /// Off-GCD presses have no reliable GCD confirmation and never call this.
+    /// </summary>
+    public void RejectUnconfirmedUse(int spellId, long sentAtMs)
+    {
+        if (_tentativeDefensive is { } defensive
+            && defensive.SpellId == spellId && defensive.SentAtMs == sentAtMs)
+        {
+            _tentativeDefensive = null;
+            if (_defensives.TryGetValue(defensive.Group, out var current)
+                && current.UntilMs == defensive.AppliedUntilMs
+                && current.Tier == defensive.AppliedTier)
+            {
+                if (defensive.Prior is { } prior)
+                    _defensives[defensive.Group] = prior;
+                else
+                    _defensives.Remove(defensive.Group);
+            }
+        }
+
+        if (_tentativeOffensive is { } offensive
+            && offensive.SpellId == spellId && offensive.SentAtMs == sentAtMs)
+        {
+            _tentativeOffensive = null;
+            if (_offensives.TryGetValue(offensive.Group, out var current)
+                && current == offensive.AppliedUntilMs)
+            {
+                if (offensive.PriorUntilMs is { } prior)
+                    _offensives[offensive.Group] = prior;
+                else
+                    _offensives.Remove(offensive.Group);
             }
         }
     }
@@ -377,6 +427,8 @@ internal sealed class PolicyMemory
     {
         _defensives.Clear();
         _offensives.Clear();
+        _tentativeDefensive = null;
+        _tentativeOffensive = null;
         ClearCcGuards();
     }
 }
