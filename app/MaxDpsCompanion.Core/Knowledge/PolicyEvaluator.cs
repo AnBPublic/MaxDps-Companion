@@ -210,6 +210,9 @@ internal sealed class PolicyMemory
     private readonly Dictionary<string, (long UntilMs, DefensiveTier Tier)> _defensives = new();
     private readonly Dictionary<string, long> _offensives = new();
 
+    /// <summary>One shared, bounded health-pressure window for every spec.</summary>
+    public HealthPressureMonitor HealthPressure { get; } = new();
+
     // A dispatched GCD action is only predicted to have applied. Preserve the
     // previous window so a confirmed failed key press can restore it.
     private (int SpellId, long SentAtMs, string Group,
@@ -429,6 +432,7 @@ internal sealed class PolicyMemory
         _offensives.Clear();
         _tentativeDefensive = null;
         _tentativeOffensive = null;
+        HealthPressure.Reset();
         ClearCcGuards();
     }
 }

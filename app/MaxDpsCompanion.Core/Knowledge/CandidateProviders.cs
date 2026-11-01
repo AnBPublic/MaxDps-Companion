@@ -115,8 +115,10 @@ internal static class CandidateProviders
         // DefensiveMinor/Absorb -> Defensive, SelfHeal -> SelfSustain,
         // CrowdControl -> Utility). The bridge's known-spell filter means a
         // non-matching race never offers the candidate in the first place.
+        // Purpose wins over the transport slot: Ignore Pain and any other
+        // absorb/mitigation carried in SelfHeal must NOT be judged as a heal.
+        if (ability.IsDefensive) return Defensive;
         if (ability.Category == AbilityCategory.SelfHeal || slot == Slot.SelfHeal) return SelfSustain;
-        if (ability.IsSurvival) return Defensive;
 
         // v3.5 movement routing (RC5). Every movement tool belongs to the
         // Mobility provider, which only ever fires a target-reaching tool when
@@ -440,19 +442,47 @@ internal sealed class DefensiveCandidateProvider : ICandidateProvider
         var urgencyFact = ability.UrgencySource == DefensiveUrgencySource.Stagger && ctx.StaggerUrgency != DefensiveUrgency.Unknown
             ? $"urgency {urgency} (stagger curve)"
             : $"urgency {urgency} (MaxDps HP curve)";
+
+        // A MaxDps-recommended, buff-trackable minor tank mitigation can be
+        // maintained before the first HP loss. Never invent a bridge candidate:
+        // the addon must already have offered this exact bound ability, and
+        // buff state must be confirmed inactive (UNKNOWN never qualifies).
+        var maintenance = CooldownRoles.IsTank(ctx.Class, ctx.Spec)
+            && ability.Purpose == AbilityPurpose.DefensiveMinor
+            && ability.Tier == DefensiveTier.Minor
+            && ability.HoldWhenBuffActive
+            && ctx.ContextValid && ctx.BuffProbeValid
+            && ctx.SlotBuffActive[slot] == TriState.No
+            && input.Slot == Slot.Defensive && !ctx.DefensiveCatalogSource
+            && input.InCombat && ctx.HpValid && ctx.HpPct >= 90;
+
         if (!emergency && !soloEsc)
         {
-            if (urgency == DefensiveUrgency.White)
+            if (urgency == DefensiveUrgency.White && !maintenance)
                 return D(PolicyDecision.Hold("white defensive urgency (MaxDps renders no glow); holding"), src, "urgency White (MaxDps renders no glow)");
-            var required = ability.Purpose is AbilityPurpose.Escape or AbilityPurpose.Movement
-                or AbilityPurpose.External
-                ? DefensiveUrgency.Red
-                : ability.MinimumUrgency;
+            var required = maintenance ? DefensiveUrgency.White
+                : ability.Purpose is AbilityPurpose.Escape or AbilityPurpose.Movement
+                    or AbilityPurpose.External
+                    ? DefensiveUrgency.Red
+                    : ability.MinimumUrgency;
             var discountable = required > DefensiveUrgency.Yellow
                 && !ability.MinimumUrgencyCurated
                 && ability.Purpose is not (AbilityPurpose.Escape or AbilityPurpose.Movement or AbilityPurpose.External);
             var discounted = input.Slot == Slot.Defensive && ctx.MaxDpsDefensiveRecommendation && discountable;
             if (discounted) required = (DefensiveUrgency)((int)required - 1);
+
+            // Shared DPS/tank response to a *measured* abrupt health decline:
+            // advance only a major damage-reduction ability by one urgency
+            // stage. No immunities, escapes, heals, unknown health or
+            // uninterrupted MaxDps core rotation are affected.
+            if (input.Memory.HealthPressure.FallingFast
+                && ability.Purpose == AbilityPurpose.DefensiveMajor
+                && ability.Tier == DefensiveTier.Major
+                && ctx.HpValid && ctx.HpPct <= 70
+                && required > DefensiveUrgency.Yellow
+                && urgency is DefensiveUrgency.Yellow or DefensiveUrgency.Orange)
+                required = (DefensiveUrgency)((int)required - 1);
+
             if (urgency == DefensiveUrgency.Unknown)
             {
                 if (required > DefensiveUrgency.Yellow)

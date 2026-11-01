@@ -1,5 +1,21 @@
 # Architecture — MaxDps-Companion
 
+## 4.7.0 Sentinel — common DPS/tank cooldown layer
+
+- `Knowledge/HealthPressureMonitor.cs`: bounded, monotonic plain-HP-only
+  sampling; all 13 class / 40 spec contexts use the same pure rule.
+- `Scheduler/ActionScheduler.cs`: observes valid health per frame before policy
+  verdicts; `PolicyMemory.Reset` clears health pressure with other state.
+- `Knowledge/CandidateProviders.cs`: defensive purpose wins over SelfHeal
+  transport; a *MaxDps-offered* buff-trackable minor tank mitigation can be
+  maintained while healthy with confirmed missing buff; a strong observed
+  health decline can move a major defensive one urgency step earlier.
+- `Knowledge/PolicyEvaluator.cs`: `PolicyMemory` owns the shared monitor
+  and preserves the original speculative cooldown rollback for failed GCD
+  sends (PR #21).
+- No additional protocol cells, autonomous rotation engine, protected API
+  calls, or changes to MaxDps Main suggestions.
+
 ## Pipeline
 
 ```

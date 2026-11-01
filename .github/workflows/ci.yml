@@ -104,6 +104,34 @@ jobs:
             throw "tools/ability_audit.ps1 failed with exit code $code"
           }
 
+      - name: Package versioned Windows companion and addon
+        if: ${{ startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/tags/v') }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          [xml]$props = Get-Content 'app/Version.props' -Raw
+          $version = [string]$props.Project.PropertyGroup.Version
+          $codename = [string]$props.Project.PropertyGroup.Codename
+          New-Item -ItemType Directory -Force -Path 'release-output/windows' | Out-Null
+          dotnet publish app/MaxDpsCompanion/MaxDpsCompanion.csproj -c Release -r win-x64 --self-contained false -p:Platform=x64 -p:EnableMsixTooling=true -p:WindowsPackageType=None -p:PublishSingleFile=false -o release-output/windows
+          if ($LASTEXITCODE -ne 0) { throw "Windows publish failed: $LASTEXITCODE" }
+          foreach ($required in @('MaxDpsCompanion.exe', 'MaxDpsCompanion.pri')) {
+            if (-not (Test-Path -LiteralPath "release-output/windows/$required")) { throw "Missing $required after publish" }
+          }
+          Set-Content -Path 'release-output/windows/VERSION.txt' -Value "$version $codename"
+          Compress-Archive -Path 'release-output/windows/*' -DestinationPath "release-output/MaxDpsCompanion-$version-$codename-win-x64.zip" -CompressionLevel Optimal
+          Compress-Archive -Path 'addon/MaxDpsCompanionBridge' -DestinationPath "release-output/MaxDpsCompanionBridge-$version.zip" -CompressionLevel Optimal
+          Write-Host "Built versioned Windows and addon ZIPs for $version $codename"
+
+      - name: Upload companion + addon install bundles
+        if: ${{ startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/tags/v') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: MaxDpsCompanion-release-bundles
+          path: release-output/*.zip
+          if-no-files-found: error
+          retention-days: 30
+
   macos:
     name: macos-latest - Core + Mac build, swiftc parse
     runs-on: macos-latest
