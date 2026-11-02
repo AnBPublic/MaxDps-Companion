@@ -34,6 +34,22 @@ The **wire protocol remains v5** (51 cells + optional 58-cell Ext5).
 - Shared across all DPS and tank specs; the underlying existing
   MaxDps rotation source and 4.7-4.9 optimizations are unchanged.
 
+### New: opt-in 5-second-trash cooldown conservation
+
+- If the user selects the existing `Burst` preset, a genuinely
+  long-cooldown (>60s) **MajorOffensive** candidate is now conserved
+  when an actually valid current-target TTK is below the ability's
+  researched `MinTtkSec`. This applies in Solo, world, dungeon and raid
+  contexts; it does not invent an encounter timer, and fails open
+  when TTK cannot be measured.
+- Default `Full` rotation, sub-60s rotational spells, explicit
+  execute-favored triggers, confirmed boss-grade openers and
+  MaxDps Main remain unchanged.
+- This is an **opt-in restrictive policy**, not a separate optimized
+  DPS rotation. Live evaluation is mandatory because conserving a
+  vendor-offered major could reduce DPS if the measured target dies
+  but the pack fight continues.
+
 ### New: 40-specialization accountability
 
 - `SpecCoverageMatrix` enumerates **13 classes / 40 specs: 27 DPS, six

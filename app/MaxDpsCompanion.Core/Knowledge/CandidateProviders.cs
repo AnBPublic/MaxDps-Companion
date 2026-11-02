@@ -284,6 +284,26 @@ internal sealed class OffensiveCandidateProvider : ICandidateProvider
             return D(PolicyDecision.Hold($"burst preset: holding {ability.Name} until a boss TTK is measurable"),
                 src, "burst preset (no valid boss TTK)");
 
+        // v5 Vanguard: in the opt-in Burst preset ONLY, conserve a
+        // truly major, long-cooldown button when a trustworthy measured
+        // target TTK is shorter than its curated minimum. This restores a
+        // conservative "don't waste a 3-minute CD on 5-second trash"
+        // option without repeating the v3.7.9 global MaxDps authority
+        // regression. Full (default), sub-60s rotational buttons,
+        // unknown-TTK and confirmed boss-grade openers are unchanged.
+        // Only actual offered candidates enter this provider.
+        if (p.Options.Preset == RotationPreset.Burst
+            && ability.Purpose == AbilityPurpose.MajorOffensive
+            && ability.CooldownMs > 60_000
+            && ctx.TtkValid && ctx.TtkSec > 0
+            && ctx.Ext5?.BossGrade != true
+            && !TtkPolicy.ExecuteRange(ability, ctx)
+            && TtkPolicy.MinTtkSec(ability) > 0
+            && ctx.TtkSec < TtkPolicy.MinTtkSec(ability))
+            return D(PolicyDecision.Hold(
+                $"burst preset: target ~{ctx.TtkSec:0.#}s below {TtkPolicy.MinTtkSec(ability):0.#}s minimum for {ability.Name}"),
+                src, $"measured TTK {ctx.TtkSec:0.#}s; opt-in burst hold");
+
         // Stream 3 preset (restrict-only, default SingleTarget = no-op): AoE
         // conserves catalogued single-target-only cooldowns so the curated
         // AoE-ranked candidates in the list get priority.
