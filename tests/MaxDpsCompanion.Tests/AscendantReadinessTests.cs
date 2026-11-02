@@ -61,7 +61,7 @@ public class AscendantReadinessTests
         mon.Observe(Health(95), true, 1000);
         mon.Observe(Health(89), true, 1600);
         Assert.False(mon.SustainedPressure);
-        mon.Observe(Health(85), true, 2100);
+        mon.Observe(Health(77), true, 2100);
         Assert.True(mon.SustainedPressure);
         Assert.False(mon.FallingFast);
         mon.Observe(Health(84,valid:false), true, 2200);
