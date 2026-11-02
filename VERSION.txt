@@ -9,7 +9,7 @@ Companion v5.0.0 / bridge v5.0.0 for WoW Retail Midnight 12.1.5 (TOC 120105).
 - All 40 specs inventoried honestly: 33 DPS/tank, 7 healer specs.
 - Old 12.1 vendor/class spell knowledge NOT fully 12.1.5-verified.
 - 4.9 thin-row screen capture preserved; live FPS effects unknown.
-- Original v5/Ext5 wire unchanged. Release v5.0.0-rc.1.
+- Original v5/Ext5 wire unchanged. Release v5.0.0-rc.2.
 
 4.9.0
 Date: 2026-11-02 - "Slipstream"
