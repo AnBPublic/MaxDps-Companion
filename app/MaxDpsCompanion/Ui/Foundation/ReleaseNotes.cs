@@ -29,6 +29,18 @@ internal static class ReleaseNotes
     public static readonly IReadOnlyList<Release> All = new[]
     {
         new Release(
+            "4.9.0", "Slipstream", "2026-11-02",
+            "Copy only three pixel rows per screen poll, preserving every rotation sample.",
+            new[]
+            {
+                "Screen capture now transfers only the center three horizontal pixel rows required for the HDR-safe five-point median; it no longer copies the entire 8-64px cell height.",
+                "At the 8px default and 58-cell wire, BitBlt pixel area drops from 3712 to 1392 pixels (62.5% less data), without a second capture, altered polling or reduced color fidelity.",
+                "Source-row cropping retains all original 5 tap coordinates and byte-for-byte wire width; the decoder still receives every slot, heartbeat, checksum and optional Ext5 cell.",
+                "One low-overhead GDI BitBlt remains; the game/desktop GPU synchronization cost may dominate, so reduced pixels cannot be equated to FPS gains.",
+                "Windows capture recovery, minimized/black detection, HDR calibration, all Sentinel/Lightfoot intelligence and version 5 protocol remain unchanged.",
+                "Native benchmarking on the player's Windows hardware is still mandatory before quantifying 1% lows, p99 frame time, CPU/GPU or average FPS.",
+            }),
+        new Release(
             "4.8.0", "Lightfoot", "2026-11-02",
             "Lean Windows pixel capture and lower-GC Lua candidate scans; core rotations unchanged.",
             new[]

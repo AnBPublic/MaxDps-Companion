@@ -21,8 +21,8 @@ local addonName, MDCB = ...;
 
 MDCB = MDCB or {};
 MDCB.ADDON = addonName or "MaxDpsCompanionBridge";
-MDCB.VERSION = MDCB.VERSION or "4.8.0";
-MDCB.CODENAME = MDCB.CODENAME or "Lightfoot";
+MDCB.VERSION = MDCB.VERSION or "4.9.0";
+MDCB.CODENAME = MDCB.CODENAME or "Slipstream";
 MDCB.PREFIX = "MDCB";
 
 --- Shared chat printer. All in-game modules and the slash surface route

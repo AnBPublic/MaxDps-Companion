@@ -10,6 +10,47 @@ Format: Keep a Changelog sections (`Added` / `Changed` / `Fixed` / `Removed`)
 per release, plus the identity + wire line. The complete pre-4.0 history lives
 in [`../VERSION.txt`](../VERSION.txt) and `docs/archive/HANDOVER-history.md`.
 
+## 4.9.0 Slipstream - 2026-11-02
+
+**Companion 4.9.0 Slipstream / bridge 4.9.0.** Screen-capture fast path:
+only rows needed by the 5-tap median are copied. Built on all Lightfoot
+4.8 and Sentinel 4.7 code. **Protocol unchanged:** 51-cell v5 core/Ext4
+plus opt-in 58-cell Ext5. No rotation, DPS/tank or Lua behavior changed.
+
+### Changed — one smaller native capture per polling tick
+
+- Windows `ScreenSampler.CaptureRows` computes the minimum Y interval
+  containing the 5-tap (centre + left/right + above/below) sampling points.
+  Height is 3 for any cell at least 3 pixels tall, 2 for 2px, 1 for 1px.
+- The screen-to-memory `BitBlt` is now `58 * cellSize` pixels wide and
+  only `CaptureRows(cellSize).RowCount` pixels tall. The source top moves
+  down to the required rows, the DIB is allocated at the reduced height,
+  and sampling maps every original y coordinate into the cropped DIB.
+- At default `cellSize=8`, an enabled Ext5 frame has **3712 -> 1392
+  captured pixels**, a **62.5% decrease in transferred pixel area**.
+  The sampler still captures every one of the 58 wire cells at one blit
+  per poll. Real bandwidth, end-to-end capture time or FPS improvement
+  is **not** inferred from pixel count.
+- All five median tap coordinates, calibration response, color profile,
+  pixel protocol, stale-surface reset/retry, minimized-window early exit,
+  black-frame detection and caller snapshot semantics are preserved.
+- No new renderer/shader, no GPU API rewrite, no screen sharing or permissions
+  and no cadence/latency reduction; GDI screen synchronization can remain
+  the dominant cost and may cancel real frame-time gains.
+
+### Verification and deployment
+
+- Geometry tests validate cell sizes 1, 2, 3, 4, 8, 9, 32, 64; every
+  legal 3..64 size; and all vertical median taps. Offline Windows/Lua/
+  macOS CI must pass before the signed provenance release is published.
+- App, Core, Mac version properties and in-game addon identity all bumped
+  to 4.9.0 Slipstream; in-app notes + packaging updated.
+- Install **both** `v4.9.0-rc.1` release ZIPs as a pair; preserve
+  `settings.ini` and official MaxDps. See
+  `docs/HANDOVER-SLIPSTREAM-4.9.0.md`.
+- Live WoW CPU/GPU/FPS A/B of 4.8 vs 4.9 (and no-companion baseline)
+  is still OWED. No specific FPS gain is promised.
+
 ## 4.8.0 Lightfoot - 2026-11-02
 
 **Companion 4.8.0 Lightfoot / Bridge 4.8.0.** Low-overhead updates;

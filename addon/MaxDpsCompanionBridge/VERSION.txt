@@ -1,3 +1,12 @@
+4.9.0
+date: 2026-11-02 "Slipstream"
+git: v4.9.0-rc.1 (companion) / bridge 4.9.0
+interface: 120100 (Retail Midnight 12.1)
+protocol: unchanged v5 + Ext2/Ext3/Ext4 + optional Ext5 (51/58 cells).
+v4.9.0: Bridge identity update only: the Windows companion captures fewer
+          screen pixel rows without changing this addon or ability logic.
+          Retains all 4.8 Lightfoot and 4.7 Sentinel behavior.
+
 4.8.0
 date: 2026-11-02 "Lightfoot"
 git: v4.8.0-rc.2 (companion) / bridge 4.8.0

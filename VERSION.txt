@@ -1,3 +1,14 @@
+4.9.0
+Date: 2026-11-02 - "Slipstream"
+Companion 4.9.0 "Slipstream" / bridge 4.9.0 (lossless capture optimization).
+- Thin-strip BitBlt copies only 1-3 pixel rows used by five median taps.
+  At the default 8px/58-cell strip: 3712 -> 1392 pixels (-62.5% area).
+- Sample locations, 5-tap median, checksum, heartbeat, polling and wire
+  unchanged. GDI/DWM sync cost remains, real FPS gains not yet measured.
+- No Lua behavior or all-class DPS/tank logic changed from 4.8 Lightfoot.
+- GitHub prerelease v4.9.0-rc.1 publishes matching Windows + addon ZIPs.
+- Guide: docs/HANDOVER-SLIPSTREAM-4.9.0.md.
+
 4.8.0
 Date: 2026-11-02 - "Lightfoot"
 Companion 4.8.0 "Lightfoot" / bridge 4.8.0 (performance candidate).

@@ -23,6 +23,9 @@ internal sealed class ScreenSampler : IDisposable
     private IntPtr _previous = IntPtr.Zero;
     private IntPtr _bits = IntPtr.Zero;
     private Size _bitmapSize;
+    // Offset of the 1-3 captured pixel rows within the source cell. The
+    // 5-tap decoder still passes original cell-local y coordinates.
+    private int _sourceRowOffset;
 
     /// <summary>Samples taken per cell at 2px+; the median wins. Must stay odd.</summary>
     public const int TapsPerCell = 5;
@@ -85,8 +88,9 @@ internal sealed class ScreenSampler : IDisposable
     public Color[] Sample(Point origin, int cellSize) => Sample(origin, cellSize, IntPtr.Zero);
 
     /// <summary>
-    /// Captures the strip for <paramref name="window"/>: skips the blit when the
-    /// window is minimized and classifies an all-black capture as occluded.
+    /// Captures only the 1-3 DIB rows needed for all five color taps; the
+    /// full-width decoded frame and the same one-blit cadence are preserved.
+    /// Skips minimized windows and detects an all-black capture.
     /// </summary>
     public Color[] Sample(Point origin, int cellSize, IntPtr window)
     {
@@ -111,17 +115,38 @@ internal sealed class ScreenSampler : IDisposable
         // reads.
         SampleCells(origin, cellSize, PixelProtocol.CellCountExt5);
 
+    /// <summary>
+    /// 4.9 Slipstream: the five HDR-safe median taps touch only rows
+    /// center-1, center and center+1. Copy those rows, NOT the entire
+    /// cell-height. For 8px cells this shrinks the DWM-to-DIB payload from
+    /// 58*8*8 = 3712 pixels to 58*8*3 = 1392 (62.5% fewer).
+    /// GDI synchronization overhead remains and FPS benefit is unmeasured.
+    /// Keeps original coordinates to preserve the calibrated decoder.
+    /// </summary>
+    internal static (int FirstRow, int RowCount) CaptureRows(int cellSize)
+    {
+        if (cellSize < 1) throw new ArgumentOutOfRangeException(nameof(cellSize));
+        var center = cellSize / 2;
+        var first = Math.Max(0, center - 1);
+        var last = Math.Min(cellSize - 1, center + 1);
+        return (first, last - first + 1);
+    }
+
     private Color[] SampleCells(Point origin, int cellSize, int cellCount)
     {
         var width = cellSize * cellCount;
-        var height = cellSize;
+        var (firstRow, height) = CaptureRows(cellSize);
+        _sourceRowOffset = firstRow;
 
         EnsureSurface(width, height);
 
         var colors = new Color[cellCount];
         if (_bits == IntPtr.Zero) return colors;
 
-        if (!CopyFromScreen(origin, width, height))
+        // A single native BitBlt reads only the actual source rows needed
+        // by the five taps. Never add extra blits or slow down the cadence.
+        var stripeOrigin = new Point(origin.X, origin.Y + firstRow);
+        if (!CopyFromScreen(stripeOrigin, width, height))
         {
             // Stale GDI surface: a display-mode change, DWM reset, monitor
             // hot-plug or session switch can invalidate the cached screen DC
@@ -131,7 +156,7 @@ internal sealed class ScreenSampler : IDisposable
             // blind.
             Reset();
             EnsureSurface(width, height);
-            if (!CopyFromScreen(origin, width, height)) return colors;
+            if (!CopyFromScreen(stripeOrigin, width, height)) return colors;
         }
 
         for (var i = 0; i < cellCount; i++)
@@ -211,7 +236,7 @@ internal sealed class ScreenSampler : IDisposable
         if (_bits == IntPtr.Zero) return Color.Empty;
         unsafe
         {
-            var p = (byte*)_bits + (long)y * (_bitmapSize.Width * 4) + (long)x * 4;
+            var p = (byte*)_bits + (long)(y - _sourceRowOffset) * (_bitmapSize.Width * 4) + (long)x * 4;
             return Color.FromArgb(p[2], p[1], p[0]);   // B, G, R, unused
         }
     }
@@ -259,6 +284,7 @@ internal sealed class ScreenSampler : IDisposable
 
         _bitmap = _memoryDc = _previous = _bits = IntPtr.Zero;
         _bitmapSize = Size.Empty;
+        _sourceRowOffset = 0;
     }
 
     public void Dispose() => Reset();

@@ -5,6 +5,20 @@ Read order: this file -> `ARCHITECTURE.md` -> `docs/PROTOCOL.md`. Full history
 [`docs/archive/HANDOVER-history.md`](docs/archive/HANDOVER-history.md); search it
 by release name or date before re-investigating an old problem.
 
+## 2026-11-02 RELEASE CANDIDATE 4.9.0 "SLIPSTREAM" — narrow GDI capture
+
+- Branch `release/v4.9.0-slipstream` directly based on 4.8 Lightfoot RC2.
+- Windows `ScreenSampler.CaptureRows` trims the native single BitBlt to the
+  five median taps' actual Y interval. 8px cells: 8 rows -> 3 rows,
+  3712 -> 1392 pixels for the 58-cell strip, same one poll and protocol.
+- Version 4.9.0 Slipstream synchronized across Windows, Mac/Core and WoW
+  bridge metadata. No Lua gameplay or MaxDps vendor changes; every DPS/tank
+  logic layer from 4.7 and 4.8 is retained.
+- Full changelog: `docs/CHANGELOG.md`; agent download/installation/
+  rollback/performance A/B runbook:
+  `docs/HANDOVER-SLIPSTREAM-4.9.0.md`.
+- Offline tests verify geometry and regression, not actual WoW FPS gain.
+
 ## 2026-11-02 RELEASE CANDIDATE 4.8.0 "LIGHTFOOT" — frame-time efficiency
 
 - Branch `release/v4.8.0-lightfoot` based on complete 4.7 Sentinel.

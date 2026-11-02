@@ -1,5 +1,18 @@
 # Architecture — MaxDps-Companion
 
+## 4.9.0 Slipstream — lossless narrow capture
+
+- `ScreenSampler.SampleCells` calls `CaptureRows(cellSize)` and creates
+  a DIB height of at most 3 pixels (for 3px+ cells). The sampled screen
+  origin is offset by `FirstRow`, and `ReadPixel` subtracts the offset
+  before accessing the mapped DIB. All X coordinates and full 58-cell wire
+  width stay intact; each five-tap median observes exactly the same pixels
+  as before. 8px cells: 62.5% fewer **pixels copied**, not 62.5% less
+  capture time or GPU impact. Existing GDI BitBlt synchronization remains.
+- `CaptureRows` has offline geometry boundary/coverage tests. The 4.8
+  runtime cadence, 4.7 policy scheduler and all MaxDps-selected rotations
+  are unchanged, including optional Ext5 and secret-safe behavior.
+
 ## 4.8.0 Lightfoot — CPU/GC hot-path reduction
 
 - `ScreenSampler.cs`: one GDI BitBlt per capture, then direct five-tap

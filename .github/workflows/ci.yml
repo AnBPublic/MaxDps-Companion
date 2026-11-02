@@ -185,9 +185,9 @@ jobs:
           fi
 
   publish_candidate:
-    name: Publish Sentinel release-candidate ZIPs
+    name: Publish Slipstream release-candidate ZIPs
     needs: [windows, macos]
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/release/v4.8.0-lightfoot' }}
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/release/v4.9.0-slipstream' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -201,25 +201,26 @@ jobs:
       - name: Publish GitHub prerelease from the verified commit
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v4.8.0-rc.2
+          tag_name: v4.9.0-rc.1
           target_commitish: ${{ github.sha }}
-          name: MaxDPS Companion v4.8.0 Lightfoot (Release Candidate)
+          name: MaxDPS Companion v4.9.0 Slipstream (Release Candidate)
           prerelease: true
           draft: false
           generate_release_notes: false
           body: |
-            Lightfoot 4.8.0 — reduced hot-path overhead in Windows pixel
-            sampling and the in-game Lua ability pool. All 4.7 Sentinel
-            DPS/tank policy improvements, MaxDps core rotations and the
-            existing 51/58-cell wire are unchanged. Real WoW FPS and GPU
-            gains must be measured separately; offline CI cannot prove them.
+            Slipstream 4.9.0 — lossless thin-strip Windows capture. The
+            same single GDI BitBlt now reads only the rows used by the
+            five-point median. At 8px/58 cells, pixels copied per poll fall
+            from 3712 to 1392 (62.5%). GDI frame-sync costs remain and
+            actual WoW FPS, 1% lows and GPU gains require local measurement.
+            All Sentinel/Lightfoot policy and v5/Ext5 wire are preserved.
 
             Windows and addon ZIPs are below. Preserve your settings.ini
             and official MaxDps addon. For download, backup, install,
-            rollback and matched FPS tests read docs/HANDOVER-LIGHTFOOT-4.8.0.md.
+            rollback and matched FPS tests read docs/HANDOVER-SLIPSTREAM-4.9.0.md.
 
             Offline CI passed; LIVE WoW Retail verification is STILL OWED.
           files: |
-            release-output/MaxDpsCompanion-4.8.0-Lightfoot-win-x64.zip
-            release-output/MaxDpsCompanionBridge-4.8.0.zip
+            release-output/MaxDpsCompanion-4.9.0-Slipstream-win-x64.zip
+            release-output/MaxDpsCompanionBridge-4.9.0.zip
           fail_on_unmatched_files: true
