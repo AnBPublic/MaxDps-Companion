@@ -17,6 +17,23 @@ in [`../VERSION.txt`](../VERSION.txt) and `docs/archive/HANDOVER-history.md`.
 **51-cell / optional 58-cell v5 protocol**, all original class/spec
 MaxDps Main and per-ability user settings.
 
+### Consolidated critical-risk response
+
+- A second conservative **short-horizon** signal uses two valid
+  plain-HP readings 250–1200ms apart. A measured >=20-point loss
+  with player HP 36–65% may indicate risk of falling to <=35%
+  within the next second. This is an uncertain trend projection,
+  **not** an observation of secret or future incoming damage.
+- An already-offered major DR candidate can gain eligibility
+  at Yellow/Orange urgency under this risk; White/Unknown,
+  immunities, user OFF, cast safety and mitigation overlap remain
+  protected. The major Solo band can open early under this danger.
+- Solo self-heals may fire earlier within their *existing*
+  sustain and ability-specific HP ceilings. Group mode stays
+  conservative and never generates new party heals.
+- Short-horizon, sustained, and old rapid-pressure signals share
+  one bounded non-allocating sample scan.
+
 ### New: cross-spec observed survival intelligence
 
 - Bounded sustained HP pressure signal: 8+ percentage points lost

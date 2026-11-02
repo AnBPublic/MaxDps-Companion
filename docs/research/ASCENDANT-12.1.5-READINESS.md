@@ -32,7 +32,8 @@ Date: 2026-11-02.
 1. Rotation: Main is strictly MaxDps-led; not a hand-written
    second APL, no false proc/castability knowledge. Unlearned and
    unbound spells are filtered in the addon.
-2. Survival: observed rapid and sustained plain-HP pressure;
+2. Survival: observed rapid and sustained plain-HP pressure,
+   plus conservative short-horizon severe-loss projection;
    minor early mitigation only if own buff confirmed absent.
    Major, immunity and out-of-range still governed conservatively.
 3. Cooldowns: in opt-in Burst mode, when **measured** TTK is

@@ -6,7 +6,7 @@ Windows x64 WinUI3 plus WoW Bridge, 51/58-cell unchanged v5 protocol.
 ## Authoritative release and source
 
 - Branch: https://github.com/AnBPublic/MaxDps-Companion/tree/release/v5.0.0-ascendant
-- RC: https://github.com/AnBPublic/MaxDps-Companion/releases/tag/v5.0.0-rc.2
+- RC: https://github.com/AnBPublic/MaxDps-Companion/releases/tag/v5.0.0-rc.3
 - Companion: `MaxDpsCompanion-5.0.0-Ascendant-win-x64.zip`
 - Addon: `MaxDpsCompanionBridge-5.0.0.zip`
 - Changes: `docs/CHANGELOG.md`
@@ -20,9 +20,13 @@ branch build (Windows tests, Lua tests, macOS and audit) is green.**
 
 - Original MaxDps Main remains authoritative on DPS and tanks.
 - v5 measured sustained HP drop can enable minor mitigation when the
-  MaxDps defensive candidate's own buff is confirmed inactive. All
-  major and emergency safety gates remain intact. Unknown health and
-  hidden combat secrets must never generate fabricated decisions.
+  MaxDps defensive candidate's own buff is confirmed inactive.
+- v5 also examines a measured >=20 HP-point drop over 250–1200ms
+  and can *estimate* dangerous pressure in the next second. A
+  bound, already-offered major DR at Yellow/Orange urgency may
+  release early, and bounded Solo self-heals may respond earlier.
+  Immunities, personal OFF, secret/unknown health, active mitigation
+  and every cast-safety gate remain authoritative.
 - v5 **opt-in Burst** preset with measured short TTK may conserve
   >=90s major offensives in the per-spec curated candidate list.
   MaxDps Main is unchanged; non-listed offensives, boss-grade
@@ -43,7 +47,7 @@ branch build (Windows tests, Lua tests, macOS and audit) is green.**
    `settings.ini`, and
    `_retail_/Interface/AddOns/MaxDpsCompanionBridge/` plus WoW saved
    variables. Label these backups clearly for rollback.
-3. Download both verified `v5.0.0-rc.2` GitHub release archives.
+3. Download both verified `v5.0.0-rc.3` GitHub release archives.
    Unzip the Windows app into its **own NEW** directory; confirm
    `MaxDpsCompanion.exe` and `MaxDpsCompanion.pri`. Restore personal
    `settings.ini` only; never mix legacy DLLs or executables.

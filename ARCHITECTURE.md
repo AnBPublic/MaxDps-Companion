@@ -2,6 +2,10 @@
 
 ## 5.0.0 Ascendant — shared live-evidence policy, all-spec audit
 
+- The same low-allocation monitor can estimate a one-second risk
+  from >=20 points of *observed* health loss over 250–1200ms.
+  Confirmed offered major DR may trigger earlier at Yellow/Orange;
+  Solo-only early self-sustain stays inside curated HP limits.
 - `HealthPressureMonitor` now observes sustained HP loss over a
   bounded 2.8s window while preserving the prior rapid-hit window.
   The hot path uses no LINQ/delegate allocations and never infers

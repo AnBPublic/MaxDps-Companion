@@ -34,9 +34,9 @@ internal static class ReleaseNotes
             new[]
             {
                 "All 40 specializations inventoried by role and ability ownership, with honest older-patch and unverified spell coverage; inventory is not exhaustive live validation.",
-                "Shared sustained plain-health-pressure detector may promote MaxDps-offered, confirmed-unbuffed minor mitigation; major, unknown and immunity gates remain conservative.",
+                "Shared plain-health monitor promotes some minor mitigation under sustained loss and may release an offered major defensive during measured rapid critical-risk; never guesses immunity, secret or future damage.",
                 "In opt-in Burst mode, measured short target-lifetime conserves long 90s+ curated-list offensives; MaxDps Main remains untouched, but a directly offered offensive can overlap the list.",
-                "Health-pressure hot path no longer creates capturing RemoveAll/Any delegates on every poll.",
+                "One bounded low-allocation monitor handles existing rapid loss, sustained pressure and critical-risk projection without capturing RemoveAll/Any delegates per poll.",
                 "Targets WoW Retail Midnight 12.1.5 with addon TOC 120105, retaining honest 12.1 source provenance until refreshed and live-verified.",
                 "Solo/Group behavior, all user per-ability OFF switches, 51/58-cell protocol and 4.9 thin-strip screen capture are preserved.",
                 "Offline test coverage is not proof of perfect gameplay across leveling, talents, raids, dungeons, Delves or FPS; controlled live testing is mandatory.",
