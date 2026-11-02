@@ -10,6 +10,67 @@ Format: Keep a Changelog sections (`Added` / `Changed` / `Fixed` / `Removed`)
 per release, plus the identity + wire line. The complete pre-4.0 history lives
 in [`../VERSION.txt`](../VERSION.txt) and `docs/archive/HANDOVER-history.md`.
 
+## 5.0.0 Ascendant - 2026-11-02
+
+**Companion v5.0.0 / Bridge v5.0.0, Retail Midnight 12.1.5
+(interface 120105).** Full inherited 4.9/4.8/4.7 code. Unchanged
+**51-cell / optional 58-cell v5 protocol**, all original class/spec
+MaxDps Main and per-ability user settings.
+
+### New: cross-spec observed survival intelligence
+
+- Bounded sustained HP pressure signal: 8+ percentage points lost
+  across at least 900 ms, only from valid *plain* player health in combat.
+  Original rapid-hit rule (15 points in <=1.8s) continues.
+- With sustained pressure, a *MaxDps-offered, buff-trackable,
+  confirmed-unbuffed minor defensive* may be eligible at White
+  urgency when at 51–80% HP. Does NOT change major/immunity behavior,
+  use unknown/secret health to infer pressure or generate new bridge
+  suggestions. Active mitigation prevents redundant overlapping casts.
+- Health-pressure monitoring replaces `RemoveAll` and capturing
+  `Any` delegates with a small bounded loop to reduce 33ms-poll GC.
+
+### New: measured short-target offensive conservation
+
+- A 90s+ major *companion gap-fill* offensive can be held if the
+  current **valid measured** TTK is shorter than the curated minimum
+  for its use. No fabricated TTK from low HP; bosses, execute ranges,
+  unknown-TTK targets, shorter cooldowns and **MaxDps Main/direct
+  offensive recommendations** are unaffected.
+- Original Normal/Burst preset, Solo/Group policy, interrupt safety,
+  candidate ranking, keybind/macro checks and user ability overrides
+  remain in force. No speculative encounter automation.
+
+### New: 12.1.5 source-truthful all-class readiness audit
+
+- `SpecReadiness.Build` inventories **all 40 class/spec combinations**
+  (33 DPS/tank, 7 healer) and records role, known catalog membership,
+  MaxDps delegation, independent companion eligibility, manual rows,
+  incomplete intelligence and source metadata older than 12.1.5.
+- WoW addon TOC updated to **120105**. Host and addon identify as
+  Ascendant v5.0.0. The original *12.1* curated catalog and *11.3.49*
+  pinned MaxDps vendor source have NOT been silently relabeled as
+  12.1.5-verified. Old metadata remains visible; real talent/spec
+  testing and refresh are mandatory.
+- Same shared logic applies to world quests, outdoor, Delves and
+  Labyrinth, normal/heroic/mythic dungeons and raids. These are
+  **test targets**, not a claim of encounter-specific awareness or
+  guaranteed high-end clears. Healer spec inventory is not equivalent
+  to comprehensive ally-targeted healing support.
+
+### Regression, deployment and unverified requirements
+
+- C# tests added for full class/spec enumeration, role boundaries,
+  legacy source provenance, observed pressure and short-TTK guard.
+  Lua harness, ability audit, Windows + Core/Mac CI, release ZIPs.
+- Agent runbook: `docs/HANDOVER-ASCENDANT-5.0.0.md`; research and
+  outstanding QA: `docs/research/ASCENDANT-12.1.5-READINESS.md`.
+- **Not proven:** all 12.1.5 talents verified, all encounters/levels
+  flawless, zero game FPS impact, compatibility of automated inputs
+  with Blizzard rules, or highest Delve completion. These need
+  on-hardware and legal/terms verification; do not represent offline
+  tests as live certification.
+
 ## 4.9.0 Slipstream - 2026-11-02
 
 **Companion 4.9.0 Slipstream / bridge 4.9.0.** Screen-capture fast path:

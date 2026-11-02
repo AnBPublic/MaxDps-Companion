@@ -5,6 +5,19 @@ Read order: this file -> `ARCHITECTURE.md` -> `docs/PROTOCOL.md`. Full history
 [`docs/archive/HANDOVER-history.md`](docs/archive/HANDOVER-history.md); search it
 by release name or date before re-investigating an old problem.
 
+## 2026-11-02 RELEASE CANDIDATE 5.0.0 "ASCENDANT"
+
+- Based on v4.9.0 Slipstream, targeting Midnight 12.1.5 (TOC 120105).
+- Shared measured sustained-HP safety and short-TTK conservation
+  for companion long cooldowns, no change to MaxDps Main ordering.
+- Enumerates 40 specs with honest inventory/verification metadata;
+  older 12.1 curated source requires new 12.1.5 talent validation.
+- Group mode shares safety rules; per-encounter 100% automation,
+  flawless all-spec content and zero FPS impact remain unverified.
+- Read the full agent installation, rollback and live QA:
+  `docs/HANDOVER-ASCENDANT-5.0.0.md`.
+- Full notes: `docs/CHANGELOG.md`.
+
 ## 2026-11-02 RELEASE CANDIDATE 4.9.0 "SLIPSTREAM" — narrow GDI capture
 
 - Branch `release/v4.9.0-slipstream` directly based on 4.8 Lightfoot RC2.

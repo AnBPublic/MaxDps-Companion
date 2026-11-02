@@ -1,5 +1,25 @@
 # Architecture — MaxDps-Companion
 
+## 5.0.0 Ascendant — shared live-evidence policy, all-spec audit
+
+- `HealthPressureMonitor` now observes sustained HP loss over a
+  bounded 2.8s window while preserving the prior rapid-hit window.
+  The hot path uses no LINQ/delegate allocations and never infers
+  pressure from curve/unknown/secret HP.
+- `DefensiveCandidateProvider` can release a MaxDps-sourced minor
+  under sustained pressure only with a confirmed inactive own buff,
+  valid plain HP, 51–80% health and in-combat state. Existing
+  emergency, solo ladder and defensive overlap rules remain.
+- `TtkPolicy.ConserveLongGapFill` conserves optional 90s+
+  companion-offered major offensive gap-fills only on measurable
+  too-short nonboss TTK, preserving MaxDps Main direct decisions.
+- `SpecReadiness` covers all 40 specs by inventory, role, manual,
+  ownership, incomplete and older-patch metadata. A registry row
+  does NOT prove level/talent live compatibility.
+- Runtime target 12.1.5 (addon TOC 120105) is distinct from pinned
+  older 12.1 ability knowledge. v5 protocol cells and 4.9 native
+  cropped Windows capture are unchanged.
+
 ## 4.9.0 Slipstream — lossless narrow capture
 
 - `ScreenSampler.SampleCells` calls `CaptureRows(cellSize)` and creates
