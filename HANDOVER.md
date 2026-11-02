@@ -5,7 +5,23 @@ Read order: this file -> `ARCHITECTURE.md` -> `docs/PROTOCOL.md`. Full history
 [`docs/archive/HANDOVER-history.md`](docs/archive/HANDOVER-history.md); search it
 by release name or date before re-investigating an old problem.
 
-## 2026-11-02 RELEASE CANDIDATE 4.9.0 "SLIPSTREAM" — narrow GDI capture
+## 2026-11-02 RELEASE CANDIDATE 5.0.0 Vanguard
+
+- Branch `release/v5.0.0-vanguard` directly based on 4.9 Slipstream.
+- Cross-spec bounded HP trend; existing major DR can respond earlier
+  in both group and solo with trustworthy observed pressure.
+- Solo-only early self-sustain respects ability-specific HP ceilings.
+- Registry inventory and 40-spec gate distinguish actual live-verified
+  vs delegated/manual/pending entries.
+- Addon interface set to current Retail 120105; original vendor
+  spell data still pinned to 12.1 / MaxDps 11.3.49.
+- Existing wire, MaxDps Main, user OFF, and 4.7–4.9 performance
+  and defensive safeguards preserved.
+- Guides `docs/V5-COVERAGE-AND-VALIDATION.md` and
+  `docs/HANDOVER-VANGUARD-5.0.0.md`. All group/raid/dungeon and
+  level 1-90 claims require live evidence; do not merge pre-validation.
+
+## 2026-11-02 RELEASE CANDIDATE 4.9.0## 2026-11-02 RELEASE CANDIDATE 4.9.0 "SLIPSTREAM" — narrow GDI capture
 
 - Branch `release/v4.9.0-slipstream` directly based on 4.8 Lightfoot RC2.
 - Windows `ScreenSampler.CaptureRows` trims the native single BitBlt to the

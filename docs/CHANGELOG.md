@@ -10,6 +10,85 @@ Format: Keep a Changelog sections (`Added` / `Changed` / `Fixed` / `Removed`)
 per release, plus the identity + wire line. The complete pre-4.0 history lives
 in [`../VERSION.txt`](../VERSION.txt) and `docs/archive/HANDOVER-history.md`.
 
+## 5.0.0 Vanguard - 2026-11-02
+
+**Windows Companion v5.0.0 / In-game Bridge v5.0.0.**
+Major cross-spec survival and release-validation update for current Retail
+Midnight **12.1.5**. An offline candidate, not a flawless-play certification.
+The **wire protocol remains v5** (51 cells + optional 58-cell Ext5).
+
+### New: universal measured-pressure intelligence
+
+- A bounded 1-second extrapolation from actual trusted plain player HP
+  observations (250-1200ms apart, drop >=20 points) signals possible
+  danger when player HP is 36-65% and projected HP is <=35%.
+  It does not read combat-secret values, cast school or enemy intention.
+- Existing **Major damage reduction** candidates may respond earlier in
+  Solo **and** Group with measured danger and Yellow/Orange urgency.
+  No new unbound candidates, spontaneous immunities or guessed utility.
+  Existing spell prerequisites, explicit user OFF, overlapping defensive
+  state, context and cast safety remain authoritative.
+- In Solo, suitable self-heals can respond early to measured rapid decline,
+  but only under the Solo sustain ceiling and each spell's own HP use cap;
+  Group still preserves the existing emergency self-heal rule.
+- Shared across all DPS and tank specs; the underlying existing
+  MaxDps rotation source and 4.7-4.9 optimizations are unchanged.
+
+### New: 40-specialization accountability
+
+- `SpecCoverageMatrix` enumerates **13 classes / 40 specs: 27 DPS, six
+  tanks and seven healers**. Reports registered spells, verified-live
+  coverage, delegated MaxDps entries, research-pending, manual abilities,
+  known spellbook records and talent annotations separately.
+- New C# tests confirm every spec appears, test role classifications,
+  preserve user OFF and Main authority, and simulate secret/unknown/curve
+  HP reset across all 40 specs.
+- A clean old registry audit is no longer conflated with live patch
+  certification: `CurrentPatchLiveVerified` explicitly stays false
+  while patch provenance or live evidence is missing.
+
+### Updated: Retail 12.1.5 targeting and accurate provenance
+
+- In-game addon `.toc`: **120105**. Synchronized addon, Windows,
+  Core/Mac and release ZIP identity: **v5.0.0 Vanguard**.
+- `AbilityCatalog.TargetRetailPatch = 12.1.5`, but embedded
+  `ExpectedGamePatch = 12.1`, pinned MaxDps vendor **11.3.49**,
+  and original `120100` catalog research metadata remain truthful.
+  Do not relabel source spells/talents as verified 12.1.5 without
+  generating a newly audited vendor snapshot.
+- The bridge continues the existing per-tick known/ready/bound
+  inspection for leveling and talent switching; an inventory of
+  spells does **not** guarantee their optimal decision behavior.
+
+### 7-point acceptance and all content: status
+
+- **Main rotation:** MaxDps authority maintained; full 12.1.5
+  vendor parity and each leveling/talent loadout need live testing.
+- **Survival:** measured anticipation added; encounter-specific
+  damage and hidden values remain unobservable.
+- **Cooldowns:** TTK and optional Burst preset retained; no automatic
+  full encounter-script knowledge or perfect cooldown guarantee.
+- **Interrupt/utility:** existing validated-signal/CC vetoes retained;
+  no blind automated interrupt where signal is unknown.
+- **Modes:** Solo survival bias; Group/raid conservative use and user
+  ability ON/OFF carried over. Group Mythic+, dungeon, raid, story,
+  world/Aqir invasion, Delve and Labyrinth need separate playtests.
+- **Performance:** 4.8 Lua/CPU/GC and 4.9 thin-strip BitBlt
+  preserved. FPS and p99 reduction still require real measurements.
+- **Specs:** all 40 have inventory tests, not all spells or hero
+  talents live verified. No assurance of flawless level 1-90
+  operation or highest-tier Delve clearance.
+
+**Agent verification and regression matrix:**
+`docs/V5-COVERAGE-AND-VALIDATION.md`.
+**Deployment and rollback guide:**
+`docs/HANDOVER-VANGUARD-5.0.0.md`.
+**Known limitation:** companion-initiated input automation requires
+independent review against Blizzard rules; release CI is not a
+game-account authorization or guarantee of compliant operation.
+
+## 4.9.0 Slipstream - 2026-11-02
+
 ## 4.9.0 Slipstream - 2026-11-02
 
 **Companion 4.9.0 Slipstream / bridge 4.9.0.** Screen-capture fast path:

@@ -1,6 +1,27 @@
 # Architecture — MaxDps-Companion
 
-## 4.9.0 Slipstream — lossless narrow capture
+## 5.0.0 Vanguard — shared observed-pressure intelligence
+
+- `PolicyMemory.HealthPressure` maintains the one shared observed HP
+  window. `CriticalSoon` and `ProjectedHpPct` use plain exact
+  HP only, at >=250ms and <=1200ms separation, >=20 points loss
+  and a bounded 1-second projection (observed current 36–65%,
+  projected <=35%). No extra game API, secret-value arithmetic
+  or per-tick allocation in the new loop.
+- `DefensiveCandidateProvider` can advance an **existing**
+  major mitigation under Yellow/Orange urgency in both Solo and
+  Group/raid. This does not create new candidates or override
+  user disables, unknown urgency, spell hard caps or immunity policy.
+- `SelfSustainCandidateProvider` uses the trend only in Solo
+  mode within curated per-spell HP caps. Existing Group emergency
+  heals are untouched. MaxDps main priority remains authoritative.
+- `SpecCoverageMatrix` is audit-only; its ability counts are not
+  runtime use authorization or proof of learned/talented spells.
+- `TargetRetailInterface=120105` is distinct from the
+  source registry interface 120100. Wire v5/Ext5 and 4.9
+  narrow BitBlt implementation unchanged.
+
+## 4.9.0 Slipstream — lossless narrow capture## 4.9.0 Slipstream — lossless narrow capture
 
 - `ScreenSampler.SampleCells` calls `CaptureRows(cellSize)` and creates
   a DIB height of at most 3 pixels (for 3px+ cells). The sampled screen
