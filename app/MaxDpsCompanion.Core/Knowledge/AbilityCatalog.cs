@@ -41,6 +41,11 @@ internal sealed class AbilityCatalog
     /// </summary>
     public const string ExpectedGamePatch = "12.1";
 
+    /// <summary>The runtime target; older pinned source data is NOT falsely
+    /// stamped as verified against 12.1.5.</summary>
+    public const string TargetRuntimeGamePatch = "12.1.5";
+    public const int TargetRuntimeInterfaceVersion = 120105;
+
     /// <summary>Expected interface version for <see cref="ExpectedGamePatch"/>.</summary>
     public const int ExpectedInterfaceVersion = 120100;
 
