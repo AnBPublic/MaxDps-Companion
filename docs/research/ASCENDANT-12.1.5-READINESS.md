@@ -62,3 +62,23 @@ Date: 2026-11-02.
   Record limitations from WoW's unobservable secret states.
 - Validate any combat-input automation separately against game
   policy; never interpret passing tests as permission.
+
+## Newly checked current vendor source — 2026-11-02
+
+CurseForge's live Retail download list explicitly identifies **MaxDps
+Rotation Helper v11.3.58** as a release for **12.1.5**, uploaded
+2026-11-01:
+https://www.curseforge.com/wow/addons/maxdps-rotation-helper/files/all?gameVersionTypeId=517&page=1
+
+The embedded vendor pin **11.3.49** is therefore superseded. Do NOT
+claim an exhaustive talent, cooldown, proc or ability audit for v5
+until the complete 11.3.58 spell/rotation source is freshly extracted,
+diffed for all 40 specs, passed through the DB2/curation generator and
+live-tested. Devourer changes in 12.1.5 include Collapsing Star,
+Void-Scarred interactions, Soulforged Blades and Voidpurge:
+https://worldofwarcraft.blizzard.com/en-us/news/24304162/
+
+This v5 candidate deliberately preserves MaxDps authority instead of
+guessing new talent mechanics. Updating the live official MaxDps addon
+on the user's machine is distinct from re-pinning this Companion's
+embedded cooldown and catalog sources.

@@ -92,3 +92,12 @@ measurements, not estimates. Keep PR draft until approval.
   gear and mechanics as well as ability advice.
 - MMO combat input automation may breach game terms. This artifact
   is a testing release; verify account risk before enabling it.
+
+## Current upstream-source follow-up
+
+As of 2026-11-01, CurseForge lists official MaxDps Rotation Helper
+**v11.3.58 for Retail 12.1.5**. This source repository retains
+v11.3.49: any agent claiming 100% talent support must first obtain,
+audit, regenerate and test the actual v11.3.58 source and verify the
+12.1.5 class changes. Do **not** simply update catalog/version strings
+or claim full v5 certification on the basis of existing 12.1 rows.
