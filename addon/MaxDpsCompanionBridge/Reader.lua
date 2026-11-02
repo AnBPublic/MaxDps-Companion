@@ -459,6 +459,8 @@ local Tick = {
   Gen = 0, Flags = nil, FlagsOwner = nil, Items = nil,
   Class = nil, ClassFile = nil, Spec = nil, SpecID = nil,
   Active = false,
+  PlayerHpRead = false, PlayerHpValue = nil,
+  StaggerRead = false, StaggerValue = nil,
   Variants = {}, Known = {}, Ready = {}, Pools = {},
 };
 
@@ -466,11 +468,17 @@ local Tick = {
 -- stored as a table value).
 local NIL_MEMO = {};
 
-function MDCB.BeginTick ()
+function MDCB.BeginTick (PreReadHp, HpWasRead)
   Tick.Gen = Tick.Gen + 1;
   Tick.Flags, Tick.FlagsOwner, Tick.Items = nil, nil, nil;
   Tick.Class, Tick.ClassFile, Tick.Spec, Tick.SpecID = nil, nil, nil, nil;
   Tick.Active = true;
+  -- Bridge has already read the player's HP for its toggle context.
+  -- Remember even UNKNOWN (nil): one game-thread health probe per frame.
+  -- Diagnostic/test callers with no arguments still probe on demand.
+  Tick.PlayerHpRead = (HpWasRead == true);
+  Tick.PlayerHpValue = PreReadHp;
+  Tick.StaggerRead, Tick.StaggerValue = false, nil;
   -- Reuse the memo tables (no per-tick allocation); clearing the fields keeps
   -- the GC flat, which is the whole point of the memo.
   wipe(Tick.Variants);
@@ -1618,7 +1626,12 @@ local function HealthPct (Unit)
 end
 
 function MDCB.GetPlayerHpPct ()
-  return HealthPct("player");
+  if Tick.Active and Tick.PlayerHpRead then return Tick.PlayerHpValue; end
+  local Pct = HealthPct("player");
+  if Tick.Active then
+    Tick.PlayerHpValue, Tick.PlayerHpRead = Pct, true;
+  end
+  return Pct;
 end
 
 function MDCB.GetTargetHpPct ()
@@ -2265,7 +2278,7 @@ end
 -- Stagger fraction (UnitStagger / UnitHealthMax) through the reversed curve.
 -- Both reads are pcall-contained and scrubbed; anything not a plain number
 -- degrades to UNKNOWN (0).
-function MDCB.GetStaggerUrgency ()
+local function ReadStaggerUrgency ()
   if type(UnitStagger) ~= "function" or type(UnitHealthMax) ~= "function" then
     return URGENCY_UNKNOWN;
   end
@@ -2279,6 +2292,17 @@ function MDCB.GetStaggerUrgency ()
     return URGENCY_UNKNOWN;
   end
   return UrgencyFromStagger(PlainStagger / PlainMax);
+end
+
+-- One stagger probe per bridge tick, including UNKNOWN. Outside BeginTick,
+-- diagnostics and direct addon callers get the original live sensor reading.
+function MDCB.GetStaggerUrgency ()
+  if Tick.Active and Tick.StaggerRead then return Tick.StaggerValue; end
+  local Urgency = ReadStaggerUrgency();
+  if Tick.Active then
+    Tick.StaggerValue, Tick.StaggerRead = Urgency, true;
+  end
+  return Urgency;
 end
 
 -- The urgency MaxDps would render for this spell. Purifying Brew (119582) is

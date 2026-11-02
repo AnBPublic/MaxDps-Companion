@@ -12,7 +12,8 @@ by release name or date before re-investigating an old problem.
 - Windows `ScreenSampler.cs`: direct DIB color reads (one BitBlt, five
   taps, no per-cell delegates), original independent arrays retained.
 - Lua `Reader.lua`: one bounded curated rotation array instead of
-  intermediate sub-lists; FrameKey consumes the same scrubbed HP from Bridge.
+  intermediate sub-lists; player HP and stagger urgency are each memoized
+  once per tick (including nil/UNKNOWN) without caching across ticks.
 - Lua `Bridge.lua`: shared Solo ladder thresholds table across ticks.
 - No MaxDps vendor changes or new DPS/tank behavior. Offline tests do
   NOT establish real WoW FPS improvement.

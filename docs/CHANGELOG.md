@@ -38,6 +38,11 @@ MaxDps Main rotation and protocol v5 (51 cells, optionally 58 with Ext5).
   calls and unknown-HP contexts retain the old per-call probe and UNKNOWN handling.
 - Solo defensive threshold table allocated once, rather than every
   ~33 ms while Solo is enabled and ungrouped.
+- Per-tick player HP is seeded from the bridge's already-observed safe HP
+  result; every further same-tick query returns that value (including UNKNOWN)
+  with no additional UnitHealth/UnitHealthMax calls. Stagger urgency is
+  similarly memoized (including UNKNOWN), reducing duplicate UnitStagger and
+  UnitHealthMax probes. Direct out-of-tick calls remain live.
 
 ### Packaging and verification
 

@@ -70,8 +70,10 @@ workaround; only vary one setting per A/B diagnostic and restore it.
   indirect delegate calls; direct five-point median from existing DIB.
   One BitBlt remains and returned Color[] retains snapshot semantics.
 - `addon/MaxDpsCompanionBridge/Reader.lua`: curated candidate walks append
-  directly into the final capped array. FrameKey reuses known current-tick HP,
-  and falls back to a live read on unknown/omitted HP (including legacy callers).
+  directly into the final capped array. Bridge seeds a one-tick safe HP memo
+  (including UNKNOWN); all subsequent same-tick HP reads share it. Stagger
+  urgency has the same per-tick cache. Diagnostic calls outside BeginTick
+  always read the current game API values.
 - `addon/MaxDpsCompanionBridge/Bridge.lua`: one shared Solo ladder table.
 - Version identifiers, `ReleaseNotes.cs`, `docs/CHANGELOG.md`, CI and
   application/bridge metadata updated. Retains complete Sentinel behavior

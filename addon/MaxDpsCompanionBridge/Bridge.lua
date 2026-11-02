@@ -1307,7 +1307,7 @@ local function Update (self, Delta)
 
   -- PERF: reset the per-tick memo ONCE per update (the slot getters share
   -- one Flags scrub, one item map and one class/spec resolve per tick).
-  if MDCB.BeginTick then MDCB.BeginTick(); end
+  if MDCB.BeginTick then MDCB.BeginTick(Ctx.HpPct, true); end
 
   -- v3.5 rotation clock + defensive pin. The pin reads the HP urgency before
   -- the scan (the wire urgency later is identity-aware); a secret HP stays
