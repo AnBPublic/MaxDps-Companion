@@ -29,6 +29,18 @@ internal static class ReleaseNotes
     public static readonly IReadOnlyList<Release> All = new[]
     {
         new Release(
+            "5.0.0", "Vanguard", "2026-11-02",
+            "Cross-spec survival forecasting and Midnight 12.1.5 runtime readiness.",
+            new[]
+            {
+                "The 1-second health-pressure forecast uses at least two trustworthy plain HP readings, bounded to 1200ms; secret/curve-only observations never predict.",
+                "Major damage reduction may respond earlier to measured imminent danger under Yellow/Orange urgency, while user OFF, valid candidates, mitigation overlap, spell limits and MaxDps Main remain respected.",
+                "Solo self-heals may respond to dangerous HP declines before the fixed HP threshold, while their own curated HP ceilings remain mandatory.",
+                "All 40 spec identities (33 DPS/tanks and 7 healers) now have audited coverage-contract tests, without misrepresenting modeled or delegated spells as live-verified.",
+                "Live Midnight 12.1.5 addon interface 120105 is updated; the older MaxDps 11.3.49 / 12.1 spell registry stays accurately labeled and requires patch revalidation.",
+                "All 4.7-4.9 reliability, narrow-strip GPU capture area, Lua performance improvements and protocol v5 with optional Ext5 are preserved. Full leveling/talent/Delve and FPS claims require live test.",
+            }),
+        new Release(
             "4.9.0", "Slipstream", "2026-11-02",
             "Copy only three pixel rows per screen poll, preserving every rotation sample.",
             new[]

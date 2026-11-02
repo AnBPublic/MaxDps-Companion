@@ -1,3 +1,16 @@
+5.0.0
+Date: 2026-11-02 - "Vanguard"
+Companion 5.0.0 / Bridge 5.0.0 for Retail Midnight 12.1.5.
+- Bounded trusted plain-HP one-second danger forecast across all specs;
+  earlier major damage reduction and SOLO self-sustain when eligible.
+- 40-spec audited discovery inventory, explicit healer role and source
+  confidence; no false current-patch skill/talent certification.
+- 12.1.5 addon interface 120105; vendor knowledge still pinned to
+  MaxDps 11.3.49 and patch 12.1, pending independent refresh.
+- User OFF, no speculative immunities, MaxDps Main and protocol v5 stay.
+- All 4.7-4.9 performance and reliability layers preserved.
+- Live 1-90 talents, Tier 11 Delve and FPS still unverified.
+
 4.9.0
 Date: 2026-11-02 - "Slipstream"
 Companion 4.9.0 "Slipstream" / bridge 4.9.0 (lossless capture optimization).

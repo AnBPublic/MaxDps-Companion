@@ -1,3 +1,11 @@
+5.0.0
+date: 2026-11-02 "Vanguard"
+interface: 120105 (Retail Midnight 12.1.5)
+protocol: unchanged v5 + Ext2/Ext3/Ext4 + optional Ext5 (51/58 cells)
+v5 bridge: synchronized companion identity and 12.1.5 .toc.
+           MaxDps owns Main; learned/talented/bound/readiness checks retained.
+Vendor pin: MaxDps 11.3.49, 12.1 source; 12.1.5 revalidation OWED.
+
 4.9.0
 date: 2026-11-02 "Slipstream"
 git: v4.9.0-rc.1 (companion) / bridge 4.9.0
