@@ -8,7 +8,7 @@ Companion 4.8.0 "Lightfoot" / bridge 4.8.0 (performance candidate).
   FrameKey reuses the already-observed HP; Solo bands static.
 - Shared Sentinel 4.7 cooldown intelligence / all-class Main intact.
 - Same BitBlt and capture cadence; no FPS gain claimed without live A/B.
-- Download: GitHub prerelease v4.8.0-rc.1, two ZIPs.
+- Download: GitHub prerelease v4.8.0-rc.2, two ZIPs.
 
 4.7.0
 Date: 2026-11-01 - "Sentinel"

@@ -201,7 +201,7 @@ jobs:
       - name: Publish GitHub prerelease from the verified commit
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v4.8.0-rc.1
+          tag_name: v4.8.0-rc.2
           target_commitish: ${{ github.sha }}
           name: MaxDPS Companion v4.8.0 Lightfoot (Release Candidate)
           prerelease: true

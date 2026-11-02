@@ -6,7 +6,7 @@ WinUI 3 companion + in-game `MaxDpsCompanionBridge`. **Codename:** Lightfoot.
 ## Exact GitHub release assets
 
 Release page:
-https://github.com/AnBPublic/MaxDps-Companion/releases/tag/v4.8.0-rc.1
+https://github.com/AnBPublic/MaxDps-Companion/releases/tag/v4.8.0-rc.2
 
 - Windows companion: `MaxDpsCompanion-4.8.0-Lightfoot-win-x64.zip`
 - Addon: `MaxDpsCompanionBridge-4.8.0.zip`
@@ -83,7 +83,7 @@ workaround; only vary one setting per A/B diagnostic and restore it.
 
 ## Copyable next-agent instruction
 
-Download the two exact `v4.8.0-rc.1` assets from the GitHub release above
+Download the two exact `v4.8.0-rc.2` assets from the GitHub release above
 ONLY after checking successful CI. Read this handover, back up matching 4.7
 companion/bridge and preserve settings.ini. Install both 4.8 ZIPs into the
 appropriate PC/retail-addon folders; leave official MaxDps alone. Verify

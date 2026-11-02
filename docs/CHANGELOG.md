@@ -46,9 +46,13 @@ MaxDps Main rotation and protocol v5 (51 cells, optionally 58 with Ext5).
 
 ### Packaging and verification
 
+- RC1 was cut from an earlier source commit; **RC2** matches the final
+  per-tick HP/stagger memoization and is the download target. Do not
+  deploy RC1 as the finished 4.8 package.
+
 - Application and in-game addon version/codename updated together.
 - Successful Windows/macOS CI builds + Lua harness, compiler and
-  ability audit publish both ZIPs in `v4.8.0-rc.1`.
+  ability audit publish both ZIPs in `v4.8.0-rc.2`.
 - **No measured FPS, CPU or GPU improvement is claimed.** In-game A/B
   comparing Sentinel vs Lightfoot under matched scene/settings is OWED;
   see `docs/HANDOVER-LIGHTFOOT-4.8.0.md`.
