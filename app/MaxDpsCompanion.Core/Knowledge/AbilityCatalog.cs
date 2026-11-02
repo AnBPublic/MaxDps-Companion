@@ -44,6 +44,14 @@ internal sealed class AbilityCatalog
     /// <summary>Expected interface version for <see cref="ExpectedGamePatch"/>.</summary>
     public const int ExpectedInterfaceVersion = 120100;
 
+    // LIVE client target (not the pinned research provenance).
+    // The old 12.1 MaxDps 11.3.49 spell snapshot is deliberately not
+    // misrepresented as fully verified against 12.1.5.
+    public const string TargetRetailPatch = "12.1.5";
+    public const int TargetRetailInterface = 120105;
+    public static bool NeedsPatchRevalidation =>
+        !string.Equals(ExpectedGamePatch, TargetRetailPatch, StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Pinned MaxDps vendor snapshot the registry was extracted from/checked against.</summary>
     public const string ExpectedMaxDpsVersion = "11.3.49";
 

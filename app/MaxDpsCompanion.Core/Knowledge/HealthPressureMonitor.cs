@@ -14,6 +14,15 @@ internal sealed class HealthPressureMonitor
     private readonly List<(long AtMs, int HpPct)> _samples = [];
 
     public bool FallingFast { get; private set; }
+    // v5: advisory, bounded projection from two measured PLAIN HP values.
+    // Unknown/curve-only HP, stale samples and out-of-combat reset it.
+    public bool CriticalSoon { get; private set; }
+    public int? ProjectedHpPct { get; private set; }
+    public int ObservedDropPct { get; private set; }
+    internal const int ProjectionWindowMs = 1200;
+    internal const int ProjectionHorizonMs = 1000;
+    internal const int MinimumCriticalDropPct = 20;
+
 
     public void Observe(CombatContext context, bool inCombat, long nowMs)
     {
@@ -33,6 +42,24 @@ internal sealed class HealthPressureMonitor
             nowMs - sample.AtMs >= MinObservationMs
             && sample.HpPct - context.HpPct >= MinDropPct);
 
+        CriticalSoon = false;
+        ProjectedHpPct = null;
+        ObservedDropPct = 0;
+        // Constant-size list, integer-only arithmetic and zero per-tick
+        // allocation. The original FallingFast observation stays intact.
+        foreach (var sample in _samples)
+        {
+            var elapsed = nowMs - sample.AtMs;
+            if (elapsed < MinObservationMs || elapsed > ProjectionWindowMs) continue;
+            var drop = sample.HpPct - context.HpPct;
+            if (drop < MinimumCriticalDropPct || drop <= ObservedDropPct) continue;
+            ObservedDropPct = drop;
+            var projected = Math.Clamp(context.HpPct
+                - (int)(drop * (long)ProjectionHorizonMs / elapsed), 0, 100);
+            ProjectedHpPct = projected;
+            CriticalSoon = context.HpPct is > 35 and <= 65 && projected <= 35;
+        }
+
         // Sample no more than five times a second even at high polling rates.
         if (_samples.Count == 0 || nowMs - _samples[^1].AtMs >= 200)
             _samples.Add((nowMs, context.HpPct));
@@ -42,6 +69,9 @@ internal sealed class HealthPressureMonitor
     {
         _samples.Clear();
         FallingFast = false;
+        CriticalSoon = false;
+        ProjectedHpPct = null;
+        ObservedDropPct = 0;
     }
 }
 
