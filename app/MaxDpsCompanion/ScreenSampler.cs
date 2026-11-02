@@ -283,8 +283,10 @@ internal sealed class ScreenSampler : IDisposable
             Native.DeleteDC(_memoryDc);
 
         _bitmap = _memoryDc = _previous = _bits = IntPtr.Zero;
+        // Preserve _sourceRowOffset: the BitBlt failure path calls Reset()
+        // mid-sample and then retries with this same cropped geometry.
+        // SampleCells overwrites the offset on every new capture.
         _bitmapSize = Size.Empty;
-        _sourceRowOffset = 0;
     }
 
     public void Dispose() => Reset();
