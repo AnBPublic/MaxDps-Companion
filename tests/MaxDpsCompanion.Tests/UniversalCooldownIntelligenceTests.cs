@@ -136,6 +136,22 @@ public class UniversalCooldownIntelligenceTests
     }
 
     [Fact]
+    public void Ascendant_Sustained_Health_Loss_Releases_Verified_Minor_For_Tank()
+    {
+        var stable = Context(75, "WARRIOR", "Protection", DefensiveUrgency.White, buffInactive: true);
+        Assert.Equal(PolicyVerdict.Hold, Evaluate(Slot.Defensive, 2565, stable).Verdict);
+        var memory = new PolicyMemory();
+        memory.HealthPressure.Observe(Context(92), true, 9000);
+        memory.HealthPressure.Observe(stable, true, 10_000);
+        Assert.True(memory.HealthPressure.SustainedPressure);
+        Assert.Equal(PolicyVerdict.Use, Evaluate(Slot.Defensive, 2565, stable, memory).Verdict);
+
+        // No early mitigation on missing buff proof, never fake state.
+        Assert.Equal(PolicyVerdict.Hold, Evaluate(Slot.Defensive, 2565,
+            Context(75, "WARRIOR", "Protection", DefensiveUrgency.White), memory).Verdict);
+    }
+
+    [Fact]
     public void BossGrade_Ext5_Allows_OptIn_Burst_Without_Ttk_For_Dps_And_Tank()
     {
         foreach (var spec in new[] { "Arms", "Protection" })
