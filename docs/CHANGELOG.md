@@ -35,7 +35,7 @@ MaxDps Main rotation and protocol v5 (51 cells, optionally 58 with Ext5).
   checks remain as before.
 - FrameKey uses Bridge's current-tick prevalidated HP field when passed
   a context, avoiding a duplicate protected API call; direct no-context
-  calls retain the old per-call probe and UNKNOWN handling.
+  calls and unknown-HP contexts retain the old per-call probe and UNKNOWN handling.
 - Solo defensive threshold table allocated once, rather than every
   ~33 ms while Solo is enabled and ungrouped.
 

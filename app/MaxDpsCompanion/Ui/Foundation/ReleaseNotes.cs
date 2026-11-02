@@ -35,7 +35,7 @@ internal static class ReleaseNotes
             {
                 "Windows samples the same five tap locations directly from the mapped DIB, avoiding delegate invocations and per-cell closures while retaining one BitBlt per poll.",
                 "The in-game bridge now appends curated ready/bound abilities directly into a capped pool; no temporary sub-list or per-pool append closure.",
-                "FrameKey reuses the bridge tick's already-read safe HP value instead of a second API probe; no-context callers retain their own live read.",
+                "FrameKey reuses the bridge tick's already-read safe HP value instead of a second API probe; no-context or unknown-HP callers retain their live fallback.",
                 "The Solo HP ladder reuses one threshold table; no per-tick table allocation.",
                 "All Sentinel DPS/tank cooldown policies, main rotation ordering, per-ability controls and 51/58-cell wire are unchanged.",
                 "Offline CI verifies build/regression stability. FPS, frametimes and GPU utilization require separate controlled Retail A/B testing.",

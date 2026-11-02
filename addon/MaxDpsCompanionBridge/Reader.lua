@@ -2637,8 +2637,10 @@ function MDCB.FrameKey (Ctx)
   -- tick the player took damage, forcing a full slot rescan for no decision
   -- change; these folds flip exactly when a branch in the scan flips.
   local Hp = nil;
-  if type(Ctx) == "table" then
-    -- Already read by the Bridge this tick; UNKNOWN remains nil.
+  if type(Ctx) == "table" and type(Ctx.HpPct) == "number" then
+    -- Bridge supplies a pre-scrubbed plain value on healthy frames.
+    -- Direct callers or secret/unknown frames retain the live fallback,
+    -- preserving HP-edge invalidation across all legacy call sites.
     Hp = Ctx.HpPct;
   else
     local OkHp, Pct = pcall(MDCB.GetPlayerHpPct);

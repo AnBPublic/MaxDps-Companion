@@ -70,7 +70,8 @@ workaround; only vary one setting per A/B diagnostic and restore it.
   indirect delegate calls; direct five-point median from existing DIB.
   One BitBlt remains and returned Color[] retains snapshot semantics.
 - `addon/MaxDpsCompanionBridge/Reader.lua`: curated candidate walks append
-  directly into the final capped array, and FrameKey reuses current-tick HP.
+  directly into the final capped array. FrameKey reuses known current-tick HP,
+  and falls back to a live read on unknown/omitted HP (including legacy callers).
 - `addon/MaxDpsCompanionBridge/Bridge.lua`: one shared Solo ladder table.
 - Version identifiers, `ReleaseNotes.cs`, `docs/CHANGELOG.md`, CI and
   application/bridge metadata updated. Retains complete Sentinel behavior

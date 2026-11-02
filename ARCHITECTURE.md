@@ -8,8 +8,8 @@
   with one Seen table per refresh. No intermediate Found list or Append
   closure. MaxDps's flagged priority and readiness filters are identical.
 - `Reader.FrameKey` with a tick context consumes its pre-observed,
-  sanitized player HP (nil means UNKNOWN). Without a context it still
-  reads player HP itself. `Bridge.lua` shares immutable Solo bands.
+  sanitized player HP. When that value is missing/unknown (or no context
+  was supplied), the original live HP probe remains. `Bridge.lua` shares immutable Solo bands.
 - The existing 33 ms bridge cadence, companion poll timer, protocol and
   policy scheduler remain unchanged. Real frame-time comparisons remain owed.
 
