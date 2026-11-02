@@ -267,6 +267,14 @@ internal sealed class OffensiveCandidateProvider : ICandidateProvider
         if (ability.HoldWhenBuffActive && ctx.SlotBuffActive[slot] == TriState.Yes)
             return D(PolicyDecision.Skip("ability's own buff already active"), src, "own buff already active");
 
+        // v5: conserve only independently offered LONG companion cooldowns
+        // when measured TTK proves that a non-boss target is nearly dead.
+        // MaxDps Main/direct cooldown suggestions never enter this hold.
+        if (TtkPolicy.ConserveLongGapFill(ability, ctx, gapFill))
+            return D(PolicyDecision.Hold(
+                    $"target dies in ~{ctx.TtkSec:0.#}s; saving long companion cooldown {ability.Name}"),
+                src, $"measured TTK {ctx.TtkSec:0.#}s < {TtkPolicy.MinTtkSec(ability):0.#}s");
+
         // Stream 3 preset (restrict-only, default Full = no-op): Burst conserves
         // major offensive cooldowns until the target's TTK is measurable. The
         // preset only ever HOLDs; an invalid TTK (including TimeToKill off) is
@@ -475,11 +483,24 @@ internal sealed class DefensiveCandidateProvider : ICandidateProvider
             && input.Slot == Slot.Defensive && !ctx.DefensiveCatalogSource
             && input.InCombat && ctx.HpValid && ctx.HpPct >= 90;
 
+        // v5: early minor mitigation ONLY with an observed sustained drop,
+        // and only a MaxDps-suggested buff-trackable ability whose buff is
+        // certainly absent. Never promote majors, immunity or curve-only HP.
+        var earlyMinor = input.InCombat && ctx.ContextValid
+            && ctx.HpSource == HpSource.Plain && ctx.HpValid
+            && ctx.HpPct is > 50 and <= 80
+            && input.Memory.HealthPressure.SustainedPressure
+            && ability.Purpose == AbilityPurpose.DefensiveMinor
+            && ability.Tier == DefensiveTier.Minor && ability.HoldWhenBuffActive
+            && input.Slot == Slot.Defensive && !ctx.DefensiveCatalogSource
+            && ctx.BuffProbeValid && ctx.SlotBuffActive[slot] == TriState.No
+            && urgency == DefensiveUrgency.White;
+
         if (!emergency && !soloEsc)
         {
-            if (urgency == DefensiveUrgency.White && !maintenance)
+            if (urgency == DefensiveUrgency.White && !maintenance && !earlyMinor)
                 return D(PolicyDecision.Hold("white defensive urgency (MaxDps renders no glow); holding"), src, "urgency White (MaxDps renders no glow)");
-            var required = maintenance ? DefensiveUrgency.White
+            var required = maintenance || earlyMinor ? DefensiveUrgency.White
                 : ability.Purpose is AbilityPurpose.Escape or AbilityPurpose.Movement
                     or AbilityPurpose.External
                     ? DefensiveUrgency.Red

@@ -8,12 +8,17 @@ namespace MaxDpsCompanion;
 /// </summary>
 internal sealed class HealthPressureMonitor
 {
-    internal const int WindowMs = 1800;
+    internal const int WindowMs = 2800;
+    internal const int RapidWindowMs = 1800;
     internal const int MinObservationMs = 250;
     internal const int MinDropPct = 15;
+    internal const int SustainedMinObservationMs = 900;
+    internal const int SustainedMinDropPct = 8;
     private readonly List<(long AtMs, int HpPct)> _samples = [];
 
     public bool FallingFast { get; private set; }
+    /// <summary>Observed sustained HP loss, strictly valid plain HP in combat.</summary>
+    public bool SustainedPressure { get; private set; }
 
     public void Observe(CombatContext context, bool inCombat, long nowMs)
     {
@@ -28,12 +33,26 @@ internal sealed class HealthPressureMonitor
             Reset();
         }
 
-        _samples.RemoveAll(sample => nowMs - sample.AtMs > WindowMs);
-        FallingFast = context.HpPct <= 70 && _samples.Any(sample =>
-            nowMs - sample.AtMs >= MinObservationMs
-            && sample.HpPct - context.HpPct >= MinDropPct);
+        // v5: bounded no-LINQ/no-capturing-delegate per-frame scan.
+        while (_samples.Count != 0 && nowMs - _samples[0].AtMs > WindowMs)
+            _samples.RemoveAt(0);
 
-        // Sample no more than five times a second even at high polling rates.
+        var rapid = false;
+        var sustained = false;
+        for (var i = 0; i < _samples.Count; i++)
+        {
+            var prior = _samples[i];
+            var age = nowMs - prior.AtMs;
+            var drop = prior.HpPct - context.HpPct;
+            if (context.HpPct <= 70 && age >= MinObservationMs
+                && age <= RapidWindowMs && drop >= MinDropPct) rapid = true;
+            if (context.HpPct <= 80 && age >= SustainedMinObservationMs
+                && drop >= SustainedMinDropPct) sustained = true;
+        }
+        FallingFast = rapid;
+        SustainedPressure = sustained;
+
+        // At most five samples/sec and <=15 retained in the 2.8s window.
         if (_samples.Count == 0 || nowMs - _samples[^1].AtMs >= 200)
             _samples.Add((nowMs, context.HpPct));
     }
@@ -42,6 +61,7 @@ internal sealed class HealthPressureMonitor
     {
         _samples.Clear();
         FallingFast = false;
+        SustainedPressure = false;
     }
 }
 

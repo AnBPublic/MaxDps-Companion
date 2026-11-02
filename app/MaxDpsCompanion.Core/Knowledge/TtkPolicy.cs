@@ -49,6 +49,21 @@ internal static class TtkPolicy
     /// </summary>
     public const double DyingTargetSec = SoloMinorDyingTargetSec;
 
+    /// <summary>
+    /// v5: only companion-generated LONG offensive candidates with a valid
+    /// short-life measurement are conserved; no speculative 5s TTK from HP.
+    /// Bosses and execute ranges retain their burst windows.
+    /// </summary>
+    public static bool ConserveLongGapFill(AbilityDefinition ability, CombatContext context, bool companionGapFill) =>
+        companionGapFill && ability.Purpose == AbilityPurpose.MajorOffensive
+        && ability.CooldownMs >= 90_000
+        && context.TtkValid && double.IsFinite(context.TtkSec)
+        && context.TtkSec > 0
+        && context.Ext5?.BossGrade != true
+        && !ExecuteRange(ability, context)
+        && MinTtkSec(ability) > 0
+        && context.TtkSec < MinTtkSec(ability);
+
     /// <summary>A second full cooldown use needs this many cooldowns plus its duration.</summary>
     public const int TwoUsesFactor = 2;
 
