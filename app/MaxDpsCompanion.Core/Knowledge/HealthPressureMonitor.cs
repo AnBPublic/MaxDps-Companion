@@ -14,11 +14,20 @@ internal sealed class HealthPressureMonitor
     internal const int MinDropPct = 15;
     internal const int SustainedMinObservationMs = 900;
     internal const int SustainedMinDropPct = 8;
+    // Extreme short-horizon pressure is a prediction from measured HP,
+    // never a read of secret incoming damage.
+    internal const int ProjectionWindowMs = 1200;
+    internal const int ProjectionHorizonMs = 1000;
+    internal const int MinimumCriticalDropPct = 20;
     private readonly List<(long AtMs, int HpPct)> _samples = [];
 
     public bool FallingFast { get; private set; }
     /// <summary>Observed sustained HP loss, strictly valid plain HP in combat.</summary>
     public bool SustainedPressure { get; private set; }
+    /// <summary>A narrow observed-loss projection, not an actual HP value.</summary>
+    public bool CriticalSoon { get; private set; }
+    public int? ProjectedHpPct { get; private set; }
+    public int ObservedDropPct { get; private set; }
 
     public void Observe(CombatContext context, bool inCombat, long nowMs)
     {
@@ -39,6 +48,9 @@ internal sealed class HealthPressureMonitor
 
         var rapid = false;
         var sustained = false;
+        CriticalSoon = false;
+        ProjectedHpPct = null;
+        ObservedDropPct = 0;
         for (var i = 0; i < _samples.Count; i++)
         {
             var prior = _samples[i];
@@ -48,6 +60,20 @@ internal sealed class HealthPressureMonitor
                 && age <= RapidWindowMs && drop >= MinDropPct) rapid = true;
             if (context.HpPct <= 80 && age >= SustainedMinObservationMs
                 && drop >= SustainedMinDropPct) sustained = true;
+
+            // Extreme sustained acceleration across TWO trustworthy plain
+            // HP observations. An inaccurate projection is only a guarded
+            // risk indicator, never a fabricated future combat fact.
+            if (age >= MinObservationMs && age <= ProjectionWindowMs
+                && drop >= MinimumCriticalDropPct && drop > ObservedDropPct)
+            {
+                ObservedDropPct = drop;
+                var projected = Math.Clamp(context.HpPct
+                    - (int)(drop * (long)ProjectionHorizonMs / age), 0, 100);
+                ProjectedHpPct = projected;
+                CriticalSoon = context.HpPct is > 35 and <= 65
+                    && projected <= 35;
+            }
         }
         FallingFast = rapid;
         SustainedPressure = sustained;
@@ -62,6 +88,9 @@ internal sealed class HealthPressureMonitor
         _samples.Clear();
         FallingFast = false;
         SustainedPressure = false;
+        CriticalSoon = false;
+        ProjectedHpPct = null;
+        ObservedDropPct = 0;
     }
 }
 

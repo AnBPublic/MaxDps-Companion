@@ -397,6 +397,17 @@ internal sealed class DefensiveCandidateProvider : ICandidateProvider
 
         var emergency = hp is { } ehp && ehp <= opts.EmergencyHpPct;
 
+        // Measured short-horizon rapid loss: only an existing MAJOR
+        // defensive candidate, in real combat and with plain HP.
+        // Does not generate skills, immunities, movement or hidden casts.
+        var imminent = input.InCombat && ctx.ContextValid && ctx.HpValid
+            && ctx.HpSource == HpSource.Plain
+            && input.Memory.HealthPressure.CriticalSoon
+            && input.Memory.HealthPressure.ProjectedHpPct is { } projected
+            && projected <= opts.EmergencyHpPct
+            && ability.Purpose == AbilityPurpose.DefensiveMajor
+            && ability.Tier == DefensiveTier.Major;
+
         // An absorb carried in the SelfHeal extra slot remains subject to
         // that slot's Solo and HP eligibility. It does not use overheal maths,
         // but cannot fire at healthy HP or freely with Solo turned off.
@@ -418,7 +429,7 @@ internal sealed class DefensiveCandidateProvider : ICandidateProvider
         // inside the helper). Ladder-band carve-out: inside the Solo Major /
         // Immunity escalation band the defensive is needed now and is not held.
         if (ability.IsDefensive && TtkPolicy.DyingTargetHolds(
-                ability, ctx, opts.SoloEnabled, emergency,
+                ability, ctx, opts.SoloEnabled, emergency || imminent,
                 opts.SoloMajorHpPct, opts.SoloImmunityHpPct))
         {
             var scope = opts.SoloEnabled ? "solo" : "group";
@@ -452,7 +463,7 @@ internal sealed class DefensiveCandidateProvider : ICandidateProvider
             // the decision. With no prior engagement the latch is the plain
             // enter threshold — stateless-safe (fresh session, tests, unknown).
             var wasEngaged = activeTierAtBand != DefensiveTier.None;
-            if (!SoloBandLatch.Latched(bandNeed, soloHp, wasEngaged))
+            if (!SoloBandLatch.Latched(bandNeed, soloHp, wasEngaged) && !imminent)
             {
                 var bandName = isImmunity ? "immunity" : ability.Tier == DefensiveTier.Major ? "major" : "minor";
                 return D(PolicyDecision.Hold($"solo: HP {soloHp}% above {bandName} band {bandNeed}%; conserving"),
@@ -519,13 +530,19 @@ internal sealed class DefensiveCandidateProvider : ICandidateProvider
             // advance only a major damage-reduction ability by one urgency
             // stage. No immunities, escapes, heals, unknown health or
             // uninterrupted MaxDps core rotation are affected.
-            if (input.Memory.HealthPressure.FallingFast
+            if ((input.Memory.HealthPressure.FallingFast || imminent)
                 && ability.Purpose == AbilityPurpose.DefensiveMajor
                 && ability.Tier == DefensiveTier.Major
                 && ctx.HpValid && ctx.HpPct is > 50 and <= 70
                 && required > DefensiveUrgency.Yellow
                 && urgency is DefensiveUrgency.Yellow or DefensiveUrgency.Orange)
                 required = (DefensiveUrgency)((int)required - 1);
+
+            // A steep observed decline can justify a currently offered
+            // major DR at Yellow/Orange, but never from White/Unknown.
+            if (imminent && (urgency is DefensiveUrgency.Yellow or DefensiveUrgency.Orange)
+                && required > DefensiveUrgency.Yellow)
+                required = DefensiveUrgency.Yellow;
 
             if (urgency == DefensiveUrgency.Unknown)
             {
@@ -722,6 +739,19 @@ internal sealed class SelfSustainCandidateProvider : ICandidateProvider
 
         if (!opts.SoloEnabled)
             return D(PolicyDecision.Hold("solo mode off; self-heal held above emergency HP"), "solo mode off");
+
+        // Solo-only early sustain after a real observed rapid loss. Curated
+        // ability-specific limits and Group conservatism remain hard gates.
+        if (input.InCombat && p.Context.ContextValid
+            && p.Context.HpSource == HpSource.Plain
+            && input.Memory.HealthPressure.CriticalSoon
+            && input.Memory.HealthPressure.ProjectedHpPct is { } projection
+            && projection <= opts.EmergencyHpPct
+            && hp <= opts.SelfSustainHpPct
+            && (ability.UseBelowHpPct is not { } limit || hp <= limit))
+            return D(PolicyDecision.Use(
+                $"solo: rapid measured HP loss ({hp}% now, trend {projection}%); early sustain"),
+                "trusted short-window HP pressure");
 
         if (ability.UseBelowHpPct is { } need && hp > need)
             return D(PolicyDecision.Hold($"solo: HP {hpText} above ability threshold {need}%"), $"HP {hpText} above ability threshold {need}%");
