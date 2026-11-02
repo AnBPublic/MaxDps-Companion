@@ -501,6 +501,38 @@ public class DefensiveIntelligenceTests
     }
 
     [Fact]
+    public void Failed_Gcd_Press_Retracts_Only_Its_Own_Defensive_Window()
+    {
+        var memory = new PolicyMemory();
+        var defensive = Catalog.TryGet(190456)!; // Ignore Pain (GCD)
+        memory.NoteUse(defensive, 1000);
+        memory.NoteUse(defensive, 1300);
+
+        memory.RejectUnconfirmedUse(defensive.SpellId, 1000);
+        Assert.Equal(DefensiveTier.Minor, memory.ActiveDefensiveTier(1700));
+
+        memory.RejectUnconfirmedUse(defensive.SpellId, 1300);
+        Assert.Equal(DefensiveTier.Minor, memory.ActiveDefensiveTier(1700));
+        // Roll back to the first valid window, not an empty mitigation state.
+        Assert.Equal(DefensiveTier.None, memory.ActiveDefensiveTier(14000));
+    }
+
+    [Fact]
+    public void Failed_Gcd_Press_Retracts_Speculative_Burst_Window()
+    {
+        var memory = new PolicyMemory();
+        var offensive = Catalog.TryGet(1719)!; // Recklessness
+        var group = offensive.ConflictGroup ?? "Offensive";
+        memory.NoteUse(offensive, 1000);
+        Assert.True(memory.OffensiveActive(group, 1500));
+
+        memory.RejectUnconfirmedUse(offensive.SpellId, 999);
+        Assert.True(memory.OffensiveActive(group, 1500));
+        memory.RejectUnconfirmedUse(offensive.SpellId, 1000);
+        Assert.False(memory.OffensiveActive(group, 1500));
+    }
+
+    [Fact]
     public void Failed_Defensive_Press_Does_Not_Lock_The_Scheduler()
     {
         // Ignore Pain rides the GCD, so a press that never starts a GCD is a
@@ -526,6 +558,7 @@ public class DefensiveIntelligenceTests
         // failed, the stroke is suppressed and the main takes the tick.
         var second = Advance(scheduler, Build(2), tracker, now: 1700);
         Assert.True(scheduler.RejectionsDetected >= 1);
+        Assert.Equal(DefensiveTier.None, scheduler.Policy.ActiveDefensiveTier(1700));
         Assert.Equal(Slot.Main, second.Selected);
         Assert.Equal(ScheduleReason.MainRotation, second.Reason);
     }

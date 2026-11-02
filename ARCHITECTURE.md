@@ -1,5 +1,39 @@
 # Architecture — MaxDps-Companion
 
+## 4.8.0 Lightfoot — CPU/GC hot-path reduction
+
+- `ScreenSampler.cs`: one GDI BitBlt per capture, then direct five-tap
+  median DIB pointer reads; the per-cell Func/lambda dispatch is removed.
+- `Reader.lua`: curated pools write straight into a cap-four Out array,
+  with one Seen table per refresh. No intermediate Found list or Append
+  closure. MaxDps's flagged priority and readiness filters are identical.
+- The bridge seeds one safe player HP reading into Reader's per-tick memo;
+  the fallback path is used by direct/legacy callers outside the tick. A
+  per-tick stagger urgency memo similarly avoids duplicate game API probes.
+  Both reset at BeginTick, and out-of-tick calls remain live. `Bridge.lua` shares immutable Solo bands.
+- The existing 33 ms bridge cadence, companion poll timer, protocol and
+  policy scheduler remain unchanged. Real frame-time comparisons remain owed.
+
+## 4.7.0 Sentinel — common DPS/tank cooldown layer
+
+- `Knowledge/HealthPressureMonitor.cs`: bounded, monotonic plain-HP-only
+  sampling; all 13 class / 40 spec contexts use the same pure rule.
+- `Scheduler/ActionScheduler.cs`: observes valid health per frame before policy
+  verdicts; `PolicyMemory.Reset` clears health pressure with other state.
+- `Knowledge/CandidateProviders.cs`: defensive purpose wins over SelfHeal
+  transport; a *MaxDps-offered* buff-trackable minor tank mitigation can be
+  maintained while healthy with confirmed missing buff; a strong observed
+  health decline can move a major defensive one urgency step earlier at
+  51–70% HP. Replay reconstructs the same observed sampling window.
+- `Knowledge/PolicyEvaluator.cs`: `PolicyMemory` owns the shared monitor
+  and preserves the original speculative cooldown rollback for failed GCD
+  sends (PR #21).
+- `OffensiveCandidateProvider`: only for opt-in Burst, a verified Ext5
+  boss-grade target bypasses the not-yet-valid TTK warmup hold for major
+  offensives. The ordinary/unknown target case is unchanged.
+- No additional protocol cells, autonomous rotation engine, protected API
+  calls, or changes to MaxDps Main suggestions.
+
 ## Pipeline
 
 ```

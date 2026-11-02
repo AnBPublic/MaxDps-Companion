@@ -1,3 +1,25 @@
+4.8.0
+date: 2026-11-02 "Lightfoot"
+git: v4.8.0-rc.2 (companion) / bridge 4.8.0
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED v5 core + Ext2/Ext3/Ext4 + optional Ext5 (51/58 cells).
+v4.8.0: Performance-only Lua update: fewer ephemeral curated ability arrays,
+          memoize safe player HP and stagger once per rendered tick,
+          reuse Solo ladder threshold table.
+          MaxDps Main/Offensive/Defensive candidate ordering and source
+          authority remain unchanged.
+
+4.7.0
+date: 2026-11-01 "Sentinel"
+git: release/v4.7.0-sentinel (versioned source; release tag not yet published)
+interface: 120100 (Retail Midnight 12.1)
+protocol: UNCHANGED v5 core + Ext2 + Ext3 + Ext4 + opt-in Ext5 (51/58 cells).
+v4.7.0: Companion 4.7.0 "Sentinel" / bridge 4.7.0. No changed Lua
+          runtime behavior; bridge version/codename identity updated. Shared
+          DPS/tank defensive pressure policy and safer mitigation routing run
+          exclusively in the Windows/macOS companion.
+          Requires in-game retail smoke testing before production use.
+
 4.6.0
 date: 2026-10-28 "Cadence"
 git: v4.6.0 (companion) / bridge 4.6.0

@@ -10,6 +10,103 @@ Format: Keep a Changelog sections (`Added` / `Changed` / `Fixed` / `Removed`)
 per release, plus the identity + wire line. The complete pre-4.0 history lives
 in [`../VERSION.txt`](../VERSION.txt) and `docs/archive/HANDOVER-history.md`.
 
+## 4.8.0 Lightfoot - 2026-11-02
+
+**Companion 4.8.0 Lightfoot / Bridge 4.8.0.** Low-overhead updates;
+preserves every Sentinel 4.7 DPS/tank decision, user ability toggle,
+MaxDps Main rotation and protocol v5 (51 cells, optionally 58 with Ext5).
+
+### Changed — Windows capture
+
+- Removes the allocating lambda from the capture entrypoint and one
+  per-cell closure from each decoded frame.
+- Samples all five median pixels using direct mapped-DIB access, reading
+  the centre pixel once rather than three times. Native GDI BitBlt still
+  runs once per poll; sampling coordinates, median sort, color profile,
+  fallback sampling and the returned independent Color[] remain intact.
+- No forced changes to 33 ms recommended polling, foreground gating,
+  frame freshness, adaptive scheduling or GPU capture semantics.
+
+### Changed — in-game Lua
+
+- Curated rotation pool walker now appends into a single bounded output
+  with one dedup table; no intermediate per-list tables/append closure/copy.
+  Defensive > CC > movement > sustain pool priority and readiness/binding
+  checks remain as before.
+- FrameKey uses Bridge's current-tick prevalidated HP field when passed
+  a context, avoiding a duplicate protected API call; direct no-context
+  calls and unknown-HP contexts retain the old per-call probe and UNKNOWN handling.
+- Solo defensive threshold table allocated once, rather than every
+  ~33 ms while Solo is enabled and ungrouped.
+- Per-tick player HP is seeded from the bridge's already-observed safe HP
+  result; every further same-tick query returns that value (including UNKNOWN)
+  with no additional UnitHealth/UnitHealthMax calls. Stagger urgency is
+  similarly memoized (including UNKNOWN), reducing duplicate UnitStagger and
+  UnitHealthMax probes. Direct out-of-tick calls remain live.
+
+### Packaging and verification
+
+- RC1 was cut from an earlier source commit; **RC2** matches the final
+  per-tick HP/stagger memoization and is the download target. Do not
+  deploy RC1 as the finished 4.8 package.
+
+- Application and in-game addon version/codename updated together.
+- Successful Windows/macOS CI builds + Lua harness, compiler and
+  ability audit publish both ZIPs in `v4.8.0-rc.2`.
+- **No measured FPS, CPU or GPU improvement is claimed.** In-game A/B
+  comparing Sentinel vs Lightfoot under matched scene/settings is OWED;
+  see `docs/HANDOVER-LIGHTFOOT-4.8.0.md`.
+- No addon API/secret changes, no vendor edits and no new features
+  requiring different user settings.
+
+## 4.7.0 Sentinel - 2026-11-01
+
+**Companion 4.7.0 "Sentinel" / bridge 4.7.0 (identity-only bridge upgrade).**
+Wire: UNCHANGED v5 core 35 + Ext2 40 + Ext3 43 + Ext4 51 and opt-in
+Ext5 58 cells. MaxDps owns Main and the core rotation; no vendored Lua edited.
+
+### Added
+
+- **Shared health-pressure observer:** every class and spec receives the same
+  bounded, plain-HP-only 1.8 s rolling window. A >=15 percentage-point loss
+  with the newest HP between 51% and 70% can promote an eligible **major**
+  defensive by one urgency stage. Unknown/secret/quantized-only HP never triggers a promotion.
+- **Buff-aware tank maintenance:** a MaxDps-offered minor defensive that is
+  explicitly flagged for self-buff tracking may fire at healthy HP for the six
+  known tank specs when the buff is observably absent. No autonomous
+  candidate generation; unknown buff readings or unknown spec fail closed.
+- **Burst boss-grade opener:** with Burst preset and valid Ext5 rank 6/7, a
+  major offensive need not wait for TTK warmup. Unknown/ordinary targets
+  retain Burst conservation, and MaxDps remains the ability source.
+- **Full class/spec regression matrix:** all 13 classes / 40 specs exercised
+  through the common authoritative Main provider, explicit tank role checks,
+  and pressure/mitigation routing scenarios.
+
+### Changed
+
+- Absorb/reflect/mitigation purpose now takes precedence over the SelfHeal
+  transport slot when selecting the correct candidate provider.
+- GitHub Actions CI packages versioned Windows companion and addon ZIPs for
+  release branches/tags; the Windows bundle preserves the WinUI .pri resource.
+- In-game bridge identity and application identity updated to Sentinel 4.7.0.
+
+### Fixed
+
+- A failed GCD-riding defensive/offensive press no longer leaves a false active
+  cooldown coverage window (included from review branch PR #21).
+
+### Removed
+
+- Nothing. No Main-rotation gating, no secret API access, no protocol extension.
+
+### Details
+
+- Build/test verification is reported by GitHub CI on the commit; live Retail
+  12.1.5 validation and user desktop installation are OWED.
+- Source/deployment runbook: `docs/HANDOVER-SENTINEL-4.7.0.md`.
+- No inference of class-specific boss mechanics or enemy damage not exposed
+  by Midnight APIs. Every existing OFF/manual policy remains absolute.
+
 ## 4.6.0 Cadence - 2026-10-28
 
 **Companion 4.6.0 "Cadence" / bridge 4.6.0 (ADDON UPDATE; Ext5 is opt-in).**
