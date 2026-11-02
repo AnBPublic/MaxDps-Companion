@@ -55,6 +55,19 @@ The player's requested **DPS + tank** scope is 33 specs;
 healers have identity/inventory coverage only, NOT a claim of autonomous
 healer rotation or group healing intelligence.
 
+### Current verified coverage defect — Devourer Demon Hunter
+
+The 4.9 pinned `class-spells.json` contains **zero** non-junk rows
+for `DEMONHUNTER/Devourer` (confirmed by the new 40-spec census).
+The catalog carries 10 entries for that spec, but this **does not**
+establish its full rotation, talents or 1–90 progression.
+`VanguardCoverageTests` asserts the missing vendor spellbook explicitly
+rather than inventing data or masking it with a fake passing row.
+Regenerate from a newer authoritative MaxDps/vendor source, validate
+every spell against 12.1.5 DB2 and live talents, then replace this gap
+assertion with `KnownSpellRows > 0` plus actual per-skill tests.
+**A green CI here means the deficiency is honestly tracked, not fixed.**
+
 ## 2. Seven acceptance gates
 
 | Requirement | v5 candidate code | Still mandatory for production |

@@ -268,7 +268,7 @@ public class DefensiveReplayTests
         Assert.Equal(0, result.Errors);
         Assert.Equal(0, result.Mismatches);
         Assert.True(result.Verdicts >= 8, $"fixture should carry defensive verdicts, found {result.Verdicts}");
-        Assert.Equal(0, result.VerdictMismatches);
+        Assert.True(result.VerdictMismatches == 0, result.Report);
         Assert.Contains("0 mismatch(es)", result.Report);
     }
 }
