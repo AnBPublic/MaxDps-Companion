@@ -26,6 +26,60 @@ public class StreamTwoPerfTests
         Assert.Equal(33, ScreenSampler.RecommendedPollIntervalMs);
     }
 
+    [Theory]
+    [InlineData(1, 0, 1)]
+    [InlineData(2, 0, 2)]
+    [InlineData(3, 0, 3)]
+    [InlineData(4, 1, 3)]
+    [InlineData(8, 3, 3)]
+    [InlineData(9, 3, 3)]
+    [InlineData(32, 15, 3)]
+    [InlineData(64, 31, 3)]
+    public void Slipstream_CaptureRows_Contain_Every_Calibration_Tap(
+        int cellSize, int expectedFirst, int expectedRows)
+    {
+        var (first, rows) = ScreenSampler.CaptureRows(cellSize);
+        Assert.Equal(expectedFirst, first);
+        Assert.Equal(expectedRows, rows);
+        Assert.InRange(first, 0, cellSize - 1);
+        Assert.InRange(first + rows, 1, cellSize);
+
+        var center = cellSize / 2;
+        var up = Math.Max(0, center - 1);
+        var down = Math.Min(cellSize - 1, center + 1);
+        Assert.InRange(center, first, first + rows - 1);
+        Assert.InRange(up, first, first + rows - 1);
+        Assert.InRange(down, first, first + rows - 1);
+    }
+
+    [Fact]
+    public void Slipstream_CaptureGeometry_Uses_Exactly_Three_Rows_For_All_Normal_Cells()
+    {
+        for (var size = 3; size <= 64; size++)
+        {
+            var (_, height) = ScreenSampler.CaptureRows(size);
+            Assert.Equal(3, height);
+        }
+
+        // Default 58-cell / 8px bridge: fewer pixels per BitBlt without
+        // cropping any of the five median taps or altering the wire width.
+        const int cells = PixelProtocol.CellCountExt5;
+        const int cellSize = 8;
+        var originalPixels = cells * cellSize * cellSize;
+        var (_, heightNow) = ScreenSampler.CaptureRows(cellSize);
+        var newPixels = cells * cellSize * heightNow;
+        Assert.Equal(3712, originalPixels);
+        Assert.Equal(1392, newPixels);
+        Assert.True(newPixels < originalPixels / 2);
+    }
+
+    [Fact]
+    public void Slipstream_CaptureRows_Rejects_Nonpositive_CellSizes()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => ScreenSampler.CaptureRows(0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => ScreenSampler.CaptureRows(-1));
+    }
+
     [Fact]
     public void BlockLocator_Clamp_Accepts_Fully_OnScreen()
     {

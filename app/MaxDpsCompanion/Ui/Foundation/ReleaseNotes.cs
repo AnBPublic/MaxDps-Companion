@@ -29,6 +29,54 @@ internal static class ReleaseNotes
     public static readonly IReadOnlyList<Release> All = new[]
     {
         new Release(
+            "5.0.0", "Vanguard", "2026-11-02",
+            "Cross-spec survival forecasting and Midnight 12.1.5 runtime readiness.",
+            new[]
+            {
+                "The 1-second health-pressure forecast uses at least two trustworthy plain HP readings, bounded to 1200ms; secret/curve-only observations never predict.",
+                "Major damage reduction may respond earlier to measured imminent danger under Yellow/Orange urgency, while user OFF, valid candidates, mitigation overlap, spell limits and MaxDps Main remain respected.",
+                "Solo self-heals may respond to dangerous HP declines before the fixed HP threshold, while their own curated HP ceilings remain mandatory.",
+                "All 40 spec identities (33 DPS/tanks and 7 healers) now have audited coverage-contract tests, without misrepresenting modeled or delegated spells as live-verified.",
+                "Live Midnight 12.1.5 addon interface 120105 is updated; the older MaxDps 11.3.49 / 12.1 spell registry stays accurately labeled and requires patch revalidation.",
+                "All 4.7-4.9 reliability, narrow-strip GPU capture area, Lua performance improvements and protocol v5 with optional Ext5 are preserved. Full leveling/talent/Delve and FPS claims require live test.",
+            }),
+        new Release(
+            "4.9.0", "Slipstream", "2026-11-02",
+            "Copy only three pixel rows per screen poll, preserving every rotation sample.",
+            new[]
+            {
+                "Screen capture now transfers only the center three horizontal pixel rows required for the HDR-safe five-point median; it no longer copies the entire 8-64px cell height.",
+                "At the 8px default and 58-cell wire, BitBlt pixel area drops from 3712 to 1392 pixels (62.5% less data), without a second capture, altered polling or reduced color fidelity.",
+                "Source-row cropping retains all original 5 tap coordinates and byte-for-byte wire width; the decoder still receives every slot, heartbeat, checksum and optional Ext5 cell.",
+                "One low-overhead GDI BitBlt remains; the game/desktop GPU synchronization cost may dominate, so reduced pixels cannot be equated to FPS gains.",
+                "Windows capture recovery, minimized/black detection, HDR calibration, all Sentinel/Lightfoot intelligence and version 5 protocol remain unchanged.",
+                "Native benchmarking on the player's Windows hardware is still mandatory before quantifying 1% lows, p99 frame time, CPU/GPU or average FPS.",
+            }),
+        new Release(
+            "4.8.0", "Lightfoot", "2026-11-02",
+            "Lean Windows pixel capture and lower-GC Lua candidate scans; core rotations unchanged.",
+            new[]
+            {
+                "Windows samples the same five tap locations directly from the mapped DIB, avoiding delegate invocations and per-cell closures while retaining one BitBlt per poll.",
+                "The in-game bridge now appends curated ready/bound abilities directly into a capped pool; no temporary sub-list or per-pool append closure.",
+                "The bridge caches safe player HP and stagger urgency once per rendered tick; FrameKey shares this reading, while out-of-tick diagnostics remain live.",
+                "The Solo HP ladder reuses one threshold table; no per-tick table allocation.",
+                "All Sentinel DPS/tank cooldown policies, main rotation ordering, per-ability controls and 51/58-cell wire are unchanged.",
+                "Offline CI verifies build/regression stability. FPS, frametimes and GPU utilization require separate controlled Retail A/B testing.",
+            }),
+        new Release(
+            "4.7.0", "Sentinel", "2026-11-01",
+            "Shared DPS/tank cooldown awareness, reliable mitigation routing and rejection recovery.",
+            new[]
+            {
+                "The same bounded rapid-health-loss observation applies to every class and spec. A major defensive may receive one urgency-stage promotion only with trustworthy plain HP loss; unknown/secret observations never trigger it.",
+                "Tank maintenance can honor a MaxDps-offered, buff-trackable minor defensive at healthy HP when its self-buff is confirmed inactive. No new automatic bridge candidates or hidden game APIs.",
+                "Absorbs and mitigation carried in the SelfHeal transport slot use the Defensive provider, not self-heal/overheal logic.",
+                "With Burst mode and Ext5 enabled, a confirmed worldboss/elite-skull may use a major offensive opener before a TTK sample exists; ordinary/unknown targets retain the existing Burst hold.",
+                "A GCD-riding cooldown whose press is confirmed rejected now restores the prior defensive/offensive coverage window instead of keeping phantom mitigation active.",
+                "Same 51/58-cell wire and MaxDps-owned main rotations. Windows companion and addon ZIPs are generated by GitHub Actions CI. Real retail validation remains OWED.",
+            }),
+        new Release(
             "4.6.0", "Cadence", "2026-10-28",
             "Context on the wire, interrupt insurance, and GCD-perfect delivery - all default off.",
             new[]

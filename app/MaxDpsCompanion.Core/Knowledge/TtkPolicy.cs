@@ -6,6 +6,9 @@ namespace MaxDpsCompanion;
 /// constants* so the providers stay byte-identical and the defaults are
 /// testable in one place.
 ///
+/// v5.0: only the explicitly selected Burst preset restores a conservative
+/// verified-TTK gate for a >60s MajorOffensive; Full/default behavior stays
+/// exactly as v3.7.9 and the vendor is still rotation authority.
 /// v3.7.9 (MaxDps authority): the companion's offensive TTK *conservation*
 /// cluster was removed. A MaxDps-offered or companion gap-fill offensive is
 /// used unless a game-truth/structural gate applies, so the old T1 waste guard,

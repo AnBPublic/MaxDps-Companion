@@ -10,6 +10,239 @@ Format: Keep a Changelog sections (`Added` / `Changed` / `Fixed` / `Removed`)
 per release, plus the identity + wire line. The complete pre-4.0 history lives
 in [`../VERSION.txt`](../VERSION.txt) and `docs/archive/HANDOVER-history.md`.
 
+## 5.0.0 Vanguard - 2026-11-02
+
+**Windows Companion v5.0.0 / In-game Bridge v5.0.0.**
+Major cross-spec survival and release-validation update for current Retail
+Midnight **12.1.5**. An offline candidate, not a flawless-play certification.
+The **wire protocol remains v5** (51 cells + optional 58-cell Ext5).
+
+### New: universal measured-pressure intelligence
+
+- A bounded 1-second extrapolation from actual trusted plain player HP
+  observations (250-1200ms apart, drop >=20 points) signals possible
+  danger when player HP is 36-65% and projected HP is <=35%.
+  It does not read combat-secret values, cast school or enemy intention.
+- Existing **Major damage reduction** candidates may respond earlier in
+  Solo **and** Group with measured danger and Yellow/Orange urgency.
+  No new unbound candidates, spontaneous immunities or guessed utility.
+  Existing spell prerequisites, explicit user OFF, overlapping defensive
+  state, context and cast safety remain authoritative.
+- In Solo, suitable self-heals can respond early to measured rapid decline,
+  but only under the Solo sustain ceiling and each spell's own HP use cap;
+  Group still preserves the existing emergency self-heal rule.
+- Shared across all DPS and tank specs; the underlying existing
+  MaxDps rotation source and 4.7-4.9 optimizations are unchanged.
+
+### New: opt-in 5-second-trash cooldown conservation
+
+- If the user selects the existing `Burst` preset, a genuinely
+  long-cooldown (>60s) **MajorOffensive** candidate is now conserved
+  when an actually valid current-target TTK is below the ability's
+  researched `MinTtkSec`. This applies in Solo, world, dungeon and raid
+  contexts; it does not invent an encounter timer, and fails open
+  when TTK cannot be measured.
+- Default `Full` rotation, sub-60s rotational spells, explicit
+  execute-favored triggers, confirmed boss-grade openers and
+  MaxDps Main remain unchanged.
+- This is an **opt-in restrictive policy**, not a separate optimized
+  DPS rotation. Live evaluation is mandatory because conserving a
+  vendor-offered major could reduce DPS if the measured target dies
+  but the pack fight continues.
+
+### New: 40-specialization accountability
+
+- `SpecCoverageMatrix` enumerates **13 classes / 40 specs: 27 DPS, six
+  tanks and seven healers**. Reports registered spells, verified-live
+  coverage, delegated MaxDps entries, research-pending, manual abilities,
+  known spellbook records and talent annotations separately.
+- New C# tests confirm every spec appears, test role classifications,
+  preserve user OFF and Main authority, and simulate secret/unknown/curve
+  HP reset across all 40 specs.
+- A clean old registry audit is no longer conflated with live patch
+  certification: `CurrentPatchLiveVerified` explicitly stays false
+  while patch provenance or live evidence is missing.
+
+### Updated: Retail 12.1.5 targeting and accurate provenance
+
+- In-game addon `.toc`: **120105**. Synchronized addon, Windows,
+  Core/Mac and release ZIP identity: **v5.0.0 Vanguard**.
+- `AbilityCatalog.TargetRetailPatch = 12.1.5`, but embedded
+  `ExpectedGamePatch = 12.1`, pinned MaxDps vendor **11.3.49**,
+  and original `120100` catalog research metadata remain truthful.
+  Do not relabel source spells/talents as verified 12.1.5 without
+  generating a newly audited vendor snapshot.
+- The bridge continues the existing per-tick known/ready/bound
+  inspection for leveling and talent switching; an inventory of
+  spells does **not** guarantee their optimal decision behavior.
+
+### 7-point acceptance and all content: status
+
+- **Main rotation:** MaxDps authority maintained; full 12.1.5
+  vendor parity and each leveling/talent loadout need live testing.
+- **Survival:** measured anticipation added; encounter-specific
+  damage and hidden values remain unobservable.
+- **Cooldowns:** TTK and optional Burst preset retained; no automatic
+  full encounter-script knowledge or perfect cooldown guarantee.
+- **Interrupt/utility:** existing validated-signal/CC vetoes retained;
+  no blind automated interrupt where signal is unknown.
+- **Modes:** Solo survival bias; Group/raid conservative use and user
+  ability ON/OFF carried over. Group Mythic+, dungeon, raid, story,
+  world/Aqir invasion, Delve and Labyrinth need separate playtests.
+- **Performance:** 4.8 Lua/CPU/GC and 4.9 thin-strip BitBlt
+  preserved. FPS and p99 reduction still require real measurements.
+- **Specs:** all 40 have inventory tests, not all spells or hero
+  talents live verified. No assurance of flawless level 1-90
+  operation or highest-tier Delve clearance.
+
+**Agent verification and regression matrix:**
+`docs/V5-COVERAGE-AND-VALIDATION.md`.
+**Deployment and rollback guide:**
+`docs/HANDOVER-VANGUARD-5.0.0.md`.
+**Known limitation:** companion-initiated input automation requires
+independent review against Blizzard rules; release CI is not a
+game-account authorization or guarantee of compliant operation.
+
+## 4.9.0 Slipstream - 2026-11-02
+
+## 4.9.0 Slipstream - 2026-11-02
+
+**Companion 4.9.0 Slipstream / bridge 4.9.0.** Screen-capture fast path:
+only rows needed by the 5-tap median are copied. Built on all Lightfoot
+4.8 and Sentinel 4.7 code. **Protocol unchanged:** 51-cell v5 core/Ext4
+plus opt-in 58-cell Ext5. No rotation, DPS/tank or Lua behavior changed.
+
+### Changed — one smaller native capture per polling tick
+
+- Windows `ScreenSampler.CaptureRows` computes the minimum Y interval
+  containing the 5-tap (centre + left/right + above/below) sampling points.
+  Height is 3 for any cell at least 3 pixels tall, 2 for 2px, 1 for 1px.
+- The screen-to-memory `BitBlt` is now `58 * cellSize` pixels wide and
+  only `CaptureRows(cellSize).RowCount` pixels tall. The source top moves
+  down to the required rows, the DIB is allocated at the reduced height,
+  and sampling maps every original y coordinate into the cropped DIB.
+- At default `cellSize=8`, an enabled Ext5 frame has **3712 -> 1392
+  captured pixels**, a **62.5% decrease in transferred pixel area**.
+  The sampler still captures every one of the 58 wire cells at one blit
+  per poll. Real bandwidth, end-to-end capture time or FPS improvement
+  is **not** inferred from pixel count.
+- All five median tap coordinates, calibration response, color profile,
+  pixel protocol, stale-surface reset/retry, minimized-window early exit,
+  black-frame detection and caller snapshot semantics are preserved.
+- No new renderer/shader, no GPU API rewrite, no screen sharing or permissions
+  and no cadence/latency reduction; GDI screen synchronization can remain
+  the dominant cost and may cancel real frame-time gains.
+
+### Verification and deployment
+
+- Geometry tests validate cell sizes 1, 2, 3, 4, 8, 9, 32, 64; every
+  legal 3..64 size; and all vertical median taps. Offline Windows/Lua/
+  macOS CI must pass before the signed provenance release is published.
+- App, Core, Mac version properties and in-game addon identity all bumped
+  to 4.9.0 Slipstream; in-app notes + packaging updated.
+- Install **both** `v4.9.0-rc.1` release ZIPs as a pair; preserve
+  `settings.ini` and official MaxDps. See
+  `docs/HANDOVER-SLIPSTREAM-4.9.0.md`.
+- Live WoW CPU/GPU/FPS A/B of 4.8 vs 4.9 (and no-companion baseline)
+  is still OWED. No specific FPS gain is promised.
+
+## 4.8.0 Lightfoot - 2026-11-02
+
+**Companion 4.8.0 Lightfoot / Bridge 4.8.0.** Low-overhead updates;
+preserves every Sentinel 4.7 DPS/tank decision, user ability toggle,
+MaxDps Main rotation and protocol v5 (51 cells, optionally 58 with Ext5).
+
+### Changed — Windows capture
+
+- Removes the allocating lambda from the capture entrypoint and one
+  per-cell closure from each decoded frame.
+- Samples all five median pixels using direct mapped-DIB access, reading
+  the centre pixel once rather than three times. Native GDI BitBlt still
+  runs once per poll; sampling coordinates, median sort, color profile,
+  fallback sampling and the returned independent Color[] remain intact.
+- No forced changes to 33 ms recommended polling, foreground gating,
+  frame freshness, adaptive scheduling or GPU capture semantics.
+
+### Changed — in-game Lua
+
+- Curated rotation pool walker now appends into a single bounded output
+  with one dedup table; no intermediate per-list tables/append closure/copy.
+  Defensive > CC > movement > sustain pool priority and readiness/binding
+  checks remain as before.
+- FrameKey uses Bridge's current-tick prevalidated HP field when passed
+  a context, avoiding a duplicate protected API call; direct no-context
+  calls and unknown-HP contexts retain the old per-call probe and UNKNOWN handling.
+- Solo defensive threshold table allocated once, rather than every
+  ~33 ms while Solo is enabled and ungrouped.
+- Per-tick player HP is seeded from the bridge's already-observed safe HP
+  result; every further same-tick query returns that value (including UNKNOWN)
+  with no additional UnitHealth/UnitHealthMax calls. Stagger urgency is
+  similarly memoized (including UNKNOWN), reducing duplicate UnitStagger and
+  UnitHealthMax probes. Direct out-of-tick calls remain live.
+
+### Packaging and verification
+
+- RC1 was cut from an earlier source commit; **RC2** matches the final
+  per-tick HP/stagger memoization and is the download target. Do not
+  deploy RC1 as the finished 4.8 package.
+
+- Application and in-game addon version/codename updated together.
+- Successful Windows/macOS CI builds + Lua harness, compiler and
+  ability audit publish both ZIPs in `v4.8.0-rc.2`.
+- **No measured FPS, CPU or GPU improvement is claimed.** In-game A/B
+  comparing Sentinel vs Lightfoot under matched scene/settings is OWED;
+  see `docs/HANDOVER-LIGHTFOOT-4.8.0.md`.
+- No addon API/secret changes, no vendor edits and no new features
+  requiring different user settings.
+
+## 4.7.0 Sentinel - 2026-11-01
+
+**Companion 4.7.0 "Sentinel" / bridge 4.7.0 (identity-only bridge upgrade).**
+Wire: UNCHANGED v5 core 35 + Ext2 40 + Ext3 43 + Ext4 51 and opt-in
+Ext5 58 cells. MaxDps owns Main and the core rotation; no vendored Lua edited.
+
+### Added
+
+- **Shared health-pressure observer:** every class and spec receives the same
+  bounded, plain-HP-only 1.8 s rolling window. A >=15 percentage-point loss
+  with the newest HP between 51% and 70% can promote an eligible **major**
+  defensive by one urgency stage. Unknown/secret/quantized-only HP never triggers a promotion.
+- **Buff-aware tank maintenance:** a MaxDps-offered minor defensive that is
+  explicitly flagged for self-buff tracking may fire at healthy HP for the six
+  known tank specs when the buff is observably absent. No autonomous
+  candidate generation; unknown buff readings or unknown spec fail closed.
+- **Burst boss-grade opener:** with Burst preset and valid Ext5 rank 6/7, a
+  major offensive need not wait for TTK warmup. Unknown/ordinary targets
+  retain Burst conservation, and MaxDps remains the ability source.
+- **Full class/spec regression matrix:** all 13 classes / 40 specs exercised
+  through the common authoritative Main provider, explicit tank role checks,
+  and pressure/mitigation routing scenarios.
+
+### Changed
+
+- Absorb/reflect/mitigation purpose now takes precedence over the SelfHeal
+  transport slot when selecting the correct candidate provider.
+- GitHub Actions CI packages versioned Windows companion and addon ZIPs for
+  release branches/tags; the Windows bundle preserves the WinUI .pri resource.
+- In-game bridge identity and application identity updated to Sentinel 4.7.0.
+
+### Fixed
+
+- A failed GCD-riding defensive/offensive press no longer leaves a false active
+  cooldown coverage window (included from review branch PR #21).
+
+### Removed
+
+- Nothing. No Main-rotation gating, no secret API access, no protocol extension.
+
+### Details
+
+- Build/test verification is reported by GitHub CI on the commit; live Retail
+  12.1.5 validation and user desktop installation are OWED.
+- Source/deployment runbook: `docs/HANDOVER-SENTINEL-4.7.0.md`.
+- No inference of class-specific boss mechanics or enemy damage not exposed
+  by Midnight APIs. Every existing OFF/manual policy remains absolute.
+
 ## 4.6.0 Cadence - 2026-10-28
 
 **Companion 4.6.0 "Cadence" / bridge 4.6.0 (ADDON UPDATE; Ext5 is opt-in).**

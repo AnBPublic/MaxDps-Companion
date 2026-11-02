@@ -109,9 +109,10 @@ public class DefensiveReplayTests
             1200, Slot.Defensive, KeyR, 1966);
 
         // 3 @1500: Orange + a catalog gap-filled major (Shield Wall, no MaxDps
-        //   recommendation) — hold until Red.
+        //   recommendation) — v5 measured 100 -> 45 HP trend projects
+        //   imminent danger; conservatively releases the major in Group.
         events.Add(Tick(1500, Frame(3, 45, 871, DefensiveUrgency.Orange, catalogSource: true),
-            PolicyOptions.Standard, "holding catalog major"));
+            PolicyOptions.Standard, "early measured-pressure major defensive"));
 
         // 4 @2000: emergency HP + Red — the catalog major fires regardless.
         Send(Tick(2000, Frame(4, 30, 871, DefensiveUrgency.Red, catalogSource: true),
@@ -268,7 +269,7 @@ public class DefensiveReplayTests
         Assert.Equal(0, result.Errors);
         Assert.Equal(0, result.Mismatches);
         Assert.True(result.Verdicts >= 8, $"fixture should carry defensive verdicts, found {result.Verdicts}");
-        Assert.Equal(0, result.VerdictMismatches);
+        Assert.True(result.VerdictMismatches == 0, result.Report);
         Assert.Contains("0 mismatch(es)", result.Report);
     }
 }

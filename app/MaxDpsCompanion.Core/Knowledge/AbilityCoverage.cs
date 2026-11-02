@@ -60,6 +60,10 @@ internal sealed record CoverageReport(
 {
     /// <summary>True when no discovered ability is missing and no entry is stale.</summary>
     public bool Clean => Missing == 0 && Stale == 0;
+
+    // Clean inventory != current patch mastery or live talent verification.
+    public bool CurrentPatchLiveVerified => !AbilityCatalog.NeedsPatchRevalidation
+        && LiveUnverified == 0 && ResearchPending == 0;
 }
 
 /// <summary>

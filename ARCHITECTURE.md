@@ -1,5 +1,73 @@
 # Architecture — MaxDps-Companion
 
+## 5.0.0 Vanguard — shared observed-pressure intelligence
+
+- `PolicyMemory.HealthPressure` maintains the one shared observed HP
+  window. `CriticalSoon` and `ProjectedHpPct` use plain exact
+  HP only, at >=250ms and <=1200ms separation, >=20 points loss
+  and a bounded 1-second projection (observed current 36–65%,
+  projected <=35%). No extra game API, secret-value arithmetic
+  or per-tick allocation in the new loop.
+- `DefensiveCandidateProvider` can advance an **existing**
+  major mitigation under Yellow/Orange urgency in both Solo and
+  Group/raid. This does not create new candidates or override
+  user disables, unknown urgency, spell hard caps or immunity policy.
+- `SelfSustainCandidateProvider` uses the trend only in Solo
+  mode within curated per-spell HP caps. Existing Group emergency
+  heals are untouched. MaxDps main priority remains authoritative.
+- `SpecCoverageMatrix` is audit-only; its ability counts are not
+  runtime use authorization or proof of learned/talented spells.
+- `TargetRetailInterface=120105` is distinct from the
+  source registry interface 120100. Wire v5/Ext5 and 4.9
+  narrow BitBlt implementation unchanged.
+
+## 4.9.0 Slipstream — lossless narrow capture## 4.9.0 Slipstream — lossless narrow capture
+
+- `ScreenSampler.SampleCells` calls `CaptureRows(cellSize)` and creates
+  a DIB height of at most 3 pixels (for 3px+ cells). The sampled screen
+  origin is offset by `FirstRow`, and `ReadPixel` subtracts the offset
+  before accessing the mapped DIB. All X coordinates and full 58-cell wire
+  width stay intact; each five-tap median observes exactly the same pixels
+  as before. 8px cells: 62.5% fewer **pixels copied**, not 62.5% less
+  capture time or GPU impact. Existing GDI BitBlt synchronization remains.
+- `CaptureRows` has offline geometry boundary/coverage tests. The 4.8
+  runtime cadence, 4.7 policy scheduler and all MaxDps-selected rotations
+  are unchanged, including optional Ext5 and secret-safe behavior.
+
+## 4.8.0 Lightfoot — CPU/GC hot-path reduction
+
+- `ScreenSampler.cs`: one GDI BitBlt per capture, then direct five-tap
+  median DIB pointer reads; the per-cell Func/lambda dispatch is removed.
+- `Reader.lua`: curated pools write straight into a cap-four Out array,
+  with one Seen table per refresh. No intermediate Found list or Append
+  closure. MaxDps's flagged priority and readiness filters are identical.
+- The bridge seeds one safe player HP reading into Reader's per-tick memo;
+  the fallback path is used by direct/legacy callers outside the tick. A
+  per-tick stagger urgency memo similarly avoids duplicate game API probes.
+  Both reset at BeginTick, and out-of-tick calls remain live. `Bridge.lua` shares immutable Solo bands.
+- The existing 33 ms bridge cadence, companion poll timer, protocol and
+  policy scheduler remain unchanged. Real frame-time comparisons remain owed.
+
+## 4.7.0 Sentinel — common DPS/tank cooldown layer
+
+- `Knowledge/HealthPressureMonitor.cs`: bounded, monotonic plain-HP-only
+  sampling; all 13 class / 40 spec contexts use the same pure rule.
+- `Scheduler/ActionScheduler.cs`: observes valid health per frame before policy
+  verdicts; `PolicyMemory.Reset` clears health pressure with other state.
+- `Knowledge/CandidateProviders.cs`: defensive purpose wins over SelfHeal
+  transport; a *MaxDps-offered* buff-trackable minor tank mitigation can be
+  maintained while healthy with confirmed missing buff; a strong observed
+  health decline can move a major defensive one urgency step earlier at
+  51–70% HP. Replay reconstructs the same observed sampling window.
+- `Knowledge/PolicyEvaluator.cs`: `PolicyMemory` owns the shared monitor
+  and preserves the original speculative cooldown rollback for failed GCD
+  sends (PR #21).
+- `OffensiveCandidateProvider`: only for opt-in Burst, a verified Ext5
+  boss-grade target bypasses the not-yet-valid TTK warmup hold for major
+  offensives. The ordinary/unknown target case is unchanged.
+- No additional protocol cells, autonomous rotation engine, protected API
+  calls, or changes to MaxDps Main suggestions.
+
 ## Pipeline
 
 ```
