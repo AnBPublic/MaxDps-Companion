@@ -23,9 +23,12 @@ branch build (Windows tests, Lua tests, macOS and audit) is green.**
   MaxDps defensive candidate's own buff is confirmed inactive. All
   major and emergency safety gates remain intact. Unknown health and
   hidden combat secrets must never generate fabricated decisions.
-- v5 Burst preset with measured short TTK may conserve LONG companion-generated
-  major offensives; direct MaxDps Main and offensive recommendations,
-  bosses and executes continue to work.
+- v5 **opt-in Burst** preset with measured short TTK may conserve
+  >=90s major offensives in the per-spec curated candidate list.
+  MaxDps Main is unchanged; non-listed offensives, boss-grade
+  targets and executes bypass. Because the wire has no explicit
+  offensive-source bit, a MaxDps-offered spell also listed in the
+  curated pool CAN be conserved by this optional Burst rule.
 - Per-ability user OFF means no automatic use, regardless of urgency.
   Solo mode promotes self-sustain; Normal/Group is conservative.
 - Existing 4.8/4.9 capture optimizations, calibration, heartbeat,

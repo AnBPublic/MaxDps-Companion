@@ -50,9 +50,12 @@ internal static class TtkPolicy
     public const double DyingTargetSec = SoloMinorDyingTargetSec;
 
     /// <summary>
-    /// v5: only companion-generated LONG offensive candidates with a valid
-    /// short-life measurement are conserved; no speculative 5s TTK from HP.
-    /// Bosses and execute ranges retain their burst windows.
+    /// v5: only IDs from the curated per-spec offensive candidate list
+    /// with a valid short-life measurement are conserved in Burst mode.
+    /// There is NO authoritative offensive-source bit on the v5 wire:
+    /// a spell offered by MaxDps may overlap the curated list. This
+    /// restriction NEVER changes the Main rotation. Bosses and execute
+    /// ranges retain their burst windows; no TTK is fabricated from HP.
     /// </summary>
     public static bool ConserveLongGapFill(AbilityDefinition ability, CombatContext context, bool companionGapFill) =>
         companionGapFill && ability.Purpose == AbilityPurpose.MajorOffensive

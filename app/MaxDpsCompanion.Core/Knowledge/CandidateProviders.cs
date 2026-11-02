@@ -267,9 +267,10 @@ internal sealed class OffensiveCandidateProvider : ICandidateProvider
         if (ability.HoldWhenBuffActive && ctx.SlotBuffActive[slot] == TriState.Yes)
             return D(PolicyDecision.Skip("ability's own buff already active"), src, "own buff already active");
 
-        // v5: conserve only independently offered LONG companion cooldowns
-        // when measured TTK proves that a non-boss target is nearly dead.
-        // MaxDps Main/direct cooldown suggestions never enter this hold.
+        // v5: Burst-only TTK conservation for >=90s curated offensive
+        // list members. The wire has NO offensive provenance bit; an ID
+        // can overlap a direct MaxDps offensive suggestion. Main rotation
+        // never reaches this provider/hold, Full preset stays unchanged.
         // Opt-in Burst strategy: Full retains legacy MaxDps authority and
         // recorded historical replays. Only Burst conserves optional extras.
         if (p.Options.Preset == RotationPreset.Burst

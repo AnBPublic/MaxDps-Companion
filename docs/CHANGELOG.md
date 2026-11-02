@@ -35,8 +35,10 @@ MaxDps Main and per-ability user settings.
 - In opt-in **Burst preset**, a 90s+ major *companion gap-fill* offensive can be held if the
   current **valid measured** TTK is shorter than the curated minimum
   for its use. No fabricated TTK from low HP; bosses, execute ranges,
-  unknown-TTK targets, shorter cooldowns and **MaxDps Main/direct
-  offensive recommendations** are unaffected.
+  unknown-TTK targets, shorter cooldowns and **MaxDps Main and non-listed
+  offensive IDs** are unaffected. A direct MaxDps offensive whose ID is
+  ALSO in the per-spec curated candidate list can be held in opt-in
+  Burst mode because the existing wire has no authoritative source bit.
 - Original Normal/Burst preset, Solo/Group policy, interrupt safety,
   candidate ranking, keybind/macro checks and user ability overrides
   remain in force. No speculative encounter automation.

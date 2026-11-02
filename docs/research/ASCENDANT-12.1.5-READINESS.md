@@ -35,10 +35,13 @@ Date: 2026-11-02.
 2. Survival: observed rapid and sustained plain-HP pressure;
    minor early mitigation only if own buff confirmed absent.
    Major, immunity and out-of-range still governed conservatively.
-3. Cooldowns: when **measured** TTK is shorter than a long
-   companion gap-fill major's threshold, conserve it. Boss/execute
-   and direct MaxDps recommendation bypass. Unknown TTK is not
-   inferred from enemy health bands.
+3. Cooldowns: in opt-in Burst mode, when **measured** TTK is
+   shorter than a long curated offensive-list major's threshold,
+   conserve it. Boss/execute, Full preset, MaxDps Main and direct
+   offensives not in that curated list bypass. A curated-list spell
+   may ALSO be directly recommended by MaxDps; the 51/58-cell wire
+   does not expose definitive offensive provenance. Unknown TTK
+   is never inferred from target health bands.
 4. Interrupt/utility: current range and cast sensors, manual CC/
    purge/dispel/ally utility where no reliable game signal exists.
 5. User modes: explicit Solo/Normal + per-ability ON/OFF controls
