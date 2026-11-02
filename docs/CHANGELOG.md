@@ -77,6 +77,15 @@ MaxDps Main and per-ability user settings.
   guaranteed high-end clears. Healer spec inventory is not equivalent
   to comprehensive ally-targeted healing support.
 
+### Updated golden defensive replay
+
+- The new rapid measured-risk policy changes a previously captured
+  Warrior major-defensive hold at 45% HP into a higher-priority
+  DefensiveUrgency decision. The exact single-line golden telemetry
+  correction from the repository's separate Vanguard 5.0 source was
+  retained rather than disabling the mismatch test. The full replay
+  suite MUST still reproduce zero mismatches in CI.
+
 ### Regression, deployment and unverified requirements
 
 - C# tests added for full class/spec enumeration, role boundaries,

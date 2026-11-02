@@ -6,7 +6,7 @@ Windows x64 WinUI3 plus WoW Bridge, 51/58-cell unchanged v5 protocol.
 ## Authoritative release and source
 
 - Branch: https://github.com/AnBPublic/MaxDps-Companion/tree/release/v5.0.0-ascendant
-- RC: https://github.com/AnBPublic/MaxDps-Companion/releases/tag/v5.0.0-rc.3
+- RC: https://github.com/AnBPublic/MaxDps-Companion/releases/tag/v5.0.0-rc.4
 - Companion: `MaxDpsCompanion-5.0.0-Ascendant-win-x64.zip`
 - Addon: `MaxDpsCompanionBridge-5.0.0.zip`
 - Changes: `docs/CHANGELOG.md`
@@ -47,7 +47,7 @@ branch build (Windows tests, Lua tests, macOS and audit) is green.**
    `settings.ini`, and
    `_retail_/Interface/AddOns/MaxDpsCompanionBridge/` plus WoW saved
    variables. Label these backups clearly for rollback.
-3. Download both verified `v5.0.0-rc.3` GitHub release archives.
+3. Download both verified `v5.0.0-rc.4` GitHub release archives.
    Unzip the Windows app into its **own NEW** directory; confirm
    `MaxDpsCompanion.exe` and `MaxDpsCompanion.pri`. Restore personal
    `settings.ini` only; never mix legacy DLLs or executables.
