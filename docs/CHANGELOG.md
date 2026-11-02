@@ -32,7 +32,7 @@ MaxDps Main and per-ability user settings.
 
 ### New: measured short-target offensive conservation
 
-- A 90s+ major *companion gap-fill* offensive can be held if the
+- In opt-in **Burst preset**, a 90s+ major *companion gap-fill* offensive can be held if the
   current **valid measured** TTK is shorter than the curated minimum
   for its use. No fabricated TTK from low HP; bosses, execute ranges,
   unknown-TTK targets, shorter cooldowns and **MaxDps Main/direct

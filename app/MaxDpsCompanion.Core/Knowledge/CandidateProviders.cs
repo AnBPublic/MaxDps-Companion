@@ -270,7 +270,10 @@ internal sealed class OffensiveCandidateProvider : ICandidateProvider
         // v5: conserve only independently offered LONG companion cooldowns
         // when measured TTK proves that a non-boss target is nearly dead.
         // MaxDps Main/direct cooldown suggestions never enter this hold.
-        if (TtkPolicy.ConserveLongGapFill(ability, ctx, gapFill))
+        // Opt-in Burst strategy: Full retains legacy MaxDps authority and
+        // recorded historical replays. Only Burst conserves optional extras.
+        if (p.Options.Preset == RotationPreset.Burst
+            && TtkPolicy.ConserveLongGapFill(ability, ctx, gapFill))
             return D(PolicyDecision.Hold(
                     $"target dies in ~{ctx.TtkSec:0.#}s; saving long companion cooldown {ability.Name}"),
                 src, $"measured TTK {ctx.TtkSec:0.#}s < {TtkPolicy.MinTtkSec(ability):0.#}s");

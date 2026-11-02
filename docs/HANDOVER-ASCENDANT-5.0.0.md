@@ -23,7 +23,7 @@ branch build (Windows tests, Lua tests, macOS and audit) is green.**
   MaxDps defensive candidate's own buff is confirmed inactive. All
   major and emergency safety gates remain intact. Unknown health and
   hidden combat secrets must never generate fabricated decisions.
-- v5 measured short TTK may conserve LONG companion-generated
+- v5 Burst preset with measured short TTK may conserve LONG companion-generated
   major offensives; direct MaxDps Main and offensive recommendations,
   bosses and executes continue to work.
 - Per-ability user OFF means no automatic use, regardless of urgency.
