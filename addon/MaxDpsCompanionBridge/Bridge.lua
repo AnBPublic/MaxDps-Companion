@@ -564,6 +564,8 @@ end
 -- what the old closures captured.
 local TickCtx = nil;
 local TickToggles = nil;
+-- Reused across frames: no fresh Solo ladder thresholds table at 30Hz.
+local SoloBands = { minor = 75, major = 50, immunity = 30 };
 
 -- Single slot gate (one call per slot): the per-slot key, the OOC master and
 -- the Solo gate all live in Toggles.SlotAllowed; denials are recorded in
@@ -1280,7 +1282,7 @@ local function Update (self, Delta)
     local SoloOn = Toggles and Toggles.Get and Toggles.Get("Solo");
     local Ungrouped = type(Ctx.Grouped) == "boolean" and Ctx.Grouped == false;
     if SoloOn and Ungrouped then
-      MDCB.SoloLadderBands = { minor = 75, major = 50, immunity = 30 };
+      MDCB.SoloLadderBands = SoloBands;
     else
       MDCB.SoloLadderBands = nil;
     end

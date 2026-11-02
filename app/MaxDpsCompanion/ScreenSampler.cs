@@ -96,12 +96,12 @@ internal sealed class ScreenSampler : IDisposable
             return new Color[PixelProtocol.CellCountExt5];
         }
 
-        var cells = SampleCells(origin, cellSize, (x, y) => ReadPixel(x, y));
+        var cells = SampleCells(origin, cellSize);
         LastOutcome = CaptureDiagnostics.IsBlackFrame(cells) ? CaptureOutcome.Black : CaptureOutcome.Sampled;
         return cells;
     }
 
-    private Color[] SampleCells(Point origin, int cellSize, Func<int, int, Color> read) =>
+    private Color[] SampleCells(Point origin, int cellSize) =>
         // Ext5 (4.6.0): capture the full 58-cell frame in one BitBlt so the
         // additive Ext5 cells are readable. A 51-cell Ext4, 43-cell Ext3,
         // 40-cell Ext2 or 35-cell core addon leaves the extra cells as
@@ -109,9 +109,9 @@ internal sealed class ScreenSampler : IDisposable
         // the Ext4 presence bit, Ext4 on cell 28 B bit3, Ext3 on bit2 and
         // Ext2 on cell 33 B bit2, so the presence bits decide which extension
         // reads.
-        SampleCells(origin, cellSize, PixelProtocol.CellCountExt5, read);
+        SampleCells(origin, cellSize, PixelProtocol.CellCountExt5);
 
-    private Color[] SampleCells(Point origin, int cellSize, int cellCount, Func<int, int, Color> read)
+    private Color[] SampleCells(Point origin, int cellSize, int cellCount)
     {
         var width = cellSize * cellCount;
         var height = cellSize;
@@ -135,7 +135,7 @@ internal sealed class ScreenSampler : IDisposable
         }
 
         for (var i = 0; i < cellCount; i++)
-            colors[i] = SampleCellInstance((x, y) => ReadPixel(x, y), i, cellSize);
+            colors[i] = SampleCellInstance(i, cellSize);
         return colors;
     }
 
@@ -162,23 +162,24 @@ internal sealed class ScreenSampler : IDisposable
         }
     }
 
-    private Color SampleCellInstance(Func<int, int, Color> read, int cell, int cellSize) =>
-        cellSize < MedianMinCellSize ? CentrePixel(read, cell, cellSize) : MedianSample(read, cell, cellSize);
+    private Color SampleCellInstance(int cell, int cellSize) =>
+        cellSize < MedianMinCellSize ? CentrePixel(cell, cellSize) : MedianSample(cell, cellSize);
 
-    private Color MedianSample(Func<int, int, Color> read, int cell, int cellSize)
+    private Color MedianSample(int cell, int cellSize)
     {
         // Centre plus 4-neighbourhood, clamped inside the cell.
         var cx = cell * cellSize + cellSize / 2;
         var cy = cellSize / 2;
-        _tapR[0] = read(cx, cy).R; _tapG[0] = read(cx, cy).G; _tapB[0] = read(cx, cy).B;
+        var center = ReadPixel(cx, cy);
+        _tapR[0] = center.R; _tapG[0] = center.G; _tapB[0] = center.B;
         var l = Math.Max(cell * cellSize, cx - 1);
         var r = Math.Min(cell * cellSize + cellSize - 1, cx + 1);
         var u = Math.Max(0, cy - 1);
         var d = Math.Min(cellSize - 1, cy + 1);
-        var c1 = read(l, cy); _tapR[1] = c1.R; _tapG[1] = c1.G; _tapB[1] = c1.B;
-        var c2 = read(r, cy); _tapR[2] = c2.R; _tapG[2] = c2.G; _tapB[2] = c2.B;
-        var c3 = read(cx, u); _tapR[3] = c3.R; _tapG[3] = c3.G; _tapB[3] = c3.B;
-        var c4 = read(cx, d); _tapR[4] = c4.R; _tapG[4] = c4.G; _tapB[4] = c4.B;
+        var c1 = ReadPixel(l, cy); _tapR[1] = c1.R; _tapG[1] = c1.G; _tapB[1] = c1.B;
+        var c2 = ReadPixel(r, cy); _tapR[2] = c2.R; _tapG[2] = c2.G; _tapB[2] = c2.B;
+        var c3 = ReadPixel(cx, u); _tapR[3] = c3.R; _tapG[3] = c3.G; _tapB[3] = c3.B;
+        var c4 = ReadPixel(cx, d); _tapR[4] = c4.R; _tapG[4] = c4.G; _tapB[4] = c4.B;
 
         // Reused buffers + insertion sort for 5 elements: no allocation.
         return Color.FromArgb(Median5(_tapR), Median5(_tapG), Median5(_tapB));
@@ -197,11 +198,11 @@ internal sealed class ScreenSampler : IDisposable
         return v[TapsPerCell / 2];
     }
 
-    private static Color CentrePixel(Func<int, int, Color> read, int cell, int cellSize)
+    private Color CentrePixel(int cell, int cellSize)
     {
         var cx = cell * cellSize + cellSize / 2;
         var cy = cellSize / 2;
-        return read(cx, cy);
+        return ReadPixel(cx, cy);
     }
 
     /// <summary>Reads a pixel directly from the mapped DIB buffer (no GDI call).</summary>

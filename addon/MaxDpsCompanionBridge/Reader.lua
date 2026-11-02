@@ -2136,10 +2136,9 @@ end
 -- not never-automatic, dedup by the ACTIVE variant id. Returns an array.
 -- SkipBoss (v3.5, slot 6): when true, the whole walk is skipped if the
 -- current target is a boss (immune to the curated CC); unknown fails open.
-local function WalkCurated (List, Count, Seen, SkipBoss)
-  local Out = {};
-  if type(List) ~= "table" then return Out; end
-  if SkipBoss and MDCB.IsBossTarget and MDCB.IsBossTarget() then return Out; end
+local function WalkCurated (List, Count, Seen, SkipBoss, Out)
+  if #Out >= Count or type(List) ~= "table" then return; end
+  if SkipBoss and MDCB.IsBossTarget and MDCB.IsBossTarget() then return; end
   for i = 1, #List do
     local Entry = List[i];
     if type(Entry) == "number" and Entry > 0 then
@@ -2156,12 +2155,11 @@ local function WalkCurated (List, Count, Seen, SkipBoss)
         if Ready and Bound then
           Seen[Active] = true;
           Out[#Out + 1] = Active;
-          if #Out >= Count then return Out; end
+          if #Out >= Count then return; end
         end
       end
     end
   end
-  return Out;
 end
 
 --- Ordered rotation pool for a rotating slot (3 defensive, 6 interrupt/CC,
@@ -2181,15 +2179,8 @@ function MDCB.RotationCandidates (Slot, Count)
     local Hit = Tick.Pools[MemoKey];
     if Hit ~= nil then return Hit; end
   end
+  -- One bounded result and dedup set; no temporary arrays per curated list.
   local Out, Seen = {}, {};
-  local function Append (List, SkipBoss)
-    if #Out >= Count then return; end
-    local Found = WalkCurated(List, Count, Seen, SkipBoss);
-    for i = 1, #Found do
-      Out[#Out + 1] = Found[i];
-      if #Out >= Count then return; end
-    end
-  end
 
   if Slot == 3 then
     local Flagged = FirstFlagged("defensive", false, true);
@@ -2201,9 +2192,9 @@ function MDCB.RotationCandidates (Slot, Count)
     local Table = classFile and specName and MDCB.Extras
       and MDCB.Extras[classFile] and MDCB.Extras[classFile][specName];
     if type(Table) == "table" then
-      Append(Table.defensiveMajor);
-      Append(Table.defensiveMinor);
-      Append(Table.defensive);
+      WalkCurated(Table.defensiveMajor, Count, Seen, false, Out);
+      WalkCurated(Table.defensiveMinor, Count, Seen, false, Out);
+      WalkCurated(Table.defensive, Count, Seen, false, Out);
     end
   elseif Slot == 6 then
     -- The interrupt candidate stays first-class in Bridge (a live cast is
@@ -2214,14 +2205,14 @@ function MDCB.RotationCandidates (Slot, Count)
       local _, classFile, specName = ClassSpec();
       local Table = classFile and specName and MDCB.Extras
         and MDCB.Extras[classFile] and MDCB.Extras[classFile][specName];
-      if type(Table) == "table" then Append(Table.cc, true); end
+      if type(Table) == "table" then WalkCurated(Table.cc, Count, Seen, true, Out); end
     end
   elseif Slot == 7 or Slot == 8 then
     local _, classFile, specName = ClassSpec();
     local Table = classFile and specName and MDCB.Extras
       and MDCB.Extras[classFile] and MDCB.Extras[classFile][specName];
     if type(Table) == "table" then
-      Append(Slot == 7 and Table.mobility or Table.selfHeal);
+      WalkCurated(Slot == 7 and Table.mobility or Table.selfHeal, Count, Seen, false, Out);
     end
   end
   if MemoKey then Tick.Pools[MemoKey] = Out; end
@@ -2646,7 +2637,10 @@ function MDCB.FrameKey (Ctx)
   -- tick the player took damage, forcing a full slot rescan for no decision
   -- change; these folds flip exactly when a branch in the scan flips.
   local Hp = nil;
-  do
+  if type(Ctx) == "table" then
+    -- Already read by the Bridge this tick; UNKNOWN remains nil.
+    Hp = Ctx.HpPct;
+  else
     local OkHp, Pct = pcall(MDCB.GetPlayerHpPct);
     if OkHp and type(Pct) == "number" then Hp = Pct; end
   end
