@@ -10,6 +10,46 @@ Format: Keep a Changelog sections (`Added` / `Changed` / `Fixed` / `Removed`)
 per release, plus the identity + wire line. The complete pre-4.0 history lives
 in [`../VERSION.txt`](../VERSION.txt) and `docs/archive/HANDOVER-history.md`.
 
+## 4.8.0 Lightfoot - 2026-11-02
+
+**Companion 4.8.0 Lightfoot / Bridge 4.8.0.** Low-overhead updates;
+preserves every Sentinel 4.7 DPS/tank decision, user ability toggle,
+MaxDps Main rotation and protocol v5 (51 cells, optionally 58 with Ext5).
+
+### Changed — Windows capture
+
+- Removes the allocating lambda from the capture entrypoint and one
+  per-cell closure from each decoded frame.
+- Samples all five median pixels using direct mapped-DIB access, reading
+  the centre pixel once rather than three times. Native GDI BitBlt still
+  runs once per poll; sampling coordinates, median sort, color profile,
+  fallback sampling and the returned independent Color[] remain intact.
+- No forced changes to 33 ms recommended polling, foreground gating,
+  frame freshness, adaptive scheduling or GPU capture semantics.
+
+### Changed — in-game Lua
+
+- Curated rotation pool walker now appends into a single bounded output
+  with one dedup table; no intermediate per-list tables/append closure/copy.
+  Defensive > CC > movement > sustain pool priority and readiness/binding
+  checks remain as before.
+- FrameKey uses Bridge's current-tick prevalidated HP field when passed
+  a context, avoiding a duplicate protected API call; direct no-context
+  calls retain the old per-call probe and UNKNOWN handling.
+- Solo defensive threshold table allocated once, rather than every
+  ~33 ms while Solo is enabled and ungrouped.
+
+### Packaging and verification
+
+- Application and in-game addon version/codename updated together.
+- Successful Windows/macOS CI builds + Lua harness, compiler and
+  ability audit publish both ZIPs in `v4.8.0-rc.1`.
+- **No measured FPS, CPU or GPU improvement is claimed.** In-game A/B
+  comparing Sentinel vs Lightfoot under matched scene/settings is OWED;
+  see `docs/HANDOVER-LIGHTFOOT-4.8.0.md`.
+- No addon API/secret changes, no vendor edits and no new features
+  requiring different user settings.
+
 ## 4.7.0 Sentinel - 2026-11-01
 
 **Companion 4.7.0 "Sentinel" / bridge 4.7.0 (identity-only bridge upgrade).**

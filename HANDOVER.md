@@ -5,6 +5,20 @@ Read order: this file -> `ARCHITECTURE.md` -> `docs/PROTOCOL.md`. Full history
 [`docs/archive/HANDOVER-history.md`](docs/archive/HANDOVER-history.md); search it
 by release name or date before re-investigating an old problem.
 
+## 2026-11-02 RELEASE CANDIDATE 4.8.0 "LIGHTFOOT" — frame-time efficiency
+
+- Branch `release/v4.8.0-lightfoot` based on complete 4.7 Sentinel.
+- App and bridge version 4.8.0, codename Lightfoot. Wire 51/58 unchanged.
+- Windows `ScreenSampler.cs`: direct DIB color reads (one BitBlt, five
+  taps, no per-cell delegates), original independent arrays retained.
+- Lua `Reader.lua`: one bounded curated rotation array instead of
+  intermediate sub-lists; FrameKey consumes the same scrubbed HP from Bridge.
+- Lua `Bridge.lua`: shared Solo ladder thresholds table across ticks.
+- No MaxDps vendor changes or new DPS/tank behavior. Offline tests do
+  NOT establish real WoW FPS improvement.
+- Release ZIPs / agent install and controlled 4.7-to-4.8 A/B testing:
+  `docs/HANDOVER-LIGHTFOOT-4.8.0.md`.
+
 ## 2026-11-01 RELEASE CANDIDATE 4.7.0 "SENTINEL" — DPS + tank shared cooldown intelligence
 
 - Branch: `release/v4.7.0-sentinel`; parent includes PR #21 speculative

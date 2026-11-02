@@ -1,5 +1,18 @@
 # Architecture — MaxDps-Companion
 
+## 4.8.0 Lightfoot — CPU/GC hot-path reduction
+
+- `ScreenSampler.cs`: one GDI BitBlt per capture, then direct five-tap
+  median DIB pointer reads; the per-cell Func/lambda dispatch is removed.
+- `Reader.lua`: curated pools write straight into a cap-four Out array,
+  with one Seen table per refresh. No intermediate Found list or Append
+  closure. MaxDps's flagged priority and readiness filters are identical.
+- `Reader.FrameKey` with a tick context consumes its pre-observed,
+  sanitized player HP (nil means UNKNOWN). Without a context it still
+  reads player HP itself. `Bridge.lua` shares immutable Solo bands.
+- The existing 33 ms bridge cadence, companion poll timer, protocol and
+  policy scheduler remain unchanged. Real frame-time comparisons remain owed.
+
 ## 4.7.0 Sentinel — common DPS/tank cooldown layer
 
 - `Knowledge/HealthPressureMonitor.cs`: bounded, monotonic plain-HP-only

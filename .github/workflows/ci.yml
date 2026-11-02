@@ -187,7 +187,7 @@ jobs:
   publish_candidate:
     name: Publish Sentinel release-candidate ZIPs
     needs: [windows, macos]
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/release/v4.7.0-sentinel' }}
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/release/v4.8.0-lightfoot' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -201,25 +201,25 @@ jobs:
       - name: Publish GitHub prerelease from the verified commit
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v4.7.0-rc.1
+          tag_name: v4.8.0-rc.1
           target_commitish: ${{ github.sha }}
-          name: MaxDPS Companion v4.7.0 Sentinel (Release Candidate)
+          name: MaxDPS Companion v4.8.0 Lightfoot (Release Candidate)
           prerelease: true
           draft: false
           generate_release_notes: false
           body: |
-            Sentinel 4.7.0 — shared cooldown intelligence for all 13 classes and
-            40 catalogued specs, including DPS and tanks. Universal verified
-            health-loss response, tank mitigation maintenance, defensive
-            absorbs routed correctly, speculative GCD failure recovery, and
-            opt-in Burst opener on verified boss-grade Ext5 targets.
+            Lightfoot 4.8.0 — reduced hot-path overhead in Windows pixel
+            sampling and the in-game Lua ability pool. All 4.7 Sentinel
+            DPS/tank policy improvements, MaxDps core rotations and the
+            existing 51/58-cell wire are unchanged. Real WoW FPS and GPU
+            gains must be measured separately; offline CI cannot prove them.
 
-            Windows and addon ZIPs are below. Keep existing settings.ini and
-            official MaxDps addon. See docs/HANDOVER-SENTINEL-4.7.0.md for
-            safe installation/rollback steps.
+            Windows and addon ZIPs are below. Preserve your settings.ini
+            and official MaxDps addon. For download, backup, install,
+            rollback and matched FPS tests read docs/HANDOVER-LIGHTFOOT-4.8.0.md.
 
             Offline CI passed; LIVE WoW Retail verification is STILL OWED.
           files: |
-            release-output/MaxDpsCompanion-4.7.0-Sentinel-win-x64.zip
-            release-output/MaxDpsCompanionBridge-4.7.0.zip
+            release-output/MaxDpsCompanion-4.8.0-Lightfoot-win-x64.zip
+            release-output/MaxDpsCompanionBridge-4.8.0.zip
           fail_on_unmatched_files: true

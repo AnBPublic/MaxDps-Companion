@@ -29,6 +29,18 @@ internal static class ReleaseNotes
     public static readonly IReadOnlyList<Release> All = new[]
     {
         new Release(
+            "4.8.0", "Lightfoot", "2026-11-02",
+            "Lean Windows pixel capture and lower-GC Lua candidate scans; core rotations unchanged.",
+            new[]
+            {
+                "Windows samples the same five tap locations directly from the mapped DIB, avoiding delegate invocations and per-cell closures while retaining one BitBlt per poll.",
+                "The in-game bridge now appends curated ready/bound abilities directly into a capped pool; no temporary sub-list or per-pool append closure.",
+                "FrameKey reuses the bridge tick's already-read safe HP value instead of a second API probe; no-context callers retain their own live read.",
+                "The Solo HP ladder reuses one threshold table; no per-tick table allocation.",
+                "All Sentinel DPS/tank cooldown policies, main rotation ordering, per-ability controls and 51/58-cell wire are unchanged.",
+                "Offline CI verifies build/regression stability. FPS, frametimes and GPU utilization require separate controlled Retail A/B testing.",
+            }),
+        new Release(
             "4.7.0", "Sentinel", "2026-11-01",
             "Shared DPS/tank cooldown awareness, reliable mitigation routing and rejection recovery.",
             new[]
