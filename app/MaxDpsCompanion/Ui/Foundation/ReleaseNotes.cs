@@ -29,6 +29,19 @@ internal static class ReleaseNotes
     public static readonly IReadOnlyList<Release> All = new[]
     {
         new Release(
+            "5.0.0", "Ascendant", "2026-11-02",
+            "12.1.5 target, all-spec readiness, measured survival and long-cooldown intelligence.",
+            new[]
+            {
+                "All 40 specializations inventoried by role and ability ownership, with honest older-patch and unverified spell coverage; inventory is not exhaustive live validation.",
+                "Shared sustained plain-health-pressure detector may promote MaxDps-offered, confirmed-unbuffed minor mitigation; major, unknown and immunity gates remain conservative.",
+                "Measured short target-lifetime conserves long 90s+ companion-generated offensive gap-fills without altering MaxDps Main/direct cooldown ordering.",
+                "Health-pressure hot path no longer creates capturing RemoveAll/Any delegates on every poll.",
+                "Targets WoW Retail Midnight 12.1.5 with addon TOC 120105, retaining honest 12.1 source provenance until refreshed and live-verified.",
+                "Solo/Group behavior, all user per-ability OFF switches, 51/58-cell protocol and 4.9 thin-strip screen capture are preserved.",
+                "Offline test coverage is not proof of perfect gameplay across leveling, talents, raids, dungeons, Delves or FPS; controlled live testing is mandatory.",
+            }),
+        new Release(
             "4.9.0", "Slipstream", "2026-11-02",
             "Copy only three pixel rows per screen poll, preserving every rotation sample.",
             new[]

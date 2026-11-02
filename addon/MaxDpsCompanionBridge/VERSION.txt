@@ -1,3 +1,12 @@
+5.0.0
+Date: 2026-11-02 - "Ascendant"
+Retail Midnight 12.1.5 / Interface 120105, existing 51/58-cell v5 wire.
+- WoW addon identity and TOC compatibility. Same MaxDps Main authority.
+- Every candidate still known/ready/bound through existing live filters.
+- No invented talent combos, unobservable casts or all-content guarantees.
+- Host v5 adds measured sustained health and short target TTK policy.
+- Old 12.1 source snapshot requires updated 12.1.5 validation.
+
 4.9.0
 date: 2026-11-02 "Slipstream"
 git: v4.9.0-rc.1 (companion) / bridge 4.9.0
