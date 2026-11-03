@@ -601,6 +601,17 @@ internal static class PolicyEvaluator
 {
     public static PolicyDecision Evaluate(PolicyInput input, AbilityCatalog catalog)
     {
+        // v6: enforce user OFF before *any* generic, emergency, scheduler
+        // source or provider (including MaxDps Main and active talent
+        // replacements). An explicit OFF on a base spell blocks its known
+        // aliases as well. Unknown spell identity can still only be trusted
+        // through the existing MaxDps wire/bridge gates.
+        if (input.Options.Abilities is { } policy
+            && policy.ExplicitlyBlocked(input.SpellId, catalog))
+            return ProviderStamp.Stamp(CandidateProviders.Generic,
+                PolicyDecision.Skip("user OFF/Manual applies to spell or talent variant"),
+                "user policy: explicit variant-family prohibition");
+
         var ability = input.SpellId > 0 ? catalog.TryGet(input.SpellId) : null;
         if (ability is null)
         {
