@@ -49,6 +49,24 @@ internal static class TtkPolicy
     /// </summary>
     public const double DyingTargetSec = SoloMinorDyingTargetSec;
 
+    /// <summary>
+    /// v5: only IDs from the curated per-spec offensive candidate list
+    /// with a valid short-life measurement are conserved in Burst mode.
+    /// There is NO authoritative offensive-source bit on the v5 wire:
+    /// a spell offered by MaxDps may overlap the curated list. This
+    /// restriction NEVER changes the Main rotation. Bosses and execute
+    /// ranges retain their burst windows; no TTK is fabricated from HP.
+    /// </summary>
+    public static bool ConserveLongGapFill(AbilityDefinition ability, CombatContext context, bool companionGapFill) =>
+        companionGapFill && ability.Purpose == AbilityPurpose.MajorOffensive
+        && ability.CooldownMs >= 90_000
+        && context.TtkValid && double.IsFinite(context.TtkSec)
+        && context.TtkSec > 0
+        && context.Ext5?.BossGrade != true
+        && !ExecuteRange(ability, context)
+        && MinTtkSec(ability) > 0
+        && context.TtkSec < MinTtkSec(ability);
+
     /// <summary>A second full cooldown use needs this many cooldowns plus its duration.</summary>
     public const int TwoUsesFactor = 2;
 

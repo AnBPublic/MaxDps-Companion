@@ -86,11 +86,11 @@
 
 local addonName, MDCB = ...;
 
-MDCB.VERSION = "4.6.0";
+MDCB.VERSION = "6.0.0";
 -- Release codename, shown next to the version in /mcb cfg (Status card) and
 -- the Debug tab. Single-sourced here; the TOC carries the same value in
 -- ## X-Codename so the AddOns list matches.
-MDCB.CODENAME = "Cadence";
+MDCB.CODENAME = "Northstar";
 
 -- Chat print, defined FIRST: AutoCalibrate (below) and the Update watchdog
 -- both call it, and Lua resolves locals lexically -- a later `local
@@ -251,6 +251,9 @@ local Defaults = {
   -- while true the strip stays a Paused frame and the auto-revive nudge is
   -- suppressed, so nothing can silently resume the rotation after a pause.
   UserPaused = false,
+  -- v6: forbid non-MaxDps Main filler guesses by default. An explicit
+  -- '/mdb mainfallback on' restores the legacy Fury/Arms/Ret fallback.
+  AllowMainFallback = false,
   OffsetX = 0,
   OffsetY = 0,
   -- Aethys-proven 8px cells: ±1px misalignment tolerance by construction.
@@ -564,6 +567,8 @@ end
 -- what the old closures captured.
 local TickCtx = nil;
 local TickToggles = nil;
+-- Reused across frames: no fresh Solo ladder thresholds table at 30Hz.
+local SoloBands = { minor = 75, major = 50, immunity = 30 };
 
 -- Single slot gate (one call per slot): the per-slot key, the OOC master and
 -- the Solo gate all live in Toggles.SlotAllowed; denials are recorded in
@@ -1280,7 +1285,7 @@ local function Update (self, Delta)
     local SoloOn = Toggles and Toggles.Get and Toggles.Get("Solo");
     local Ungrouped = type(Ctx.Grouped) == "boolean" and Ctx.Grouped == false;
     if SoloOn and Ungrouped then
-      MDCB.SoloLadderBands = { minor = 75, major = 50, immunity = 30 };
+      MDCB.SoloLadderBands = SoloBands;
     else
       MDCB.SoloLadderBands = nil;
     end
@@ -1305,7 +1310,7 @@ local function Update (self, Delta)
 
   -- PERF: reset the per-tick memo ONCE per update (the slot getters share
   -- one Flags scrub, one item map and one class/spec resolve per tick).
-  if MDCB.BeginTick then MDCB.BeginTick(); end
+  if MDCB.BeginTick then MDCB.BeginTick(Ctx.HpPct, true); end
 
   -- v3.5 rotation clock + defensive pin. The pin reads the HP urgency before
   -- the scan (the wire urgency later is identity-aware); a secret HP stays
@@ -1685,6 +1690,19 @@ local function HandleCommand (Input)
     end
     Print(("app mask 0x%04X epoch %d applied (default; overlay-wins)")
       :format(MaskArg, EpochArg));
+    return;
+  end
+
+  if Command == "mainfallback" then
+    if Arg1 == "on" then
+      DB.AllowMainFallback = true;
+    elseif Arg1 == "off" then
+      DB.AllowMainFallback = false;
+    elseif Arg1 ~= nil then
+      Print("usage: /mdb mainfallback on|off");
+      return;
+    end
+    Print("strict MaxDps Main: " .. (DB.AllowMainFallback and "OFF (legacy filler opt-in)" or "ON (hold when no reliable main)"));
     return;
   end
 

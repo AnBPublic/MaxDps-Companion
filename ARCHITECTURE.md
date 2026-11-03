@@ -1,5 +1,104 @@
 # Architecture — MaxDps-Companion
 
+## 6.0.0 Northstar — bounded trust, human control and auditability
+
+- `AbilityPolicy.ExplicitlyBlocked` checks direct and symmetric
+  cataloged talent aliases. A user OFF/Manual/Never veto is applied
+  **before** any other situational or MaxDps policy path, not merely
+  at the end of a provider. Explicit OFF beats conflicting Always.
+- `AbilitySpecGuard` rejects independently generated class/spec
+  extras whose known membership contradicts observed class/spec
+  metadata, without policing MaxDps's Main recommendation on stale
+  12.1 registry membership.
+- Lua MainFallback remains present for reproducibility, but new
+  SavedVariable `AllowMainFallback=false` defaults to strict
+  MaxDps authority. Only `/mdb mainfallback on` permits previously
+  curated Fury/Arms/Retribution fillers when a MaxDps-named action
+  is provably power-starved. Unknown observations still rely on the
+  live MaxDps glow rather than guessed fillers.
+- `AbilityDecisionManifest.Build` enumerates every catalog ID and
+  labels the policy route and unmet source evidence, without
+  claiming each one 12.1.5-verified. CLI TSV report is built only
+  on demand, not in the 33ms capture loop.
+- Gameplay pause from active chat Ext3 typing bit, Windows
+  non-foreground capture gate, stale-frame and link-loss holds,
+  one-action-per-GCD sequencing, emergency/interrupt priorities
+  and v5 health pressure remain unchanged.
+- No changes to the v5 pixel wire or Win32 BitBlt cropped 3-row
+  sample. Current 12.1.5 upstream source and all-encounter matrix
+  are follow-up validation, not claims of complete implementation.
+
+## 5.0.0 Ascendant — shared live-evidence policy, all-spec audit
+
+- The same low-allocation monitor can estimate a one-second risk
+  from >=20 points of *observed* health loss over 250–1200ms.
+  Confirmed offered major DR may trigger earlier at Yellow/Orange;
+  Solo-only early self-sustain stays inside curated HP limits.
+- `HealthPressureMonitor` now observes sustained HP loss over a
+  bounded 2.8s window while preserving the prior rapid-hit window.
+  The hot path uses no LINQ/delegate allocations and never infers
+  pressure from curve/unknown/secret HP.
+- `DefensiveCandidateProvider` can release a MaxDps-sourced minor
+  under sustained pressure only with a confirmed inactive own buff,
+  valid plain HP, 51–80% health and in-combat state. Existing
+  emergency, solo ladder and defensive overlap rules remain.
+- `TtkPolicy.ConserveLongGapFill` conserves optional 90s+
+  companion-offered major offensive gap-fills only on measurable
+  too-short nonboss TTK, preserving MaxDps Main direct decisions.
+- `SpecReadiness` covers all 40 specs by inventory, role, manual,
+  ownership, incomplete and older-patch metadata. A registry row
+  does NOT prove level/talent live compatibility.
+- Runtime target 12.1.5 (addon TOC 120105) is distinct from pinned
+  older 12.1 ability knowledge. v5 protocol cells and 4.9 native
+  cropped Windows capture are unchanged.
+
+## 4.9.0 Slipstream — lossless narrow capture
+
+- `ScreenSampler.SampleCells` calls `CaptureRows(cellSize)` and creates
+  a DIB height of at most 3 pixels (for 3px+ cells). The sampled screen
+  origin is offset by `FirstRow`, and `ReadPixel` subtracts the offset
+  before accessing the mapped DIB. All X coordinates and full 58-cell wire
+  width stay intact; each five-tap median observes exactly the same pixels
+  as before. 8px cells: 62.5% fewer **pixels copied**, not 62.5% less
+  capture time or GPU impact. Existing GDI BitBlt synchronization remains.
+- `CaptureRows` has offline geometry boundary/coverage tests. The 4.8
+  runtime cadence, 4.7 policy scheduler and all MaxDps-selected rotations
+  are unchanged, including optional Ext5 and secret-safe behavior.
+
+## 4.8.0 Lightfoot — CPU/GC hot-path reduction
+
+- `ScreenSampler.cs`: one GDI BitBlt per capture, then direct five-tap
+  median DIB pointer reads; the per-cell Func/lambda dispatch is removed.
+- `Reader.lua`: curated pools write straight into a cap-four Out array,
+  with one Seen table per refresh. No intermediate Found list or Append
+  closure. MaxDps's flagged priority and readiness filters are identical.
+- The bridge seeds one safe player HP reading into Reader's per-tick memo;
+  the fallback path is used by direct/legacy callers outside the tick. A
+  per-tick stagger urgency memo similarly avoids duplicate game API probes.
+  Both reset at BeginTick, and out-of-tick calls remain live. `Bridge.lua` shares immutable Solo bands.
+- The existing 33 ms bridge cadence, companion poll timer, protocol and
+  policy scheduler remain unchanged. Real frame-time comparisons remain owed.
+
+## 4.7.0 Sentinel — common DPS/tank cooldown layer
+
+- `Knowledge/HealthPressureMonitor.cs`: bounded, monotonic plain-HP-only
+  sampling; all 13 class / 40 spec contexts use the same pure rule.
+- `Scheduler/ActionScheduler.cs`: observes valid health per frame before policy
+  verdicts; `PolicyMemory.Reset` clears health pressure with other state.
+- `Knowledge/CandidateProviders.cs`: defensive purpose wins over SelfHeal
+  transport; a *MaxDps-offered* buff-trackable minor tank mitigation can be
+  maintained while healthy with confirmed missing buff; a strong observed
+  health decline can move a major defensive one urgency step earlier at
+  51–70% HP. Replay reconstructs the same observed sampling window.
+- `Knowledge/PolicyEvaluator.cs`: `PolicyMemory` owns the shared monitor
+  and preserves the original speculative cooldown rollback for failed GCD
+  sends (PR #21).
+- `OffensiveCandidateProvider`: only for opt-in Burst, a verified Ext5
+  boss-grade target bypasses the not-yet-valid TTK warmup hold for major
+  offensives. The ordinary/unknown target case is unchanged.
+- No additional protocol cells, autonomous rotation engine, protected API
+  calls, or changes to MaxDps Main suggestions.
+
 ## Pipeline
 
 ```

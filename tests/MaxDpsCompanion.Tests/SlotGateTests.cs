@@ -47,9 +47,13 @@ public class SlotGateTests
     }
 
     [Fact]
-    public void Background_Keys_Allowed_Send_Without_Focus()
+    public void Background_Keys_Cannot_Override_V6_Hard_Focus_Stop()
     {
-        Assert.Equal(SlotVerdict.Send, Evaluate(KeyE, foreground: false, isGameWindow: false,
+        Assert.Equal(SlotVerdict.SkipFocusKeyboard, Evaluate(KeyE, foreground: false, isGameWindow: false,
+            allowBackgroundKeys: true));
+        Assert.Equal(SlotVerdict.SkipFocusKeyboard, Evaluate(KeyE, foreground: true, isGameWindow: false,
+            allowBackgroundKeys: true));
+        Assert.Equal(SlotVerdict.SkipFocusKeyboard, Evaluate(KeyE, foreground: false, isGameWindow: true,
             allowBackgroundKeys: true));
     }
 

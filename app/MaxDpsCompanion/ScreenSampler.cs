@@ -23,6 +23,9 @@ internal sealed class ScreenSampler : IDisposable
     private IntPtr _previous = IntPtr.Zero;
     private IntPtr _bits = IntPtr.Zero;
     private Size _bitmapSize;
+    // Offset of the 1-3 captured pixel rows within the source cell. The
+    // 5-tap decoder still passes original cell-local y coordinates.
+    private int _sourceRowOffset;
 
     /// <summary>Samples taken per cell at 2px+; the median wins. Must stay odd.</summary>
     public const int TapsPerCell = 5;
@@ -85,8 +88,9 @@ internal sealed class ScreenSampler : IDisposable
     public Color[] Sample(Point origin, int cellSize) => Sample(origin, cellSize, IntPtr.Zero);
 
     /// <summary>
-    /// Captures the strip for <paramref name="window"/>: skips the blit when the
-    /// window is minimized and classifies an all-black capture as occluded.
+    /// Captures only the 1-3 DIB rows needed for all five color taps; the
+    /// full-width decoded frame and the same one-blit cadence are preserved.
+    /// Skips minimized windows and detects an all-black capture.
     /// </summary>
     public Color[] Sample(Point origin, int cellSize, IntPtr window)
     {
@@ -96,12 +100,12 @@ internal sealed class ScreenSampler : IDisposable
             return new Color[PixelProtocol.CellCountExt5];
         }
 
-        var cells = SampleCells(origin, cellSize, (x, y) => ReadPixel(x, y));
+        var cells = SampleCells(origin, cellSize);
         LastOutcome = CaptureDiagnostics.IsBlackFrame(cells) ? CaptureOutcome.Black : CaptureOutcome.Sampled;
         return cells;
     }
 
-    private Color[] SampleCells(Point origin, int cellSize, Func<int, int, Color> read) =>
+    private Color[] SampleCells(Point origin, int cellSize) =>
         // Ext5 (4.6.0): capture the full 58-cell frame in one BitBlt so the
         // additive Ext5 cells are readable. A 51-cell Ext4, 43-cell Ext3,
         // 40-cell Ext2 or 35-cell core addon leaves the extra cells as
@@ -109,19 +113,40 @@ internal sealed class ScreenSampler : IDisposable
         // the Ext4 presence bit, Ext4 on cell 28 B bit3, Ext3 on bit2 and
         // Ext2 on cell 33 B bit2, so the presence bits decide which extension
         // reads.
-        SampleCells(origin, cellSize, PixelProtocol.CellCountExt5, read);
+        SampleCells(origin, cellSize, PixelProtocol.CellCountExt5);
 
-    private Color[] SampleCells(Point origin, int cellSize, int cellCount, Func<int, int, Color> read)
+    /// <summary>
+    /// 4.9 Slipstream: the five HDR-safe median taps touch only rows
+    /// center-1, center and center+1. Copy those rows, NOT the entire
+    /// cell-height. For 8px cells this shrinks the DWM-to-DIB payload from
+    /// 58*8*8 = 3712 pixels to 58*8*3 = 1392 (62.5% fewer).
+    /// GDI synchronization overhead remains and FPS benefit is unmeasured.
+    /// Keeps original coordinates to preserve the calibrated decoder.
+    /// </summary>
+    internal static (int FirstRow, int RowCount) CaptureRows(int cellSize)
+    {
+        if (cellSize < 1) throw new ArgumentOutOfRangeException(nameof(cellSize));
+        var center = cellSize / 2;
+        var first = Math.Max(0, center - 1);
+        var last = Math.Min(cellSize - 1, center + 1);
+        return (first, last - first + 1);
+    }
+
+    private Color[] SampleCells(Point origin, int cellSize, int cellCount)
     {
         var width = cellSize * cellCount;
-        var height = cellSize;
+        var (firstRow, height) = CaptureRows(cellSize);
+        _sourceRowOffset = firstRow;
 
         EnsureSurface(width, height);
 
         var colors = new Color[cellCount];
         if (_bits == IntPtr.Zero) return colors;
 
-        if (!CopyFromScreen(origin, width, height))
+        // A single native BitBlt reads only the actual source rows needed
+        // by the five taps. Never add extra blits or slow down the cadence.
+        var stripeOrigin = new Point(origin.X, origin.Y + firstRow);
+        if (!CopyFromScreen(stripeOrigin, width, height))
         {
             // Stale GDI surface: a display-mode change, DWM reset, monitor
             // hot-plug or session switch can invalidate the cached screen DC
@@ -131,11 +156,11 @@ internal sealed class ScreenSampler : IDisposable
             // blind.
             Reset();
             EnsureSurface(width, height);
-            if (!CopyFromScreen(origin, width, height)) return colors;
+            if (!CopyFromScreen(stripeOrigin, width, height)) return colors;
         }
 
         for (var i = 0; i < cellCount; i++)
-            colors[i] = SampleCellInstance((x, y) => ReadPixel(x, y), i, cellSize);
+            colors[i] = SampleCellInstance(i, cellSize);
         return colors;
     }
 
@@ -162,23 +187,24 @@ internal sealed class ScreenSampler : IDisposable
         }
     }
 
-    private Color SampleCellInstance(Func<int, int, Color> read, int cell, int cellSize) =>
-        cellSize < MedianMinCellSize ? CentrePixel(read, cell, cellSize) : MedianSample(read, cell, cellSize);
+    private Color SampleCellInstance(int cell, int cellSize) =>
+        cellSize < MedianMinCellSize ? CentrePixel(cell, cellSize) : MedianSample(cell, cellSize);
 
-    private Color MedianSample(Func<int, int, Color> read, int cell, int cellSize)
+    private Color MedianSample(int cell, int cellSize)
     {
         // Centre plus 4-neighbourhood, clamped inside the cell.
         var cx = cell * cellSize + cellSize / 2;
         var cy = cellSize / 2;
-        _tapR[0] = read(cx, cy).R; _tapG[0] = read(cx, cy).G; _tapB[0] = read(cx, cy).B;
+        var center = ReadPixel(cx, cy);
+        _tapR[0] = center.R; _tapG[0] = center.G; _tapB[0] = center.B;
         var l = Math.Max(cell * cellSize, cx - 1);
         var r = Math.Min(cell * cellSize + cellSize - 1, cx + 1);
         var u = Math.Max(0, cy - 1);
         var d = Math.Min(cellSize - 1, cy + 1);
-        var c1 = read(l, cy); _tapR[1] = c1.R; _tapG[1] = c1.G; _tapB[1] = c1.B;
-        var c2 = read(r, cy); _tapR[2] = c2.R; _tapG[2] = c2.G; _tapB[2] = c2.B;
-        var c3 = read(cx, u); _tapR[3] = c3.R; _tapG[3] = c3.G; _tapB[3] = c3.B;
-        var c4 = read(cx, d); _tapR[4] = c4.R; _tapG[4] = c4.G; _tapB[4] = c4.B;
+        var c1 = ReadPixel(l, cy); _tapR[1] = c1.R; _tapG[1] = c1.G; _tapB[1] = c1.B;
+        var c2 = ReadPixel(r, cy); _tapR[2] = c2.R; _tapG[2] = c2.G; _tapB[2] = c2.B;
+        var c3 = ReadPixel(cx, u); _tapR[3] = c3.R; _tapG[3] = c3.G; _tapB[3] = c3.B;
+        var c4 = ReadPixel(cx, d); _tapR[4] = c4.R; _tapG[4] = c4.G; _tapB[4] = c4.B;
 
         // Reused buffers + insertion sort for 5 elements: no allocation.
         return Color.FromArgb(Median5(_tapR), Median5(_tapG), Median5(_tapB));
@@ -197,11 +223,11 @@ internal sealed class ScreenSampler : IDisposable
         return v[TapsPerCell / 2];
     }
 
-    private static Color CentrePixel(Func<int, int, Color> read, int cell, int cellSize)
+    private Color CentrePixel(int cell, int cellSize)
     {
         var cx = cell * cellSize + cellSize / 2;
         var cy = cellSize / 2;
-        return read(cx, cy);
+        return ReadPixel(cx, cy);
     }
 
     /// <summary>Reads a pixel directly from the mapped DIB buffer (no GDI call).</summary>
@@ -210,7 +236,7 @@ internal sealed class ScreenSampler : IDisposable
         if (_bits == IntPtr.Zero) return Color.Empty;
         unsafe
         {
-            var p = (byte*)_bits + (long)y * (_bitmapSize.Width * 4) + (long)x * 4;
+            var p = (byte*)_bits + (long)(y - _sourceRowOffset) * (_bitmapSize.Width * 4) + (long)x * 4;
             return Color.FromArgb(p[2], p[1], p[0]);   // B, G, R, unused
         }
     }
@@ -257,6 +283,9 @@ internal sealed class ScreenSampler : IDisposable
             Native.DeleteDC(_memoryDc);
 
         _bitmap = _memoryDc = _previous = _bits = IntPtr.Zero;
+        // Preserve _sourceRowOffset: the BitBlt failure path calls Reset()
+        // mid-sample and then retries with this same cropped geometry.
+        // SampleCells overwrites the offset on every new capture.
         _bitmapSize = Size.Empty;
     }
 

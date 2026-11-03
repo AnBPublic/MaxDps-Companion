@@ -43,6 +43,10 @@ internal static class SlotGate
         if (KeySender.IsMouse(stroke.VirtualKey))
             return foreground && isGameWindow ? SlotVerdict.Send : SlotVerdict.SkipFocusMouse;
 
-        return allowBackgroundKeys || foreground ? SlotVerdict.Send : SlotVerdict.SkipFocusKeyboard;
+        // Re-check the exact foreground game window BEFORE each send:
+        // sampling already paused, but an alt-tab can occur mid-tick.
+        // Legacy background-key preference cannot bypass this hard stop.
+        _ = allowBackgroundKeys; // retained for older settings/callers
+        return foreground && isGameWindow ? SlotVerdict.Send : SlotVerdict.SkipFocusKeyboard;
     }
 }

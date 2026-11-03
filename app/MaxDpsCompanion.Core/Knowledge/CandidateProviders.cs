@@ -115,7 +115,12 @@ internal static class CandidateProviders
         // DefensiveMinor/Absorb -> Defensive, SelfHeal -> SelfSustain,
         // CrowdControl -> Utility). The bridge's known-spell filter means a
         // non-matching race never offers the candidate in the first place.
+        // Purpose wins over the transport slot: Ignore Pain and any other
+        // absorb/mitigation carried in SelfHeal must NOT be judged as a heal.
+        if (ability.IsDefensive) return Defensive;
         if (ability.Category == AbilityCategory.SelfHeal || slot == Slot.SelfHeal) return SelfSustain;
+        // A true heal carried in the MaxDps Defensive slot (e.g. Lay on
+        // Hands) must retain the existing defensive urgency/HP policy.
         if (ability.IsSurvival) return Defensive;
 
         // v3.5 movement routing (RC5). Every movement tool belongs to the
@@ -262,6 +267,18 @@ internal sealed class OffensiveCandidateProvider : ICandidateProvider
         if (ability.HoldWhenBuffActive && ctx.SlotBuffActive[slot] == TriState.Yes)
             return D(PolicyDecision.Skip("ability's own buff already active"), src, "own buff already active");
 
+        // v5: Burst-only TTK conservation for >=90s curated offensive
+        // list members. The wire has NO offensive provenance bit; an ID
+        // can overlap a direct MaxDps offensive suggestion. Main rotation
+        // never reaches this provider/hold, Full preset stays unchanged.
+        // Opt-in Burst strategy: Full retains legacy MaxDps authority and
+        // recorded historical replays. Only Burst conserves optional extras.
+        if (p.Options.Preset == RotationPreset.Burst
+            && TtkPolicy.ConserveLongGapFill(ability, ctx, gapFill))
+            return D(PolicyDecision.Hold(
+                    $"target dies in ~{ctx.TtkSec:0.#}s; saving long companion cooldown {ability.Name}"),
+                src, $"measured TTK {ctx.TtkSec:0.#}s < {TtkPolicy.MinTtkSec(ability):0.#}s");
+
         // Stream 3 preset (restrict-only, default Full = no-op): Burst conserves
         // major offensive cooldowns until the target's TTK is measurable. The
         // preset only ever HOLDs; an invalid TTK (including TimeToKill off) is
@@ -272,6 +289,9 @@ internal sealed class OffensiveCandidateProvider : ICandidateProvider
         if (p.Options.Preset == RotationPreset.Burst
             && ability.Purpose == AbilityPurpose.MajorOffensive
             && !TtkPolicy.SubFiftyBypass(ability)
+            // Ext5 rank 6/7 is a confirmed boss-grade encounter. An opt-in
+            // Burst user should not lose the opener awaiting HP/TTK samples.
+            && ctx.Ext5?.BossGrade != true
             && !ctx.TtkValid)
             return D(PolicyDecision.Hold($"burst preset: holding {ability.Name} until a boss TTK is measurable"),
                 src, "burst preset (no valid boss TTK)");
@@ -377,6 +397,30 @@ internal sealed class DefensiveCandidateProvider : ICandidateProvider
 
         var emergency = hp is { } ehp && ehp <= opts.EmergencyHpPct;
 
+        // Measured short-horizon rapid loss: only an existing MAJOR
+        // defensive candidate, in real combat and with plain HP.
+        // Does not generate skills, immunities, movement or hidden casts.
+        var imminent = input.InCombat && ctx.ContextValid && ctx.HpValid
+            && ctx.HpSource == HpSource.Plain
+            && input.Memory.HealthPressure.CriticalSoon
+            && input.Memory.HealthPressure.ProjectedHpPct is { } projected
+            && projected <= opts.EmergencyHpPct
+            && ability.Purpose == AbilityPurpose.DefensiveMajor
+            && ability.Tier == DefensiveTier.Major;
+
+        // An absorb carried in the SelfHeal extra slot remains subject to
+        // that slot's Solo and HP eligibility. It does not use overheal maths,
+        // but cannot fire at healthy HP or freely with Solo turned off.
+        if (input.Slot == Slot.SelfHeal && ability.IsDefensive)
+        {
+            if (!ctx.HpValid)
+                return D(PolicyDecision.Hold("defensive sustain HP unknown"), src, "HP unknown (defensive extra)");
+            if (!opts.SoloEnabled && !emergency)
+                return D(PolicyDecision.Hold("solo mode off; defensive sustain held"), src, "solo off (defensive extra)");
+            if (hp > opts.SelfSustainHpPct && !emergency)
+                return D(PolicyDecision.Hold("defensive sustain above HP threshold"), src, "HP above sustain (defensive extra)");
+        }
+
         // T4 (v3.6.0) dying-target hold, now a per-tier / scope lookup. Solo:
         // Minor 6 s, Major 10 s, Immunity 15 s. Group: only Minor is gated, and
         // only on a Valid rate below 4 s with the fast-pack latch and urgency
@@ -385,7 +429,7 @@ internal sealed class DefensiveCandidateProvider : ICandidateProvider
         // inside the helper). Ladder-band carve-out: inside the Solo Major /
         // Immunity escalation band the defensive is needed now and is not held.
         if (ability.IsDefensive && TtkPolicy.DyingTargetHolds(
-                ability, ctx, opts.SoloEnabled, emergency,
+                ability, ctx, opts.SoloEnabled, emergency || imminent,
                 opts.SoloMajorHpPct, opts.SoloImmunityHpPct))
         {
             var scope = opts.SoloEnabled ? "solo" : "group";
@@ -419,7 +463,7 @@ internal sealed class DefensiveCandidateProvider : ICandidateProvider
             // the decision. With no prior engagement the latch is the plain
             // enter threshold — stateless-safe (fresh session, tests, unknown).
             var wasEngaged = activeTierAtBand != DefensiveTier.None;
-            if (!SoloBandLatch.Latched(bandNeed, soloHp, wasEngaged))
+            if (!SoloBandLatch.Latched(bandNeed, soloHp, wasEngaged) && !imminent)
             {
                 var bandName = isImmunity ? "immunity" : ability.Tier == DefensiveTier.Major ? "major" : "minor";
                 return D(PolicyDecision.Hold($"solo: HP {soloHp}% above {bandName} band {bandNeed}%; conserving"),
@@ -440,19 +484,66 @@ internal sealed class DefensiveCandidateProvider : ICandidateProvider
         var urgencyFact = ability.UrgencySource == DefensiveUrgencySource.Stagger && ctx.StaggerUrgency != DefensiveUrgency.Unknown
             ? $"urgency {urgency} (stagger curve)"
             : $"urgency {urgency} (MaxDps HP curve)";
+
+        // A MaxDps-recommended, buff-trackable minor tank mitigation can be
+        // maintained before the first HP loss. Never invent a bridge candidate:
+        // the addon must already have offered this exact bound ability, and
+        // buff state must be confirmed inactive (UNKNOWN never qualifies).
+        var maintenance = CooldownRoles.IsTank(ctx.Class, ctx.Spec)
+            && ability.Purpose == AbilityPurpose.DefensiveMinor
+            && ability.Tier == DefensiveTier.Minor
+            && ability.HoldWhenBuffActive
+            && ctx.ContextValid && ctx.BuffProbeValid
+            && ctx.SlotBuffActive[slot] == TriState.No
+            && input.Slot == Slot.Defensive && !ctx.DefensiveCatalogSource
+            && input.InCombat && ctx.HpValid && ctx.HpPct >= 90;
+
+        // v5: early minor mitigation ONLY with an observed sustained drop,
+        // and only a MaxDps-suggested buff-trackable ability whose buff is
+        // certainly absent. Never promote majors, immunity or curve-only HP.
+        var earlyMinor = input.InCombat && ctx.ContextValid
+            && ctx.HpSource == HpSource.Plain && ctx.HpValid
+            && ctx.HpPct is > 50 and <= 80
+            && input.Memory.HealthPressure.SustainedPressure
+            && ability.Purpose == AbilityPurpose.DefensiveMinor
+            && ability.Tier == DefensiveTier.Minor && ability.HoldWhenBuffActive
+            && input.Slot == Slot.Defensive && !ctx.DefensiveCatalogSource
+            && ctx.BuffProbeValid && ctx.SlotBuffActive[slot] == TriState.No
+            && urgency == DefensiveUrgency.White;
+
         if (!emergency && !soloEsc)
         {
-            if (urgency == DefensiveUrgency.White)
+            if (urgency == DefensiveUrgency.White && !maintenance && !earlyMinor)
                 return D(PolicyDecision.Hold("white defensive urgency (MaxDps renders no glow); holding"), src, "urgency White (MaxDps renders no glow)");
-            var required = ability.Purpose is AbilityPurpose.Escape or AbilityPurpose.Movement
-                or AbilityPurpose.External
-                ? DefensiveUrgency.Red
-                : ability.MinimumUrgency;
+            var required = maintenance || earlyMinor ? DefensiveUrgency.White
+                : ability.Purpose is AbilityPurpose.Escape or AbilityPurpose.Movement
+                    or AbilityPurpose.External
+                    ? DefensiveUrgency.Red
+                    : ability.MinimumUrgency;
             var discountable = required > DefensiveUrgency.Yellow
                 && !ability.MinimumUrgencyCurated
                 && ability.Purpose is not (AbilityPurpose.Escape or AbilityPurpose.Movement or AbilityPurpose.External);
             var discounted = input.Slot == Slot.Defensive && ctx.MaxDpsDefensiveRecommendation && discountable;
             if (discounted) required = (DefensiveUrgency)((int)required - 1);
+
+            // Shared DPS/tank response to a *measured* abrupt health decline:
+            // advance only a major damage-reduction ability by one urgency
+            // stage. No immunities, escapes, heals, unknown health or
+            // uninterrupted MaxDps core rotation are affected.
+            if ((input.Memory.HealthPressure.FallingFast || imminent)
+                && ability.Purpose == AbilityPurpose.DefensiveMajor
+                && ability.Tier == DefensiveTier.Major
+                && ctx.HpValid && ctx.HpPct is > 50 and <= 70
+                && required > DefensiveUrgency.Yellow
+                && urgency is DefensiveUrgency.Yellow or DefensiveUrgency.Orange)
+                required = (DefensiveUrgency)((int)required - 1);
+
+            // A steep observed decline can justify a currently offered
+            // major DR at Yellow/Orange, but never from White/Unknown.
+            if (imminent && (urgency is DefensiveUrgency.Yellow or DefensiveUrgency.Orange)
+                && required > DefensiveUrgency.Yellow)
+                required = DefensiveUrgency.Yellow;
+
             if (urgency == DefensiveUrgency.Unknown)
             {
                 if (required > DefensiveUrgency.Yellow)
@@ -648,6 +739,19 @@ internal sealed class SelfSustainCandidateProvider : ICandidateProvider
 
         if (!opts.SoloEnabled)
             return D(PolicyDecision.Hold("solo mode off; self-heal held above emergency HP"), "solo mode off");
+
+        // Solo-only early sustain after a real observed rapid loss. Curated
+        // ability-specific limits and Group conservatism remain hard gates.
+        if (input.InCombat && p.Context.ContextValid
+            && p.Context.HpSource == HpSource.Plain
+            && input.Memory.HealthPressure.CriticalSoon
+            && input.Memory.HealthPressure.ProjectedHpPct is { } projection
+            && projection <= opts.EmergencyHpPct
+            && hp <= opts.SelfSustainHpPct
+            && (ability.UseBelowHpPct is not { } limit || hp <= limit))
+            return D(PolicyDecision.Use(
+                $"solo: rapid measured HP loss ({hp}% now, trend {projection}%); early sustain"),
+                "trusted short-window HP pressure");
 
         if (ability.UseBelowHpPct is { } need && hp > need)
             return D(PolicyDecision.Hold($"solo: HP {hpText} above ability threshold {need}%"), $"HP {hpText} above ability threshold {need}%");

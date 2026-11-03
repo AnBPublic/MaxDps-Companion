@@ -55,6 +55,9 @@ internal sealed class AbilityPolicy
     /// </summary>
     public bool IsEnabled(AbilityDefinition ability)
     {
+        // v6: an explicit OFF is stronger than a separately-stored Always
+        // or Automatic mode; the UI and config must never disagree about OFF.
+        if (_off.Contains(ability.SpellId)) return false;
         switch (ModeOf(ability.SpellId))
         {
             case UserAbilityMode.Never:
@@ -68,6 +71,29 @@ internal sealed class AbilityPolicy
             default:
                 return OverrideOf(ability.SpellId) ?? !ability.NeverAutomatic;
         }
+    }
+
+    /// <summary>
+    /// v6 Northstar: a hard OFF/Manual/Never on any equivalent spell variant
+    /// also blocks the suggested active variant. No allocations in the 33ms
+    /// decision loop. Explicit ON of a different alias cannot override it.
+    /// Curated alias edges are symmetric and small; no hidden game reads.
+    /// </summary>
+    public bool ExplicitlyBlocked(int spellId, AbilityCatalog catalog)
+    {
+        if (spellId <= 0) return false;
+        if (BlockedDirectly(spellId)) return true;
+        if (!catalog.Aliases.TryGetValue(spellId, out var variants)) return false;
+        for (var i = 0; i < variants.Length; i++)
+            if (BlockedDirectly(variants[i])) return true;
+        return false;
+    }
+
+    private bool BlockedDirectly(int spellId)
+    {
+        if (_off.Contains(spellId)) return true;
+        return _modes.TryGetValue(spellId, out var mode)
+            && mode is UserAbilityMode.Never or UserAbilityMode.Manual;
     }
 
     /// <summary>Immutable edit: returns a new policy with one override set to (or cleared towards) its default.</summary>

@@ -2339,6 +2339,11 @@ local function RunMainFallbackTests ()
   local savedGetSpecInfo = GetSpecializationInfo
   local savedCooldown = C_Spell.GetSpellCooldown
   local savedCharges = C_Spell.GetSpellCharges
+  local savedDb = MaxDpsCompanionBridgeDB
+  MaxDpsCompanionBridgeDB = MaxDpsCompanionBridgeDB or {}
+  local savedFallback = MaxDpsCompanionBridgeDB.AllowMainFallback
+  -- Earlier Q1 cases intentionally verify the legacy fallback in opt-in mode.
+  MaxDpsCompanionBridgeDB.AllowMainFallback = true
 
   -- Cooldowns stay out of the way: MainUsable is power-only, so a plain
   -- no-cooldown shape keeps every id "castable" except power-starved ones.
@@ -2380,6 +2385,15 @@ local function RunMainFallbackTests ()
   MDB.BeginTick()
   local ok3, id3 = pcall(MDB.GetMainSpellID)
   check("MF all glows power-starved -> Fury fallback filler", ok3 and id3 == 23881)
+
+  -- v6 strict-default: when MaxDps names only a provably power-starved
+  -- ability, do not invent a Main. The user may explicitly opt into the
+  -- legacy fallback but it is not MaxDps-owned rotation intelligence.
+  MaxDpsCompanionBridgeDB.AllowMainFallback = false
+  MDB.BeginTick()
+  local okStrict, idStrict = pcall(MDB.GetMainSpellID)
+  check("Northstar strict Main holds without opt-in filler", okStrict and idStrict == nil)
+  MaxDpsCompanionBridgeDB.AllowMainFallback = true
 
   -- (4) Fallback filler itself power-starved -> nil (never press blind).
   Usability({ [184367] = true, [23881] = true })
@@ -2469,6 +2483,8 @@ local function RunMainFallbackTests ()
   GetSpecializationInfo = savedGetSpecInfo
   C_Spell.GetSpellCooldown = savedCooldown
   C_Spell.GetSpellCharges = savedCharges
+  if savedDb == nil then MaxDpsCompanionBridgeDB = nil
+  else MaxDpsCompanionBridgeDB.AllowMainFallback = savedFallback end
   MDB.BeginTick()
 end
 RunMainFallbackTests()

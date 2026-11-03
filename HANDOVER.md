@@ -5,6 +5,94 @@ Read order: this file -> `ARCHITECTURE.md` -> `docs/PROTOCOL.md`. Full history
 [`docs/archive/HANDOVER-history.md`](docs/archive/HANDOVER-history.md); search it
 by release name or date before re-investigating an old problem.
 
+## 2026-11-03 RELEASE CANDIDATE 6.0.0 "NORTHSTAR"
+
+- Branch `release/v6.0.0-northstar` directly based on successful
+  Ascendant 5.0.0 RC4. Windows and addon versions both 6.0.0,
+  12.1.5/120105; the existing pixel protocol remains v5/Ext5.
+- New strict Main default: hold rather than choose a static filler
+  when MaxDps cannot provide a currently usable suggestion.
+  `/mdb mainfallback on` restores the original explicit opt-in.
+- Hard per-ability OFF/Manual/Never across known talent aliases,
+  before any emergency or alternate candidate path.
+- Companion-only suggestions are blocked on *observed* wrong class/
+  spec, preventing stale character-swap recommendations.
+- `--ability-contracts=path.tsv` builds one report row for every
+  registered spell, mapping owner, evidence, research gaps and
+  12.1.5 provenance. This is accountability, not all-talent proof.
+- All previous Ascendant Solo/Group health-pressure and offensive
+  intelligence, interrupt ranking, safety and screen-capture
+  improvements retained.
+- Changelog: `docs/CHANGELOG.md`; agent handover:
+  `docs/HANDOVER-NORTHSTAR-6.0.0.md`;
+  requirements gap matrix: `docs/V6-REQUIREMENTS-AND-ABILITY-INTELLIGENCE.md`.
+- No 100% play/FPS guarantee without actual full Retail acceptance.
+
+## 2026-11-02 RELEASE CANDIDATE 5.0.0 "ASCENDANT"
+
+- Based on v4.9.0 Slipstream, targeting Midnight 12.1.5 (TOC 120105).
+- Shared measured sustained-HP safety and short-TTK conservation
+  for companion long cooldowns, no change to MaxDps Main ordering.
+- Enumerates 40 specs with honest inventory/verification metadata;
+  older 12.1 curated source requires new 12.1.5 talent validation.
+- Group mode shares safety rules; per-encounter 100% automation,
+  flawless all-spec content and zero FPS impact remain unverified.
+- Read the full agent installation, rollback and live QA:
+  `docs/HANDOVER-ASCENDANT-5.0.0.md`.
+- Full notes: `docs/CHANGELOG.md`.
+
+## 2026-11-02 RELEASE CANDIDATE 4.9.0 "SLIPSTREAM" — narrow GDI capture
+
+- Branch `release/v4.9.0-slipstream` directly based on 4.8 Lightfoot RC2.
+- Windows `ScreenSampler.CaptureRows` trims the native single BitBlt to the
+  five median taps' actual Y interval. 8px cells: 8 rows -> 3 rows,
+  3712 -> 1392 pixels for the 58-cell strip, same one poll and protocol.
+- Version 4.9.0 Slipstream synchronized across Windows, Mac/Core and WoW
+  bridge metadata. No Lua gameplay or MaxDps vendor changes; every DPS/tank
+  logic layer from 4.7 and 4.8 is retained.
+- Full changelog: `docs/CHANGELOG.md`; agent download/installation/
+  rollback/performance A/B runbook:
+  `docs/HANDOVER-SLIPSTREAM-4.9.0.md`.
+- Offline tests verify geometry and regression, not actual WoW FPS gain.
+
+## 2026-11-02 RELEASE CANDIDATE 4.8.0 "LIGHTFOOT" — frame-time efficiency
+
+- Branch `release/v4.8.0-lightfoot` based on complete 4.7 Sentinel.
+- App and bridge version 4.8.0, codename Lightfoot. Wire 51/58 unchanged.
+- Windows `ScreenSampler.cs`: direct DIB color reads (one BitBlt, five
+  taps, no per-cell delegates), original independent arrays retained.
+- Lua `Reader.lua`: one bounded curated rotation array instead of
+  intermediate sub-lists; player HP and stagger urgency are each memoized
+  once per tick (including nil/UNKNOWN) without caching across ticks.
+- Lua `Bridge.lua`: shared Solo ladder thresholds table across ticks.
+- No MaxDps vendor changes or new DPS/tank behavior. Offline tests do
+  NOT establish real WoW FPS improvement.
+- Release ZIPs / agent install and controlled 4.7-to-4.8 A/B testing:
+  `docs/HANDOVER-LIGHTFOOT-4.8.0.md`.
+
+## 2026-11-01 RELEASE CANDIDATE 4.7.0 "SENTINEL" — DPS + tank shared cooldown intelligence
+
+- Branch: `release/v4.7.0-sentinel`; parent includes PR #21 speculative
+  cooldown rejection recovery.
+- Windows app and bridge identity: 4.7.0 Sentinel. Wire: 5, core/Ext2/Ext3/
+  Ext4 unchanged, Ext5 remains opt-in, no new addon sensors.
+- New `Knowledge/HealthPressureMonitor.cs` tracks *observed* plain HP across
+  1.8 s. A strong loss (15+ percentage points, current HP <=70%) can lower
+  major defensive urgency by one step. Resets on secret/unknown HP and OOC.
+- A MaxDps-offered tank maintenance minor with confirmed inactive self-buff can
+  be used at healthy HP. All DPS/tank specs keep the same defensive provider.
+- SelfHeal-transported Absorb/Reflect/mitigation routes through Defensive, not
+  SelfSustain. Existing MaxDps Main rotations untouched.
+- Opt-in Burst + confirmed Ext5 boss rank 6/7 no longer delays a major offensive
+  opener waiting for TTK samples; ordinary/unknown targets unchanged.
+- Successful branch CI publishes pre-release v4.7.0-rc.1 with two ZIP bundles
+  from GitHub Releases (Actions artifacts are the fallback).
+- Companion/Core source, Windows publish and addon ZIPs are packaged as
+  downloadable GitHub Actions artifacts once CI passes.
+- Release/install instructions, exact artifact names and E2E checks are in
+  `docs/HANDOVER-SENTINEL-4.7.0.md`.
+- **Live retail E2E OWED.** GitHub CI cannot certify a running WoW client.
+
 ## 2026-10-28 RELEASE 4.6.0 "CADENCE" (Ext5 + interrupt insurance + GCD landing; bridge 4.6.0; additive wire)
 
 Three features, all default OFF. Branch `release/v4.6.0-cadence`. Identity:

@@ -409,13 +409,14 @@ function MDCB.GetMainSpellID ()
     -- fall through to the filler rather than return nil (plan Q1).
     HadCandidate = true;
   end
-  -- Q1 FALLBACK: the engine was glowing (or naming) a Main candidate, yet
-  -- none survived MainUsable — all power-starved. Encode the first castable
-  -- per-spec filler (Fury -> Bloodthirst, vendor-verified in
-  -- MainFallback.lua) instead of a dead Main slot. Idle-by-design (no
-  -- candidate at all) still returns nil; unverified specs have no filler and
-  -- stay EMPTY. MainUsable gates the filler too.
-  if HadCandidate then
+  -- v6 Northstar STRICT AUTHORITY (default):
+  -- If MaxDps cannot supply a castable main, hold rather than choose our
+  -- own spell from a static list. A former user-approved 3-spec filler
+  -- remains available ONLY after '/mdb mainfallback on'; the optional
+  -- fallback is deliberately not advertised as a MaxDps recommendation.
+  -- A missing/stale SavedVariables table must always fail closed.
+  if HadCandidate and type(MaxDpsCompanionBridgeDB) == "table"
+    and MaxDpsCompanionBridgeDB.AllowMainFallback == true then
     local Fallback = MainFallbackList and MainFallbackList();
     if Fallback then
       for i = 1, #Fallback do
@@ -459,6 +460,8 @@ local Tick = {
   Gen = 0, Flags = nil, FlagsOwner = nil, Items = nil,
   Class = nil, ClassFile = nil, Spec = nil, SpecID = nil,
   Active = false,
+  PlayerHpRead = false, PlayerHpValue = nil,
+  StaggerRead = false, StaggerValue = nil,
   Variants = {}, Known = {}, Ready = {}, Pools = {},
 };
 
@@ -466,11 +469,17 @@ local Tick = {
 -- stored as a table value).
 local NIL_MEMO = {};
 
-function MDCB.BeginTick ()
+function MDCB.BeginTick (PreReadHp, HpWasRead)
   Tick.Gen = Tick.Gen + 1;
   Tick.Flags, Tick.FlagsOwner, Tick.Items = nil, nil, nil;
   Tick.Class, Tick.ClassFile, Tick.Spec, Tick.SpecID = nil, nil, nil, nil;
   Tick.Active = true;
+  -- Bridge has already read the player's HP for its toggle context.
+  -- Remember even UNKNOWN (nil): one game-thread health probe per frame.
+  -- Diagnostic/test callers with no arguments still probe on demand.
+  Tick.PlayerHpRead = (HpWasRead == true);
+  Tick.PlayerHpValue = PreReadHp;
+  Tick.StaggerRead, Tick.StaggerValue = false, nil;
   -- Reuse the memo tables (no per-tick allocation); clearing the fields keeps
   -- the GC flat, which is the whole point of the memo.
   wipe(Tick.Variants);
@@ -1618,7 +1627,12 @@ local function HealthPct (Unit)
 end
 
 function MDCB.GetPlayerHpPct ()
-  return HealthPct("player");
+  if Tick.Active and Tick.PlayerHpRead then return Tick.PlayerHpValue; end
+  local Pct = HealthPct("player");
+  if Tick.Active then
+    Tick.PlayerHpValue, Tick.PlayerHpRead = Pct, true;
+  end
+  return Pct;
 end
 
 function MDCB.GetTargetHpPct ()
@@ -2136,10 +2150,9 @@ end
 -- not never-automatic, dedup by the ACTIVE variant id. Returns an array.
 -- SkipBoss (v3.5, slot 6): when true, the whole walk is skipped if the
 -- current target is a boss (immune to the curated CC); unknown fails open.
-local function WalkCurated (List, Count, Seen, SkipBoss)
-  local Out = {};
-  if type(List) ~= "table" then return Out; end
-  if SkipBoss and MDCB.IsBossTarget and MDCB.IsBossTarget() then return Out; end
+local function WalkCurated (List, Count, Seen, SkipBoss, Out)
+  if #Out >= Count or type(List) ~= "table" then return; end
+  if SkipBoss and MDCB.IsBossTarget and MDCB.IsBossTarget() then return; end
   for i = 1, #List do
     local Entry = List[i];
     if type(Entry) == "number" and Entry > 0 then
@@ -2156,12 +2169,11 @@ local function WalkCurated (List, Count, Seen, SkipBoss)
         if Ready and Bound then
           Seen[Active] = true;
           Out[#Out + 1] = Active;
-          if #Out >= Count then return Out; end
+          if #Out >= Count then return; end
         end
       end
     end
   end
-  return Out;
 end
 
 --- Ordered rotation pool for a rotating slot (3 defensive, 6 interrupt/CC,
@@ -2181,15 +2193,8 @@ function MDCB.RotationCandidates (Slot, Count)
     local Hit = Tick.Pools[MemoKey];
     if Hit ~= nil then return Hit; end
   end
+  -- One bounded result and dedup set; no temporary arrays per curated list.
   local Out, Seen = {}, {};
-  local function Append (List, SkipBoss)
-    if #Out >= Count then return; end
-    local Found = WalkCurated(List, Count, Seen, SkipBoss);
-    for i = 1, #Found do
-      Out[#Out + 1] = Found[i];
-      if #Out >= Count then return; end
-    end
-  end
 
   if Slot == 3 then
     local Flagged = FirstFlagged("defensive", false, true);
@@ -2201,9 +2206,9 @@ function MDCB.RotationCandidates (Slot, Count)
     local Table = classFile and specName and MDCB.Extras
       and MDCB.Extras[classFile] and MDCB.Extras[classFile][specName];
     if type(Table) == "table" then
-      Append(Table.defensiveMajor);
-      Append(Table.defensiveMinor);
-      Append(Table.defensive);
+      WalkCurated(Table.defensiveMajor, Count, Seen, false, Out);
+      WalkCurated(Table.defensiveMinor, Count, Seen, false, Out);
+      WalkCurated(Table.defensive, Count, Seen, false, Out);
     end
   elseif Slot == 6 then
     -- The interrupt candidate stays first-class in Bridge (a live cast is
@@ -2214,14 +2219,14 @@ function MDCB.RotationCandidates (Slot, Count)
       local _, classFile, specName = ClassSpec();
       local Table = classFile and specName and MDCB.Extras
         and MDCB.Extras[classFile] and MDCB.Extras[classFile][specName];
-      if type(Table) == "table" then Append(Table.cc, true); end
+      if type(Table) == "table" then WalkCurated(Table.cc, Count, Seen, true, Out); end
     end
   elseif Slot == 7 or Slot == 8 then
     local _, classFile, specName = ClassSpec();
     local Table = classFile and specName and MDCB.Extras
       and MDCB.Extras[classFile] and MDCB.Extras[classFile][specName];
     if type(Table) == "table" then
-      Append(Slot == 7 and Table.mobility or Table.selfHeal);
+      WalkCurated(Slot == 7 and Table.mobility or Table.selfHeal, Count, Seen, false, Out);
     end
   end
   if MemoKey then Tick.Pools[MemoKey] = Out; end
@@ -2274,7 +2279,7 @@ end
 -- Stagger fraction (UnitStagger / UnitHealthMax) through the reversed curve.
 -- Both reads are pcall-contained and scrubbed; anything not a plain number
 -- degrades to UNKNOWN (0).
-function MDCB.GetStaggerUrgency ()
+local function ReadStaggerUrgency ()
   if type(UnitStagger) ~= "function" or type(UnitHealthMax) ~= "function" then
     return URGENCY_UNKNOWN;
   end
@@ -2288,6 +2293,17 @@ function MDCB.GetStaggerUrgency ()
     return URGENCY_UNKNOWN;
   end
   return UrgencyFromStagger(PlainStagger / PlainMax);
+end
+
+-- One stagger probe per bridge tick, including UNKNOWN. Outside BeginTick,
+-- diagnostics and direct addon callers get the original live sensor reading.
+function MDCB.GetStaggerUrgency ()
+  if Tick.Active and Tick.StaggerRead then return Tick.StaggerValue; end
+  local Urgency = ReadStaggerUrgency();
+  if Tick.Active then
+    Tick.StaggerValue, Tick.StaggerRead = Urgency, true;
+  end
+  return Urgency;
 end
 
 -- The urgency MaxDps would render for this spell. Purifying Brew (119582) is
@@ -2646,7 +2662,12 @@ function MDCB.FrameKey (Ctx)
   -- tick the player took damage, forcing a full slot rescan for no decision
   -- change; these folds flip exactly when a branch in the scan flips.
   local Hp = nil;
-  do
+  if type(Ctx) == "table" and type(Ctx.HpPct) == "number" then
+    -- Bridge supplies a pre-scrubbed plain value on healthy frames.
+    -- Direct callers or secret/unknown frames retain the live fallback,
+    -- preserving HP-edge invalidation across all legacy call sites.
+    Hp = Ctx.HpPct;
+  else
     local OkHp, Pct = pcall(MDCB.GetPlayerHpPct);
     if OkHp and type(Pct) == "number" then Hp = Pct; end
   end
