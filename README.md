@@ -1,4 +1,12 @@
 > [!IMPORTANT]
+> **Northstar v6.0.0 RC2 follow-up (development branch, not a release):**
+> MaxDps 11.3.58 Retail 12.1.5 core Cooldowns source synchronized;
+> the 8,070 Retail class spell tokens are unchanged. Curated policy
+> remains 12.1 and still needs live 12.1.5 validation. See
+> [the dated source audit](docs/research/MAXDPS-11.3.58-CORE-DIFF.md).
+> Existing RC2 release ZIPs are unchanged by this branch.
+>
+> [!IMPORTANT]
 > **Current client: 4.6.0 "Cadence"** (bridge **4.6.0**) - the WinUI 3 Windows
 > client (`app/MaxDpsCompanion/`), the shared brain (`app/MaxDpsCompanion.Core/`)
 > and the macOS client (`app/MaxDpsCompanion.Mac/`, `4.6.0 "Cadence"`), targeting
