@@ -1,3 +1,12 @@
+# 2026-11-03 — Northstar Retail 12.1.5 core source reconciliation (feature branch)
+
+- Based on `release/v6.0.0-northstar`; not merged or released.
+- MaxDps v11.3.58 `Cooldowns.lua`: 368 rows, DK Frost Breath of Sindragosa `152279 -> 1249658`; other rows unchanged.
+- MaxDps v11.3.58 `SpellData.lua`: 8,070 Retail token rows unchanged.
+- Vendor extraction now takes an explicit upstream source; version/interface are checked. The historical curated 12.1/120100 layer is deliberately NOT recertified for 12.1.5.
+- Required next: CI/offline tests; per-class modules, talents, DB2/live spells, all-content field QA; Blizzard rules check.
+- Full reproducible findings: `docs/research/MAXDPS-11.3.58-CORE-DIFF.md`.
+
 # Handover - MaxDps-Companion
 
 Read order: this file -> `ARCHITECTURE.md` -> `docs/PROTOCOL.md`. Full history
