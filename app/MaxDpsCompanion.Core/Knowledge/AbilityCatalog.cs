@@ -49,8 +49,13 @@ internal sealed class AbilityCatalog
     /// <summary>Expected interface version for <see cref="ExpectedGamePatch"/>.</summary>
     public const int ExpectedInterfaceVersion = 120100;
 
-    /// <summary>Pinned MaxDps vendor snapshot the registry was extracted from/checked against.</summary>
+    /// <summary>Legacy curated policy research pin, NOT the current extracted vendor table.</summary>
     public const string ExpectedMaxDpsVersion = "11.3.49";
+
+    /// <summary>Upstream cooldown/interrupt inventory pinned independently from older curation.</summary>
+    public const string ExpectedExtractedVendorVersion = "11.3.58";
+    public const string ExpectedExtractedVendorPatch = "12.1.5";
+    public const int ExpectedExtractedVendorInterface = 120105;
 
     /// <summary>
     /// Class numeric ids for protocol v5 cell 25 and the generated Lua table.
@@ -203,6 +208,23 @@ internal sealed class AbilityCatalog
             ?? throw new InvalidDataException("vendor-abilities.json did not parse");
         var curated = JsonSerializer.Deserialize<CuratedFile>(curatedJson, JsonOptions)
             ?? throw new InvalidDataException("abilities.json did not parse");
+
+        // 0a. Provenance is independent of the older curated policy layer.
+        // Synthetic test fixtures may carry gamePatch=12.1 but no upstream
+        // version; validate ALL source stamps only when a vendor version is
+        // explicitly supplied. A versioned source requires complete metadata.
+        if (!string.IsNullOrWhiteSpace(vendor.MaxDpsVersion))
+        {
+            if (!string.Equals(vendor.MaxDpsVersion, ExpectedExtractedVendorVersion, StringComparison.Ordinal))
+                throw new InvalidDataException(
+                    $"extracted MaxDps version {vendor.MaxDpsVersion} differs from reviewed {ExpectedExtractedVendorVersion}");
+            if (!string.Equals(vendor.GamePatch, ExpectedExtractedVendorPatch, StringComparison.Ordinal))
+                throw new InvalidDataException(
+                    $"extracted vendor patch {vendor.GamePatch} differs from reviewed {ExpectedExtractedVendorPatch}");
+            if (vendor.InterfaceVersion != ExpectedExtractedVendorInterface)
+                throw new InvalidDataException(
+                    $"extracted vendor interface {vendor.InterfaceVersion} differs from reviewed {ExpectedExtractedVendorInterface}");
+        }
 
         // 0. Patch guard (registry §38/§62): a curated file stamped with a
         //    different patch must never silently drive live 12.1. Absent
@@ -1400,6 +1422,10 @@ internal sealed class AbilityCatalog
 
     private sealed class VendorFile
     {
+        public string? MaxDpsVersion { get; set; }
+        public string? GamePatch { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("interface")]
+        public int InterfaceVersion { get; set; }
         public string? GeneratedFrom { get; set; }
         public string? Note { get; set; }
         public List<VendorEntry>? Entries { get; set; }

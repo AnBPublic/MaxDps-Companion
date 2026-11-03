@@ -1,5 +1,12 @@
 # Handover - MaxDps-Companion
 
+## Development continuation — 12.1.5 upstream source reconciliation (not yet an RC release)
+
+The draft feature branch `feature/northstar-12-1-5-vendor-reconcile` overlays the verified upstream **MaxDps 11.3.58** cooldown/interrupt rows on Northstar without modifying the frozen `vendor/` snapshot or any 12.1 behavioral policy. Its single 368-row ID change is Frost Breath of Sindragosa `152279 → 1249658`; 8,070 retail class-spell entries match upstream unchanged. The extracted vendor inventory is stamped **12.1.5/120105**, separately from the still-old **12.1/11.3.49** curated intelligence.
+
+The loader now rejects a tagged vendor inventory with a wrong upstream version/patch/interface; extraction from the old `vendor/MaxDps` path is deliberately forbidden. Tests check the ID, delegation and lack of live verification. **This branch does not modify v6.0.0 RC2 release artifacts; do not install it or merge before CI/review, runtime compatibility testing and an intentional new candidate build.** Full 12.1.5 talent intelligence is not achieved by correcting source data; all unknown/secret-dependent decisions must keep their safe delegation/hold pathways. Detailed evidence: `docs/research/MAXDPS-UPSTREAM-12.1.5.md`.
+
+
 Read order: this file -> `ARCHITECTURE.md` -> `docs/PROTOCOL.md`. Full history
 (every release back to 1.x, root-cause write-ups, per-release verify logs) is in
 [`docs/archive/HANDOVER-history.md`](docs/archive/HANDOVER-history.md); search it
