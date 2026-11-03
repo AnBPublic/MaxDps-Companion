@@ -1,5 +1,14 @@
 # Architecture — MaxDps-Companion
 
+## Post-RC2 draft: extracted upstream 12.1.5 source reconciliation (2026-11-03)
+
+- New **independently stamped** `vendor-abilities.json` source: `kaminaris/MaxDps v11.3.58`, retail 12.1.5, Interface 120105. `AbilityCatalog.Load` rejects mismatched present vendor metadata rather than silently accepting relabeled 11.3.49 tables. Minimal custom test fixtures without stamps still load.
+- Exact upstream `Cooldowns.lua` audit against v11.3.49: **368 rows preserved, one corrected ID**, Frost Death Knight Breath of Sindragosa **152279 → 1249658**. The older ID is removed from vendor-sourced offensive choices; the correct ID already exists in the 8,070-row `class-spells.json` and verified spell-id corpus. No solo offensive gap-fill is invented by this change; MaxDps remains responsible for timing.
+- The upstream `SpellData.lua` retail table is byte-equivalent by parsed entry comparison (8,070 entries); therefore the large generated `class-spells.json` remains unchanged. Upstream 11.3.49→11.3.58 changed core `Buttons.lua`, `Core.lua`, `Helper.lua`, `Cooldowns.lua`, TOC and workflow, not per-class modules. Live API/semantics compatibility is still owed.
+- **Two separate evidence horizons** are intentional: extracted vendor data now 12.1.5/11.3.58, while `abilities.json` curated contextual policy remains **12.1/11.3.49** and is not re-stamped. `vendor/MaxDps` and `custom/upstream-pristine` remain frozen historical snapshots; the in-game bridge queries installed official MaxDps and the pixel wire remains v5.
+- Added deterministic source/ID/regression guards; not a 100%-spells or 100%-talents certificate. The live encounter matrix, secret-value limitations and Blizzard rules review remain outstanding. This is **unreleased development** until CI, review, and a new candidate are prepared.
+
+
 ## 6.0.0 Northstar — bounded trust, human control and auditability
 
 - `AbilityPolicy.ExplicitlyBlocked` checks direct and symmetric
