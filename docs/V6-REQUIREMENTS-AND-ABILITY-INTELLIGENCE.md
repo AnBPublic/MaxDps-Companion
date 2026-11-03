@@ -27,13 +27,16 @@ and a human-readable limit. No one is silently counted as "perfect."
 | ResearchPending | Incomplete knowledge; never independently generated |
 | Unobservable | Midnight does not expose sufficient safe facts; no independent action |
 
-**Source gap:** catalog was pinned at MaxDps **11.3.49** and
-curated spell data **12.1 / interface 120100**. Current upstream
-**11.3.58** supports Retail **12.1.5** and was published 2026-11-01.
-This release does NOT falsely upgrade the embedded source. The
-12.1.5 client imposes secret-value restrictions, and 40-spec
-inventory is not proof every active ability/talent variant was
-live-tested or that raids are solved automatically.
+**Source status (12.1.5 reconciliation branch):** the 368-row
+MaxDps **11.3.58** core Cooldowns table is synchronized and the 8,070
+Retail SpellData rows match the embedded data exactly. The only
+Cooldowns ID correction is Frost DK Breath of Sindragosa:
+`152279 → 1249658`. See
+[dated source audit](research/MAXDPS-11.3.58-CORE-DIFF.md).
+The curated decisions remain **12.1 / interface 120100** and cannot
+be claimed 12.1.5-live-verified from this import. Per-class modules,
+talent variants and actual raids remain unverified, and the 12.1.5
+client imposes secret-value restrictions.
 
 ## Eight combat-situation acceptance contracts
 
