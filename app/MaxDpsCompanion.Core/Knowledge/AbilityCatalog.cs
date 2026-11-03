@@ -50,7 +50,7 @@ internal sealed class AbilityCatalog
     public const int ExpectedInterfaceVersion = 120100;
 
     /// <summary>Pinned MaxDps vendor snapshot the registry was extracted from/checked against.</summary>
-    public const string ExpectedMaxDpsVersion = "11.3.49";
+    public const string ExpectedMaxDpsVersion = "11.3.58";
 
     /// <summary>
     /// Class numeric ids for protocol v5 cell 25 and the generated Lua table.
@@ -115,7 +115,7 @@ internal sealed class AbilityCatalog
     /// <summary>Interface version the curated file was verified against (0 = not stated).</summary>
     public int InterfaceVersion { get; }
 
-    /// <summary>MaxDps vendor version the curated file was generated from (null = not stated).</summary>
+    /// <summary>MaxDps source version of the vendor table, separate from older curated 12.1 research.</summary>
     public string? MaxDpsVersion { get; }
 
     /// <summary>Date the curated file was last verified (ISO; null = not stated).</summary>
@@ -216,6 +216,17 @@ internal sealed class AbilityCatalog
         if (curated.InterfaceVersion is > 0 and not ExpectedInterfaceVersion)
             throw new InvalidDataException(
                 $"ability registry interface {curated.InterfaceVersion} does not match {ExpectedInterfaceVersion}");
+
+        // The independently refreshed upstream table must have real source metadata.
+        // Keep the curated 12.1 guard above: updating MaxDps data does NOT
+        // certify older per-spell policy research for the 12.1.5 client.
+        if (!string.IsNullOrWhiteSpace(vendor.SourceVersion)
+            && !string.Equals(vendor.SourceVersion, ExpectedMaxDpsVersion, StringComparison.Ordinal))
+            throw new InvalidDataException(
+                $"vendor source version {vendor.SourceVersion} does not match {ExpectedMaxDpsVersion}");
+        if (vendor.SourceInterface is > 0 and not TargetRuntimeInterfaceVersion)
+            throw new InvalidDataException(
+                $"vendor interface {vendor.SourceInterface} does not match {TargetRuntimeInterfaceVersion}");
 
         // 1. Base rows: group by spell id. Class/spec membership + categories.
         var rows = new Dictionary<int, List<VendorEntry>>();
@@ -363,7 +374,7 @@ internal sealed class AbilityCatalog
             byId, indexOf, idByIndex, extras, aliases,
             string.IsNullOrWhiteSpace(curated.GamePatch) ? ExpectedGamePatch : curated.GamePatch!.Trim(),
             curated.InterfaceVersion,
-            curated.MaxDpsVersion,
+            vendor.SourceVersion ?? curated.MaxDpsVersion,
             curated.Verified,
             rows.Keys.ToArray(),
             overrides.Keys.ToArray(),
@@ -1401,6 +1412,9 @@ internal sealed class AbilityCatalog
     private sealed class VendorFile
     {
         public string? GeneratedFrom { get; set; }
+        public string? SourceVersion { get; set; }
+        public int SourceInterface { get; set; }
+        public string? SourceGitBlobSha { get; set; }
         public string? Note { get; set; }
         public List<VendorEntry>? Entries { get; set; }
     }
