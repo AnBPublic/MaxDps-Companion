@@ -17,8 +17,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$SourcePath,
     [string]$SourceVersion = '11.3.58',
-    [int]$SourceInterface = 120105,
-    [string]$SourceGitBlobSha = ''
+    [int]$SourceInterface = 120105
 )
 
 $ErrorActionPreference = 'Stop'
@@ -32,6 +31,20 @@ if (-not (Test-Path -LiteralPath $luaPath -PathType Leaf)) {
 }
 if ($SourceVersion -ne '11.3.58' -or $SourceInterface -ne 120105) {
     throw 'This release pins MaxDps v11.3.58 / interface 120105. Do not rewrite the embedded table with another version.'
+}
+
+# Verify the exact upstream Git blob, not merely a matching row count.
+# Git SHA-1 hashes "blob <byte length>\0" followed by the raw file bytes.
+$expectedBlobSha = '3640261ac4c3b31692434f26ce60d48978e3da03'
+$fileBytes = [System.IO.File]::ReadAllBytes($luaPath)
+$headerBytes = [System.Text.Encoding]::ASCII.GetBytes("blob $($fileBytes.Length)`0")
+$blobBytes = [byte[]]::new($headerBytes.Length + $fileBytes.Length)
+[System.Buffer]::BlockCopy($headerBytes, 0, $blobBytes, 0, $headerBytes.Length)
+[System.Buffer]::BlockCopy($fileBytes, 0, $blobBytes, $headerBytes.Length, $fileBytes.Length)
+$SourceGitBlobSha = [Convert]::ToHexString(
+    [System.Security.Cryptography.SHA1]::HashData($blobBytes)).ToLowerInvariant()
+if ($SourceGitBlobSha -ne $expectedBlobSha) {
+    throw "Source blob differs from pinned v11.3.58 Cooldowns.lua: got $SourceGitBlobSha, expected $expectedBlobSha"
 }
 
 $lines = Get-Content -LiteralPath $luaPath
