@@ -29,6 +29,19 @@ internal static class ReleaseNotes
     public static readonly IReadOnlyList<Release> All = new[]
     {
         new Release(
+            "6.0.0", "Northstar", "2026-11-03",
+            "Strict MaxDps trust, hard talent-variant OFF and per-spell intelligence accountability.",
+            new[]
+            {
+                "Default strict Main authority: when MaxDps offers only provably unusable actions, the bridge HOLDS rather than guessing a static filler; /mdb mainfallback on explicitly restores the legacy 3-spec filler.",
+                "User OFF, Never and Manual now propagate to known symmetric talent/spell aliases, even across Main, interrupt, defensives and Solo healing; OFF beats conflicting Always/Automatic modes.",
+                "Companion-only self-heal, mobility, catalog defensive and known-origin offensive candidates are rejected when their registered class/spec contradicts the observed character, without second-guessing MaxDps Main.",
+                "Every registered ability now exports an individual decision contract via --ability-contracts=PATH: ownership, source patch, evidence needs, limits and unverified 12.1.5 status.",
+                "All 40 specializations are measured as inventory, with DPS/tank and healer scopes distinguished; no fabricated 12.1.5 talent verification.",
+                "Preserves v5 health-pressure prediction, Solo/Group rules, ranked interrupts, casting and chat/foreground safety, GDI capture optimizations and the existing 51/58-cell v5 protocol.",
+                "Full all-spec, all-talent, all-raid and FPS live acceptance remains mandatory; this is not a claim of flawless high-end gameplay or automated-input terms compliance.",
+            }),
+        new Release(
             "5.0.0", "Ascendant", "2026-11-02",
             "12.1.5 target, all-spec readiness, measured survival and long-cooldown intelligence.",
             new[]

@@ -7,20 +7,20 @@ using Xunit;
 namespace MaxDpsCompanion.Tests;
 
 /// <summary>
-/// 5.0.0 "Ascendant" release identity: the assembly version is single-sourced
+/// 6.0.0 "Northstar" release identity: the assembly version is single-sourced
 /// from the csproj, the codename from AssemblyMetadata, and the window title is
-/// exactly "MaxDPS Companion v5.0.0 Ascendant" with NO build hash/time (those
+/// exactly "MaxDPS Companion v6.0.0 Northstar" with NO build hash/time (those
 /// moved to the Advanced Diagnostics install doctor card).
 ///
 /// The real runtime title is verified by the bin run
 /// <c>MaxDpsCompanion.exe --ui-smoke-test</c> (ui-smoke.txt "window title:"),
-/// which reports "MaxDPS Companion v5.0.0 Ascendant"; ShellWindow builds it from
+/// which reports "MaxDPS Companion v6.0.0 Northstar"; ShellWindow builds it from
 /// the same single source asserted here.
 /// </summary>
 public class ReleaseIdentityTests
 {
     [Fact]
-    public void Ascendant_12_1_5_Toc_Runtime_Identity_Is_In_Sync()
+    public void Northstar_12_1_5_Toc_Runtime_Identity_Is_In_Sync()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir != null && !File.Exists(Path.Combine(dir.FullName,
@@ -30,17 +30,17 @@ public class ReleaseIdentityTests
         var toc = File.ReadAllText(Path.Combine(dir!.FullName, "addon",
             "MaxDpsCompanionBridge", "MaxDpsCompanionBridge.toc"));
         Assert.Contains("## Interface: 120105", toc);
-        Assert.Contains("## Version: 5.0.0", toc);
-        Assert.Contains("## X-Codename: Ascendant", toc);
+        Assert.Contains("## Version: 6.0.0", toc);
+        Assert.Contains("## X-Codename: Northstar", toc);
     }
 
     [Fact]
-    public void Release_AppVersion_Is_5_0_0()
-        => Assert.Equal("5.0.0", Native.AppVersion);
+    public void Release_AppVersion_Is_6_0_0()
+        => Assert.Equal("6.0.0", Native.AppVersion);
 
     [Fact]
     public void Release_DisplayVersion_Includes_Codename()
-        => Assert.Equal("v5.0.0 Ascendant", Native.DisplayVersion);
+        => Assert.Equal("v6.0.0 Northstar", Native.DisplayVersion);
 
     [Fact]
     public void Release_HeaderTitle_Is_Version_And_Codename_No_Hash()
@@ -48,7 +48,7 @@ public class ReleaseIdentityTests
         // The WinUI shell title (ShellWindow.WindowTitle, used by the ctor and
         // reported live by --ui-smoke-test).
         var title = ShellWindow.WindowTitle;
-        Assert.Equal("MaxDPS Companion v5.0.0 Ascendant", title);
+        Assert.Equal("MaxDPS Companion v6.0.0 Northstar", title);
         Assert.DoesNotContain("(", title);
         Assert.DoesNotContain("[", title);
     }

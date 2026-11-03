@@ -1,3 +1,18 @@
+6.0.0
+Date: 2026-11-03 - "Northstar"
+Companion v6.0.0 Northstar + bridge v6.0.0 for Retail Midnight 12.1.5.
+- Default strict Main: refuse unconfirmed standalone filler when MaxDps
+  cannot name a usable pick; /mdb mainfallback on is explicit opt-in.
+- Hard ability OFF/Manual/Never spans known talent/spell replacement aliases.
+  OFF dominates Always and survives Solo, dungeon, raid, emergency.
+- Companion-only suggestions with an observed wrong class/spec are SKIPPED.
+  Direct MaxDps Main remains authoritative.
+- --ability-contracts=FILE outputs a row for every registered spell.
+- Current 12.1 vendor source/MaxDps 11.3.49 is NOT newly 12.1.5 verified.
+- All earlier Ascendant survival, interrupts, per-ability UI, frame-time
+  sampling, chat/foreground safety and v5/Ext5 wire remain.
+- GitHub prerelease v6.0.0-rc.2 publishes both matching ZIPs.
+
 5.0.0
 Date: 2026-11-02 - "Ascendant"
 Companion v5.0.0 / bridge v5.0.0 for WoW Retail Midnight 12.1.5 (TOC 120105).

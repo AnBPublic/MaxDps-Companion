@@ -1,3 +1,13 @@
+6.0.0
+Date: 2026-11-03 - "Northstar"
+Retail Midnight 12.1.5 / TOC 120105 / existing wire v5 Ext5 (51/58).
+- Default MainFallback=false; MaxDps alone determines Main unless user
+  enters '/mdb mainfallback on' for the legacy filler.
+- Same known/ready/bound candidate filters, unmodified MaxDps source.
+- Strict idle/unsupported Main holds without guessing.
+- Companion host enforces per-ability OFF across talent aliases.
+- No claim of exhaustive 12.1.5 talent ability data from pinned 12.1.
+
 5.0.0
 Date: 2026-11-02 - "Ascendant"
 Retail Midnight 12.1.5 / Interface 120105, existing 51/58-cell v5 wire.
