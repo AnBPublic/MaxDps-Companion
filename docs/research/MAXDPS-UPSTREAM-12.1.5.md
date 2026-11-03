@@ -27,6 +27,25 @@ cooldown timing, current cast behavior, or boss encounter intelligence.
 The companion continues to defer this offensive decision to the live MaxDps
 engine. No additional speculative companion-only offense is emitted.
 
+## Runtime substitutions outside the tabular inventory
+
+The upstream `Core.lua` diff contains two **new live decision overrides**
+that will not appear as new rows in `Cooldowns.lua` or `SpellData.lua`:
+
+| Upstream runtime branch | Observable/source behavior | Current companion research status |
+| --- | --- | --- |
+| Unholy Death Knight / Blightfall `1271967` | If available in `MaxDps.Spells`, upstream replaces suggested Outbreak `77575` with Blightfall; [spell reference](https://www.wowhead.com/ptr-2/spell=1271967/blightfall), [12.1.5 talent context](https://www.method.gg/guides/unholy-death-knight/talents) | `1271967` is absent from the older checked-in class spell and spell-verification inventories. The current Companion's unknown Main path **delegates** to MaxDps; no independently intelligent Blightfall choice or variant-OFF certification is established. Must capture and verify action replacement + binding on live client. |
+| Holy Paladin / Shield of the Righteous `415091` | Upstream may replace its Main suggestion at 5 Holy Power | `415091` exists in the checked-in class spell and verification tables. Timing/resource override itself requires retail inspection; no new independent rule was added. |
+
+**Interpretation:** comparing 368 cooldown rows and 8,070 spell tokens
+is necessary but **insufficient** for every talent. Code-level runtime
+substitutions, talent-driven action replacements, hero talents, spell
+book bindings and combat-secrecy behavior must be audited separately.
+Any absent source ID remains MaxDps-delegated Main at most; the
+Companion must not invent independent situational usage. A later phase
+must reconcile replacement/alias family blocks against user OFF modes
+using real client evidence, then test each affected talent configuration.
+
 ## Source boundaries after reconciliation
 
 1. `app/MaxDpsCompanion.Core/Knowledge/vendor-abilities.json`: refreshed
