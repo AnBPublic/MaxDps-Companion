@@ -1708,7 +1708,8 @@ internal sealed class RotationEngine : IDisposable
         }
         else
         {
-            if (!_settings.AllowBackgroundKeys && !_window.IsForeground) return false;
+            // v6: never deliver target/interact keys to a background game.
+            if (!_window.IsForeground || !_window.IsGameWindow(gameHandle)) return false;
             var outcome = _keys.SendToWindow(gameHandle, gamePid, stroke, _settings.KeyPressMs,
                 _settings.ModifierInput, _window.IsForeground);
             if (!outcome.Sent)
@@ -1796,7 +1797,8 @@ internal sealed class RotationEngine : IDisposable
         }
         else
         {
-            if (!_settings.AllowBackgroundKeys && !_window.IsForeground) return false;
+            // v6: never deliver target/interact keys to a background game.
+            if (!_window.IsForeground || !_window.IsGameWindow(gameHandle)) return false;
             var outcome = _keys.SendToWindow(gameHandle, gamePid, stroke, _settings.KeyPressMs,
                 _settings.ModifierInput, _window.IsForeground);
             if (!outcome.Sent)
