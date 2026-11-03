@@ -84,10 +84,15 @@ spec and combat scene. Report mean FPS, 1% lows, p95/p99 frame
 latency, >50ms spikes, CPU and GPU of WoW/companion and
 missing/double spells.
 
-No all-spell/encounter/FPS success can be proven from CI. The
-embedded vendor/curation layer is older 12.1/MaxDps 11.3.49,
-while v11.3.58 supports Retail 12.1.5; no current-talent truth
-should be invented from the old registry. The game hides some
-combat states. Confirm Blizzard input automation/account terms
-separately before use. Native performance may still be limited
-by GDI synchronization; 4.9 thin-strip capture remains.
+No all-spell/encounter/FPS success can be proven from CI.
+**RC2 release artifacts still predate** the separate 12.1.5 core
+sync branch: the branch reconciles 11.3.58's 368 Cooldowns rows
+(one DK Frost ID change) and verifies 8,070 unchanged SpellData
+rows. The curated decision layer remains 12.1/120100; current
+talent behavior is NOT certified. Do not install the source branch
+as an RC2 binary or imply RC2 received the fix. See
+`docs/research/MAXDPS-11.3.58-CORE-DIFF.md`.
+The game hides some combat states. Confirm Blizzard input
+automation/account terms separately before use. Native performance
+may still be limited by GDI synchronization; 4.9 thin-strip
+capture remains.
