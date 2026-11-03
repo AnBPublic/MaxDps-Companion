@@ -1,5 +1,25 @@
 # Northstar v6.0.0 — all-ability intelligence and acceptance gates
 
+## Source reconciliation in post-RC2 feature branch (not an RC2 claim)
+
+The extracted cooldown/interrupt inventory now has an independent v11.3.58
+Retail 12.1.5 / interface 120105 stamp and fixes Frost Breath of
+Sindragosa `152279 → 1249658`. All **368** extracted cooldown/interrupt
+class/spec/name rows were compared against v11.3.49: one spell-ID change.
+All **8,070** retail class-spell rows are identical between upstream tags,
+so there is no new complete talent dataset to import. None of the upstream
+per-class specialization modules changed in this tag interval. See
+`docs/research/MAXDPS-UPSTREAM-12.1.5.md` for evidence.
+
+**Crucial:** `abilities.json` still represents curated behavior researched
+against 12.1 / MaxDps 11.3.49. No existing `LiveVerified` flag is elevated,
+and 12.1.5 support is still **not** a guarantee of correct individual ability
+usage, talent interactions, endgame encounters or secret API visibility.
+This feature is not included in published RC2 binaries until a reviewed build
+is cut.
+
+
+
 **Target:** Retail Midnight **12.1.5** · addon TOC **120105**
 · app v6.0.0 · **pixel wire v5/Ext5 unchanged** · 13 classes,
 40 specializations (27 DPS / 6 tanks / 7 healer inventories).
