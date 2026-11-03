@@ -61,6 +61,21 @@ internal static class Program
                 return;
             }
 
+            // v6: comprehensive EVERY-registered-spell decision contract.
+            // Each row explicitly distinguishes vendor authority, independent
+            // policies, manual/unknown, skill variants and old patch evidence.
+            // Runs off the hot path; the app can generate this for local agents.
+            var contractsArg = args.FirstOrDefault(arg =>
+                arg.StartsWith("--ability-contracts=", StringComparison.OrdinalIgnoreCase));
+            if (contractsArg is not null)
+            {
+                var path = contractsArg[(contractsArg.IndexOf('=') + 1)..];
+                if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("output path is required");
+                AbilityDecisionManifest.WriteTsv(path, AbilityCatalog.Default);
+                Console.WriteLine($"v6 decision contracts written: {path}");
+                return;
+            }
+
             // Maintenance: dump the merged per-class/spec ability tree (used to
             // curate the passive/junk filter; see docs/KNOWLEDGE.md).
             var dumpArg = args.FirstOrDefault(arg => arg.StartsWith("--dump-class-skills=", StringComparison.OrdinalIgnoreCase));
