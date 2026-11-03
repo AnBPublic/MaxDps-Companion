@@ -251,6 +251,9 @@ local Defaults = {
   -- while true the strip stays a Paused frame and the auto-revive nudge is
   -- suppressed, so nothing can silently resume the rotation after a pause.
   UserPaused = false,
+  -- v6: forbid non-MaxDps Main filler guesses by default. An explicit
+  -- '/mdb mainfallback on' restores the legacy Fury/Arms/Ret fallback.
+  AllowMainFallback = false,
   OffsetX = 0,
   OffsetY = 0,
   -- Aethys-proven 8px cells: ±1px misalignment tolerance by construction.
@@ -1687,6 +1690,19 @@ local function HandleCommand (Input)
     end
     Print(("app mask 0x%04X epoch %d applied (default; overlay-wins)")
       :format(MaskArg, EpochArg));
+    return;
+  end
+
+  if Command == "mainfallback" then
+    if Arg1 == "on" then
+      DB.AllowMainFallback = true;
+    elseif Arg1 == "off" then
+      DB.AllowMainFallback = false;
+    elseif Arg1 ~= nil then
+      Print("usage: /mdb mainfallback on|off");
+      return;
+    end
+    Print("strict MaxDps Main: " .. (DB.AllowMainFallback and "OFF (legacy filler opt-in)" or "ON (hold when no reliable main)"));
     return;
   end
 

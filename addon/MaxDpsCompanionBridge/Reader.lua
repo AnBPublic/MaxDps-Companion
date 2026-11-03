@@ -409,13 +409,14 @@ function MDCB.GetMainSpellID ()
     -- fall through to the filler rather than return nil (plan Q1).
     HadCandidate = true;
   end
-  -- Q1 FALLBACK: the engine was glowing (or naming) a Main candidate, yet
-  -- none survived MainUsable — all power-starved. Encode the first castable
-  -- per-spec filler (Fury -> Bloodthirst, vendor-verified in
-  -- MainFallback.lua) instead of a dead Main slot. Idle-by-design (no
-  -- candidate at all) still returns nil; unverified specs have no filler and
-  -- stay EMPTY. MainUsable gates the filler too.
-  if HadCandidate then
+  -- v6 Northstar STRICT AUTHORITY (default):
+  -- If MaxDps cannot supply a castable main, hold rather than choose our
+  -- own spell from a static list. A former user-approved 3-spec filler
+  -- remains available ONLY after '/mdb mainfallback on'; the optional
+  -- fallback is deliberately not advertised as a MaxDps recommendation.
+  -- A missing/stale SavedVariables table must always fail closed.
+  if HadCandidate and type(MaxDpsCompanionBridgeDB) == "table"
+    and MaxDpsCompanionBridgeDB.AllowMainFallback == true then
     local Fallback = MainFallbackList and MainFallbackList();
     if Fallback then
       for i = 1, #Fallback do
