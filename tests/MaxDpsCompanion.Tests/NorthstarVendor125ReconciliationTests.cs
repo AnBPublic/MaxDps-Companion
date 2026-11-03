@@ -73,6 +73,22 @@ public class NorthstarVendor125ReconciliationTests
             .Single(r => r.SpellId == 1249658).CurrentPatchLiveVerified);
     }
 
+    [Fact]
+    public void Minimal_Older_Test_Fixture_Remains_Loadable_Without_A_Vendor_Version()
+    {
+        const string vendor = """{"gamePatch":"12.1","entries":[]}""";
+        const string curated = """{"gamePatch":"12.1","interface":120100,"abilities":[]}""";
+        Assert.NotNull(AbilityCatalog.Load(vendor, curated));
+    }
+
+    [Fact]
+    public void A_Versioned_Upstream_With_Missing_Patch_Is_Rejected()
+    {
+        const string vendor = """{"maxDpsVersion":"11.3.58","interface":120105,"entries":[]}""";
+        const string curated = """{"gamePatch":"12.1","interface":120100,"abilities":[]}""";
+        Assert.Throws<InvalidDataException>(() => AbilityCatalog.Load(vendor, curated));
+    }
+
     [Theory]
     [InlineData("11.3.49", "12.1.5", 120105)]
     [InlineData("11.3.58", "12.1", 120105)]
