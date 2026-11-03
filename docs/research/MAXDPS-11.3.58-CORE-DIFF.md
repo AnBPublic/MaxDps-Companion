@@ -42,10 +42,10 @@ and observed readiness rather than inventing a standalone cast trigger.
 1. Obtain **`Cooldowns.lua` at tag v11.3.58** from
    https://github.com/kaminaris/MaxDps/blob/v11.3.58/Cooldowns.lua .
 2. From the project root run:
-   `pwsh -File tools/Extract-VendorAbilities.ps1 -SourcePath PATH_TO_SOURCE -SourceGitBlobSha 3640261ac4c3b31692434f26ce60d48978e3da03`.
+   `pwsh -File tools/Extract-VendorAbilities.ps1 -SourcePath PATH_TO_SOURCE`.
 3. Compare the resulting `Knowledge/vendor-abilities.json` against
    the checked-in file and run the normal offline build, xUnit tests,
-   Lua harness, and ability audit. The extraction enforces the known
+   Lua harness, and ability audit. The extraction verifies the exact upstream Git blob SHA and enforces the known
    368-row count and DK Frost ID so accidental old-source regeneration
    fails before writing.
 
