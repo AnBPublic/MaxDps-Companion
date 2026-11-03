@@ -10,6 +10,77 @@ Format: Keep a Changelog sections (`Added` / `Changed` / `Fixed` / `Removed`)
 per release, plus the identity + wire line. The complete pre-4.0 history lives
 in [`../VERSION.txt`](../VERSION.txt) and `docs/archive/HANDOVER-history.md`.
 
+## 6.0.0 Northstar - 2026-11-03
+
+**Windows Companion v6.0.0 / WoW Bridge v6.0.0; target Midnight
+12.1.5 (TOC 120105).** Full successor to Ascendant 5.0.0 RC4.
+**Pixel protocol unchanged:** version 5 / 51 core-or-58 Ext5 cells.
+Preserves MaxDps as Main authority and prior v5 survival intelligence.
+
+### Added — explicit per-ability intelligence accountability
+
+- `AbilityDecisionManifest` emits one contract for **every registered
+  spell ID** in the pinned catalog. Classification distinguishes
+  MaxDps-delegated, Companion-conditional, SharedSafetyGate, Manual,
+  ResearchPending and Unobservable. Each row states required evidence,
+  current source patch, last validated patch, lack of live 12.1.5
+  evidence, and whether companion-owned additions are eligible.
+- Run `MaxDpsCompanion.exe --ability-contracts=PATH\all-abilities.tsv`
+  to generate the deterministic sorted TSV (all IDs, not only a small
+  curated set). The included tests require a row for every catalog ID.
+- The 40-spec inventory (27 DPS, 6 tank, 7 healer) remains separate
+  from real talent/hero-talent validation. Healers are *inventoried*,
+  not fully modeled with ally-targeted healing intelligence.
+
+### Fixed — human ability switches override every variant
+
+- Explicit OFF, Manual or Never on either member of a curated spell
+  alias group now blocks **all known equivalent variants** through
+  the PolicyEvaluator, including Main and emergency/solo action paths.
+  ON/Always on the replacement cannot override the disabled base.
+- The OFF hard veto now runs before any provider/CC shortcut; a
+  separately stored Always/Automatic mode cannot override explicit OFF.
+  The lookup is allocation-free in the hot path.
+- Known class/spec **mismatches** reject Companion-generated mobility,
+  self-heal, catalog-only defensives and known-origin offensive extras.
+  Direct MaxDps Main remains authoritative, since older registry
+  metadata cannot safely refute a live upstream recommendation.
+
+### Changed — strict MaxDps Main rather than guessed filler
+
+- If MaxDps has no currently eligible live Main glow/pick, the
+  bridge leaves Main empty instead of replacing a power-starved spell
+  with a generic class filler by default. This is **intentional
+  holding, not a DPS improvement guarantee**: rotations may stall
+  when upstream suggests nothing usable. An explicit
+  `/mdb mainfallback on` restores legacy Fury/Arms/Ret static fillers;
+  `/mdb mainfallback off` restores strict mode. SavedVariables keeps
+  the user's choice; new installs default OFF.
+- Main remains lower priority than a valid interrupt or emergency
+  survival. Existing failures/retry, GCD, casting/channeling,
+  STOP on chat typing, loss of foreground and link-staleness gates
+  remain in place. Nothing starts guessing off-script encounter
+  mechanics or unknown talents.
+
+### Quality gate and limitations
+
+- Per-ability OFF/variant tests, cross-spec mismatch tests, complete
+  spell-contract manifest tests and original replay, Lua secret-harness,
+  Windows/Mac and audit gates must pass before RC2 publication.
+- **Not proven:** every spell/talent's correct 12.1.5 live behavior,
+  per-fight optimal damage, raid/dungeon boss strategy, flawless
+  maximum-tier Delves or zero FPS cost. Current registry is based
+  on a **12.1 / MaxDps 11.3.49** snapshot; current upstream
+  **MaxDps 11.3.58** is available for 12.1.5 and requires a new
+  source extraction and verification before all-talent claims.
+- External automatic combat input may violate Blizzard's terms;
+  CI builds are not compliance certification. User and local agent
+  must perform real Retail testing.
+
+**Agent deployment:** `docs/HANDOVER-NORTHSTAR-6.0.0.md`.
+**Eight combat-situation matrix and full known gaps:**
+`docs/V6-REQUIREMENTS-AND-ABILITY-INTELLIGENCE.md`.
+
 ## 5.0.0 Ascendant - 2026-11-02
 
 **Companion v5.0.0 / Bridge v5.0.0, Retail Midnight 12.1.5

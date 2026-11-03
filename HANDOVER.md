@@ -5,6 +5,29 @@ Read order: this file -> `ARCHITECTURE.md` -> `docs/PROTOCOL.md`. Full history
 [`docs/archive/HANDOVER-history.md`](docs/archive/HANDOVER-history.md); search it
 by release name or date before re-investigating an old problem.
 
+## 2026-11-03 RELEASE CANDIDATE 6.0.0 "NORTHSTAR"
+
+- Branch `release/v6.0.0-northstar` directly based on successful
+  Ascendant 5.0.0 RC4. Windows and addon versions both 6.0.0,
+  12.1.5/120105; the existing pixel protocol remains v5/Ext5.
+- New strict Main default: hold rather than choose a static filler
+  when MaxDps cannot provide a currently usable suggestion.
+  `/mdb mainfallback on` restores the original explicit opt-in.
+- Hard per-ability OFF/Manual/Never across known talent aliases,
+  before any emergency or alternate candidate path.
+- Companion-only suggestions are blocked on *observed* wrong class/
+  spec, preventing stale character-swap recommendations.
+- `--ability-contracts=path.tsv` builds one report row for every
+  registered spell, mapping owner, evidence, research gaps and
+  12.1.5 provenance. This is accountability, not all-talent proof.
+- All previous Ascendant Solo/Group health-pressure and offensive
+  intelligence, interrupt ranking, safety and screen-capture
+  improvements retained.
+- Changelog: `docs/CHANGELOG.md`; agent handover:
+  `docs/HANDOVER-NORTHSTAR-6.0.0.md`;
+  requirements gap matrix: `docs/V6-REQUIREMENTS-AND-ABILITY-INTELLIGENCE.md`.
+- No 100% play/FPS guarantee without actual full Retail acceptance.
+
 ## 2026-11-02 RELEASE CANDIDATE 5.0.0 "ASCENDANT"
 
 - Based on v4.9.0 Slipstream, targeting Midnight 12.1.5 (TOC 120105).

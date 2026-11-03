@@ -1,5 +1,33 @@
 # Architecture — MaxDps-Companion
 
+## 6.0.0 Northstar — bounded trust, human control and auditability
+
+- `AbilityPolicy.ExplicitlyBlocked` checks direct and symmetric
+  cataloged talent aliases. A user OFF/Manual/Never veto is applied
+  **before** any other situational or MaxDps policy path, not merely
+  at the end of a provider. Explicit OFF beats conflicting Always.
+- `AbilitySpecGuard` rejects independently generated class/spec
+  extras whose known membership contradicts observed class/spec
+  metadata, without policing MaxDps's Main recommendation on stale
+  12.1 registry membership.
+- Lua MainFallback remains present for reproducibility, but new
+  SavedVariable `AllowMainFallback=false` defaults to strict
+  MaxDps authority. Only `/mdb mainfallback on` permits previously
+  curated Fury/Arms/Retribution fillers when a MaxDps-named action
+  is provably power-starved. Unknown observations still rely on the
+  live MaxDps glow rather than guessed fillers.
+- `AbilityDecisionManifest.Build` enumerates every catalog ID and
+  labels the policy route and unmet source evidence, without
+  claiming each one 12.1.5-verified. CLI TSV report is built only
+  on demand, not in the 33ms capture loop.
+- Gameplay pause from active chat Ext3 typing bit, Windows
+  non-foreground capture gate, stale-frame and link-loss holds,
+  one-action-per-GCD sequencing, emergency/interrupt priorities
+  and v5 health pressure remain unchanged.
+- No changes to the v5 pixel wire or Win32 BitBlt cropped 3-row
+  sample. Current 12.1.5 upstream source and all-encounter matrix
+  are follow-up validation, not claims of complete implementation.
+
 ## 5.0.0 Ascendant — shared live-evidence policy, all-spec audit
 
 - The same low-allocation monitor can estimate a one-second risk
