@@ -601,18 +601,27 @@ internal static class PolicyEvaluator
 {
     public static PolicyDecision Evaluate(PolicyInput input, AbilityCatalog catalog)
     {
-        // v6: enforce user OFF before *any* generic, emergency, scheduler
-        // source or provider (including MaxDps Main and active talent
-        // replacements). An explicit OFF on a base spell blocks its known
-        // aliases as well. Unknown spell identity can still only be trusted
-        // through the existing MaxDps wire/bridge gates.
+        // v6: the original direct-spell OFF/Manual/Never path in Known()
+        // retains its provider, reason and historical replay semantics.
+        // Only a NEW cross-alias veto needs this early gate. An explicitly
+        // blocked alias may not be rescued by a different variant's Always
+        // mode, nor by a MaxDps Main, interrupt or emergency recommendation.
+        var ability = input.SpellId > 0 ? catalog.TryGet(input.SpellId) : null;
         if (input.Options.Abilities is { } policy
             && policy.ExplicitlyBlocked(input.SpellId, catalog))
-            return ProviderStamp.Stamp(CandidateProviders.Generic,
-                PolicyDecision.Skip("user OFF/Manual applies to spell or talent variant"),
-                "user policy: explicit variant-family prohibition");
-
-        var ability = input.SpellId > 0 ? catalog.TryGet(input.SpellId) : null;
+        {
+            var direct = policy.OverrideOf(input.SpellId) == false
+                || policy.ModeOf(input.SpellId) is UserAbilityMode.Never or UserAbilityMode.Manual;
+            if (!direct || ability is null)
+            {
+                var provider = ability is null
+                    ? CandidateProviders.Generic
+                    : CandidateProviders.For(input.Slot, ability);
+                return ProviderStamp.Stamp(provider,
+                    PolicyDecision.Skip("user policy disabled by spell/talent variant"),
+                    "user policy: hard variant-family OFF/Manual/Never");
+            }
+        }
         if (ability is null)
         {
             var generic = Generic(input, catalog);
