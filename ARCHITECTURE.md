@@ -1,5 +1,14 @@
 # Architecture — MaxDps-Companion
 
+## 2026-11-03 — independently versioned 12.1.5 core source
+
+- `Knowledge/vendor-abilities.json`: 368 rows from `kaminaris/MaxDps` v11.3.58 `Cooldowns.lua` (interface 120105), with explicit source version/interface/blob provenance; Frost DK Breath of Sindragosa is now 1249658, not stale 152279.
+- `Knowledge/class-spells.json`: 8,070 Retail rows compared against v11.3.58 `SpellData.lua`, zero differences; existing file remains untouched.
+- `AbilityCatalog.Load`: vendor source metadata guard independent from the older curated 12.1/120100 guard. `MaxDpsVersion` now reports refreshed vendor source; `GamePatch` and `InterfaceVersion` still denote the NOT-live-verified curated layer.
+- No pixel-wire, reader, class spec ordinal, generated companion-only slot list, OS input, or scheduling changes. This is NOT a complete talent or encounter behavioral upgrade.
+- Details and unresolved validation: `docs/research/MAXDPS-11.3.58-CORE-DIFF.md`.
+
+
 ## 6.0.0 Northstar — bounded trust, human control and auditability
 
 - `AbilityPolicy.ExplicitlyBlocked` checks direct and symmetric
