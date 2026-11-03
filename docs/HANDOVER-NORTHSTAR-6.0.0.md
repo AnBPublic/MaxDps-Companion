@@ -1,5 +1,23 @@
 # MaxDPS Companion v6.0.0 "Northstar" RC2 — deployment agent handover
 
+## Post-RC2 source development (not in the published RC2 ZIPs)
+
+On `feature/northstar-12-1-5-vendor-reconcile`, the generated
+cooldown/interrupt inventory was reconciled with official upstream MaxDps
+**11.3.58** (target 12.1.5 / Interface 120105). Exactly one source
+ID changed: Frost DK Breath of Sindragosa `152279 → 1249658`.
+The retail `SpellData.lua` inventory has the same 8,070 class/spec/token/ID
+entries in both upstream versions. Source integrity guards and regression
+tests were added; detailed evidence is in
+`docs/research/MAXDPS-UPSTREAM-12.1.5.md`.
+
+This is an **unreleased feature branch**. Existing RC2 downloads remain
+unchanged. Its policy curation is STILL based on 12.1/11.3.49; it is not
+verified against all 12.1.5 talents or content. CI and live retail checks are
+OWED before a new candidate can be recommended.
+
+
+
 **Current version:** Windows WinUI3 6.0.0 / WoW Retail addon 6.0.0.
 **Game:** WoW Midnight 12.1.5 (Interface **120105**).
 **Wire:** protocol **5** (51 core/optional 58 Ext5 cells), no new
