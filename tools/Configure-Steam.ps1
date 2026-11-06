@@ -1,11 +1,12 @@
 param([Parameter(Mandatory)][string]$GameDirectory, [string]$SteamPath, [ValidatePattern("^\d+$")][string]$SteamUserId, [switch]$PrepareOnly, [switch]$EnableNativeGamepad)
 $ErrorActionPreference='Stop'
 $repo=Split-Path $PSScriptRoot -Parent
-$forever=(Split-Path $repo -Leaf) -eq 'MaxDps-Companion-Forever'
+$forever=$false
 $app=if($forever){'MaxDpsCompanionForever'}else{'MaxDpsCompanion'}
 $name=if($forever){'World of Warcraft Forever (MaxDPS)'}else{'World of Warcraft Midnight (MaxDPS)'}
 $iniName=if($forever){'forever.settings.ini'}else{'settings.ini'}
-$exe=Join-Path $repo "dist\$app.exe"
+$appDirectory=if(Test-Path -LiteralPath (Join-Path $repo "dist\$app.exe")){Join-Path $repo 'dist'}elseif(Test-Path -LiteralPath (Join-Path $repo "windows\$app.exe")){Join-Path $repo 'windows'}elseif(Test-Path -LiteralPath (Join-Path $repo "$app.exe")){$repo}else{throw 'Companion executable not found beside this setup package'}
+$exe=Join-Path $appDirectory "$app.exe"
 $gameExe=Join-Path $GameDirectory 'Wow.exe'
 if(-not (Test-Path -LiteralPath $gameExe)) {throw 'Game Wow.exe not found'}
 $version=[version](Get-Item -LiteralPath $gameExe).VersionInfo.FileVersion
@@ -74,7 +75,7 @@ else{
  $apps=[regex]::new('(?m)^\t"apps"\s*\r?\n\t\{\r?\n');if($apps.Matches($local).Count -ne 1){throw 'Steam per-app controller section is ambiguous; no changes made'}
  $newLocal=$apps.Replace($local,[Text.RegularExpressions.MatchEvaluator]{param($match)$match.Value+$block},1)
 }
-$settingsFile=Join-Path $repo "dist\$iniName"
+$settingsFile=Join-Path $appDirectory $iniName
 $settings=[IO.File]::ReadAllText($settingsFile)
 function Set-LaunchValue([string]$text,[string]$key,[string]$value){
  $keyPattern='(?m)^'+[regex]::Escape($key)+'=.*$'

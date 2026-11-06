@@ -159,15 +159,23 @@ internal static class SteamGameSession
             var started = StartGame();
             if (!started.Ok) return Report(started.Message);
             File.WriteAllText(Path.Combine(Program.AppDir, "steam-launch-status.txt"), started.Message);
+            var coldStartRetry = new SteamColdStartRetry(Environment.TickCount64);
             var deadline = Environment.TickCount64 + 90_000;
             while (Environment.TickCount64 < deadline)
             {
-                if (GameRunning())
+                var running = GameRunning();
+                var retry = coldStartRetry.TryTake(Environment.TickCount64, running, BattleNetRunning());
+                if (running)
                 {
                     deadline = Environment.TickCount64 + 30_000;
                     Interlocked.Exchange(ref _launchUntil, 0);
                 }
                 else if (server.IsFaulted) return Report("Steam session control channel failed.");
+                else if (retry)
+                {
+                    if (!BattleNetLauncher.TryLaunch(_settings.BNetPath, out var retryMessage)) return Report(retryMessage);
+                    File.WriteAllText(Path.Combine(Program.AppDir, "steam-launch-status.txt"), retryMessage + " Cold-start request reissued once after launcher initialization.");
+                }
                 deadline = Math.Max(deadline, Interlocked.Read(ref _launchUntil));
                 await Task.Delay(1000);
             }
