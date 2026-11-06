@@ -1,3 +1,7 @@
+## 2026-11-06 direct Battle.net launch (6.2.2)
+
+Launch Game and Restart Game use Battle.net directly, without Steam routing or a Steam requirement. Launch Game replaces the Open Game label; Steam-specific controls removed from Details. Battle.net remembered-account login, exact game identity and one bounded cold-start retry remain. Windows app title, tray and product metadata now say MaxDPS Companion Retail. Legacy SteamLaunchEnabled values are ignored by the desktop entry point; the old Steam host flag no longer starts a host. Independent Steam game shortcuts and controller profiles are unchanged. Windows install backed up before replacement. Live game acceptance is separate from build/test/UI-smoke evidence.
+
 ## 2026-11-06 visual overlay disabled (6.2.1)
 
 User reported extreme overlay stutter and in-game black flickering during the Forever test despite overlay module/XInput verification. Source setup now disables visual overlay per game, keeps Steam Input/profile settings, and opens controller settings in the main Steam Library. Custom bindings await explicit user approval. Local activation requires clean game/Steam restart and live acceptance remains open.

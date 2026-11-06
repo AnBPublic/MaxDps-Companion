@@ -22,7 +22,7 @@ namespace MaxDpsCompanion.Ui.Shell;
 /// </summary>
 public sealed partial class ShellWindow
 {
-    private const string AppTitle = "MaxDPS Companion";
+    private const string AppTitle = "MaxDPS Companion Retail";
 
     /// <summary>Icon font for the Fluent chip glyphs (MDL2 fallback on Win10).</summary>
     private const string FluentIcons = "Segoe Fluent Icons, Segoe MDL2 Assets";
@@ -528,14 +528,14 @@ public sealed partial class ShellWindow
 
         // Two transport rows; both rows run flush left+right with the status
         // card (brief §2): row 1 = Start (primary, 1.4fr) / Pause / Stop at
-        // 1fr each (UNCHANGED in 4.4.0); row 2 = Open Game / Restart Game in
+        // 1fr each (UNCHANGED in 4.4.0); row 2 = Launch Game / Restart Game in
         // two EQUAL columns. Calibrate moved into the Details disclosure of the
         // status card, so it is no longer mounted here (4.4.0 "Wayfinder").
         // Uniform 10px gaps.
         var start = _start!;
         var stop = _stop!;
         var pause = HeroButton("Pause", ButtonRole.Ghost, ToUi(ExpTheme.Accent));
-        var launch = HeroButton("Open Game", ButtonRole.Ghost, ToUi(ExpTheme.Secondary));
+        var launch = HeroButton("Launch Game", ButtonRole.Ghost, ToUi(ExpTheme.Secondary));
         var restart = HeroButton("Restart Game", ButtonRole.Ghost, ToUi(ExpTheme.Accent));
         _pauseButton = pause;
         _expLaunchGame = launch;
@@ -548,7 +548,7 @@ public sealed partial class ShellWindow
         start.SetLabel("\uE768", "Start", "\u25B6", FluentIcons);     // Fluent Play
         pause.SetLabel("\uE769", "Pause", "\u23F8", FluentIcons);     // Fluent Pause
         stop.SetLabel("\uE71A", "Stop", "\u25A0", FluentIcons);       // Fluent Stop
-        launch.SetLabel("\u2922", "Open Game");                       // ⤢
+        launch.SetLabel("\u2922", "Launch Game");                       // ⤢
         restart.SetLabel("\uE72C", "Restart Game", "\u21BB", FluentIcons); // Fluent Refresh ↻
 
         start.Role = ButtonRole.Primary;
@@ -621,14 +621,6 @@ public sealed partial class ShellWindow
         // witness (bridge + mask + rate) and the single mono rolling log
         // (old ConsoleHome(minimal: true) :846-847 + UpdateExpReadouts).
         _expConsole = new ExpConsoleView();
-        var steamDetails = new StackPanel { Spacing = 6, Margin = new Thickness(0, 8, 0, 0) };
-        steamDetails.Children.Add(new TextBlock { Text = SteamGameSession.Description, TextWrapping = TextWrapping.Wrap, Foreground = ControlTheme.Brush(ControlTheme.TextSecondary), FontSize = 12 });
-        var controllerLayout = HeroButton("Controller Settings in Steam", ButtonRole.Ghost, ControlTheme.Accent);
-        controllerLayout.HorizontalAlignment = HorizontalAlignment.Left;
-        controllerLayout.IsEnabled = SteamLaunchPlan.IsShortcutId(_settings.SteamGameId);
-        controllerLayout.Click += (_, _) => SteamGameSession.OpenControllerLayout();
-        steamDetails.Children.Add(controllerLayout);
-        _expConsole.AddDetails(steamDetails);
         // 4.4.0: Calibrate lives inside the Details disclosure now; the card
         // raises the request and the shell owns the worker/lifecycle.
         _expConsole.CalibrateRequested += RecalibrateFull;
@@ -641,7 +633,7 @@ public sealed partial class ShellWindow
 
         // Apply the real transport state before the first paint: the initial
         // process probe ran in InitializeEngine, so an already-running client
-        // must show "Game Running" immediately (no 250 ms "Open Game" flash).
+        // must show "Game Running" immediately (no 250 ms "Launch Game" flash).
         UpdateExpTransportState();
 
         // Entrance (brief §3): fade-up, staggered 0 / 80 / 160 ms across the

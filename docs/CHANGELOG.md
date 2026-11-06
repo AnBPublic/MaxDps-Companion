@@ -1,5 +1,16 @@
 # Changelog - MaxDPS Companion
 
+## 6.2.2 Polaris - 2026-11-06
+
+### Changed
+
+Launch Game and Restart Game use Battle.net directly, without Steam routing or a Steam requirement. Launch Game replaces the Open Game label; Steam-specific controls removed from Details. Battle.net remembered-account login, exact game identity and one bounded cold-start retry remain. Windows app title, tray and product metadata now say MaxDPS Companion Retail.
+
+### Details
+
+App/bridge 6.2.2 Polaris; wire unchanged. Focused release/retry tests and Windows UI smoke validate this change; live game launch/restart acceptance remains separate.
+
+
 ## 6.2.1 Polaris - 2026-11-06
 
 ### Fixed

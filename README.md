@@ -1,7 +1,7 @@
-Windows Steam overlay/controller launch: see [Steam setup and live acceptance](docs/STEAM-LAUNCH.md). Existing companion shortcuts are retained; setup adds a separate Steam-managed game entry.
+MaxDPS Companion Retail launches Retail WoW directly through Battle.net. Steam is not required.
 
 > [!IMPORTANT]
-> Current Windows companion and bridge: **6.2.1 Polaris**. Northstar transport controls with five play presets; Midnight 12.1.5, Interface 120105, unchanged wire v5. Native macOS UI parity and live game acceptance are still owed.
+> Current Windows companion and bridge: **6.2.2 Polaris**. Northstar transport controls with five play presets; Midnight 12.1.5, Interface 120105, unchanged wire v5. Native macOS UI parity and live game acceptance are still owed.
 
 > [!TIP]
 > **macOS Companion - `4.5.5 "Voidlight"` (Apple Silicon, latest Mac build):** the same
@@ -42,7 +42,7 @@ Windows Steam overlay/controller launch: see [Steam setup and live acceptance](d
 > [`app/MaxDpsCompanion.Mac/README.md`](app/MaxDpsCompanion.Mac/README.md);
 > live retail checks are OWED (`docs/TESTING.md` §4).
 
-# MaxDPS Companion (Retail Midnight 12.1.5, v4.6.0 "Cadence", bridge 4.6.0)
+# MaxDPS Companion Retail (12.1.5, v6.2.2 "Polaris")
 
 Pixel bridge driver for [kaminaris MaxDps](https://www.curseforge.com/wow/addons/maxdps)
 (vendor pin: MaxDps v11.3.49). No memory read, no injection, no OCR, no LLM.

@@ -7,7 +7,7 @@
          <Import Project="../Version.props" />            (Core, one level down)
          <Import Project="../../Version.props" />         (tests, two levels down) -->
   <PropertyGroup>
-    <Version>6.2.1</Version>
+    <Version>6.2.2</Version>
     <Codename>Polaris</Codename>
   </PropertyGroup>
   <ItemGroup>

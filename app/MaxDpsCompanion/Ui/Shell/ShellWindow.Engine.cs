@@ -85,7 +85,7 @@ public sealed partial class ShellWindow
 
     // 4.4.0 process presence + launch gap. The 1 s System.Threading.Timer only
     // writes the volatile flag (never touches UI); the launch grace is a
-    // TickCount64 deadline so Open Game stays disabled until WoW appears.
+    // TickCount64 deadline so Launch Game stays disabled until WoW appears.
     private volatile bool _gameProcessRunning;
     private long _launchGraceUntilMs;
     // 4.4.0: a poll that started before a restart must not write its stale
@@ -94,7 +94,7 @@ public sealed partial class ShellWindow
     private long _gamePollEpoch;
     private bool _restarting;
     private System.Threading.Timer? _gamePoll;
-    // Last Open Game transport phase (0 idle / 1 starting / 2 running) so the
+    // Last Launch Game transport phase (0 idle / 1 starting / 2 running) so the
     // 250 ms pump only rewrites the label/glyph/help on an actual change.
     private int _expOpenState = -1;
 
@@ -106,7 +106,7 @@ public sealed partial class ShellWindow
         _engine.LocationChanged += location => _pendingLocation = location;
 
         // 4.4.0: initial presence is synchronous so the first painted transport
-        // state is right (no "Open Game" flash while WoW is already running).
+        // state is right (no "Launch Game" flash while WoW is already running).
         _gameProcessRunning = WowWindow.IsProcessRunning(settings.ProcessName);
         _gamePoll = new System.Threading.Timer(_ => PollGameProcess(), null, 1000, 1000);
 
@@ -187,7 +187,7 @@ public sealed partial class ShellWindow
                     : blocked
                         ? ("\uE72C", "Game Starting\u2026", "\u21BB", FluentIcons,
                             "Waiting for World of Warcraft to start")
-                        : ("\u2922", "Open Game", "\u2922", null,
+                        : ("\u2922", "Launch Game", "\u2922", null,
                             "Open World of Warcraft through Battle.net");
                 _expLaunchGame.SetLabel(glyph, text, accessible, font);
                 ToolTipService.SetToolTip(_expLaunchGame, help);
@@ -583,7 +583,7 @@ public sealed partial class ShellWindow
 
     /// <summary>Launcher seam (MainForm :3412): tests must never start the real Battle.net.</summary>
     internal Func<string?, (bool Ok, string Message)> Launcher { get; set; } =
-        SteamGameSession.Launch;
+        BattleNetLauncher.Launch;
 
     private void OpenGameFromExp()
     {
@@ -591,9 +591,9 @@ public sealed partial class ShellWindow
             _expConsole?.AppendLog(
                 "BNetPath not set - auto-detecting Battle.net (set [Launch] BNetPath in settings.ini to override).",
                 ControlTheme.TextMuted);
-        // Keep Open Game disabled through the Battle.net → WoW launch gap; the
+        // Keep Launch Game disabled through the Battle.net → WoW launch gap; the
         // 1 s poll clears it the moment the process appears.
-        SetLaunchGrace(_settings.SteamLaunchEnabled ? 90_000 : 20_000);
+        SetLaunchGrace(90_000);
         UpdateExpTransportState();
         if (LaunchGame()) return;
         ClearLaunchGrace();
@@ -639,7 +639,7 @@ public sealed partial class ShellWindow
             // A process that vanished between the confirmation and the kill is
             // still a valid restart: relaunch it instead of reporting an error.
             _gameProcessRunning = false;
-            SetLaunchGrace(_settings.SteamLaunchEnabled ? 90_000 : 20_000);
+            SetLaunchGrace(90_000);
             SetStatus($"{message} - relaunching...", ControlTheme.Accent);
             if (!LaunchGame()) ClearLaunchGrace();
         }

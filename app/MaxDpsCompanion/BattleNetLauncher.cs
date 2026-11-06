@@ -57,6 +57,34 @@ internal static class BattleNetLauncher
     /// Launches the game. Returns false with a human-readable message when
     /// Battle.net cannot be found or started.
     /// </summary>
+    public static (bool Ok, string Message) Launch(string? overridePath)
+    {
+        var coldStart = !ClientRunning();
+        var ok = TryLaunch(overridePath, out var message);
+        if (ok && coldStart) _ = RetryColdStartAsync(overridePath);
+        return (ok, message);
+    }
+
+    private static async Task RetryColdStartAsync(string? overridePath)
+    {
+        try
+        {
+            var retry = new SteamColdStartRetry(Environment.TickCount64);
+            for (var second = 0; second < 20; second++)
+            {
+                await Task.Delay(1000).ConfigureAwait(false);
+                var running = WowWindow.IsProcessRunning("Wow");
+                if (running) return;
+                if (retry.TryTake(Environment.TickCount64, running, ClientRunning()))
+                {
+                    TryLaunch(overridePath, out _);
+                    return;
+                }
+            }
+        }
+        catch { /* The initial request already reported its result to the shell. */ }
+    }
+
     public static bool TryLaunch(string? overridePath, out string message)
     {
         var exe = !string.IsNullOrWhiteSpace(overridePath) && File.Exists(overridePath!.Trim())

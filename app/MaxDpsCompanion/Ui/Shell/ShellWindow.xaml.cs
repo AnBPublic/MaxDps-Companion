@@ -37,11 +37,11 @@ public sealed partial class ShellWindow : Window
     private const int SaveDebounceMs = 600;
 
     /// <summary>
-    /// Single-sourced window title: "MaxDPS Companion " + the csproj version and
+    /// Single-sourced window title: "MaxDPS Companion Retail " + the csproj version and
     /// codename (Native.DisplayVersion). The real runtime value is reported by
     /// <c>--ui-smoke-test</c> (ui-smoke.txt) and pinned by ReleaseIdentityTests.
     /// </summary>
-    internal static string WindowTitle => "MaxDPS Companion " + Native.DisplayVersion;
+    internal static string WindowTitle => "MaxDPS Companion Retail " + Native.DisplayVersion;
 
     // Settings writes are serialized process-wide (MainForm.SettingsSaveGate
     // semantics): the shell and any P2 screen must not truncate settings.ini.
@@ -81,7 +81,7 @@ public sealed partial class ShellWindow : Window
             presenter.IsMaximizable = false;
         }
 
-        _tray = new TrayIcon(hwnd, "MaxDPS Companion")
+        _tray = new TrayIcon(hwnd, "MaxDPS Companion Retail")
         {
             Visible = false, // MainForm: tray appears only when minimized
         };

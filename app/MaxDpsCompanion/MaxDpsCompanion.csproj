@@ -24,10 +24,10 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>assets\companion.ico</ApplicationIcon>
     <AssemblyName>MaxDpsCompanion</AssemblyName>
-    <AssemblyTitle>MaxDPS Companion</AssemblyTitle>
-    <Product>MaxDPS Companion</Product>
+    <AssemblyTitle>MaxDPS Companion Retail</AssemblyTitle>
+    <Product>MaxDPS Companion Retail</Product>
     <RootNamespace>MaxDpsCompanion</RootNamespace>
-    <Version>6.2.1</Version>
+    <Version>6.2.2</Version>
     <Codename>Polaris</Codename>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Wave B (4.1 Paragon): the shared brain now lives in MaxDpsCompanion.Core
