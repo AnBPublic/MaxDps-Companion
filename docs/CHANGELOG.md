@@ -1,5 +1,19 @@
 # Changelog - MaxDPS Companion
 
+## 6.1.0 Polaris - 2026-11-06
+
+### Added
+
+Five home-screen play presets: Solo, Levelling, Dungeon, Raid and Tank.
+
+### Changed
+
+Both Windows companions use the Northstar transport layout and retain their own palette. Removed the duplicate desktop console/configuration menus from the active shell; status, Details, calibration, log and release notes remain. Midnight keeps its existing Battle.net launch/restart behavior.
+
+### Details
+
+App and bridge 6.1.0 Polaris; wire 5 with additive extensions unchanged. Static and automated checks are separate from live game acceptance; LIVE TEST OWED.
+
 Every release adds a new `## <version> <codename>` section at the **top** of
 this file, in the same commit as the version bump. The app's Details disclosure
 renders the first entry from `app/MaxDpsCompanion/Ui/Foundation/ReleaseNotes.cs`

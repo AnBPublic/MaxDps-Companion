@@ -42,6 +42,9 @@ internal static class ShellValidation
 
         if (expMode)
         {
+            var tree = Dump(root);
+            foreach (var name in new[] { "Start", "Pause", "Stop", "Restart Game", "Preset: Solo", "Preset: Levelling", "Preset: Dungeon", "Preset: Raid", "Preset: Tank" })
+                if (!tree.Contains(name, StringComparison.Ordinal)) findings.Add($"{page}: missing transport or preset control '{name}'");
             if (toggles > 0)
                 findings.Add($"{page}: Exp layout contains {toggles} ToggleSwitch control(s); the contract is zero");
         }

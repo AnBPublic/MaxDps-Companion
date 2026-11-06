@@ -79,6 +79,7 @@ public sealed partial class ShellWindow
     private Run? _expPillSep;
     private Run? _expPillFps;
     private ExpConsoleView? _expConsole;
+    private PresetBar? _presetBar;
 
     // ----- classic console home (mounted over the classic body, old :801-802) -----
 
@@ -107,6 +108,7 @@ public sealed partial class ShellWindow
     /// </summary>
     private void InitializeContent()
     {
+        _settings.InGameConfigMode = true;
         InitializeEngine(_settings);
         CreateSharedButtons();
         if (_settings.InGameConfigMode) BuildExpContent();
@@ -486,6 +488,7 @@ public sealed partial class ShellWindow
         var grid = new Grid { Padding = new Thickness(18, 12, 18, 12) };
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
         // One read-only status pill: state + sample rate only (:883-903).
@@ -621,7 +624,11 @@ public sealed partial class ShellWindow
         // 4.4.0: Calibrate lives inside the Details disclosure now; the card
         // raises the request and the shell owns the worker/lifecycle.
         _expConsole.CalibrateRequested += RecalibrateFull;
-        Grid.SetRow(_expConsole, 2);
+        _presetBar = new PresetBar();
+        _presetBar.PresetRequested += ApplyPreset;
+        Grid.SetRow(_presetBar, 2);
+        grid.Children.Add(_presetBar);
+        Grid.SetRow(_expConsole, 3);
         grid.Children.Add(_expConsole);
 
         // Apply the real transport state before the first paint: the initial
@@ -921,7 +928,6 @@ public sealed partial class ShellWindow
     /// </summary>
     internal void ApplyPreset(ConsolePreset preset)
     {
-        if (_settings.InGameConfigMode) return;
         var bundle = ConsolePresets.Get(preset);
         _applyingPreset = true;
         try
@@ -949,6 +955,8 @@ public sealed partial class ShellWindow
         _toggles.ApplyToSettings(_settings);
         SaveSettings();
         // Old ApplyPreset :1082-1086: record the bundle on the console home.
+        _presetBar?.SetActivePreset(preset);
+        _expConsole?.AppendLog($"Preset: {bundle.Name}. {bundle.Summary} Addon settings can further restrict this preset.", ControlTheme.Accent);
         _consoleHome?.SetActivePreset(preset);
         _consoleHome?.AppendLog($"Preset \"{bundle.Name}\" applied.", ControlTheme.Accent);
         _consoleHome?.NoteChange($"Preset \"{bundle.Name}\" applied. {bundle.Summary}");

@@ -1,3 +1,7 @@
+## 2026-11-06 transport UI parity
+
+6.1.0 Polaris uses Northstar transport controls with the five existing play presets. The old desktop configuration/console menus are no longer mounted. Presets persist the existing local toggles; the addon can further restrict them. Based on installed Northstar hotfix 6f2af1f; Battle.net launch/restart and gameplay logic retained. Live game acceptance remains OWED.
+
 # Handover - MaxDps-Companion
 
 ## Development continuation — 12.1.5 upstream source reconciliation (not yet an RC release)

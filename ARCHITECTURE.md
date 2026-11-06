@@ -1921,3 +1921,6 @@ command table; SavedVariables carry `SchemaVersion` (Migrate before MergeDefault
 Repo status: the C# clients are the maintained line; `companion-rs/` and the legacy
 `addon/legacy/MaxDpsBridge` + `dist-legacy/` are frozen (see `LEGACY.md`). Sections below that
 describe the Rust port or a "frozen C# client" are history.
+## Transport UI parity (2026-11-06)
+
+Windows always mounts the compact Northstar transport shell. PresetBar delegates to the existing ApplyPreset/ToggleModel persistence path without sending commands to the game or bypassing addon authority. No engine or wire change.

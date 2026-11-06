@@ -28,6 +28,7 @@ internal static class ReleaseNotes
     /// <summary>Newest first. <see cref="Current"/> is always index 0.</summary>
     public static readonly IReadOnlyList<Release> All = new[]
     {
+        new Release("6.1.0", "Polaris", "2026-11-06", "Unified transport controls and play presets", new[] { "Northstar layout with Start, Pause, Stop, Open Game and Restart Game.", "Solo, Levelling, Dungeon, Raid and Tank presets are available on the home screen. In-game settings remain authoritative.", "Existing Midnight launch and gameplay behavior retained." }),
         new Release(
             "6.0.0", "Northstar", "2026-11-03",
             "Strict MaxDps trust, hard talent-variant OFF and per-spell intelligence accountability.",

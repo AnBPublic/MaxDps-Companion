@@ -52,4 +52,35 @@ public sealed partial class ShellWindow
     /// <summary>Resizes the hosted window for a snapshot pass (physical pixels).</summary>
     internal void ResizeForCli(int width, int height) =>
         AppWindow.Resize(new SizeInt32(Math.Max(320, width), Math.Max(400, height)));
+
+    internal IReadOnlyList<string> VerifyPresetPersistence()
+    {
+        var findings = new List<string>();
+        var settingsPath = Path.Combine(Program.AppDir, "settings.ini");
+        var before = File.Exists(settingsPath) ? File.ReadAllBytes(settingsPath) : null;
+        var original = new ToggleModel();
+        original.LoadFromSettings(_settings);
+        try
+        {
+            foreach (var bundle in ConsolePresets.All)
+            {
+                ApplyPreset(bundle.Preset);
+                var saved = AppSettings.Load(settingsPath);
+                var expected = new[] { bundle.Main, bundle.Offensive, bundle.Defensives, bundle.Consumable, bundle.Trinket, bundle.Interrupt, bundle.Mobility, bundle.SelfHeal };
+                if (!saved.SlotEnabled.SequenceEqual(expected) || saved.SoloEnabled != bundle.Solo
+                    || saved.CombatOnly == bundle.OutOfCombat || saved.CrowdControlEnabled != bundle.CrowdControl)
+                    findings.Add($"Preset {bundle.Name} did not persist its behavior settings");
+            }
+        }
+        finally
+        {
+            original.ApplyToSettings(_settings);
+            LoadHeroFromSettings();
+            _presetBar?.SetActivePreset(null);
+            if (before is not null) File.WriteAllBytes(settingsPath, before);
+            else if (File.Exists(settingsPath)) File.Delete(settingsPath);
+        }
+        return findings;
+    }
+    internal void ShowDetailsForCli() => _expConsole?.ToggleDetailsForTest();
 }

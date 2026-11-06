@@ -150,6 +150,9 @@ internal static class UiCliRunner
         var page = request.Page.Trim().ToLowerInvariant();
         switch (page)
         {
+            case "details":
+                shell.ShowDetailsForCli();
+                break;
             case "" or "main" or "home" or "console":
                 break;
             case "config" or "configuration" or "advanced-config":
@@ -261,6 +264,8 @@ internal static class UiCliRunner
             $"in-game-config shell: {shell.SettingsInGameConfigMode}",
             $"snapshot: ui-smoke.png {render.Width}x{render.Height} px, distinct grid colours {render.DistinctColors}",
         };
+        findings.AddRange(shell.VerifyPresetPersistence());
+        lines.Add("preset persistence: all five bundles exercised");
         var report = findings.Count == 0
             ? "ui-smoke-test: PASS"
             : "ui-smoke-test: FAIL\n" + string.Join("\n", findings.Select(f => "FINDING " + f));

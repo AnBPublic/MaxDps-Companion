@@ -1,17 +1,5 @@
 > [!IMPORTANT]
-> **Current client: 4.6.0 "Cadence"** (bridge **4.6.0**) - the WinUI 3 Windows
-> client (`app/MaxDpsCompanion/`), the shared brain (`app/MaxDpsCompanion.Core/`)
-> and the macOS client (`app/MaxDpsCompanion.Mac/`, `4.6.0 "Cadence"`), targeting
-> `MaxDpsCompanionBridge` + `dist`. **C# is the long-term base.** Frozen: the
-> 3.7.9 WinForms distribution (`dist-legacy/`, `build.ps1`), the legacy bridge
-> (`addon/legacy/MaxDpsBridge/`) and the Rust port (`companion-rs/`, reference
-> only, no Ext4). See
-> [`LEGACY.md`](LEGACY.md); changelog: [`docs/CHANGELOG.md`](docs/CHANGELOG.md);
-> release plans: [4.5.0 Voidlight](docs/plans/2026-10-25-midnight-ui-4.5.0.md),
-> [4.4.0 Wayfinder](docs/plans/2026-10-25-wayfinder-transport-foreground.md),
-> [4.3.0 Namesake](docs/plans/2026-10-18-companion-bridge-rename.md),
-> [4.2.0 Nightblade](docs/plans/2026-10-18-rogue-cc-intelligence.md),
-> [4.1.0 Paragon](docs/plans/2026-10-17-paragon-audit-remediation.md).
+> Current Windows companion and bridge: **6.1.0 Polaris**. Northstar transport controls with five play presets; Midnight 12.1.5, Interface 120105, unchanged wire v5. Native macOS UI parity and live game acceptance are still owed.
 
 > [!TIP]
 > **macOS Companion - `4.5.5 "Voidlight"` (Apple Silicon, latest Mac build):** the same
