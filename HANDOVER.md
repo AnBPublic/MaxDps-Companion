@@ -1,3 +1,7 @@
+## 2026-11-06 visual overlay disabled (6.2.1)
+
+User reported extreme overlay stutter and in-game black flickering during the Forever test despite overlay module/XInput verification. Source setup now disables visual overlay per game, keeps Steam Input/profile settings, and opens controller settings in the main Steam Library. Custom bindings await explicit user approval. Local activation requires clean game/Steam restart and live acceptance remains open.
+
 ## 2026-11-06 Steam launch integration (6.2.0 Polaris)
 
 Desktop launch requests route through a dedicated registered Steam game session when configured, then Battle.net product WoW supplies remembered-account login. Restart requests relay to the same user's active host; the host tracks only the configured executable. External Battle.net sessions are not killed or silently reused. tools/Configure-Steam.ps1 prepares/backs up the per-game shortcut, overlay/Input overrides and compatible built-in Gamepad template while Steam and the companion are closed. GamePadEnable is safely enabled before the next game launch; no gameplay input is sent. See docs/STEAM-LAUNCH.md. Live acceptance remains OWED.

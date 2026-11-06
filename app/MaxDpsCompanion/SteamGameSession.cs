@@ -14,14 +14,14 @@ internal static class SteamGameSession
     private static int SessionId { get { using var own = Process.GetCurrentProcess(); return own.SessionId; } }
 
     internal static string Description => _settings.SteamLaunchEnabled && SteamLaunchPlan.IsShortcutId(_settings.SteamGameId)
-        ? "Open/Restart Game use Steam and Battle.net. Steam Input supplies the controller layout; live in-game acceptance is required."
+        ? "Open/Restart use Steam Input and Battle.net. Setup disables the visual overlay. Manage controller settings in the main Steam Library."
         : "Steam game launch is not configured. Run tools/Configure-Steam.ps1 with Steam and this game closed.";
 
     internal static void OpenControllerLayout()
     {
         if (!SteamLaunchPlan.IsShortcutId(_settings.SteamGameId)) return;
         var appId = ulong.Parse(_settings.SteamGameId, System.Globalization.CultureInfo.InvariantCulture) >> 32;
-        Process.Start(new ProcessStartInfo { FileName = $"steam://controllerconfig/{appId}", UseShellExecute = true });
+        Process.Start(new ProcessStartInfo { FileName = $"steam://nav/games/details/{appId}", UseShellExecute = true });
     }
 
     internal static void Configure(AppSettings settings) => _settings = settings;
@@ -75,7 +75,7 @@ internal static class SteamGameSession
             if (TargetError() is { } error) return (false, error);
             if (TryRelay(out var response)) return response;
             if (BattleNetRunning())
-                return (false, "Exit Battle.net completely from its tray menu, then retry Open Game. It must start inside this game's Steam session for overlay and Steam Input. Your running games have not been closed.");
+                return (false, "Exit Battle.net completely from its tray menu, then retry Open Game. It must start inside this game's Steam session for the per-game Steam Input profile. Your running games have not been closed.");
             Process.Start(SteamLaunchPlan.CreateStartInfo(_settings.SteamGameId));
             return (true, "Starting WoW Midnight through Steam and Battle.net. Controller/overlay live verification is still required.");
         }

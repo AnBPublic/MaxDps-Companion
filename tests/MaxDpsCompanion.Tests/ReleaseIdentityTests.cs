@@ -7,14 +7,14 @@ using Xunit;
 namespace MaxDpsCompanion.Tests;
 
 /// <summary>
-/// 6.2.0 "Polaris" release identity: the assembly version is single-sourced
+/// 6.2.1 "Polaris" release identity: the assembly version is single-sourced
 /// from the csproj, the codename from AssemblyMetadata, and the window title is
-/// exactly "MaxDPS Companion v6.2.0 Polaris" with NO build hash/time (those
+/// exactly "MaxDPS Companion v6.2.1 Polaris" with NO build hash/time (those
 /// moved to the Advanced Diagnostics install doctor card).
 ///
 /// The real runtime title is verified by the bin run
 /// <c>MaxDpsCompanion.exe --ui-smoke-test</c> (ui-smoke.txt "window title:"),
-/// which reports "MaxDPS Companion v6.2.0 Polaris"; ShellWindow builds it from
+/// which reports "MaxDPS Companion v6.2.1 Polaris"; ShellWindow builds it from
 /// the same single source asserted here.
 /// </summary>
 public class ReleaseIdentityTests
@@ -30,17 +30,17 @@ public class ReleaseIdentityTests
         var toc = File.ReadAllText(Path.Combine(dir!.FullName, "addon",
             "MaxDpsCompanionBridge", "MaxDpsCompanionBridge.toc"));
         Assert.Contains("## Interface: 120105", toc);
-        Assert.Contains("## Version: 6.2.0", toc);
+        Assert.Contains("## Version: 6.2.1", toc);
         Assert.Contains("## X-Codename: Polaris", toc);
     }
 
     [Fact]
-    public void Release_AppVersion_Is_6_2_0()
-        => Assert.Equal("6.2.0", Native.AppVersion);
+    public void Release_AppVersion_Is_6_2_1()
+        => Assert.Equal("6.2.1", Native.AppVersion);
 
     [Fact]
     public void Release_DisplayVersion_Includes_Codename()
-        => Assert.Equal("v6.2.0 Polaris", Native.DisplayVersion);
+        => Assert.Equal("v6.2.1 Polaris", Native.DisplayVersion);
 
     [Fact]
     public void Release_HeaderTitle_Is_Version_And_Codename_No_Hash()
@@ -48,7 +48,7 @@ public class ReleaseIdentityTests
         // The WinUI shell title (ShellWindow.WindowTitle, used by the ctor and
         // reported live by --ui-smoke-test).
         var title = ShellWindow.WindowTitle;
-        Assert.Equal("MaxDPS Companion v6.2.0 Polaris", title);
+        Assert.Equal("MaxDPS Companion v6.2.1 Polaris", title);
         Assert.DoesNotContain("(", title);
         Assert.DoesNotContain("[", title);
     }

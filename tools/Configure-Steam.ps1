@@ -58,17 +58,17 @@ foreach($entry in $root['shortcuts'].Values){if($entry['AppName'] -eq $name){$sh
 if($shortcut){
  if($shortcut['Exe'] -ne $target -or $shortcut['LaunchOptions'] -ne '--steam-game-session'){throw 'Existing named Steam entry targets another application; refusing to replace it'}
  $appid=[uint32]$shortcut['appid']
- $shortcut['AllowOverlay']=[uint32]1;$shortcut['AllowDesktopConfig']=[uint32]1
+ $shortcut['AllowOverlay']=[uint32]0;$shortcut['AllowDesktopConfig']=[uint32]1
 }else{
  $appid=[MaxDpsShortcutCrc]::AppId($target+$name)
  foreach($entry in $root['shortcuts'].Values){if($entry['appid'] -eq $appid){throw 'Steam shortcut ID collision'}}
- $shortcut=[ordered]@{appid=[uint32]$appid;AppName=$name;Exe=$target;StartDir=('"'+(Split-Path $exe -Parent)+'"');icon=$exe;ShortcutPath='';LaunchOptions='--steam-game-session';IsHidden=[uint32]0;AllowDesktopConfig=[uint32]1;AllowOverlay=[uint32]1;OpenVR=[uint32]0;Devkit=[uint32]0;DevkitGameID='';LastPlayTime=[uint32]0;tags=[ordered]@{}}
+ $shortcut=[ordered]@{appid=[uint32]$appid;AppName=$name;Exe=$target;StartDir=('"'+(Split-Path $exe -Parent)+'"');icon=$exe;ShortcutPath='';LaunchOptions='--steam-game-session';IsHidden=[uint32]0;AllowDesktopConfig=[uint32]1;AllowOverlay=[uint32]0;OpenVR=[uint32]0;Devkit=[uint32]0;DevkitGameID='';LastPlayTime=[uint32]0;tags=[ordered]@{}}
  $index=0;while($root['shortcuts'].Contains([string]$index)){$index++};$root['shortcuts'].Add([string]$index,$shortcut)
 }
 $gameid=(([uint64]$appid -shl 32) -bor [uint64]0x02000000).ToString()
 $signedId=[BitConverter]::ToInt32([BitConverter]::GetBytes($appid),0).ToString()
 $local=[IO.File]::ReadAllText($localFile)
-$block="`t`t`"$signedId`"`r`n`t`t{`r`n`t`t`t`"UseSteamControllerConfig`"`t`t`"1`"`r`n`t`t`t`"OverlayAppEnable`"`t`t`"1`"`r`n`t`t}`r`n"
+$block="`t`t`"$signedId`"`r`n`t`t{`r`n`t`t`t`"UseSteamControllerConfig`"`t`t`"1`"`r`n`t`t`t`"OverlayAppEnable`"`t`t`"0`"`r`n`t`t}`r`n"
 $pattern='(?ms)^\t\t"'+[regex]::Escape($signedId)+'"\s*\r?\n\t\t\{.*?^\t\t\}\r?\n'
 if([regex]::IsMatch($local,$pattern)){$newLocal=[regex]::Replace($local,$pattern,[Text.RegularExpressions.MatchEvaluator]{param($match)$block},1)}
 else{
@@ -110,7 +110,7 @@ foreach($type in @('controller_triton','controller_neptune')){
  }
  $configSets+=@{Path=$path;Text=$text}
 }
-$plan=[ordered]@{Name=$name;AppId=$appid;GameId=$gameid;Target=$exe;Options='--steam-game-session';OverlayEnabled=$true;SteamInputForced=$true;NativeGamepad=[bool]$EnableNativeGamepad;ControllerLayout="steam://controllerconfig/$appid";GameExecutable=$gameExe;PreparedOnly=[bool]$PrepareOnly;ControllerTemplate=$template;ControllerConfigSets=@($configSets.Path)}
+$plan=[ordered]@{Name=$name;AppId=$appid;GameId=$gameid;Target=$exe;Options='--steam-game-session';OverlayEnabled=$false;SteamInputForced=$true;NativeGamepad=[bool]$EnableNativeGamepad;ControllerLayout="steam://nav/games/details/$appid";GameExecutable=$gameExe;PreparedOnly=[bool]$PrepareOnly;ControllerTemplate=$template;ControllerConfigSets=@($configSets.Path)}
 if($PrepareOnly){$plan|ConvertTo-Json;return}
 if(Get-Process -Name steam -ErrorAction SilentlyContinue){throw 'Exit Steam completely, then rerun setup. No files changed.'}
 if(Get-Process -Name $app -ErrorAction SilentlyContinue){throw 'Close this companion before setup. No files changed.'}

@@ -1,5 +1,16 @@
 # Changelog - MaxDPS Companion
 
+## 6.2.1 Polaris - 2026-11-06
+
+### Fixed
+
+Per-game visual Steam overlay is disabled by setup after the user reported severe overlay stutter and in-game black flickering. Steam Input, the registered game entries and controller layouts remain configured. Controller settings open the main Steam Library. Battle.net remembered-account login and one bounded cold-start retry remain. Custom keybindings are proposed only and require user confirmation.
+
+### Details
+
+App/bridge 6.2.1 Polaris; wire unchanged. Overlay-off/input-on live acceptance remains owed.
+
+
 ## 6.2.0 Polaris - 2026-11-06
 
 ### Added

@@ -1,3 +1,7 @@
+## Current policy: visual overlay OFF, Steam Input ON (6.2.1)
+
+The user reported severe overlay stutter and black flickering during the Forever live test. Setup now sets shortcut AllowOverlay=0 and per-game OverlayAppEnable=0, preserving UseSteamControllerConfig=1 and existing Gamepad templates. Controller Settings opens the game's page in Steam's main Library; use its controller settings there. No custom keybindings are applied until the user approves the proposed layout. A clean game/Steam restart and a fresh live test are required; overlay-off compatibility and performance are not claimed from static checks. The older overlay-on instructions below describe the original test and are superseded by this policy.
+
 # Steam launch and controller setup (Windows)
 
 The companion keeps Battle.net remembered-account login. Forever requests product `WoWF`; Midnight requests `WoW`. Steam overlay/Input require a dedicated Steam-managed game session, rather than merely having Steam open or opening a normal desktop companion shortcut.

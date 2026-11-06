@@ -623,7 +623,7 @@ public sealed partial class ShellWindow
         _expConsole = new ExpConsoleView();
         var steamDetails = new StackPanel { Spacing = 6, Margin = new Thickness(0, 8, 0, 0) };
         steamDetails.Children.Add(new TextBlock { Text = SteamGameSession.Description, TextWrapping = TextWrapping.Wrap, Foreground = ControlTheme.Brush(ControlTheme.TextSecondary), FontSize = 12 });
-        var controllerLayout = HeroButton("Controller Layout", ButtonRole.Ghost, ControlTheme.Accent);
+        var controllerLayout = HeroButton("Controller Settings in Steam", ButtonRole.Ghost, ControlTheme.Accent);
         controllerLayout.HorizontalAlignment = HorizontalAlignment.Left;
         controllerLayout.IsEnabled = SteamLaunchPlan.IsShortcutId(_settings.SteamGameId);
         controllerLayout.Click += (_, _) => SteamGameSession.OpenControllerLayout();
