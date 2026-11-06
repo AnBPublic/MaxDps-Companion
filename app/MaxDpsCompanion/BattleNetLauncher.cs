@@ -116,6 +116,14 @@ internal static class BattleNetLauncher
 
     private static string? Detect()
     {
+        var installed = Microsoft.Win32.Registry.GetValue(
+            @"HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Battle.net",
+            "InstallLocation", null) as string;
+        if (!string.IsNullOrWhiteSpace(installed))
+        {
+            var executable = Path.Combine(installed, "Battle.net.exe");
+            if (File.Exists(executable)) return executable;
+        }
         foreach (var candidate in RegistryCandidates())
             if (File.Exists(candidate)) return candidate;
         foreach (var fallback in FallbackExePaths)

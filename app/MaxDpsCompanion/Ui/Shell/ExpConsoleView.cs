@@ -115,6 +115,8 @@ internal sealed class ExpConsoleView : UserControl
     /// <summary>Raised by the compact Calibrate pill inside Details.</summary>
     public event Action? CalibrateRequested;
 
+    internal void AddDetails(FrameworkElement content) => _detailsBody.Children.Add(content);
+
     public ExpConsoleView()
     {
         // v4.0.1 double-bezel card (brief §1): the shared RoundedCard now draws

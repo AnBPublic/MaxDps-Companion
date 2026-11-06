@@ -27,7 +27,7 @@
     <AssemblyTitle>MaxDPS Companion</AssemblyTitle>
     <Product>MaxDPS Companion</Product>
     <RootNamespace>MaxDpsCompanion</RootNamespace>
-    <Version>6.1.0</Version>
+    <Version>6.2.0</Version>
     <Codename>Polaris</Codename>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Wave B (4.1 Paragon): the shared brain now lives in MaxDpsCompanion.Core

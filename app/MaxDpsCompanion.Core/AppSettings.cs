@@ -363,6 +363,9 @@ internal sealed class AppSettings
     // Empty = auto-detect. The launcher's remembered account signs in;
     // no credentials are stored anywhere.
     public string BNetPath { get; set; } = "";
+    public bool SteamLaunchEnabled { get; set; }
+    public string SteamGameId { get; set; } = "";
+    public string GameExecutablePath { get; set; } = "";
 
     /// <summary>
     /// Settings schema version (v3.5 S1). Written as <c>[Meta] ConfigVersion</c>;
@@ -557,6 +560,9 @@ internal sealed class AppSettings
             case ("color", "white"): ParseTriple(value, 255, 255, 255, out var wr, out var wg, out var wb); Color.White[0] = wr; Color.White[1] = wg; Color.White[2] = wb; break;
             case ("color", "tolerance"): Color.Tolerance = ParseInt(value, Color.Tolerance); break;
             case ("color", "learnedat"): Color.LearnedAt = value.Trim(); break;
+            case ("launch", "steamlaunchenabled"): SteamLaunchEnabled = ParseBool(value, SteamLaunchEnabled); break;
+            case ("launch", "steamgameid"): SteamGameId = value.Trim(); break;
+            case ("launch", "gameexecutablepath"): GameExecutablePath = value.Trim(); break;
             case ("launch", "bnetpath"): BNetPath = value.Trim(); break;
         }
     }
@@ -760,6 +766,9 @@ internal sealed class AppSettings
             .AppendLine("; launcher's remembered account — no credentials are stored anywhere.")
             .AppendLine("[Launch]")
             .AppendLine($"BNetPath={BNetPath}")
+            .AppendLine($"SteamLaunchEnabled={(SteamLaunchEnabled ? 1 : 0)}")
+            .AppendLine($"SteamGameId={SteamGameId}")
+            .AppendLine($"GameExecutablePath={GameExecutablePath}")
             .ToString();
 
         File.WriteAllText(Path, text);

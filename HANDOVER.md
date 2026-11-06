@@ -1,3 +1,7 @@
+## 2026-11-06 Steam launch integration (6.2.0 Polaris)
+
+Desktop launch requests route through a dedicated registered Steam game session when configured, then Battle.net product WoW supplies remembered-account login. Restart requests relay to the same user's active host; the host tracks only the configured executable. External Battle.net sessions are not killed or silently reused. tools/Configure-Steam.ps1 prepares/backs up the per-game shortcut, overlay/Input overrides and compatible built-in Gamepad template while Steam and the companion are closed. GamePadEnable is safely enabled before the next game launch; no gameplay input is sent. See docs/STEAM-LAUNCH.md. Live acceptance remains OWED.
+
 ## 2026-11-06 transport UI parity
 
 6.1.0 Polaris uses Northstar transport controls with the five existing play presets. The old desktop configuration/console menus are no longer mounted. Presets persist the existing local toggles; the addon can further restrict them. Based on installed Northstar hotfix 6f2af1f; Battle.net launch/restart and gameplay logic retained. Live game acceptance remains OWED.

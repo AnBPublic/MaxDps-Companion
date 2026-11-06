@@ -1,5 +1,7 @@
+Windows Steam overlay/controller launch: see [Steam setup and live acceptance](docs/STEAM-LAUNCH.md). Existing companion shortcuts are retained; setup adds a separate Steam-managed game entry.
+
 > [!IMPORTANT]
-> Current Windows companion and bridge: **6.1.0 Polaris**. Northstar transport controls with five play presets; Midnight 12.1.5, Interface 120105, unchanged wire v5. Native macOS UI parity and live game acceptance are still owed.
+> Current Windows companion and bridge: **6.2.0 Polaris**. Northstar transport controls with five play presets; Midnight 12.1.5, Interface 120105, unchanged wire v5. Native macOS UI parity and live game acceptance are still owed.
 
 > [!TIP]
 > **macOS Companion - `4.5.5 "Voidlight"` (Apple Silicon, latest Mac build):** the same

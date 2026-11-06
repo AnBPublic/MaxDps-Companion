@@ -1,5 +1,20 @@
 # Changelog - MaxDPS Companion
 
+## 6.2.0 Polaris - 2026-11-06
+
+### Added
+
+Dedicated Steam non-Steam game-session launch route, same-user bounded launch IPC for restarting within the active Steam session, per-game overlay/Steam Input setup with compatible built-in Gamepad template, and Controller Layout access under Details. Native GamePadEnable is set with a backup before game launch while the target is closed.
+
+### Fixed
+
+Keep Battle.net auto-login and product separation (WoW). Exact executable targeting prevents the other client named Wow.exe from being mistaken for this game. An external Battle.net session is reported instead of silently bypassing Steam.
+
+### Details
+
+App and bridge 6.2.0 Polaris; wire 5 with additive extensions unchanged. Windows-only Steam integration; no injected input or credential/ticket extraction. Live overlay/controller/auto-login acceptance remains mandatory.
+
+
 ## 6.1.0 Polaris - 2026-11-06
 
 ### Added

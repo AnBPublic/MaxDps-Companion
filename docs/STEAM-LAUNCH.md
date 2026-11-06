@@ -1,0 +1,23 @@
+# Steam launch and controller setup (Windows)
+
+The companion keeps Battle.net remembered-account login. Forever requests product `WoWF`; Midnight requests `WoW`. Steam overlay/Input require a dedicated Steam-managed game session, rather than merely having Steam open or opening a normal desktop companion shortcut.
+
+## One-time setup
+
+Close Steam and this companion. Run `pwsh tools/Configure-Steam.ps1 -GameDirectory '<exact game directory>' -EnableNativeGamepad` while the game is closed. `-PrepareOnly` previews without changing files. The tool validates the correct textual game version, backs up the Steam/companion/game files, preserves unrelated shortcut bytes through a verified binary-VDF round trip, and creates a separate `World of Warcraft Forever (MaxDPS)` or `World of Warcraft Midnight (MaxDPS)` game shortcut. Existing companion shortcuts and other games are preserved.
+
+The new game entry uses the same executable with `--steam-game-session`. Its overlay and per-game Steam Input overrides are enabled. For Steam Controller 2026, the setup registers Steam's installed compatible `controller_neptune_gamepad_joystick.vdf` Gamepad template in the Triton and Neptune config sets, preserving any existing choice for that game. The local Steam client currently uses that compatibility family for the 2026 controller. Valve's template is referenced from the user's Steam installation, not copied or distributed.
+
+Restart Steam after setup. Exit Battle.net completely from its tray menu before the first Steam-managed launch. Open Game now starts the game's registered Steam entry; the host then starts Battle.net and keeps the Steam game session alive. Restart Game relays to that same user's host, retaining Steam's launch context. An already-running external Battle.net launcher is reported instead of silently bypassing Steam, and it is never killed automatically. Steam may continue showing the game as running while its child Battle.net client remains open.
+
+`SteamLaunchEnabled`, `SteamGameId`, and `GameExecutablePath` are per-machine `[Launch]` settings. Forever also retains its existing `ForeverGamePath`. Without setup the default is the existing direct-to-Battle.net route. Steam session hosts reject a different or missing SteamGameId; both products validate their own exact game target. No game commands, credentials, tickets or arbitrary process arguments are extracted. The only IPC request is `launch`, restricted to the same user/session with bounded I/O.
+
+Native `GamePadEnable` is enabled with a backup before the next Steam-managed game launch while that game is closed. Runtime setup changes only that setting. Existing bindings and companion presets are retained. Controller Layout under Details opens the correct Steam per-game configuration.
+
+## Recognition and acceptance
+
+Steam Input supplies a virtual gamepad to the game; the game may show Xbox-style prompts rather than native Steam Controller branding. Standard buttons, sticks and triggers use the Gamepad template. Trackpads, gyro and grip assignments are configured through Steam's layout; the companion does not invent gameplay bindings, firmware support or native Steam Input API support in either WoW client. See [Valve's 2026 controller support](https://help.steampowered.com/en/faqs/view/33E8-5EDF-24E6-4CFB) and [Steam Input gamepad emulation](https://partner.steamgames.com/doc/features/steam_controller/steam_input_gamepad_emulation_bestpractices).
+
+A build or connected receiver is not live input acceptance. Verify each game independently: correct executable and Battle.net auto-login; Steam tracking the intended game entry; Steam overlay visible; Steam controller log selecting this game's Gamepad profile with XInput active; native gamepad HUD and standard controls; then trackpads/gyro/grips and menu/radial/page/form transitions using the chosen layout. The user performs game input. No automated gameplay/input or reload is part of installation or testing. Forever gameplay execution remains disabled by its existing readiness gates. Native macOS Steam support is not implemented by this Windows change.
+
+Offline regression evidence (2026-11-06): Forever `dotnet test tests/MaxDpsCompanionForever.Tests -c Release --no-restore --verbosity quiet`: 114 passed, 0 failed. Midnight filtered release/vendor/Steam launch suite: 30 passed, 0 failed. These include launch ID/session isolation, textual client-version discrimination, native GamePadEnable preservation and idempotence. Both setup scripts passed `-PrepareOnly` against the installed games with byte-identical shortcut round-trip validation.

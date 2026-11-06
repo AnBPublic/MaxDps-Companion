@@ -28,6 +28,7 @@ internal static class ReleaseNotes
     /// <summary>Newest first. <see cref="Current"/> is always index 0.</summary>
     public static readonly IReadOnlyList<Release> All = new[]
     {
+        new Release("6.2.0", "Polaris", "2026-11-06", "Steam overlay and Steam Input launch route", new[] { "Open/Restart Game can use a dedicated Steam session, with Battle.net remembered-account login and the correct game product.", "Per-game Steam Input and overlay setup, compatible Gamepad template and Controller Layout access under Details.", "Exact game identity separates Midnight from Forever; native gamepad is enabled with a backup before the next Steam-managed launch.", "An already-running external Battle.net launcher must be exited first. Live overlay and complete controller mapping acceptance remain required." }),
         new Release("6.1.0", "Polaris", "2026-11-06", "Unified transport controls and play presets", new[] { "Northstar layout with Start, Pause, Stop, Open Game and Restart Game.", "Solo, Levelling, Dungeon, Raid and Tank presets are available on the home screen. In-game settings remain authoritative.", "Existing Midnight launch and gameplay behavior retained." }),
         new Release(
             "6.0.0", "Northstar", "2026-11-03",

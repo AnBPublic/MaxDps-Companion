@@ -21,7 +21,7 @@ local addonName, MDCB = ...;
 
 MDCB = MDCB or {};
 MDCB.ADDON = addonName or "MaxDpsCompanionBridge";
-MDCB.VERSION = MDCB.VERSION or "6.1.0";
+MDCB.VERSION = MDCB.VERSION or "6.2.0";
 MDCB.CODENAME = MDCB.CODENAME or "Polaris";
 MDCB.PREFIX = "MDCB";
 

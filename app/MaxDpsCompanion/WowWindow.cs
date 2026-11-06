@@ -139,7 +139,7 @@ internal sealed class WowWindow
         var found = false;
         foreach (var process in processes)
         {
-            using (process) found = true;
+            using (process) found |= SteamGameSession.IsTarget(process);
         }
         return found;
     }
@@ -196,7 +196,7 @@ internal sealed class WowWindow
             try
             {
                 // Never our own process, even if the name matched.
-                if (process.Id == ownPid) continue;
+                if (process.Id == ownPid || !SteamGameSession.IsTarget(process)) continue;
                 // Same session only: another user's client is not ours to kill.
                 var targetSession = TrySessionId(process);
                 if (ownSession is null || targetSession is null
@@ -306,6 +306,7 @@ internal sealed class WowWindow
             {
                 if (!string.Equals(process.ProcessName, wanted, StringComparison.OrdinalIgnoreCase))
                     continue;
+                if (!SteamGameSession.IsTarget(process)) continue;
                 if (process.MainWindowHandle == IntPtr.Zero)
                     continue;
                 return process.MainWindowHandle;
@@ -327,6 +328,7 @@ internal sealed class WowWindow
             if (Native.GetWindowThreadProcessId(_handle, out var pid) == 0 || pid == 0) return false;
             using var process = Process.GetProcessById((int)pid);
             if (!string.Equals(process.ProcessName, wanted, StringComparison.OrdinalIgnoreCase)) return false;
+            if (!SteamGameSession.IsTarget(process)) return false;
             var main = process.MainWindowHandle;
             return main == IntPtr.Zero || main == _handle;
         }

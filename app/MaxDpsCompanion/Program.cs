@@ -27,7 +27,20 @@ internal static class Program
 
         var settingsPath = Path.Combine(AppDir, "settings.ini");
         var settings = AppSettings.Load(settingsPath);
+        SteamGameSession.Configure(settings);
+        if (args.Contains("--steam-game-session", StringComparer.OrdinalIgnoreCase))
+        {
+            Environment.ExitCode = SteamGameSession.RunHostAsync().GetAwaiter().GetResult();
+            return;
+        }
         ApplyExpFlag(settings, args);
+        if (args.Contains("--launch-game", StringComparer.OrdinalIgnoreCase))
+        {
+            var result = SteamGameSession.Launch(settings.BNetPath);
+            File.WriteAllText(Path.Combine(AppDir, "game-launch-result.txt"), result.Message);
+            Environment.ExitCode = result.Ok ? 0 : 3;
+            return;
+        }
 
         try
         {

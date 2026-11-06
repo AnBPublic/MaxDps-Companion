@@ -100,6 +100,7 @@ public sealed partial class ShellWindow
 
     private void InitializeEngine(AppSettings settings)
     {
+        SteamGameSession.Configure(settings);
         _engine = new RotationEngine(settings);
         _engine.StatusChanged += s => _status = s;
         _engine.LocationChanged += location => _pendingLocation = location;
@@ -582,7 +583,7 @@ public sealed partial class ShellWindow
 
     /// <summary>Launcher seam (MainForm :3412): tests must never start the real Battle.net.</summary>
     internal Func<string?, (bool Ok, string Message)> Launcher { get; set; } =
-        path => BattleNetLauncher.TryLaunch(path, out var message) ? (true, message) : (false, message);
+        SteamGameSession.Launch;
 
     private void OpenGameFromExp()
     {
@@ -592,7 +593,7 @@ public sealed partial class ShellWindow
                 ControlTheme.TextMuted);
         // Keep Open Game disabled through the Battle.net → WoW launch gap; the
         // 1 s poll clears it the moment the process appears.
-        SetLaunchGrace(20_000);
+        SetLaunchGrace(_settings.SteamLaunchEnabled ? 90_000 : 20_000);
         UpdateExpTransportState();
         if (LaunchGame()) return;
         ClearLaunchGrace();
@@ -638,7 +639,7 @@ public sealed partial class ShellWindow
             // A process that vanished between the confirmation and the kill is
             // still a valid restart: relaunch it instead of reporting an error.
             _gameProcessRunning = false;
-            SetLaunchGrace(20_000);
+            SetLaunchGrace(_settings.SteamLaunchEnabled ? 90_000 : 20_000);
             SetStatus($"{message} - relaunching...", ControlTheme.Accent);
             if (!LaunchGame()) ClearLaunchGrace();
         }

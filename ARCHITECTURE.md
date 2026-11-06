@@ -1924,3 +1924,7 @@ describe the Rust port or a "frozen C# client" are history.
 ## Transport UI parity (2026-11-06)
 
 Windows always mounts the compact Northstar transport shell. PresetBar delegates to the existing ApplyPreset/ToggleModel persistence path without sending commands to the game or bypassing addon authority. No engine or wire change.
+
+## 6.2.0 Steam host
+
+SteamGameSession owns opt-in Steam URL dispatch and a per-user/session named pipe restricted to the current user. --steam-game-session validates SteamGameId, launches only the product's Battle.net UID and waits for the exact game executable. The existing desktop shell relays a launch request to that host for restart, preserving Steam's game context. No credentials, SSO tickets or process command lines are read; no overlay DLL is injected by the companion. Native gamepad setup changes only GamePadEnable before startup, with backup/atomic write.
