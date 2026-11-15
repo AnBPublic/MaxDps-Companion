@@ -4,7 +4,8 @@
 ## Author: AnBPublic
 ## Version: 6.2.2
 ## X-Codename: Polaris
-## OptionalDeps: MaxDps, GW2_UI
+## Dependencies: MaxDps
+## OptionalDeps: GW2_UI
 ## SavedVariables: MaxDpsCompanionBridgeDB
 ## SavedVariablesPerCharacter: MaxDpsCompanionBridgeCharDB
 InGame.xml
